@@ -31,7 +31,9 @@ szerint bontva, egy 5 jegyű PIN mögött.
 ## 1. Telepítés Vercelre
 
 1. **Kód a GitHubra**, majd a Vercelen *Add New → Project → Import* (a Next.js-t magától felismeri).
-   CLI-vel: `vercel link`, majd `vercel --prod`.
+   CLI-vel: `vercel link`, majd `vercel --prod`. A `main` ágra érkező push élesbe telepít.
+   (Ha a projekt még üres repóval jött létre, a presetje „Other" marad, és a build a hiányzó
+   `public` mappára hivatkozva elbukik: ezért rögzíti a `vercel.json` a `"framework": "nextjs"` értéket.)
 2. **Redis bekötése:** a projektben *Storage → Create Database → Upstash → Redis*, és kösd a
    projekthez mindhárom környezetre. Ez magától beállítja a `KV_REST_API_URL` és a
    `KV_REST_API_TOKEN` változót. (CLI: `vercel integration add upstash`, a varázslóban a Redis terméket
@@ -45,8 +47,15 @@ szerint bontva, egy 5 jegyű PIN mögött.
    | `USAGE_API_TOKEN` | a kliensek Bearer tokenje, legalább 16 karakter: `openssl rand -hex 32` |
    | `DASHBOARD_PIN` | pontosan 5 számjegy |
 
-4. **Domain:** *Settings → Domains → Add* → `usageratio.snktibor.hu`. A DNS-szolgáltatónál vedd fel
-   a Vercel által kiírt rekordot (jellemzően `CNAME usageratio → cname.vercel-dns.com`).
+4. **Domain:** *Settings → Domains → Add* → `usageratio.snktibor.hu`, majd a DNS-szolgáltatónál
+   (a `snktibor.hu` a Cloudflare-nél van) vedd fel a Vercel által kiírt rekordot:
+
+   | Típus | Név | Cél | Proxy |
+   | --- | --- | --- | --- |
+   | `CNAME` | `usageratio` | `2f9bd857134fd2c4.vercel-dns-017.com` | **DNS only** (szürke felhő) |
+
+   A Cloudflare-proxyt hagyd kikapcsolva: bekapcsolva a Vercel nem tud tanúsítványt kiállítani, és
+   minden látogató a Cloudflare IP-címéről érkezne, ami az IP-nkénti PIN-korlátot értelmetlenné teszi.
 5. **Redeploy** (a környezeti változók csak új deploymentre érvényesek), majd füstteszt:
 
    ```bash
@@ -59,8 +68,11 @@ szerint bontva, egy 5 jegyű PIN mögött.
    konzol Data Browserében vagy CLI-jében:
    `DEL usage:events:Test`, `HDEL usage:groups Test`, `HDEL usage:machines probe`.
 
-Ha a production domainre is bekapcsolod a Vercel *Deployment Protection*-t, a kliensek kérését már a
-Vercel elutasítja. Az maradjon kikapcsolva, a védelmet az appban a Bearer token és a PIN adja.
+**Deployment Protection:** az alapbeállítás (*Standard Protection*) a generált címeket
+(`usageratio-…-snktibors-projects.vercel.app`) Vercel-bejelentkezés mögé teszi: ezeken a kliensek
+`401 Protected deployment` választ kapnak. Az éles domainek (`usageratio.snktibor.hu`,
+`usageratio.vercel.app`) nyilvánosak, a klienseket ezért mindig ezekre irányítsd. A védelmet ne
+terjeszd ki az éles domainre; ott a Bearer token és a PIN véd.
 
 ## 2. Kliensek
 
