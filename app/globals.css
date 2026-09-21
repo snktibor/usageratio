@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
+
+  /* Graphite surfaces and ink */
+  --color-page: #1a1a19;
+  --color-raised: #242422;
+  --color-hairline: #2c2c2a;
+  --color-rule: #383835;
+  --color-ink: #f4f3ef;
+  --color-ink-2: #c3c2b7;
+  --color-ink-3: #898781;
+
+  /* Status: reserved meaning, always shown with an icon and a label */
+  --color-good: #0ca30c;
+  --color-warning: #fab219;
+  --color-critical: #d03b3b;
+}
+
+:root {
+  color-scheme: dark;
+
+  /*
+   * Group colours: eight fixed slots handed out in order of first appearance
+   * and never recycled. Validated on #1a1a19 for colour-vision deficiency and
+   * contrast. Slot 0 is the neutral used once the eight are taken.
+   */
+  --series-0: #6b6a65;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+}
+
+/* Inside a layer, so utility classes can still override these. */
+@layer base {
+  html {
+    background: var(--color-page);
+  }
+
+  body {
+    background: var(--color-page);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+}
+
+@layer components {
+  /* The one number the page leads with: a narrow cut of the same family. */
+  .hero-figure {
+    font-size: clamp(4rem, 17vw, 8.5rem);
+    font-weight: 600;
+    font-stretch: 78%;
+    line-height: 0.86;
+    letter-spacing: -0.035em;
+  }
+
+  /*
+   * The meter fills once on load; later refreshes glide to the new value.
+   * The fill is a full-width bar revealed by clip-path, so nothing that
+   * triggers layout is animated and the rounded end never gets squashed.
+   */
+  .meter-fill {
+    animation: meter-fill 900ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    transition: clip-path 600ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .meter-fill {
+      animation: none;
+      transition: none;
+    }
+  }
+}
+
+@keyframes meter-fill {
+  from {
+    clip-path: inset(0 100% 0 0 round 0 4px 4px 0);
+  }
+}

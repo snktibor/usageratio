@@ -1,0 +1,19 @@
+# Local stand-in for the Upstash Redis store: a real Redis plus an
+# Upstash-compatible REST proxy, so @upstash/redis works unchanged.
+#
+#   npm run redis:up      → KV_REST_API_URL=http://localhost:8079
+#   npm run redis:down      KV_REST_API_TOKEN=local_dev_token
+services:
+  redis:
+    image: redis:7-alpine
+
+  upstash-rest:
+    image: hiett/serverless-redis-http:latest
+    depends_on:
+      - redis
+    ports:
+      - "127.0.0.1:8079:80"
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: local_dev_token
+      SRH_CONNECTION_STRING: redis://redis:6379

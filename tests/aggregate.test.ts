@@ -1,0 +1,130 @@
+import { describe, expect, it } from "vitest";
+import { summarizeUsage, type UsageEvent } from "@/lib/aggregate";
+
+const WINDOW = { startMs: 1000, endMs: 2000 };
+
+function ev(machineId: string, groupId: string, tokens: number, ts: number): UsageEvent {
+  return { machineId, groupId, tokens, ts };
+}
+
+describe("summarizeUsage — delta mode", () => {
+  const events = [
+    ev("win-1", "Work", 300, 1999),
+    ev("mac", "Personal", 100, 900), // before the window
+    ev("mac", "Personal", 50, 1000), // exactly at the start → included
+    ev("mac", "Personal", 70, 1500),
+    ev("win-1", "Work", 200, 1200),
+    ev("win-2", "Work", 25, 2000), // exactly at the end → excluded
+  ];
+  const summary = summarizeUsage(events, WINDOW, "delta");
+
+  it("adds up only the reports inside the window", () => {
+    expect(summary.total).toBe(620);
+  });
+
+  it("totals per group, biggest first, with shares of the overall usage", () => {
+    expect(summary.groups).toEqual([
+      { groupId: "Work", tokens: 500, share: 500 / 620, machines: 1 },
+      { groupId: "Personal", tokens: 120, share: 120 / 620, machines: 1 },
+    ]);
+  });
+
+  it("totals per machine and remembers the latest report", () => {
+    expect(summary.series).toEqual([
+      { machineId: "win-1", groupId: "Work", tokens: 500, share: 500 / 620, reports: 2, lastReportAt: 1999 },
+      { machineId: "mac", groupId: "Personal", tokens: 120, share: 120 / 620, reports: 2, lastReportAt: 1500 },
+    ]);
+  });
+});
+
+describe("summarizeUsage — snapshot mode", () => {
+  it("takes the latest in-window report of every machine", () => {
+    const summary = summarizeUsage(
+      [
+        ev("mac", "Personal", 100, 900),
+        ev("mac", "Personal", 400, 1800),
+        ev("mac", "Personal", 150, 1100),
+        ev("win-1", "Work", 80, 1500),
+      ],
+      WINDOW,
+      "snapshot",
+    );
+    expect(summary.total).toBe(480);
+    expect(summary.series.map((s) => [s.machineId, s.tokens])).toEqual([
+      ["mac", 400],
+      ["win-1", 80],
+    ]);
+  });
+});
+
+describe("summarizeUsage — counter mode", () => {
+  const summary = summarizeUsage(
+    [
+      // Baseline from before the window, then +500, +0, +700.
+      ev("mac", "Personal", 10_000, 900),
+      ev("mac", "Personal", 10_500, 1100),
+      ev("mac", "Personal", 10_500, 1300),
+      ev("mac", "Personal", 11_200, 1900),
+      // No baseline: the first reading only establishes one, then +300.
+      ev("win-1", "Work", 5_000, 1200),
+      ev("win-1", "Work", 5_300, 1500),
+      // Counter restarted between reports: a drop counts from zero.
+      ev("win-2", "Work", 900, 950),
+      ev("win-2", "Work", 1_000, 1100),
+      ev("win-2", "Work", 200, 1400),
+      ev("win-2", "Work", 450, 1700),
+    ],
+    WINDOW,
+    "counter",
+  );
+
+  it("adds up the increases between consecutive readings", () => {
+    const bySeries = Object.fromEntries(summary.series.map((s) => [s.machineId, s.tokens]));
+    expect(bySeries).toEqual({ mac: 1200, "win-1": 300, "win-2": 550 });
+    expect(summary.total).toBe(2050);
+  });
+
+  it("groups the machines", () => {
+    expect(summary.groups.map((g) => [g.groupId, g.tokens, g.machines])).toEqual([
+      ["Personal", 1200, 1],
+      ["Work", 850, 2],
+    ]);
+  });
+});
+
+describe("summarizeUsage — edge cases", () => {
+  it("returns zeros for no data", () => {
+    expect(summarizeUsage([], WINDOW, "delta")).toEqual({ total: 0, groups: [], series: [] });
+  });
+
+  it("keeps idle machines (only zero-token reports) visible with a 0 share", () => {
+    const summary = summarizeUsage([ev("mac", "Personal", 0, 1500)], WINDOW, "delta");
+    expect(summary.total).toBe(0);
+    expect(summary.series).toEqual([
+      { machineId: "mac", groupId: "Personal", tokens: 0, share: 0, reports: 1, lastReportAt: 1500 },
+    ]);
+  });
+
+  it("treats one machine reporting into two groups as two independent series", () => {
+    const summary = summarizeUsage(
+      [ev("mac", "Work", 10, 1100), ev("mac", "Personal", 30, 1200)],
+      WINDOW,
+      "delta",
+    );
+    expect(summary.groups.map((g) => [g.groupId, g.tokens])).toEqual([
+      ["Personal", 30],
+      ["Work", 10],
+    ]);
+    expect(summary.series).toHaveLength(2);
+  });
+
+  it("breaks ties alphabetically so the order is stable", () => {
+    const summary = summarizeUsage(
+      [ev("b", "Zeta", 5, 1100), ev("a", "Alpha", 5, 1200)],
+      WINDOW,
+      "delta",
+    );
+    expect(summary.groups.map((g) => g.groupId)).toEqual(["Alpha", "Zeta"]);
+    expect(summary.series.map((s) => s.machineId)).toEqual(["a", "b"]);
+  });
+});
