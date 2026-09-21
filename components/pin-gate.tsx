@@ -11,7 +11,7 @@ export function PinGate() {
           Add meg a PIN-kódot
         </h1>
         <p className="mt-4 max-w-md text-ink-2">
-          A heti tokenkeret adatai csak a helyes, 5 jegyű kód után töltődnek be.
+          A tokenkeret adatai csak a helyes, 5 jegyű kód után töltődnek be.
         </p>
         <PinForm labelledBy="pin-heading" />
       </div>

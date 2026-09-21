@@ -25,7 +25,8 @@ const ID_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u;
 const ISO_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}:\d{2})$/;
 
-function parseId(value: unknown, field: string, errors: string[]): string {
+/** A machine or group id, trimmed. Problems are appended to `errors` under the name `field`. */
+export function parseId(value: unknown, field: string, errors: string[]): string {
   if (typeof value !== "string") {
     errors.push(`${field} must be a string`);
     return "";

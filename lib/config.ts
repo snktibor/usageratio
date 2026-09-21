@@ -1,22 +1,31 @@
 /**
- * Central configuration. Edit the constants below (and redeploy), or override
- * them per environment with the env vars named next to each one.
+ * Central configuration.
+ *
+ * The budget itself (limit, weekly or monthly period, reset moment) and the
+ * groups are edited on the dashboard's settings panel and live in Redis: see
+ * lib/settings.ts. The DEFAULT_* constants below only seed that panel; they
+ * apply until the first save. Everything else is set here (and redeployed),
+ * or per environment with the env vars named next to each constant.
  */
 
 /**
- * Weekly token budget the global progress bar is measured against.
+ * Token budget of one cycle, until the settings panel saves its own.
  * Optional env override: WEEKLY_LIMIT
  */
-export const WEEKLY_LIMIT = 500_000;
+export const DEFAULT_LIMIT = 500_000;
 
 /**
- * When the weekly cycle restarts, as wall-clock time in `timeZone`
- * (DST-aware). Only reports since the most recent reset are shown.
+ * When the cycle restarts, as wall-clock time in `timeZone` (DST-aware). Only
+ * reports since the most recent reset are shown. The period, the day and the
+ * time are seeds for the settings panel; the time zone is not on the panel
+ * and always comes from here.
  * Optional env overrides: RESET_WEEKDAY (0 = Sunday … 6 = Saturday),
  * RESET_TIME ("HH:MM", 24h) and RESET_TIMEZONE (IANA name).
  */
-export const WEEKLY_RESET: ResetConfig = {
+export const DEFAULT_RESET: ResetConfig = {
+  period: "weekly",
   weekday: 1, // Monday
+  monthDay: 1,
   hour: 0,
   minute: 0,
   timeZone: "Europe/Budapest",
@@ -41,8 +50,14 @@ export const TOKEN_MODE: TokenMode = "delta";
 /** How often the client scripts report; drives the "late"/"inactive" badges. */
 export const REPORT_INTERVAL_MINUTES = 60;
 
-/** Raw reports older than this are pruned from Redis. */
-export const RETENTION_DAYS = 35;
+/**
+ * Raw reports older than this are pruned from Redis. The dashboard reads the
+ * current and the previous cycle, which is up to 62 days of a monthly budget.
+ */
+export const RETENTION_DAYS = 70;
+
+/** A machine silent for longer than this drops off the dashboard. */
+export const INACTIVE_MACHINE_DAYS = 35;
 
 /** Reports timestamped further in the future than this are rejected. */
 export const MAX_CLOCK_SKEW_MINUTES = 10;
@@ -51,9 +66,14 @@ export const MAX_CLOCK_SKEW_MINUTES = 10;
 
 export type TokenMode = "delta" | "snapshot" | "counter";
 
+export type BudgetPeriod = "weekly" | "monthly";
+
 export interface ResetConfig {
-  /** 0 = Sunday … 6 = Saturday */
+  period: BudgetPeriod;
+  /** Weekly budgets: 0 = Sunday … 6 = Saturday */
   weekday: number;
+  /** Monthly budgets: 1–31; in a shorter month its last day stands in. */
+  monthDay: number;
   hour: number;
   minute: number;
   /** IANA time zone, e.g. "Europe/Budapest" */
@@ -61,11 +81,13 @@ export interface ResetConfig {
 }
 
 export interface AppConfig {
-  weeklyLimit: number;
+  /** Token budget of one cycle. */
+  limit: number;
   reset: ResetConfig;
   tokenMode: TokenMode;
   reportIntervalMinutes: number;
   retentionDays: number;
+  inactiveMachineDays: number;
   maxClockSkewMinutes: number;
 }
 
@@ -89,24 +111,28 @@ function warnOnce(name: string, value: string, fallback: unknown): void {
   );
 }
 
-/** Resolves the effective configuration: constants above, overridden by valid env vars. */
+/**
+ * Resolves the deploy-time configuration: constants above, overridden by valid
+ * env vars. The budget fields are defaults; `resolveConfig` in lib/settings.ts
+ * lays the settings saved on the dashboard over them.
+ */
 export function getConfig(
   env: Record<string, string | undefined> = process.env,
 ): AppConfig {
-  let weeklyLimit = WEEKLY_LIMIT;
+  let limit = DEFAULT_LIMIT;
   const rawLimit = env.WEEKLY_LIMIT?.trim();
   if (rawLimit) {
     const parsed = Number(rawLimit.replace(/[_\s]/g, ""));
-    if (Number.isSafeInteger(parsed) && parsed > 0) weeklyLimit = parsed;
-    else warnOnce("WEEKLY_LIMIT", rawLimit, WEEKLY_LIMIT);
+    if (Number.isSafeInteger(parsed) && parsed > 0) limit = parsed;
+    else warnOnce("WEEKLY_LIMIT", rawLimit, DEFAULT_LIMIT);
   }
 
-  const reset: ResetConfig = { ...WEEKLY_RESET };
+  const reset: ResetConfig = { ...DEFAULT_RESET };
 
   const rawWeekday = env.RESET_WEEKDAY?.trim();
   if (rawWeekday) {
     if (/^[0-6]$/.test(rawWeekday)) reset.weekday = Number(rawWeekday);
-    else warnOnce("RESET_WEEKDAY", rawWeekday, WEEKLY_RESET.weekday);
+    else warnOnce("RESET_WEEKDAY", rawWeekday, DEFAULT_RESET.weekday);
   }
 
   const rawTime = env.RESET_TIME?.trim();
@@ -123,7 +149,7 @@ export function getConfig(
   const rawZone = env.RESET_TIMEZONE?.trim();
   if (rawZone) {
     if (isValidTimeZone(rawZone)) reset.timeZone = rawZone;
-    else warnOnce("RESET_TIMEZONE", rawZone, WEEKLY_RESET.timeZone);
+    else warnOnce("RESET_TIMEZONE", rawZone, DEFAULT_RESET.timeZone);
   }
 
   let tokenMode = TOKEN_MODE;
@@ -137,11 +163,12 @@ export function getConfig(
   }
 
   return {
-    weeklyLimit,
+    limit,
     reset,
     tokenMode,
     reportIntervalMinutes: REPORT_INTERVAL_MINUTES,
     retentionDays: RETENTION_DAYS,
+    inactiveMachineDays: INACTIVE_MACHINE_DAYS,
     maxClockSkewMinutes: MAX_CLOCK_SKEW_MINUTES,
   };
 }

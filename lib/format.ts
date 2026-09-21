@@ -1,4 +1,9 @@
-/** Hungarian display formatting. Everything renders on the server, in the reset time zone. */
+/**
+ * Hungarian display formatting. Times are always given in the reset time zone,
+ * never the viewer's own, so the server and the browser render the same text.
+ */
+
+import type { BudgetPeriod } from "@/lib/config";
 
 const LOCALE = "hu-HU";
 const MINUTE = 60_000;
@@ -41,8 +46,23 @@ export function formatHeroPercent(fraction: number): string {
   }).format(fraction);
 }
 
+/** 2.5 → "2,5×"; the ratio of the official figure to the measured one. */
+export function formatFactor(factor: number): string {
+  const digits = factor < 10 ? 2 : factor < 100 ? 1 : 0;
+  return `${new Intl.NumberFormat(LOCALE, { maximumFractionDigits: digits }).format(factor)}×`;
+}
+
+/** "heti" / "havi", as in "a heti keret". */
+export function periodAdjective(period: BudgetPeriod): string {
+  return period === "monthly" ? "havi" : "heti";
+}
+
 export function weekdayShort(weekday: number): string {
   return WEEKDAYS_SHORT[weekday] ?? "";
+}
+
+export function weekdayLong(weekday: number): string {
+  return WEEKDAYS_LONG[weekday] ?? "";
 }
 
 function zoned(ms: number, timeZone: string, options: Intl.DateTimeFormatOptions): string {

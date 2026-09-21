@@ -1,8 +1,9 @@
 # usageratio
 
-Pehelysúlyú, saját hosztolású használatkövető a Codex heti tokenkeretéhez. A gépek óránként
-beküldik a fogyasztásukat, a dashboard pedig megmutatja, hol tart a heti keret, csoportok és gépek
-szerint bontva, egy 5 jegyű PIN mögött.
+Pehelysúlyú, saját hosztolású használatkövető a Codex heti vagy havi tokenkeretéhez. A gépek óránként
+beküldik a fogyasztásukat, a dashboard pedig megmutatja, hol tart a keret, csoportok és gépek
+szerint bontva, egy 5 jegyű PIN mögött. A keret, a reset és a csoportok a dashboardon állíthatók; a
+hivatalos Codex-százalék beírásával a bontás a valós fogyasztáshoz igazítható.
 
 ```
  Mac (bash + cron) ──┐
@@ -18,11 +19,14 @@ szerint bontva, egy 5 jegyű PIN mögött.
 
 | Fájl | Szerep |
 | --- | --- |
-| `lib/config.ts` | **Heti limit, reset időpontja, token-értelmezés**: itt állítasz mindent |
-| `app/api/usage/route.ts` | POST végpont: Bearer token, validáció, mentés |
+| `lib/config.ts` | Telepítési beállítások (időzóna, token-értelmezés, megőrzés) és a keret **kezdőértékei** |
+| `lib/settings.ts` | A dashboardon szerkeszthető beállítások: keret, reset, csoportok és színeik (validáció, tiszta logika) |
+| `app/api/settings/route.ts` | GET/PUT végpont a Beállítások panelhez, a PIN-session mögött |
+| `app/api/usage/route.ts` | POST végpont: Bearer token, validáció, mentés, ismeretlen csoport felvétele |
 | `lib/usage-store.ts` | Redis adatmodell (írás, olvasás) |
-| `lib/cycle.ts` | Heti ciklus számítása időzónával, nyári időszámítással |
-| `lib/aggregate.ts`, `lib/dashboard.ts` | Összesítés csoportra és gépre, tempóbecslés |
+| `lib/cycle.ts` | Heti és havi ciklus számítása időzónával, nyári időszámítással |
+| `lib/aggregate.ts`, `lib/dashboard.ts`, `lib/quota.ts` | Összesítés csoportra és gépre, tempóbecslés |
+| `lib/ground-truth.ts` | „Valós százalék": a bontás átszámítása a hivatalos Codex-értékre (a böngészőben fut) |
 | `lib/auth.ts`, `app/actions.ts` | PIN-ellenőrzés, session, próbálkozáskorlát |
 | `app/page.tsx`, `components/` | PIN-képernyő és dashboard (Tailwind, sötét téma) |
 | `clients/` | `report-usage.sh` (Mac), `report-usage.ps1` + `install-task.ps1` (Windows) |
@@ -64,8 +68,8 @@ szerint bontva, egy 5 jegyű PIN mögött.
      -d "{\"machineId\":\"probe\",\"groupId\":\"Test\",\"tokens\":1,\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
    ```
 
-   `201` a jó válasz. A `Test` csoport külön kulcsba kerül, így nyom nélkül törölhető az Upstash
-   konzol Data Browserében vagy CLI-jében:
+   `201` a jó válasz. A `Test` csoport külön kulcsba kerül (és felkerül a Beállítások csoportlistájára
+   is), így nyom nélkül törölhető az Upstash konzol Data Browserében vagy CLI-jében:
    `DEL usage:events:Test`, `HDEL usage:groups Test`, `HDEL usage:machines probe`.
 
 **Deployment Protection:** az alapbeállítás (*Standard Protection*) a generált címeket
@@ -173,22 +177,65 @@ el, hanem benne lesz a következő órai számban. Ha az olvasó egyszerűbben t
 
 ## 4. Beállítások
 
-Minden a `lib/config.ts` elején van; a környezeti változó felülírja az ott lévő értéket
-(érvénytelen érték esetén a konstans marad, és figyelmeztetés kerül a naplóba).
+### A dashboardon: keret, reset, csoportok
 
-| Konstans | Env | Alapérték | Jelentés |
-| --- | --- | --- | --- |
-| `WEEKLY_LIMIT` | `WEEKLY_LIMIT` | `500000` | heti tokenkeret, ehhez mér a fő sáv |
-| `WEEKLY_RESET.weekday` | `RESET_WEEKDAY` | `1` | reset napja: 0 = vasárnap … 6 = szombat |
-| `WEEKLY_RESET.hour/minute` | `RESET_TIME` | `00:00` | reset időpontja (`ÓÓ:PP`) |
-| `WEEKLY_RESET.timeZone` | `RESET_TIMEZONE` | `Europe/Budapest` | ebben az időzónában értendő, óraátállítással együtt |
-| `TOKEN_MODE` | `TOKEN_MODE` | `delta` | lásd a 3. pontot |
-| `REPORT_INTERVAL_MINUTES` | – | `60` | ebből számol az „Aktív / Késik / Inaktív" jelzés |
-| `RETENTION_DAYS` | – | `35` | ennél régebbi nyers jelentések törlődnek |
+A fejléc **Beállítások** gombja (csak belépve látszik) a Redisben tárolt beállításokat szerkeszti,
+telepítés nélkül, azonnali hatállyal:
+
+| Beállítás | Értékek |
+| --- | --- |
+| Keret típusa | **Heti** vagy **Havi** ciklus |
+| Keret összege | a ciklus tokenkerete, ehhez mér a fő sáv |
+| Reset | heti keretnél a hét napja, havinál a hónap napja (1–31), és az időpont (`ÓÓ:PP`) |
+| Csoportok | név (amit a gép `groupId`-ként küld) és szín (`#rrggbb`: színválasztó vagy beírt HEX kód) |
+
+- Ha a hónapban nincs olyan nap (31., vagy februárban a 30.), a reset a **hónap utolsó napjára** esik.
+- A szín HEX kód, nem Tailwind-osztály: a Tailwind fordításkor állítja elő a CSS-t, egy Redisből
+  érkező osztálynévhez nem lenne stílus. A színt a komponensek inline stílusként alkalmazzák.
+- **Ismeretlen csoport:** ha egy gép olyan `groupId`-t küld, amely nincs a listán, a rendszer
+  magától felveszi, véletlen (a sötét háttéren olvasható sávból húzott) színnel. A szín utólag átírható.
+- **Törlés:** csak olyan csoport törölhető, amelynek nincs tárolt jelentése. Különben a jelentései
+  eltűnnének a dashboardról, a következő beküldéskor pedig a csoport új színnel térne vissza.
 
 A dashboard **kizárólag a legutóbbi reset óta** érkezett jelentéseket összesíti. A resethez nem
 kell időzített feladat, és nem töröl semmit: a ciklus kezdete egyszerűen a lekérdezés alsó határa.
-Ha átírod a reset időpontját, a meglévő adatok az új határok szerint jelennek meg.
+Ha átírod a resetet vagy a keret típusát, a meglévő adatok az új határok szerint jelennek meg.
+
+### „Valós százalék": a hivatalos Codex-érték
+
+A gépek saját mérése sosem egyezik pontosan a Codex hivatalos számával (egy gép offline volt, egy
+beküldés elveszett), az arányaik viszont megbízhatók. A dashboard tetején lévő **„Aktuális hivatalos
+Codex fogyasztás (%)"** mezőbe (vagy csúszkával) beírt érték szerint a böngésző azonnal átszámol:
+
+```
+egy gép része a keretből = (a gép mért tokenjei / az összes mért token) × hivatalos százalék
+```
+
+Példa: a gépek összesen 40 000 tokent mértek, ebből a Mac 10 000-et. Ha a hivatalos érték 20%, a Mac a
+teljes keret 5%-át használta el. Ilyenkor a fő sáv, a tempóbecslés, a csoportok és a gépek tokenszámai
+is a hivatalos értékhez igazodnak; a panel kiírja a mért értéket és a szorzót is. **Üres mezővel** minden
+a gépek saját mérése és a beállított keret szerint számol. Az érték csak a böngészőben él
+(`localStorage`), a szerverre nem kerül fel, és a ciklus végén magától törlődik. A tempót a dashboard
+a beírás időpontjára vetíti, ezért a panel azt is mutatja, mikor adtad meg.
+
+### A kódban: `lib/config.ts`
+
+Ami nem a panelen van, az a `lib/config.ts` elején; a környezeti változó felülírja az ott lévő
+értéket (érvénytelen érték esetén a konstans marad, és figyelmeztetés kerül a naplóba).
+
+| Konstans | Env | Alapérték | Jelentés |
+| --- | --- | --- | --- |
+| `DEFAULT_LIMIT` | `WEEKLY_LIMIT` | `500000` | a keret **kezdőértéke** |
+| `DEFAULT_RESET.weekday` | `RESET_WEEKDAY` | `1` | a reset napjának **kezdőértéke**: 0 = vasárnap … 6 = szombat |
+| `DEFAULT_RESET.hour/minute` | `RESET_TIME` | `00:00` | a reset időpontjának **kezdőértéke** (`ÓÓ:PP`) |
+| `DEFAULT_RESET.timeZone` | `RESET_TIMEZONE` | `Europe/Budapest` | a reset ebben az időzónában értendő, óraátállítással együtt |
+| `TOKEN_MODE` | `TOKEN_MODE` | `delta` | lásd a 3. pontot |
+| `REPORT_INTERVAL_MINUTES` | – | `60` | ebből számol az „Aktív / Késik / Inaktív" jelzés |
+| `RETENTION_DAYS` | – | `70` | ennél régebbi nyers jelentések törlődnek (két havi ciklust kell lefednie) |
+| `INACTIVE_MACHINE_DAYS` | – | `35` | az ennél régebb óta néma gép lekerül a dashboardról |
+
+A **kezdőérték** addig érvényes, amíg a Beállítások panelen nem mentesz: utána a Redisben tárolt
+érték számít, a konstans és a környezeti változó már nem. Az időzóna nincs a panelen, az mindig innen jön.
 
 ## 5. API
 
@@ -200,7 +247,8 @@ Ha átírod a reset időpontját, a meglévő adatok az új határok szerint jel
 
 A `machineId` és a `groupId` 1–64 karakter: betű (ékezetes is), szám, szóköz, `.`, `_`, `-`. A
 `tokens` nemnegatív egész. A `timestamp` ISO 8601, zónajelöléssel; legfeljebb 10 perccel járhat a
-szerver órája előtt, és nem lehet régebbi 35 napnál.
+szerver órája előtt, és nem lehet régebbi 70 napnál. A válasz `groupRegistered` mezője jelzi, ha a
+`groupId` új volt, és most került fel a csoportlistára.
 
 | Kód | Jelentés |
 | --- | --- |
@@ -212,12 +260,45 @@ szerver órája előtt, és nem lehet régebbi 35 napnál.
 | `500` | a szerveren nincs (elég hosszú) `USAGE_API_TOKEN` |
 | `503` | a Redis nincs bekötve vagy nem elérhető: a kliens a következő órában újrapróbálja |
 
+### `/api/settings`: a Beállítások panel végpontja
+
+A dashboard session-sütijével hitelesít (nem a Bearer tokennel): érvényes PIN-session nélkül mindkét
+metódus `401`-et ad, és semmilyen adathoz nem nyúl.
+
+`GET` visszaadja a beállításokat és a csoportokat (`hasReports`: van-e tárolt jelentése). `PUT` törzse:
+
+```json
+{
+  "period": "weekly",
+  "limit": 500000,
+  "reset": { "weekday": 1, "monthDay": 1, "hour": 0, "minute": 0 },
+  "groups": [{ "id": "Work", "color": "#3987e5" }],
+  "removedGroups": ["Regi"]
+}
+```
+
+A `groups` létrehoz vagy átszínez; **a fel nem sorolt csoportok érintetlenek maradnak** (így egy
+közben magától felkerült csoportot a mentés nem töröl ki). A `weekday` és a `monthDay` mindig
+tárolódik, hogy a keret típusának visszaváltásakor megmaradjon a korábbi választás.
+
+| Kód | Jelentés |
+| --- | --- |
+| `200` | elmentve |
+| `400` | hibás JSON vagy mező (`details` felsorolja az összeset) |
+| `401` | nincs érvényes session |
+| `403` | idegen `Origin` (a `SameSite=Lax` süti mellé második védvonal) |
+| `409` | egy törlendő csoportnak van tárolt jelentése (`groups`); **semmi nem lett elmentve** |
+| `413` / `415` | 16 KB-nál nagyobb, illetve nem JSON törzs |
+| `503` | a Redis nincs bekötve vagy nem elérhető |
+
 ## 6. Redis adatmodell
 
 ```
+usage:settings           STRING {"v": 1, "period", "limit", "reset": {…}, "updatedAt": ms}
+                               a keret, ahogy a Beállítások panel elmentette
 usage:events:{groupId}   ZSET  score = a jelentés ideje (epoch ms)
                                member = {"m": machineId, "t": tokens, "ts": ms}
-usage:groups             HASH  groupId   → első megjelenés ideje (ebből lesz a csoport állandó színe)
+usage:groups             HASH  groupId   → {"color": "#rrggbb", "ts": első megjelenés (ms)}
 usage:machines           HASH  machineId → {"g": groupId, "ts": ms, "t": tokens}  (utolsó jelentés)
 usage:session:{hash}     STRING, 30 napos lejárattal
 usage:auth:*             próbálkozás-számlálók lejárattal
@@ -225,8 +306,19 @@ usage:auth:*             próbálkozás-számlálók lejárattal
 
 Csoportonként egy időrendezett halmaz: így mindkét szűrés egy-egy natív Redis-művelet. A csoport
 maga a kulcs, az időszak pedig pontszám-tartomány (`ZRANGE … BYSCORE ciklusKezdet +inf`). A tagok
-(gép, token, idő) szerint egyediek, ezért a megismételt POST hatástalan. Íráskor a 35 napnál régebbi
-elemek törlődnek (`ZREMRANGEBYSCORE`). Egy dashboard-betöltés két körút a Redishez.
+(gép, token, idő) szerint egyediek, ezért a megismételt POST hatástalan. Íráskor a 70 napnál régebbi
+elemek törlődnek (`ZREMRANGEBYSCORE`). Egy dashboard-betöltés két körút a Redishez: az első hozza a
+beállításokat és az indexeket, mert a beállítás dönti el, meddig kell visszaolvasni a jelentéseket.
+
+A csoportlista szándékosan **külön hash**, nem a `usage:settings` JSON része. A gépek mind az óra
+0. percében jelentenek, ezért az ismeretlen csoport felvételének atominak kell lennie: a `HSETNX` a
+jelentés tranzakcióján belül ezt adja, és a már definiált csoporthoz hozzá sem nyúl. Egy JSON
+dokumentum „kiolvas–módosít–visszaír" köre mellett az egyszerre érkező jelentések (vagy egy mentés a
+panelen) felülírnák egymást.
+
+**Visszafelé kompatibilis:** a csoportszínek előtti `usage:groups` bejegyzés értéke egy csupasz
+időbélyeg volt. Az ilyet a kód ma is olvassa (a csoport az első megjelenés sorrendjében kap egy
+alapszínt), és az első mentés a panelen az új formátumra írja át. Migrációs lépés nem kell.
 
 ## 7. Biztonság
 
@@ -240,6 +332,8 @@ elemek törlődnek (`ZREMRANGEBYSCORE`). Egy dashboard-betöltés két körút a
   teszi használhatóvá; cserébe egy kitartó támadó időlegesen téged is kizárhat a belépésből.
 - **Beküldés:** hosszú véletlen Bearer token, időzítésbiztos összehasonlítással. A kliensek a tokent
   nem parancssori argumentumként adják át, így a folyamatlistában sem látszik.
+- **Beállítások:** a `/api/settings` ugyanazt a sessiont ellenőrzi, mint az oldal; session nélkül sem
+  olvasni, sem írni nem enged. Az írás csak azonos eredetről (`Origin`) és JSON törzzsel fogadható el.
 - A keresők ki vannak tiltva (`robots.txt`, `X-Robots-Tag`), az oldal nem ágyazható be (`X-Frame-Options`).
 
 ## 8. Helyi fejlesztés

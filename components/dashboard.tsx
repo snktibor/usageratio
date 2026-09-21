@@ -1,10 +1,10 @@
 import { logout } from "@/app/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
-import { GroupBreakdown } from "@/components/group-breakdown";
-import { MachineTable } from "@/components/machine-table";
-import { QuotaMeter } from "@/components/quota-meter";
+import { DashboardView } from "@/components/dashboard-view";
+import { SettingsDialog } from "@/components/settings-dialog";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatClock, formatDateTime, formatTokens } from "@/lib/format";
+import type { SettingsView } from "@/lib/settings";
 
 const MODE_NOTE = {
   delta: "A beküldött tokenszámok összeadódnak (delta mód).",
@@ -12,8 +12,8 @@ const MODE_NOTE = {
   counter: "Gépenként a számláló ciklusbeli növekménye számít (counter mód).",
 } as const;
 
-export function Dashboard({ model }: { model: DashboardModel }) {
-  const hasMachines = model.machines.length > 0;
+export function Dashboard({ model, settings }: { model: DashboardModel; settings: SettingsView }) {
+  const refreshedAt = formatClock(model.generatedAt, model.timeZone);
 
   return (
     <div className="mx-auto w-full max-w-4xl px-5 pb-16 pt-6 sm:px-8 sm:pt-8">
@@ -21,8 +21,12 @@ export function Dashboard({ model }: { model: DashboardModel }) {
 
       <header className="flex items-center justify-between gap-4">
         <p className="text-lg font-medium tracking-tight">usageratio</p>
-        <div className="flex items-center gap-5 text-sm text-ink-3">
-          <span>Frissítve {formatClock(model.generatedAt, model.timeZone)}</span>
+        <div className="flex items-center gap-3 text-sm text-ink-3 sm:gap-4">
+          <span title={`Frissítve ${refreshedAt}`} className="mr-1">
+            <span className="sr-only sm:not-sr-only">Frissítve </span>
+            {refreshedAt}
+          </span>
+          <SettingsDialog view={settings} />
           <form action={logout}>
             <button
               type="submit"
@@ -34,32 +38,13 @@ export function Dashboard({ model }: { model: DashboardModel }) {
         </div>
       </header>
 
-      <main className="mt-14 space-y-16 sm:mt-20">
-        <QuotaMeter model={model} />
-
-        {hasMachines ? (
-          <>
-            <GroupBreakdown model={model} />
-            <MachineTable model={model} />
-          </>
-        ) : (
-          <section aria-labelledby="empty-heading" className="max-w-xl">
-            <h2 id="empty-heading" className="text-xl font-medium">
-              Még egy gép sem jelentett
-            </h2>
-            <p className="mt-3 text-ink-2">
-              Telepítsd a kliens szkriptet a gépeidre a repó <code className="text-ink">clients/</code>{" "}
-              mappájából. Az első sikeres beküldés után itt jelenik meg a csoportok és a gépek bontása.
-            </p>
-          </section>
-        )}
-      </main>
+      <DashboardView model={model} />
 
       <footer className="mt-16 max-w-2xl border-t border-hairline pt-6 text-sm leading-relaxed text-ink-3">
         <p>
           A mostani ciklus: {formatDateTime(model.cycle.startMs, model.timeZone)} –{" "}
-          {formatDateTime(model.cycle.endMs, model.timeZone)} ({model.timeZone}). Az előző ciklusban{" "}
-          {formatTokens(model.previousTotal)} token fogyott.
+          {formatDateTime(model.cycle.endMs, model.timeZone)} ({model.timeZone}). Az előző ciklusban a gépek{" "}
+          {formatTokens(model.previousTotal)} tokent mértek.
         </p>
         <p className="mt-1">{MODE_NOTE[model.tokenMode]}</p>
       </footer>

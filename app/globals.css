@@ -18,23 +18,12 @@
   --color-critical: #d03b3b;
 }
 
+/*
+ * Group colours are data, not theme: every group carries its own "#rrggbb"
+ * (settings panel, lib/settings.ts) and components apply it inline.
+ */
 :root {
   color-scheme: dark;
-
-  /*
-   * Group colours: eight fixed slots handed out in order of first appearance
-   * and never recycled. Validated on #1a1a19 for colour-vision deficiency and
-   * contrast. Slot 0 is the neutral used once the eight are taken.
-   */
-  --series-0: #6b6a65;
-  --series-1: #3987e5;
-  --series-2: #d95926;
-  --series-3: #199e70;
-  --series-4: #c98500;
-  --series-5: #d55181;
-  --series-6: #008300;
-  --series-7: #9085e9;
-  --series-8: #e66767;
 }
 
 /* Inside a layer, so utility classes can still override these. */
@@ -69,13 +58,16 @@
   }
 
   /*
-   * The meter fills once on load; later refreshes glide to the new value.
-   * The fill is a full-width bar revealed by clip-path, so nothing that
-   * triggers layout is animated and the rounded end never gets squashed.
+   * The meter fills once on load; later refreshes, and an official figure
+   * being typed or dragged, glide to the new value. The fill is a full-width
+   * bar revealed by clip-path, so nothing that triggers layout is animated
+   * and the rounded end never gets squashed.
    */
   .meter-fill {
     animation: meter-fill 900ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-    transition: clip-path 600ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition:
+      clip-path 600ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      background-color 500ms ease;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -83,6 +75,34 @@
       animation: none;
       transition: none;
     }
+  }
+
+  /* The native colour input, cut down to a plain swatch. */
+  .color-well {
+    appearance: none;
+    flex-shrink: 0;
+    inline-size: 2rem;
+    block-size: 2rem;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--color-rule);
+    border-radius: 6px;
+    background: none;
+    cursor: pointer;
+  }
+
+  .color-well::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+
+  .color-well::-webkit-color-swatch {
+    border: 0;
+    border-radius: 0;
+  }
+
+  .color-well::-moz-color-swatch {
+    border: 0;
+    border-radius: 0;
   }
 }
 

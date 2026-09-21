@@ -47,7 +47,7 @@ $ProgressPreference = 'SilentlyContinue'
 #
 #  What the number means is set on the server (TOKEN_MODE in lib/config.ts):
 #    delta     (default) tokens used since the previous SUCCESSFUL report
-#    snapshot  this machine's running total for the current weekly cycle
+#    snapshot  this machine's running total for the current budget cycle
 #    counter   an ever-growing total; the server works out the increase
 #
 #  A delta reader has to remember what it already reported. Do that in

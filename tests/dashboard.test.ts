@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { getConfig } from "@/lib/config";
 import { buildDashboard, type StoreSnapshot } from "@/lib/dashboard";
+import { NEUTRAL_COLOR, PRESET_COLORS, type KnownGroup } from "@/lib/settings";
 
 const HOUR = 3_600_000;
-const config = { ...getConfig({}), weeklyLimit: 500_000 };
+const config = { ...getConfig({}), limit: 500_000 };
 
 // Wednesday 12:00 Budapest time; the cycle started Monday 00:00 (= Sunday 22:00 UTC), 60 h ago.
 const NOW = new Date("2026-09-23T10:00:00Z");
@@ -15,6 +16,11 @@ function snapshot(partial: Partial<StoreSnapshot>): StoreSnapshot {
 
 function report(machineId: string, groupId: string, tokens: number, hoursIntoCycle: number) {
   return { machineId, groupId, tokens, ts: CYCLE_START + hoursIntoCycle * HOUR };
+}
+
+/** `color` null: an index entry from before groups had colours. */
+function group(groupId: string, firstSeenAt: number, color: string | null = null): KnownGroup {
+  return { groupId, firstSeenAt, color, hasReports: true };
 }
 
 describe("buildDashboard — quota and pace", () => {
@@ -141,37 +147,112 @@ describe("buildDashboard — quota and pace", () => {
 });
 
 describe("buildDashboard — groups", () => {
-  it("gives every group a colour slot by first appearance, not by rank", () => {
+  it("shows every group in the colour saved for it", () => {
     const model = buildDashboard(
       NOW,
       config,
       snapshot({
         events: [report("mac", "Personal", 900, 5), report("win-1", "Work", 100, 5)],
-        groups: [
-          { groupId: "Work", firstSeenAt: 100 },
-          { groupId: "Personal", firstSeenAt: 200 },
-        ],
+        groups: [group("Work", 100, "#ff00aa"), group("Personal", 200, "#00ccff")],
       }),
     );
-    expect(model.groups.map((g) => [g.groupId, g.colorSlot])).toEqual([
-      ["Personal", 2],
-      ["Work", 1],
+    expect(model.groups.map((g) => [g.groupId, g.color])).toEqual([
+      ["Personal", "#00ccff"],
+      ["Work", "#ff00aa"],
     ]);
     expect(model.groups[0]?.share).toBe(0.9);
     expect(model.groups[0]?.limitShare).toBe(900 / 500_000);
   });
 
-  it("never invents a ninth colour", () => {
-    const groups = Array.from({ length: 10 }, (_, i) => ({ groupId: `g${i}`, firstSeenAt: i }));
+  it("gives groups without a saved colour a preset by first appearance, not by rank", () => {
+    const model = buildDashboard(
+      NOW,
+      config,
+      snapshot({
+        events: [report("mac", "Personal", 900, 5), report("win-1", "Work", 100, 5)],
+        groups: [group("Work", 100), group("Personal", 200)],
+      }),
+    );
+    expect(model.groups.map((g) => [g.groupId, g.color])).toEqual([
+      ["Personal", PRESET_COLORS[1]],
+      ["Work", PRESET_COLORS[0]],
+    ]);
+  });
+
+  it("never hands a preset out twice, and falls back to the neutral after the eighth", () => {
+    const groups = Array.from({ length: 10 }, (_, i) => group(`g${i}`, i, i === 0 ? PRESET_COLORS[3] : null));
     const model = buildDashboard(
       NOW,
       config,
       snapshot({ groups, events: groups.map((g) => report("m", g.groupId, 10, 1)) }),
     );
-    const slots = Object.fromEntries(model.groups.map((g) => [g.groupId, g.colorSlot]));
-    expect(slots.g7).toBe(8);
-    expect(slots.g8).toBe(0);
-    expect(slots.g9).toBe(0);
+    const colors = Object.fromEntries(model.groups.map((g) => [g.groupId, g.color]));
+    expect(colors.g0).toBe(PRESET_COLORS[3]);
+    // g1…g7 take the seven presets g0 left free, in order.
+    expect(colors.g1).toBe(PRESET_COLORS[0]);
+    expect(colors.g3).toBe(PRESET_COLORS[2]);
+    expect(colors.g4).toBe(PRESET_COLORS[4]);
+    expect(colors.g7).toBe(PRESET_COLORS[7]);
+    expect(colors.g8).toBe(NEUTRAL_COLOR);
+    expect(colors.g9).toBe(NEUTRAL_COLOR);
+    expect(new Set(Object.values(colors)).size).toBe(9);
+  });
+
+  it("colours a group that only occurs in reports, not in the index", () => {
+    const model = buildDashboard(
+      NOW,
+      config,
+      snapshot({ events: [report("mac", "Stray", 10, 1)], groups: [group("Work", 1)] }),
+    );
+    expect(model.groups.map((g) => [g.groupId, g.color])).toEqual([["Stray", PRESET_COLORS[1]]]);
+  });
+});
+
+describe("buildDashboard — monthly budget", () => {
+  const monthly = { ...config, reset: { ...config.reset, period: "monthly" as const } };
+  // September 1 00:00 Budapest time; NOW is 22.5 days (540 h) into a 30-day month.
+  const MONTH_START = Date.parse("2026-08-31T22:00:00Z");
+
+  it("measures the month since its reset day, against the same limit", () => {
+    const model = buildDashboard(
+      NOW,
+      monthly,
+      snapshot({
+        events: [
+          { machineId: "mac", groupId: "Personal", tokens: 300_000, ts: MONTH_START + 100 * HOUR },
+          { machineId: "mac", groupId: "Personal", tokens: 9_000, ts: MONTH_START - 100 * HOUR },
+        ],
+      }),
+    );
+    expect(model.period).toBe("monthly");
+    expect(model.total).toBe(300_000);
+    expect(model.previousTotal).toBe(9_000);
+    expect(model.cycle.startMs).toBe(MONTH_START);
+    expect(model.cycle.elapsedFraction).toBeCloseTo(540 / 720, 10);
+    expect(model.pace.projectedTotal).toBeCloseTo(400_000, 5);
+    expect(model.status).toBe("good");
+  });
+
+  it("takes one day of the month as the daily share", () => {
+    const early = new Date(MONTH_START + 20 * HOUR);
+    const model = buildDashboard(
+      early,
+      monthly,
+      // 8% gone before the first day is over; an even day is 1/30 ≈ 3.3%.
+      snapshot({ events: [{ machineId: "mac", groupId: "Personal", tokens: 40_000, ts: MONTH_START + HOUR }] }),
+    );
+    expect(model.pace.dailyShare).toBeCloseTo(1 / 30, 10);
+    expect(model.pace.projectedTotal).toBeNull();
+    expect(model.pace.earlyBurn).toBe(true);
+    expect(model.status).toBe("warning");
+  });
+
+  it("lays the cycle out as the days of the month", () => {
+    const model = buildDashboard(NOW, monthly, snapshot({}));
+    expect(model.cycle.segments).toHaveLength(30);
+    expect(model.cycle.segments[0]?.monthDay).toBe(1);
+    expect(model.cycle.segments[29]?.monthDay).toBe(30);
+    expect(model.cycle.segments[29]?.endFraction).toBe(1);
   });
 });
 
@@ -188,10 +269,7 @@ describe("buildDashboard — machines", () => {
     config,
     snapshot({
       machines: known,
-      groups: [
-        { groupId: "Work", firstSeenAt: 1 },
-        { groupId: "Personal", firstSeenAt: 2 },
-      ],
+      groups: [group("Work", 1, "#ff00aa"), group("Personal", 2)],
       events: [
         { machineId: "mac", groupId: "Personal", tokens: 300, ts: NOW.getTime() - 0.5 * HOUR },
         { machineId: "win-1", groupId: "Work", tokens: 100, ts: NOW.getTime() - 5 * HOUR },
@@ -207,7 +285,7 @@ describe("buildDashboard — machines", () => {
     ]);
   });
 
-  it("drops machines not seen within the retention window", () => {
+  it("drops machines that have been silent for longer than `inactiveMachineDays`", () => {
     expect(model.machines.some((m) => m.machineId === "retired")).toBe(false);
   });
 
@@ -216,6 +294,14 @@ describe("buildDashboard — machines", () => {
   });
 
   it("colours a machine like its group", () => {
-    expect(model.machines.map((m) => m.colorSlot)).toEqual([2, 1, 1]);
+    expect(model.machines.map((m) => m.color)).toEqual([PRESET_COLORS[0], "#ff00aa", "#ff00aa"]);
+  });
+
+  it("states every machine's share of the usage and of the limit", () => {
+    expect(model.machines.map((m) => [m.share, m.limitShare])).toEqual([
+      [0.75, 300 / 500_000],
+      [0.25, 100 / 500_000],
+      [0, 0],
+    ]);
   });
 });

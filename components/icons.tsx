@@ -1,4 +1,7 @@
-/** 16px status glyphs. Status is never colour alone: each one ships next to a text label. */
+/**
+ * 16px glyphs. Status is never colour alone: each status icon ships next to a
+ * text label, and an action icon standing alone gets an aria-label on its button.
+ */
 
 interface IconProps {
   className?: string;
@@ -64,6 +67,32 @@ export function MoonIcon({ className }: IconProps) {
   return (
     <Glyph className={className}>
       <path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8a5.6 5.6 0 1 0 6.8 6.8Z" />
+    </Glyph>
+  );
+}
+
+export function SlidersIcon({ className }: IconProps) {
+  return (
+    <Glyph className={className}>
+      <path d="M2.2 4.6h5.5m3.6 0h2.5M2.2 11.4h2.5m3.6 0h5.5" />
+      <circle cx="9.5" cy="4.6" r="1.8" />
+      <circle cx="6.5" cy="11.4" r="1.8" />
+    </Glyph>
+  );
+}
+
+export function XIcon({ className }: IconProps) {
+  return (
+    <Glyph className={className}>
+      <path d="m4 4 8 8m0-8-8 8" />
+    </Glyph>
+  );
+}
+
+export function PlusIcon({ className }: IconProps) {
+  return (
+    <Glyph className={className}>
+      <path d="M8 3.2v9.6M3.2 8h9.6" />
     </Glyph>
   );
 }

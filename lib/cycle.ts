@@ -1,6 +1,6 @@
 import type { ResetConfig } from "@/lib/config";
 
-/** A weekly usage cycle: `start` inclusive, `end` exclusive. */
+/** A weekly or monthly usage cycle: `start` inclusive, `end` exclusive. */
 export interface Cycle {
   start: Date;
   end: Date;
@@ -12,7 +12,11 @@ export interface DaySegment {
   end: Date;
   /** 0 = Sunday … 6 = Saturday */
   weekday: number;
+  /** Day of the month, 1–31 */
+  monthDay: number;
 }
+
+const DAY_MS = 86_400_000;
 
 interface ZonedParts {
   year: number;
@@ -81,7 +85,7 @@ function offsetAt(instantMs: number, timeZone: string): number {
 
 /**
  * The instant at which clocks in `timeZone` show the given wall time.
- * `day` may under/overflow the month (handled like `Date.UTC`). A wall time
+ * `month` and `day` may under/overflow (handled like `Date.UTC`). A wall time
  * skipped by a DST jump resolves to the hour after it; an ambiguous one to
  * its later occurrence.
  */
@@ -99,8 +103,33 @@ function zonedTimeToUtc(
   return new Date(wallAsUtc - offsetAt(firstGuess, timeZone));
 }
 
-/** The weekly cycle that contains `now`. */
+/** The cycle that contains `now`. */
 export function getCycle(now: Date, reset: ResetConfig): Cycle {
+  return reset.period === "monthly" ? getMonthlyCycle(now, reset) : getWeeklyCycle(now, reset);
+}
+
+/** Days in a month; `month` is 1-based and may under/overflow the year like `Date.UTC`. */
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function getMonthlyCycle(now: Date, reset: ResetConfig): Cycle {
+  const { timeZone, monthDay, hour, minute } = reset;
+  const today = zonedParts(now, timeZone);
+
+  // A month without the reset day (the 31st, or the 30th in February) resets on its last day.
+  const resetIn = (monthOffset: number): Date => {
+    const month = today.month + monthOffset;
+    const day = Math.min(monthDay, daysInMonth(today.year, month));
+    return zonedTimeToUtc(today.year, month, day, hour, minute, timeZone);
+  };
+
+  // This month's reset is still ahead: the cycle began last month.
+  const monthOffset = resetIn(0).getTime() > now.getTime() ? -1 : 0;
+  return { start: resetIn(monthOffset), end: resetIn(monthOffset + 1) };
+}
+
+function getWeeklyCycle(now: Date, reset: ResetConfig): Cycle {
   const { timeZone, weekday, hour, minute } = reset;
   const today = zonedParts(now, timeZone);
   const daysSinceResetDay = (today.weekday - weekday + 7) % 7;
@@ -128,12 +157,14 @@ export function getDaySegments(cycle: Cycle, timeZone: string): DaySegment[] {
   const first = zonedParts(cycle.start, timeZone);
   let cursor = cycle.start;
 
-  // A cycle touches at most 8 calendar days; 10 is a safety bound.
-  for (let i = 1; i <= 10 && cursor.getTime() < cycle.end.getTime(); i += 1) {
+  // A week touches at most 8 calendar days, a month 32; the bound is only a safety net.
+  const maxDays = Math.ceil((cycle.end.getTime() - cycle.start.getTime()) / DAY_MS) + 3;
+  for (let i = 1; i <= maxDays && cursor.getTime() < cycle.end.getTime(); i += 1) {
     const nextMidnight = zonedTimeToUtc(first.year, first.month, first.day + i, 0, 0, timeZone);
     if (nextMidnight.getTime() <= cursor.getTime()) continue;
     const end = nextMidnight.getTime() < cycle.end.getTime() ? nextMidnight : cycle.end;
-    segments.push({ start: cursor, end, weekday: zonedParts(cursor, timeZone).weekday });
+    const { weekday, day } = zonedParts(cursor, timeZone);
+    segments.push({ start: cursor, end, weekday, monthDay: day });
     cursor = end;
   }
   return segments;

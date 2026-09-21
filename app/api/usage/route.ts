@@ -2,7 +2,8 @@ import { getConfig } from "@/lib/config";
 import { getCycle } from "@/lib/cycle";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { safeEqual } from "@/lib/security";
-import { storeReport } from "@/lib/usage-store";
+import { resolveConfig } from "@/lib/settings";
+import { loadRawSettings, storeReport } from "@/lib/usage-store";
 import { parseUsageReport } from "@/lib/validation";
 
 /**
@@ -11,6 +12,9 @@ import { parseUsageReport } from "@/lib/validation";
  *   Authorization: Bearer <USAGE_API_TOKEN>
  *   { "machineId": "mac-studio", "groupId": "Personal", "tokens": 1234,
  *     "timestamp": "2026-09-21T10:00:00Z" }
+ *
+ * A `groupId` that is not on the settings panel's list is added to it with a
+ * random colour (`"groupRegistered": true` in the response).
  *
  * 201 stored · 200 identical report already stored · 400 bad JSON/payload ·
  * 401 bad token · 413 body too large · 500 server misconfigured · 503 Redis down
@@ -64,9 +68,16 @@ export async function POST(request: Request): Promise<Response> {
   });
   if (!parsed.ok) return json({ error: "invalid_payload", details: parsed.errors }, 400);
 
-  let duplicate: boolean;
+  let stored: Awaited<ReturnType<typeof storeReport>>;
+  let rawSettings: string | null | undefined;
   try {
-    ({ duplicate } = await storeReport(parsed.report, now, config.retentionDays));
+    [stored, rawSettings] = await Promise.all([
+      storeReport(parsed.report, now, config.retentionDays),
+      // Only feeds the informational `cycle` below. A stored report must never be
+      // answered with an error (the client would send its tokens again), so a
+      // failed read just leaves the cycle out.
+      loadRawSettings().catch(() => undefined),
+    ]);
   } catch (error) {
     if (error instanceof StorageNotConfiguredError) {
       console.error(`[usageratio] ${error.message}`);
@@ -76,15 +87,17 @@ export async function POST(request: Request): Promise<Response> {
     return json({ error: "storage_unavailable" }, 503, { "Retry-After": "60" });
   }
 
-  const cycle = getCycle(now, config.reset);
+  const cycle =
+    rawSettings === undefined ? null : getCycle(now, resolveConfig(config, rawSettings).reset);
   return json(
     {
       ok: true,
-      duplicate,
+      duplicate: stored.duplicate,
+      groupRegistered: stored.newGroup,
       report: parsed.report,
       tokenMode: config.tokenMode,
-      cycle: { start: cycle.start.toISOString(), end: cycle.end.toISOString() },
+      cycle: cycle && { start: cycle.start.toISOString(), end: cycle.end.toISOString() },
     },
-    duplicate ? 200 : 201,
+    stored.duplicate ? 200 : 201,
   );
 }
