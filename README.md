@@ -187,6 +187,7 @@ telepítés nélkül, azonnali hatállyal:
 | Keret típusa | **Heti** vagy **Havi** ciklus |
 | Keret összege | a ciklus tokenkerete, ehhez mér a fő sáv |
 | Reset | heti keretnél a hét napja, havinál a hónap napja (1–31), és az időpont (`ÓÓ:PP`) |
+| Maradék tokenek mutatása | kikapcsolva a dashboard sehol nem írja ki, mennyi token maradt, és a túllépés mértékét sem |
 | Csoportok | név (amit a gép `groupId`-ként küld) és szín (`#rrggbb`: színválasztó vagy beírt HEX kód) |
 
 - Ha a hónapban nincs olyan nap (31., vagy februárban a 30.), a reset a **hónap utolsó napjára** esik.
@@ -194,6 +195,9 @@ telepítés nélkül, azonnali hatállyal:
   érkező osztálynévhez nem lenne stílus. A színt a komponensek inline stílusként alkalmazzák.
 - **Ismeretlen csoport:** ha egy gép olyan `groupId`-t küld, amely nincs a listán, a rendszer
   magától felveszi, véletlen (a sötét háttéren olvasható sávból húzott) színnel. A szín utólag átírható.
+- **Maradék tokenek:** a kapcsoló csak a megjelenítést érinti. Kikapcsolva eltűnik a „Maradt" / „Túllépés"
+  blokk, és a keret elfogyásakor a szöveg a tokenek helyett azt mondja meg, mikor jön a következő reset.
+  A százalék, az elfogyott mennyiség és a reset ideje megmarad.
 - **Törlés:** csak olyan csoport törölhető, amelynek nincs tárolt jelentése. Különben a jelentései
   eltűnnének a dashboardról, a következő beküldéskor pedig a csoport új színnel térne vissza.
 
@@ -272,6 +276,7 @@ metódus `401`-et ad, és semmilyen adathoz nem nyúl.
   "period": "weekly",
   "limit": 500000,
   "reset": { "weekday": 1, "monthDay": 1, "hour": 0, "minute": 0 },
+  "showRemaining": true,
   "groups": [{ "id": "Work", "color": "#3987e5" }],
   "removedGroups": ["Regi"]
 }
@@ -279,7 +284,10 @@ metódus `401`-et ad, és semmilyen adathoz nem nyúl.
 
 A `groups` létrehoz vagy átszínez; **a fel nem sorolt csoportok érintetlenek maradnak** (így egy
 közben magától felkerült csoportot a mentés nem töröl ki). A `weekday` és a `monthDay` mindig
-tárolódik, hogy a keret típusának visszaváltásakor megmaradjon a korábbi választás.
+tárolódik, hogy a keret típusának visszaváltásakor megmaradjon a korábbi választás. A keret mezői
+mind kötelezők, a `showRemaining` is: a `PUT` a teljes beállítást írja felül, semmit nem pótol
+alapértékkel. (A Redisben lévő, a kapcsoló előtt mentett dokumentum viszont gond nélkül olvasódik:
+ott a hiányzó mező bekapcsoltat jelent.)
 
 | Kód | Jelentés |
 | --- | --- |
@@ -294,7 +302,7 @@ tárolódik, hogy a keret típusának visszaváltásakor megmaradjon a korábbi 
 ## 6. Redis adatmodell
 
 ```
-usage:settings           STRING {"v": 1, "period", "limit", "reset": {…}, "updatedAt": ms}
+usage:settings           STRING {"v": 1, "period", "limit", "reset": {…}, "showRemaining", "updatedAt": ms}
                                a keret, ahogy a Beállítások panel elmentette
 usage:events:{groupId}   ZSET  score = a jelentés ideje (epoch ms)
                                member = {"m": machineId, "t": tokens, "ts": ms}

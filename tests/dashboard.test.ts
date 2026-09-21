@@ -137,6 +137,17 @@ describe("buildDashboard — quota and pace", () => {
     expect(model.previousTotal).toBe(42_000);
   });
 
+  it("carries the remaining-tokens switch to the page, without touching the figures", () => {
+    const events = [report("win-1", "Work", 150_000, 10)];
+    const shown = buildDashboard(NOW, config, snapshot({ events }));
+    const hidden = buildDashboard(NOW, { ...config, showRemaining: false }, snapshot({ events }));
+    expect(shown.showRemaining).toBe(true);
+    expect(hidden.showRemaining).toBe(false);
+    // Display only: everything else is the same model.
+    expect(hidden).toEqual({ ...shown, showRemaining: false });
+    expect(hidden.remaining).toBe(350_000);
+  });
+
   it("lays the cycle out as seven day segments from 0 to 1", () => {
     const model = buildDashboard(NOW, config, snapshot({}));
     expect(model.cycle.segments).toHaveLength(7);

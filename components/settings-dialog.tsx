@@ -31,6 +31,7 @@ interface Draft {
   weekday: number;
   monthDay: number;
   time: string;
+  showRemaining: boolean;
   groups: DraftGroup[];
   /** Taken off the list in this session; kept whole so a refused removal can be put back. */
   removed: DraftGroup[];
@@ -41,6 +42,7 @@ interface SettingsRequest {
   period: BudgetPeriod;
   limit: number;
   reset: { weekday: number; monthDay: number; hour: number; minute: number };
+  showRemaining: boolean;
   groups: { id: string; color: string }[];
   removedGroups: string[];
 }
@@ -55,7 +57,7 @@ const QUIET_BUTTON =
   "rounded-md border border-rule px-3 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink disabled:pointer-events-none disabled:opacity-40";
 
 function draftFrom(view: SettingsView): Draft {
-  const { period, limit, reset } = view.settings;
+  const { period, limit, reset, showRemaining } = view.settings;
   const twoDigits = (value: number) => String(value).padStart(2, "0");
   return {
     period,
@@ -63,6 +65,7 @@ function draftFrom(view: SettingsView): Draft {
     weekday: reset.weekday,
     monthDay: reset.monthDay,
     time: `${twoDigits(reset.hour)}:${twoDigits(reset.minute)}`,
+    showRemaining,
     groups: view.groups.map((group) => ({ ...group, colorText: group.color })),
     removed: [],
     newGroupName: "",
@@ -130,6 +133,7 @@ function toRequest(draft: Draft): { request: SettingsRequest } | { problem: stri
         hour: Number(time[1]),
         minute: Number(time[2]),
       },
+      showRemaining: draft.showRemaining,
       groups: draft.groups.map(({ id, color }) => ({ id, color })),
       removedGroups: draft.removed.map((group) => group.id),
     },
@@ -356,6 +360,27 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
               <> Ha egy hónapban nincs {draft.monthDay}. nap, a hónap utolsó napja számít.</>
             )}
           </p>
+        </section>
+
+        <section aria-labelledby={`${titleId}-display`}>
+          <h3 id={`${titleId}-display`} className="font-medium">
+            Megjelenítés
+          </h3>
+          <label className="mt-3 flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              checked={draft.showRemaining}
+              onChange={(event) => patch({ showRemaining: event.target.checked })}
+              className="mt-1 size-4 shrink-0 cursor-pointer accent-ink"
+            />
+            <span>
+              Maradék tokenek mutatása
+              <span className="mt-0.5 block text-sm text-ink-3">
+                Kikapcsolva a dashboard sehol nem írja ki, mennyi token maradt a keretből, és a túllépés
+                mértékét sem. A százalék, az elfogyott mennyiség és a reset ideje megmarad.
+              </span>
+            </span>
+          </label>
         </section>
 
         <section aria-labelledby={`${titleId}-groups`}>

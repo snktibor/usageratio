@@ -23,6 +23,8 @@ export interface UsageSettings {
     hour: number;
     minute: number;
   };
+  /** False: the dashboard never states the tokens left, nor the overage. */
+  showRemaining: boolean;
 }
 
 export interface GroupDefinition {
@@ -105,7 +107,12 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 /** The budget part of a configuration: the defaults while nothing is saved. */
 export function settingsFromConfig(config: AppConfig): UsageSettings {
   const { period, weekday, monthDay, hour, minute } = config.reset;
-  return { period, limit: config.limit, reset: { weekday, monthDay, hour, minute } };
+  return {
+    period,
+    limit: config.limit,
+    reset: { weekday, monthDay, hour, minute },
+    showRemaining: config.showRemaining,
+  };
 }
 
 export function applySettings(config: AppConfig, settings: UsageSettings): AppConfig {
@@ -113,6 +120,7 @@ export function applySettings(config: AppConfig, settings: UsageSettings): AppCo
     ...config,
     limit: settings.limit,
     reset: { ...config.reset, period: settings.period, ...settings.reset },
+    showRemaining: settings.showRemaining,
   };
 }
 
@@ -141,6 +149,8 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
       hour: isIntegerIn(reset.hour, 0, 23) ? reset.hour : defaults.reset.hour,
       minute: isIntegerIn(reset.minute, 0, 59) ? reset.minute : defaults.reset.minute,
     },
+    // Documents saved before the switch existed lack the field: they keep the default.
+    showRemaining: typeof doc.showRemaining === "boolean" ? doc.showRemaining : defaults.showRemaining,
   };
 }
 
@@ -169,6 +179,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
   if (!isIntegerIn(reset.monthDay, 1, 31)) errors.push("reset.monthDay must be 1 to 31");
   if (!isIntegerIn(reset.hour, 0, 23)) errors.push("reset.hour must be 0 to 23");
   if (!isIntegerIn(reset.minute, 0, 59)) errors.push("reset.minute must be 0 to 59");
+  if (typeof body.showRemaining !== "boolean") errors.push("showRemaining must be true or false");
 
   const groups: GroupDefinition[] = [];
   const rawGroups = body.groups ?? [];
@@ -212,6 +223,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
           hour: reset.hour as number,
           minute: reset.minute as number,
         },
+        showRemaining: body.showRemaining as boolean,
       },
       groups,
       removedGroups,

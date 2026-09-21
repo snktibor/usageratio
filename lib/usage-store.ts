@@ -15,7 +15,7 @@ import type { UsageReport } from "@/lib/validation";
 /**
  * Redis layout
  *
- *   usage:settings          STRING {"v": 1, "period", "limit", "reset": {…}, "updatedAt": ms}
+ *   usage:settings          STRING {"v": 1, "period", "limit", "reset": {…}, "showRemaining", "updatedAt": ms}
  *                                 the budget, as saved on the settings panel
  *   usage:events:{groupId}  ZSET  score = report time (epoch ms)
  *                                 member = {"m": machineId, "t": tokens, "ts": ms}

@@ -32,6 +32,12 @@ export const DEFAULT_RESET: ResetConfig = {
 };
 
 /**
+ * Whether the dashboard states how many tokens are left (or how far over the
+ * limit the usage is). A seed like the ones above: the settings panel has the switch.
+ */
+export const DEFAULT_SHOW_REMAINING = true;
+
+/**
  * How the `tokens` field of a report is interpreted. Reports are stored raw,
  * so this can be changed at any time and the dashboard re-reads history
  * under the new rule.
@@ -84,6 +90,8 @@ export interface AppConfig {
   /** Token budget of one cycle. */
   limit: number;
   reset: ResetConfig;
+  /** False: the dashboard never states the tokens left, nor the overage. */
+  showRemaining: boolean;
   tokenMode: TokenMode;
   reportIntervalMinutes: number;
   retentionDays: number;
@@ -165,6 +173,7 @@ export function getConfig(
   return {
     limit,
     reset,
+    showRemaining: DEFAULT_SHOW_REMAINING,
     tokenMode,
     reportIntervalMinutes: REPORT_INTERVAL_MINUTES,
     retentionDays: RETENTION_DAYS,

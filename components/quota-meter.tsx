@@ -53,6 +53,10 @@ function formatMoment(ms: number, model: DashboardModel): string {
 function paceSentence(model: DashboardModel, { quota }: DashboardView): string {
   const { total, limit, pace } = quota;
   if (total >= limit) {
+    // With the remaining tokens switched off, the overage (tokens left, below zero) stays unsaid too.
+    if (!model.showRemaining) {
+      return `A következő reset ${formatDuration(model.cycle.endMs - model.generatedAt)} múlva indít új keretet.`;
+    }
     return quota.overage > 0
       ? `A túllépés ${formatTokens(quota.overage)} token.`
       : "A resetig nem maradt több token.";
@@ -102,6 +106,7 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
   const nowFraction = model.cycle.elapsedFraction;
   const nowAlign =
     nowFraction < 0.05 ? "translate-x-0" : nowFraction > 0.95 ? "-translate-x-full" : "-translate-x-1/2";
+  const elapsedNote = `a ciklus ${formatPercent(nowFraction)}-a telt el`;
   const todayIndex = model.cycle.segments.findIndex(
     (segment) => nowFraction >= segment.startFraction && nowFraction < segment.endFraction,
   );
@@ -182,7 +187,11 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
         </span>
       </p>
 
-      <dl className="mt-8 grid grid-cols-1 gap-x-10 gap-y-5 border-t border-hairline pt-6 sm:grid-cols-3">
+      <dl
+        className={`mt-8 grid grid-cols-1 gap-x-10 gap-y-5 border-t border-hairline pt-6 ${
+          model.showRemaining ? "sm:grid-cols-3" : "sm:grid-cols-2"
+        }`}
+      >
         <div>
           <dt className="text-sm text-ink-3">Elfogyott</dt>
           <dd className="mt-1 text-2xl font-medium">{formatTokens(quota.total)} token</dd>
@@ -190,21 +199,25 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
             a {period} {formatTokens(quota.limit)} tokenből
           </dd>
         </div>
-        <div>
-          <dt className="text-sm text-ink-3">{quota.overage > 0 ? "Túllépés" : "Maradt"}</dt>
-          <dd className="mt-1 text-2xl font-medium">
-            {formatTokens(quota.overage > 0 ? quota.overage : quota.remaining)} token
-          </dd>
-          <dd className="text-sm text-ink-3">
-            a ciklus {formatPercent(nowFraction)}-a telt el
-          </dd>
-        </div>
+        {model.showRemaining && (
+          <div>
+            <dt className="text-sm text-ink-3">{quota.overage > 0 ? "Túllépés" : "Maradt"}</dt>
+            <dd className="mt-1 text-2xl font-medium">
+              {formatTokens(quota.overage > 0 ? quota.overage : quota.remaining)} token
+            </dd>
+            <dd className="text-sm text-ink-3">{elapsedNote}</dd>
+          </div>
+        )}
         <div>
           <dt className="text-sm text-ink-3">Reset</dt>
           <dd className="mt-1 text-2xl font-medium">
             {formatDuration(model.cycle.endMs - model.generatedAt)} múlva
           </dd>
-          <dd className="text-sm text-ink-3">{formatMoment(model.cycle.endMs, model)}</dd>
+          <dd className="text-sm text-ink-3">
+            {formatMoment(model.cycle.endMs, model)}
+            {/* How far the cycle is belongs to neither figure: it moves here when its block is off. */}
+            {!model.showRemaining && <> · {elapsedNote}</>}
+          </dd>
         </div>
       </dl>
     </section>

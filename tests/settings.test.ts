@@ -23,10 +23,12 @@ import {
 const config = getConfig({});
 const DEFAULTS = settingsFromConfig(config);
 
+// Every field differs from its default, so a round trip proves each one is carried.
 const MONTHLY: UsageSettings = {
   period: "monthly",
   limit: 2_000_000,
   reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30 },
+  showRemaining: false,
 };
 
 describe("stored settings", () => {
@@ -35,6 +37,7 @@ describe("stored settings", () => {
       period: "weekly",
       limit: 500_000,
       reset: { weekday: 1, monthDay: 1, hour: 0, minute: 0 },
+      showRemaining: true,
     });
     expect(parseStoredSettings(null, DEFAULTS)).toEqual(DEFAULTS);
     expect(resolveConfig(config, null)).toEqual(config);
@@ -46,6 +49,7 @@ describe("stored settings", () => {
       period: "weekly",
       limit: 750_000,
       reset: { weekday: 3, monthDay: 1, hour: 6, minute: 15 },
+      showRemaining: true,
     });
   });
 
@@ -66,6 +70,7 @@ describe("stored settings", () => {
       minute: 30,
       timeZone: "Europe/Budapest",
     });
+    expect(effective.showRemaining).toBe(false);
     expect(effective.tokenMode).toBe(config.tokenMode);
     expect(effective.retentionDays).toBe(config.retentionDays);
 
@@ -83,7 +88,24 @@ describe("stored settings", () => {
       period: "weekly",
       limit: 1_234_567,
       reset: { weekday: 1, monthDay: 31, hour: 0, minute: 45 },
+      showRemaining: true,
     });
+  });
+
+  it("read a document saved before the remaining-tokens switch existed: it stays on", () => {
+    // Exactly what the first deployed version of the panel wrote: no `showRemaining` at all.
+    const raw =
+      '{"v":1,"period":"monthly","limit":2000000,"reset":{"weekday":4,"monthDay":15,"hour":9,"minute":30},"updatedAt":1789997466594}';
+    expect(parseStoredSettings(raw, DEFAULTS)).toEqual({ ...MONTHLY, showRemaining: true });
+    expect(resolveConfig(config, raw).showRemaining).toBe(true);
+  });
+
+  it("take only a real boolean for the switch", () => {
+    for (const value of ["false", 0, null, "no", []]) {
+      const raw = JSON.stringify({ ...MONTHLY, showRemaining: value });
+      expect(parseStoredSettings(raw, DEFAULTS).showRemaining).toBe(true);
+    }
+    expect(parseStoredSettings(JSON.stringify(MONTHLY), DEFAULTS).showRemaining).toBe(false);
   });
 
   it("never fail on a corrupt document", () => {
@@ -98,6 +120,7 @@ describe("parseSettingsUpdate", () => {
     period: "monthly",
     limit: 2_000_000,
     reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30 },
+    showRemaining: false,
     groups: [
       { id: " Work ", color: "#3987E5" },
       { id: "Személyes", color: "#abc" },
@@ -129,7 +152,8 @@ describe("parseSettingsUpdate", () => {
   it("defaults nothing: every budget field is required", () => {
     const result = parseSettingsUpdate({});
     expect(result.ok).toBe(false);
-    expect(!result.ok && result.errors).toHaveLength(6);
+    expect(!result.ok && result.errors).toHaveLength(7);
+    expect(!result.ok && result.errors).toContain("showRemaining must be true or false");
   });
 
   it.each([
@@ -144,6 +168,9 @@ describe("parseSettingsUpdate", () => {
     ["month day 32", { ...valid, reset: { ...valid.reset, monthDay: 32 } }],
     ["hour 24", { ...valid, reset: { ...valid.reset, hour: 24 } }],
     ["minute 60", { ...valid, reset: { ...valid.reset, minute: 60 } }],
+    ["a missing remaining-tokens switch", { ...valid, showRemaining: undefined }],
+    ["the switch given as text", { ...valid, showRemaining: "false" }],
+    ["the switch given as a number", { ...valid, showRemaining: 0 }],
     ["groups that are not a list", { ...valid, groups: { Work: "#3987e5" } }],
     ["a group id with a slash", { ...valid, groups: [{ id: "a/b", color: "#3987e5" }] }],
     ["an empty group id", { ...valid, groups: [{ id: "  ", color: "#3987e5" }] }],

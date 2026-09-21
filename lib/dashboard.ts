@@ -31,6 +31,8 @@ export interface DashboardModel extends QuotaAssessment {
   tokenMode: TokenMode;
   timeZone: string;
   period: BudgetPeriod;
+  /** False: nothing on the page may state the tokens left, nor the overage. */
+  showRemaining: boolean;
   previousTotal: number;
   cycle: {
     startMs: number;
@@ -145,6 +147,7 @@ export function buildDashboard(
     tokenMode: config.tokenMode,
     timeZone: config.reset.timeZone,
     period: config.reset.period,
+    showRemaining: config.showRemaining,
     previousTotal: previous.total,
     cycle: {
       startMs,
