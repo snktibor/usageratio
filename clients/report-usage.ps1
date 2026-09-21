@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  usageratio - reports this machine's Codex token usage to the dashboard (Windows).
+  usageratio - reports this machine's Deepseek token usage to the dashboard (Windows).
 
 .DESCRIPTION
   Works on Windows PowerShell 5.1 and PowerShell 7+, needs nothing else.
@@ -40,9 +40,9 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 # ==============================================================================
-#  [TODO: INSERT CODEX TOKEN READ LOGIC HERE]
+#  [TODO: INSERT Deepseek TOKEN READ LOGIC HERE]
 # ==============================================================================
-#  Replace the body of Read-CodexTokens. It must return a non-negative whole
+#  Replace the body of Read-DeepseekTokens. It must return a non-negative whole
 #  number. On failure throw: nothing is sent then.
 #
 #  What the number means is set on the server (TOKEN_MODE in lib/config.ts):
@@ -54,8 +54,8 @@ $ProgressPreference = 'SilentlyContinue'
 #  Save-ReaderState: it runs only after the server has stored the report,
 #  so a failed upload is simply included in the next hour's number.
 # ------------------------------------------------------------------------------
-function Read-CodexTokens {
-  throw 'The Codex token reader is not implemented yet (see the TODO at the top of this script).'
+function Read-DeepseekTokens {
+  throw 'The Deepseek token reader is not implemented yet (see the TODO at the top of this script).'
 }
 
 function Save-ReaderState {
@@ -125,9 +125,9 @@ if ($Tokens -ge 0) {
   $tokenCount = $Tokens
 } else {
   try {
-    $tokenCount = [long](Read-CodexTokens)
+    $tokenCount = [long](Read-DeepseekTokens)
   } catch {
-    Write-Log "ERROR: the Codex token reader failed: $($_.Exception.Message)"
+    Write-Log "ERROR: the Deepseek token reader failed: $($_.Exception.Message)"
     exit 3
   }
 }

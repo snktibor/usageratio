@@ -2,7 +2,7 @@ import type { DashboardModel } from "@/lib/dashboard";
 import { assessQuota, type QuotaAssessment } from "@/lib/quota";
 
 /**
- * Ground truth: the machines' own token counts never match the official Codex
+ * Ground truth: the machines' own token counts never match the official Deepseek
  * figure exactly (a machine was offline, a report got lost), but their
  * proportions hold. Given the official usage percentage, every machine and
  * group is restated as its share of the official figure:
@@ -12,7 +12,7 @@ import { assessQuota, type QuotaAssessment } from "@/lib/quota";
  * Runs in the browser, on every keystroke; pure.
  */
 
-/** The official usage figure, and when it was read off the Codex display. */
+/** The official usage figure, and when it was read off the Deepseek display. */
 export interface OfficialReading {
   /** 0–100 */
   percent: number;

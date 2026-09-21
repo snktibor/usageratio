@@ -1,9 +1,9 @@
 # usageratio
 
-Pehelysúlyú, saját hosztolású használatkövető a Codex heti vagy havi tokenkeretéhez. A gépek óránként
+Pehelysúlyú, saját hosztolású használatkövető a Deepseek heti vagy havi tokenkeretéhez. A gépek óránként
 beküldik a fogyasztásukat, a dashboard pedig megmutatja, hol tart a keret, csoportok és gépek
 szerint bontva, egy 5 jegyű PIN mögött. A keret, a reset és a csoportok a dashboardon állíthatók; a
-hivatalos Codex-százalék beírásával a bontás a valós fogyasztáshoz igazítható.
+hivatalos Deepseek-százalék beírásával a bontás a valós fogyasztáshoz igazítható.
 
 ```
  Mac (bash + cron) ──┐
@@ -26,7 +26,7 @@ hivatalos Codex-százalék beírásával a bontás a valós fogyasztáshoz igaz�
 | `lib/usage-store.ts` | Redis adatmodell (írás, olvasás) |
 | `lib/cycle.ts` | Heti és havi ciklus számítása időzónával, nyári időszámítással |
 | `lib/aggregate.ts`, `lib/dashboard.ts`, `lib/quota.ts` | Összesítés csoportra és gépre, tempóbecslés |
-| `lib/ground-truth.ts` | „Valós százalék": a bontás átszámítása a hivatalos Codex-értékre (a böngészőben fut) |
+| `lib/ground-truth.ts` | „Valós százalék": a bontás átszámítása a hivatalos Deepseek-értékre (a böngészőben fut) |
 | `lib/auth.ts`, `app/actions.ts` | PIN-ellenőrzés, session, próbálkozáskorlát |
 | `app/page.tsx`, `components/` | PIN-képernyő és dashboard (Tailwind, sötét téma) |
 | `clients/` | `report-usage.sh` (Mac), `report-usage.ps1` + `install-task.ps1` (Windows) |
@@ -153,14 +153,14 @@ Rendszergazdai jog nélkül: `install-task.ps1 -Interactive`. Ekkor csak bejelen
 
 ## 3. A token-olvasó bekötése
 
-A tényleges Codex-kiolvasás szándékosan nincs megírva. Mindkét szkript tetején ott a blokk:
+A tényleges Deepseek-kiolvasás szándékosan nincs megírva. Mindkét szkript tetején ott a blokk:
 
 ```
-[TODO: INSERT CODEX TOKEN READ LOGIC HERE]
+[TODO: INSERT Deepseek TOKEN READ LOGIC HERE]
 ```
 
-Bashben a `read_codex_tokens` függvény törzsét kell kicserélni (a számot a `TOKENS` változóba
-teszi, siker esetén `return 0`), PowerShellben a `Read-CodexTokens` függvényét (a számot adja
+Bashben a `read_Deepseek_tokens` függvény törzsét kell kicserélni (a számot a `TOKENS` változóba
+teszi, siker esetén `return 0`), PowerShellben a `Read-DeepseekTokens` függvényét (a számot adja
 vissza, hiba esetén `throw`). Hogy a szám **mit jelent**, azt a szerveren a `TOKEN_MODE` dönti el:
 
 | `TOKEN_MODE` | A kliens ezt küldi | A dashboard így számol |
@@ -205,11 +205,11 @@ A dashboard **kizárólag a legutóbbi reset óta** érkezett jelentéseket öss
 kell időzített feladat, és nem töröl semmit: a ciklus kezdete egyszerűen a lekérdezés alsó határa.
 Ha átírod a resetet vagy a keret típusát, a meglévő adatok az új határok szerint jelennek meg.
 
-### „Valós százalék": a hivatalos Codex-érték
+### „Valós százalék": a hivatalos Deepseek-érték
 
-A gépek saját mérése sosem egyezik pontosan a Codex hivatalos számával (egy gép offline volt, egy
+A gépek saját mérése sosem egyezik pontosan a Deepseek hivatalos számával (egy gép offline volt, egy
 beküldés elveszett), az arányaik viszont megbízhatók. A dashboard tetején lévő **„Aktuális hivatalos
-Codex fogyasztás (%)"** mezőbe (vagy csúszkával) beírt érték szerint a böngésző azonnal átszámol:
+Deepseek fogyasztás (%)"** mezőbe (vagy csúszkával) beírt érték szerint a böngésző azonnal átszámol:
 
 ```
 egy gép része a keretből = (a gép mért tokenjei / az összes mért token) × hivatalos százalék

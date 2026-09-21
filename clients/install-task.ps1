@@ -78,7 +78,7 @@ $settings = New-ScheduledTaskSettingsSet `
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
   -Principal $principal -Settings $settings -Force `
-  -Description 'Reports Codex token usage to usageratio every hour.' | Out-Null
+  -Description 'Reports Deepseek token usage to usageratio every hour.' | Out-Null
 
 Write-Host "Registered '$TaskName': every $IntervalMinutes minutes as $($identity.Name) ($logonType)."
 Write-Host "Try it now:   Start-ScheduledTask -TaskName '$TaskName'"

@@ -20,7 +20,7 @@ function hint({ invalid, enteredAt, view, timeZone }: GroundTruthInputProps): st
   if (invalid) return "0 és 100 közötti számot adj meg, például 45 vagy 45,5.";
   if (!view.calibrated) {
     return (
-      "Írd be, hány százalékon áll a keret a Codex saját kijelzőjén: a gépek és a csoportok " +
+      "Írd be, hány százalékon áll a keret a Deepseek saját kijelzőjén: a gépek és a csoportok " +
       "fogyasztása ehhez igazodik. Üresen hagyva a gépek saját mérése számít."
     );
   }
@@ -55,14 +55,14 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
 
   return (
     <section
-      aria-label="Hivatalos Codex-fogyasztás"
+      aria-label="Hivatalos Deepseek-fogyasztás"
       className={`rounded-lg border bg-raised px-5 py-5 transition-colors sm:px-6 ${
         view.calibrated ? "border-ink-3" : "border-rule"
       }`}
     >
       <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
         <label htmlFor={fieldId} className="text-base font-medium">
-          Aktuális hivatalos Codex fogyasztás (%)
+          Aktuális hivatalos Deepseek fogyasztás (%)
         </label>
 
         {/* One row from `sm` up. On a phone the slider gets a row of its own: it has to be draggable by thumb. */}
@@ -93,7 +93,7 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
             step={1}
             value={Math.round(sliderValue)}
             onChange={(event) => onChange(event.target.value)}
-            aria-label="Aktuális hivatalos Codex fogyasztás, csúszka"
+            aria-label="Aktuális hivatalos Deepseek fogyasztás, csúszka"
             aria-valuetext={`${Math.round(sliderValue)}%`}
             className={`order-3 h-6 w-full min-w-0 cursor-pointer accent-ink transition-opacity sm:order-2 sm:w-auto sm:grow ${
               view.calibrated ? "" : "opacity-50 hover:opacity-100 focus-visible:opacity-100"

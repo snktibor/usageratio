@@ -1,7 +1,7 @@
-# Projekt Célok: Codex Usage Tracker (goals.md)
+# Projekt Célok: Deepseek Usage Tracker (goals.md)
 
 ## 1. Fő Célkitűzés
-Egy pehelysúlyú (lightweight), saját hosztolású statisztikai rendszer felépítése, amely 3 különböző számítógépről (1 Mac, 2 Windows) gyűjti, aggregálja és vizualizálja a "Codex" AI heti tokenhasználatát. A rendszer célja a heti keret (Max limit) nyomon követése, csoportokba (pl. Work, Personal) rendezve, egy központi Dashboardon.
+Egy pehelysúlyú (lightweight), saját hosztolású statisztikai rendszer felépítése, amely 3 különböző számítógépről (1 Mac, 2 Windows) gyűjti, aggregálja és vizualizálja a "Deepseek" AI heti tokenhasználatát. A rendszer célja a heti keret (Max limit) nyomon követése, csoportokba (pl. Work, Personal) rendezve, egy központi Dashboardon.
 
 ## 2. Infrastruktúra és Architektúra Célok
 *   **Környezet:** Next.js (App Router) alkalmazás Vercel-en hosztolva, Vercel MCP támogatással.
@@ -11,7 +11,7 @@ Egy pehelysúlyú (lightweight), saját hosztolású statisztikai rendszer felé
 ## 3. Kliensoldali Célok (Adatgyűjtés)
 *   **Erőforráskímélő működés:** A klienseken futó szkriptek (Bash a Mac-en, PowerShell a Windows-on) minimális CPU és RAM használattal, teljesen láthatatlanul (rejtett ablakkal) fussanak a háttérben.
 *   **Ütemezés:** Beépített OS eszközökkel (Cron, Task Scheduler) automatizált, óránkénti futás.
-*   **Modularitás:** A tényleges Codex token kiolvasó logika NEM része ennek a fázisnak. A szkriptekben egyértelmű placeholder (`[TODO: INSERT CODEX TOKEN READ LOGIC HERE]`) biztosítja, hogy a kiolvasó blokk később cserélhető/injektálható legyen.
+*   **Modularitás:** A tényleges Deepseek token kiolvasó logika NEM része ennek a fázisnak. A szkriptekben egyértelmű placeholder (`[TODO: INSERT Deepseek TOKEN READ LOGIC HERE]`) biztosítja, hogy a kiolvasó blokk később cserélhető/injektálható legyen.
 *   **Szabványosított Payload:** A kliensek a következő JSON struktúrát küldik a szervernek:
     `{ "machineId": "string", "groupId": "string", "tokens": number, "timestamp": "ISO 8601 string" }`
 

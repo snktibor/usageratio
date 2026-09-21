@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# usageratio — reports this machine's Codex token usage to the dashboard.
+# usageratio — reports this machine's Deepseek token usage to the dashboard.
 # macOS / Linux. Needs only bash (3.2+) and curl. Run hourly by cron; it never
 # opens a window and prints nothing unless started from a terminal.
 #
@@ -29,9 +29,9 @@ PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 export PATH
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  [TODO: INSERT CODEX TOKEN READ LOGIC HERE]
+#  [TODO: INSERT Deepseek TOKEN READ LOGIC HERE]
 # ══════════════════════════════════════════════════════════════════════════════
-#  Replace the body of read_codex_tokens. It must put a non-negative whole
+#  Replace the body of read_Deepseek_tokens. It must put a non-negative whole
 #  number into TOKENS and return 0. On failure return non-zero: nothing is sent.
 #
 #  What the number means is set on the server (TOKEN_MODE in lib/config.ts):
@@ -43,7 +43,7 @@ export PATH
 #  commit_reader_state: it runs only after the server has stored the report,
 #  so a failed upload is simply included in the next hour's number.
 # ──────────────────────────────────────────────────────────────────────────────
-read_codex_tokens() {
+read_Deepseek_tokens() {
   TOKENS=""
   return 1
 }
@@ -163,8 +163,8 @@ fi
 TOKENS=""
 if [ -n "$TOKENS_OVERRIDE" ]; then
   TOKENS="$TOKENS_OVERRIDE"
-elif ! read_codex_tokens; then
-  log "ERROR: the Codex token reader failed or is not implemented yet (see the TODO at the top of $0)"
+elif ! read_Deepseek_tokens; then
+  log "ERROR: the Deepseek token reader failed or is not implemented yet (see the TODO at the top of $0)"
   exit 3
 fi
 
