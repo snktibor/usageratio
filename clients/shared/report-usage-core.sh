@@ -1,8 +1,7 @@
 #!/bin/bash
 #
-# usageratio — reports this machine's AI-provider usage to the dashboard.
-# macOS / Linux. Needs bash (3.2+), curl, Node.js and ccusage (or npx). Run hourly by cron; it never
-# opens a window and prints nothing unless started from a terminal.
+# Shared usageratio reporter core for macOS / Linux.
+# Use ../auto/report-usage.sh or ../manual/report-usage.sh instead of calling this file directly.
 #
 #   report-usage.sh                  read every provider snapshot and send it
 #   report-usage.sh --providers '{"claude":22000,"deepseek":15000}'
@@ -30,6 +29,12 @@ export PATH
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 CCUSAGE_PARSER="$SCRIPT_DIR/ccusage-providers.cjs"
+OUTPUT_MODE="${USAGERATIO_OUTPUT_MODE:-silent}"
+
+case "$OUTPUT_MODE" in
+  silent | manual) ;;
+  *) OUTPUT_MODE="silent" ;;
+esac
 
 # Runs ccusage's unified daily report and converts every model/source to a
 # provider snapshot. No jq is needed; the shared parser uses Node.js.
@@ -116,8 +121,13 @@ log() {
   line="$(date '+%Y-%m-%d %H:%M:%S') $*"
   mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null
   printf '%s\n' "$line" >>"$LOG_FILE" 2>/dev/null
-  # Echo only when a person is watching; cron gets silence (and sends no mail).
-  if [ -t 1 ]; then printf '%s\n' "$line"; fi
+  case "$*" in
+    ERROR:*)
+      if [ "$OUTPUT_MODE" = "manual" ]; then
+        printf '❌ Sync failed: %s\n' "${*#ERROR: }" >&2
+      fi
+      ;;
+  esac
 }
 
 trim_log() {
@@ -240,7 +250,7 @@ fi
 # ─── Payload ──────────────────────────────────────────────────────────────────
 
 TIMESTAMP="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-PAYLOAD="$(printf '%s' "$PROVIDERS_JSON" | node "$CCUSAGE_PARSER" payload "$MACHINE_ID" "$GROUP_ID" "$TIMESTAMP")" || {
+PAYLOAD="$(printf '%s' "$PROVIDERS_JSON" | node "$CCUSAGE_PARSER" payload "$MACHINE_ID" "$GROUP_ID" "$TIMESTAMP" 2>"$WORK_DIR/payload-error")" || {
   log "ERROR: could not create the JSON payload"
   exit 3
 }
@@ -275,6 +285,10 @@ case "$HTTP_CODE" in
   200 | 201)
     if [ "$HTTP_CODE" = "200" ]; then NOTE=" (already stored)"; else NOTE=""; fi
     log "OK: $PROVIDERS_JSON as $MACHINE_ID/$GROUP_ID$NOTE"
+    if [ "$OUTPUT_MODE" = "manual" ]; then
+      PROVIDER_COUNT="$(printf '%s' "$PROVIDERS_JSON" | node "$CCUSAGE_PARSER" count 2>/dev/null)"
+      printf '✅ Sync successful: %s providers sent.%s\n' "${PROVIDER_COUNT:-0}" "$NOTE"
+    fi
     exit 0
     ;;
   *)

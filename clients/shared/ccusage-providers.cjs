@@ -239,6 +239,10 @@ async function main() {
     process.stdout.write(JSON.stringify(normalizeProviderMap(parsed)));
     return;
   }
+  if (command === "count") {
+    process.stdout.write(String(Object.keys(normalizeProviderMap(parsed)).length));
+    return;
+  }
   if (command === "payload") {
     const [, , , machineId, groupId, timestamp] = process.argv;
     if (!machineId || !groupId || !timestamp) throw new Error("payload needs machineId, groupId and timestamp");

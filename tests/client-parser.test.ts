@@ -2,11 +2,16 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { parseCcusageProviders } = require("../clients/ccusage-providers.cjs") as {
+const { normalizeProviderMap, parseCcusageProviders } = require("../clients/shared/ccusage-providers.cjs") as {
+  normalizeProviderMap: (input: unknown) => Record<string, number>;
   parseCcusageProviders: (input: unknown, fallbackProviders?: string[]) => Record<string, number>;
 };
 
 describe("ccusage provider parser", () => {
+  it("normalizes provider maps used by the reporters", () => {
+    expect(normalizeProviderMap({ OpenAI: 12, Claude: 8 })).toEqual({ claude: 8, openai: 12 });
+  });
+
   it("splits unified daily rows by model vendor and falls back to the agent", () => {
     expect(
       parseCcusageProviders({

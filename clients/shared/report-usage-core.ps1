@@ -1,11 +1,11 @@
 <#
 .SYNOPSIS
-  usageratio - reports this machine's AI-provider usage to the dashboard (Windows).
+  Shared usageratio reporter core for Windows.
 
 .DESCRIPTION
   Works on Windows PowerShell 5.1 and PowerShell 7+. Requires Node.js/npx;
   npx downloads or reuses ccusage. No jq or other JSON utility is needed.
-  Run hourly and invisibly by Task Scheduler: see install-task.ps1.
+  Use ..\auto\report-usage.ps1 or ..\manual\report-usage.ps1 instead of calling this file directly.
 
   Settings live outside the script, so it can be replaced without losing them:
 
@@ -38,7 +38,8 @@ param(
   [long]$Tokens = -1,
   [string]$Providers,
   [switch]$DryRun,
-  [string]$ConfigPath
+  [string]$ConfigPath,
+  [ValidateSet('Silent', 'Manual')][string]$OutputMode = 'Silent'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -93,8 +94,9 @@ function Write-Log {
     $lines = @(Get-Content -LiteralPath $logFile)
     if ($lines.Count -gt 1000) { Set-Content -LiteralPath $logFile -Value $lines[-500..-1] -Encoding UTF8 }
   } catch { }
-  # Visible when run by hand; the scheduled task has no console to show it on.
-  Write-Host $line
+  if ($OutputMode -eq 'Manual' -and $Message.StartsWith('ERROR:')) {
+    Write-Host "$([char]0x274c) Sync failed: $($Message.Substring(6).Trim())" -ForegroundColor Red
+  }
 }
 
 function Get-Setting {
@@ -228,6 +230,10 @@ if ($result.Status -eq 200 -or $result.Status -eq 201) {
   $note = ''
   if ($result.Status -eq 200) { $note = ' (already stored)' }
   Write-Log "OK: $providersJson as $machineId/$groupId$note"
+  if ($OutputMode -eq 'Manual') {
+    $providerCount = @($providerMap.PSObject.Properties).Count
+    Write-Host "$([char]0x2705) Sync successful: $providerCount providers sent.$note" -ForegroundColor Green
+  }
   exit 0
 }
 

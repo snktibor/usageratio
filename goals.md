@@ -11,7 +11,8 @@ tokenhasználatát. A provider külön dimenzió a gép és a Work/Personal jell
 *   **Adattárolás:** Vercel KV (Redis) használata a gyors olvasáshoz/íráshoz és a heti ciklusok könnyű szűréséhez.
 
 ## 3. Kliensoldali Célok (Adatgyűjtés)
-*   **Erőforráskímélő működés:** A klienseken futó szkriptek (Bash a Mac-en, PowerShell a Windows-on) minimális CPU és RAM használattal, teljesen láthatatlanul (rejtett ablakkal) fussanak a háttérben.
+*   **Két futtatási mód:** Az automatikus Bash/PowerShell kliensek teljesen csendben fussanak; a manuális kliensek adjanak egyértelmű konzolos eredményt.
+*   **Erőforráskímélő működés:** Az automatikus kliensek minimális CPU és RAM használattal, teljesen láthatatlanul (rejtett ablakkal) fussanak a háttérben.
 *   **Ütemezés:** Beépített OS eszközökkel (Cron, Task Scheduler) automatizált, óránkénti futás.
 *   **Adatforrás:** A Bash és PowerShell kliens a `ccusage daily` gépi JSON-kimenetét dolgozza fel, és minden felismert providert továbbít.
 *   **Szabványosított Payload:** A kliensek a következő JSON struktúrát küldik a szervernek:

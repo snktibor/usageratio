@@ -30,7 +30,9 @@ gépbontás, valamint a hivatalos százalékkal kalibrált érték együtt vált
 | `lib/ground-truth.ts` | „Valós százalék": a kiválasztott provider bontásának átszámítása (a böngészőben fut) |
 | `lib/auth.ts`, `app/actions.ts` | PIN-ellenőrzés, session, próbálkozáskorlát |
 | `app/page.tsx`, `components/` | PIN-képernyő és dashboard (Tailwind, sötét téma) |
-| `clients/` | Mac/Windows jelentők és a közös `ccusage-providers.cjs` JSON-parser |
+| `clients/auto/` | Csendes Bash/PowerShell jelentők és a Windows Task Scheduler telepítője |
+| `clients/manual/` | Kézzel indítható Bash/PowerShell jelentők konzolos visszajelzéssel |
+| `clients/shared/` | A két mód közös jelentési magja és `ccusage-providers.cjs` parsere |
 | `tests/` | Egységtesztek a tiszta logikára (`npm test`) |
 
 ## 1. Telepítés Vercelre
@@ -81,11 +83,8 @@ terjeszd ki az éles domainre; ott a Bearer token és a PIN véd.
 
 ## 2. Kliensek
 
-Mindkét szkript ugyanúgy működik: beolvassa a beállításait egy külön fájlból, Bearer tokennel lekéri
-a szervertől az aktuális ciklus kezdőnapját és időzónáját, majd futtatja a `ccusage daily --json
---by-agent --breakdown --no-cost --since … --timezone …` parancsot. A közös parser modellnév alapján választja
-szét a szolgáltatókat (`deepseek-*`, `claude-*`, `gpt-*` stb.), és csak ennek hiányában használja a
-`ccusage` agent/forrás nevét.
+Mindkét mód ugyanazt a `clients/shared/` alatti gyűjtőlogikát használja. Az automatikus belépőpontok
+normál futáskor nem írnak a konzolra; a manuális belépőpontok siker- vagy hibaüzenetet adnak.
 
 | Kapcsoló | Mire jó |
 | --- | --- |
@@ -93,77 +92,10 @@ szét a szolgáltatókat (`deepseek-*`, `claude-*`, `gpt-*` stb.), és csak enne
 | `--providers '{"claude":22000}'` / `-Providers '{"claude":22000}'` | kézi több-provideres snapshot teszteléshez |
 | `--tokens N` / `-Tokens N` | kompatibilitási rövidítés: `{"deepseek":N}` |
 
-Kilépési kódok: `0` elküldve · `1` a küldés nem sikerült · `2` hibás beállítás · `3` a `ccusage`
-vagy a JSON feldolgozása hibázott.
+Kilépési kódok: `0` elküldve · `1` küldési hiba · `2` hibás beállítás · `3` adatolvasási/JSON-hiba.
 
-**Függőségek:** Node.js és [`ccusage`](https://github.com/ccusage/ccusage) szükséges. Windowson a szkript mindig `npx --yes
-ccusage@latest` formában futtatja; Macen először a PATH-on lévő `ccusage` parancsot keresi, majd
-visszaesik ugyanerre az `npx` formára. Külön `jq` telepítése nem kell: a JSON-t a Node-alapú
-`ccusage-providers.cjs` dolgozza fel, PowerShellben a payloadot a beépített `ConvertTo-Json` készíti.
-
-### Mac: Bash + cron
-
-```bash
-mkdir -p ~/.usageratio ~/.config/usageratio
-cp clients/report-usage.sh clients/ccusage-providers.cjs ~/.usageratio/
-chmod 700 ~/.usageratio/report-usage.sh ~/.usageratio/ccusage-providers.cjs
-
-cat > ~/.config/usageratio/config <<'EOF'
-API_URL="https://usageratio.snktibor.hu/api/usage"
-API_TOKEN="ide-a-USAGE_API_TOKEN"
-MACHINE_ID="mac-studio"
-GROUP_ID="Personal"
-EOF
-chmod 600 ~/.config/usageratio/config
-
-~/.usageratio/report-usage.sh --dry-run --providers '{"claude":22000,"deepseek":15000}'
-~/.usageratio/report-usage.sh                         # éles ccusage-lekérés és beküldés
-```
-
-Ütemezés: `crontab -e`, és ez az egy sor (minden óra 0. percében):
-
-```cron
-0 * * * * /bin/bash "$HOME/.usageratio/report-usage.sh" >/dev/null 2>&1
-```
-
-A cron alól futó folyamatnak nincs terminálja és ablaka, tehát eleve láthatatlan; a szkript
-ilyenkor semmit nem ír ki, csak a `~/Library/Logs/usageratio.log` fájlba naplóz (magától rövidül).
-Alvó Macen a cron nem fut, és nem is pótol: az ébredés utáni következő egész órában jelent újra.
-
-### Windows: PowerShell + Task Scheduler
-
-1. Másold a `clients\report-usage.ps1`, `clients\install-task.ps1` és
-   `clients\ccusage-providers.cjs` fájlt ide:
-   `%USERPROFILE%\.usageratio\` (ha letöltötted őket: `Unblock-File .\*.ps1`).
-2. Ugyanide hozd létre a `config.json` fájlt:
-
-   ```json
-   {
-     "apiUrl": "https://usageratio.snktibor.hu/api/usage",
-     "apiToken": "ide-a-USAGE_API_TOKEN",
-     "machineId": "win-desktop",
-     "groupId": "Work"
-   }
-   ```
-
-3. Próba, majd ütemezés **rendszergazdaként indított** PowerShellből:
-
-   ```powershell
-   cd $env:USERPROFILE\.usageratio
-   powershell -ExecutionPolicy Bypass -File .\report-usage.ps1 -DryRun -Providers '{"claude":22000,"deepseek":15000}'
-   powershell -ExecutionPolicy Bypass -File .\report-usage.ps1
-   powershell -ExecutionPolicy Bypass -File .\install-task.ps1
-   ```
-
-Az `install-task.ps1` óránkénti feladatot regisztrál *„Run whether user is logged on or not"*
-módban, jelszó tárolása nélkül (S4U). Az ilyen feladat a háttér-munkamenetben fut, ezért **soha
-nem jelenik meg ablak, egy villanásra sem**, és kijelentkezve is jelent. (Kézzel ugyanez: Task
-Scheduler → Create Task → *Run whether user is logged on or not* + *Do not store password*; Trigger:
-Daily, *Repeat task every 1 hour for 1 day*; Action: `powershell.exe`, argumentumok:
-`-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "…\report-usage.ps1"`.)
-Rendszergazdai jog nélkül: `install-task.ps1 -Interactive`. Ekkor csak bejelentkezve fut, és a
-`-WindowStyle Hidden` ellenére egy pillanatra felvillanhat egy ablak. Eltávolítás:
-`install-task.ps1 -Uninstall`. Napló: `%USERPROFILE%\.usageratio\usageratio.log`.
+- Automatikus telepítés: [`setup-auto.md`](setup-auto.md)
+- Manuális telepítés: [`setup-manual.md`](setup-manual.md)
 
 ## 3. Snapshotok és provider-felismerés
 
@@ -373,6 +305,6 @@ npm run typecheck
 npm run redis:down
 ```
 
-A kliensek helyben is kipróbálhatók:
-`USAGERATIO_API_URL=http://localhost:3000/api/usage clients/report-usage.sh --providers
+A manuális kliens helyben is kipróbálható:
+`USAGERATIO_API_URL=http://localhost:3000/api/usage clients/manual/report-usage.sh --providers
 '{"claude":1234,"deepseek":5678}'`.
