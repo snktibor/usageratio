@@ -91,6 +91,14 @@ export function SlidersIcon({ className }: IconProps) {
   );
 }
 
+export function CheckIcon({ className }: IconProps) {
+  return (
+    <Glyph className={className}>
+      <path d="m3.5 8.4 2.9 2.9 6.1-6.6" />
+    </Glyph>
+  );
+}
+
 export function XIcon({ className }: IconProps) {
   return (
     <Glyph className={className}>

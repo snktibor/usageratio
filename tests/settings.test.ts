@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { getConfig } from "@/lib/config";
 import { getCycle } from "@/lib/cycle";
+import { MAX_PROVIDERS } from "@/lib/providers";
 import {
   buildSettingsView,
   configForProvider,
+  countsForProvider,
   MAX_GROUPS,
   NEUTRAL_COLOR,
   normalizeHexColor,
@@ -18,6 +20,7 @@ import {
   serializeSettings,
   settingsFromConfig,
   suggestGroupColor,
+  visibleProviderIds,
   type UsageSettings,
 } from "@/lib/settings";
 
@@ -31,6 +34,8 @@ const MONTHLY: UsageSettings = {
   limits: { claude: 2_000_000, deepseek: 1_250_000 },
   reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30 },
   showRemaining: false,
+  hiddenProviders: ["openai"],
+  excludedProviders: { Work: ["claude", "deepseek"] },
 };
 
 describe("stored settings", () => {
@@ -41,6 +46,8 @@ describe("stored settings", () => {
       limits: { deepseek: 500_000 },
       reset: { weekday: 1, monthDay: 1, hour: 0, minute: 0 },
       showRemaining: true,
+      hiddenProviders: [],
+      excludedProviders: {},
     });
     expect(parseStoredSettings(null, DEFAULTS)).toEqual(DEFAULTS);
     expect(resolveConfig(config, null)).toEqual({
@@ -57,6 +64,8 @@ describe("stored settings", () => {
       limits: { deepseek: 750_000 },
       reset: { weekday: 3, monthDay: 1, hour: 6, minute: 15 },
       showRemaining: true,
+      hiddenProviders: [],
+      excludedProviders: {},
     });
   });
 
@@ -99,6 +108,8 @@ describe("stored settings", () => {
       limits: { deepseek: 1_234_567 },
       reset: { weekday: 1, monthDay: 31, hour: 0, minute: 45 },
       showRemaining: true,
+      hiddenProviders: [],
+      excludedProviders: {},
     });
   });
 
@@ -111,6 +122,8 @@ describe("stored settings", () => {
       useTokenLimits: false,
       limits: { deepseek: 2_000_000 },
       showRemaining: true,
+      hiddenProviders: [],
+      excludedProviders: {},
     });
     expect(resolveConfig(config, raw).showRemaining).toBe(true);
   });
@@ -123,6 +136,9 @@ describe("stored settings", () => {
     expect(stored.useTokenLimits).toBe(false);
     expect(stored.limits).toEqual({ claude: 2_000_000, deepseek: 750_000 });
     expect(stored.showRemaining).toBe(false);
+    // Nor did the provider switches exist: every provider shows, and every group counts for it.
+    expect(stored.hiddenProviders).toEqual([]);
+    expect(stored.excludedProviders).toEqual({});
     const effective = resolveConfig(config, raw, ["claude", "deepseek"]);
     expect(effective.useTokenLimits).toBe(false);
     // Switching the limits back on finds them as they were.
@@ -142,6 +158,29 @@ describe("stored settings", () => {
     expect(parseStoredSettings(JSON.stringify(MONTHLY), DEFAULTS).useTokenLimits).toBe(true);
   });
 
+  it("keep the valid parts of the provider switches, and nothing else", () => {
+    const raw = JSON.stringify({
+      ...MONTHLY,
+      hiddenProviders: [" OpenAI ", "openai", "bad/id", 42, "gemini"],
+      excludedProviders: {
+        " Work ": ["claude", "Claude", "no such/provider"],
+        "a/b": ["claude"],
+        Home: [],
+        Lab: "claude",
+        constructor: ["deepseek"],
+      },
+    });
+    const stored = parseStoredSettings(raw, DEFAULTS);
+    expect(stored.hiddenProviders).toEqual(["openai", "gemini"]);
+    expect(stored.excludedProviders).toEqual({ Work: ["claude"], constructor: ["deepseek"] });
+    for (const value of [null, "openai", { openai: true }]) {
+      expect(parseStoredSettings(JSON.stringify({ ...MONTHLY, hiddenProviders: value }), DEFAULTS).hiddenProviders).toEqual([]);
+    }
+    expect(
+      parseStoredSettings(JSON.stringify({ ...MONTHLY, excludedProviders: ["Work"] }), DEFAULTS).excludedProviders,
+    ).toEqual({});
+  });
+
   it("never fail on a corrupt document", () => {
     for (const raw of ["", "not json", "null", "42", '"weekly"', "[]", '{"limit":0}', '{"limit":1.5}', '{"reset":7}']) {
       expect(parseStoredSettings(raw, DEFAULTS)).toEqual(DEFAULTS);
@@ -156,6 +195,8 @@ describe("parseSettingsUpdate", () => {
     limits: { claude: 2_000_000, deepseek: 1_250_000 },
     reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30 },
     showRemaining: false,
+    hiddenProviders: ["OpenAI", "openai"],
+    excludedProviders: { " Work ": ["claude", "deepseek"], Home: [] },
     groups: [
       { id: " Work ", color: "#3987E5" },
       { id: "Személyes", color: "#abc" },
@@ -187,7 +228,10 @@ describe("parseSettingsUpdate", () => {
   it("defaults nothing: every budget field is required", () => {
     const result = parseSettingsUpdate({});
     expect(result.ok).toBe(false);
-    expect(!result.ok && result.errors).toHaveLength(8);
+    expect(!result.ok && result.errors).toHaveLength(10);
+    expect(!result.ok && result.errors).toContain(
+      `hiddenProviders must be an array of at most ${MAX_PROVIDERS} provider ids`,
+    );
     expect(!result.ok && result.errors).toContain("useTokenLimits must be true or false");
     expect(!result.ok && result.errors).toContain("showRemaining must be true or false");
   });
@@ -212,6 +256,14 @@ describe("parseSettingsUpdate", () => {
     ["a missing remaining-tokens switch", { ...valid, showRemaining: undefined }],
     ["the switch given as text", { ...valid, showRemaining: "false" }],
     ["the switch given as a number", { ...valid, showRemaining: 0 }],
+    ["hidden providers that are not a list", { ...valid, hiddenProviders: "openai" }],
+    ["a hidden provider that is no id", { ...valid, hiddenProviders: ["bad/provider"] }],
+    ["too many hidden providers", { ...valid, hiddenProviders: Array.from({ length: MAX_PROVIDERS + 1 }, (_, i) => `p${i}`) }],
+    ["exclusions that are a list", { ...valid, excludedProviders: [["Work", "claude"]] }],
+    ["exclusions of a group that is no id", { ...valid, excludedProviders: { "a/b": ["claude"] } }],
+    ["exclusions that are not a list", { ...valid, excludedProviders: { Work: "claude" } }],
+    ["an excluded provider that is no id", { ...valid, excludedProviders: { Work: ["bad/provider"] } }],
+    ["a group excluded twice after trimming", { ...valid, excludedProviders: { Work: ["claude"], " Work": ["deepseek"] } }],
     ["groups that are not a list", { ...valid, groups: { Work: "#3987e5" } }],
     ["a group id with a slash", { ...valid, groups: [{ id: "a/b", color: "#3987e5" }] }],
     ["an empty group id", { ...valid, groups: [{ id: "  ", color: "#3987e5" }] }],
@@ -317,6 +369,34 @@ describe("the usage:groups hash", () => {
     for (const raw of ["", "{", "null", '"x"', '{"color":"red","ts":"soon"}']) {
       expect(parseGroupEntry("Work", raw)).toEqual({ groupId: "Work", color: null, firstSeenAt: 0 });
     }
+  });
+});
+
+describe("providers on the dashboard", () => {
+  const effective = resolveConfig(config, serializeSettings(MONTHLY, new Date()), ["claude", "deepseek", "openai"]);
+
+  it("leave the hidden ones out, in the given order", () => {
+    expect(visibleProviderIds(effective, ["openai", "deepseek", "claude"])).toEqual(["deepseek", "claude"]);
+  });
+
+  it("show them all should every one be hidden", () => {
+    expect(visibleProviderIds({ ...effective, hiddenProviders: ["claude", "openai"] }, ["claude", "openai"])).toEqual([
+      "claude",
+      "openai",
+    ]);
+  });
+
+  it("count a group for every provider it does not exclude", () => {
+    expect(countsForProvider(effective.excludedProviders, "Work", "claude")).toBe(false);
+    expect(countsForProvider(effective.excludedProviders, "Work", "openai")).toBe(true);
+    expect(countsForProvider(effective.excludedProviders, "Home", "claude")).toBe(true);
+  });
+
+  it("never mistake the object's own methods for a group", () => {
+    for (const groupId of ["constructor", "toString", "hasOwnProperty"]) {
+      expect(countsForProvider({}, groupId, "claude")).toBe(true);
+    }
+    expect(countsForProvider({ constructor: ["claude"] }, "constructor", "claude")).toBe(false);
   });
 });
 
