@@ -48,7 +48,7 @@ $ProgressPreference = 'SilentlyContinue'
 $parserPath = Join-Path $PSScriptRoot 'ccusage-providers.cjs'
 
 function Read-ProviderTokens {
-  param([string]$SinceDate, [string]$TimeZone, [string]$FallbackProviders)
+  param([string]$SinceDate, [string]$TimeZone, [string]$FallbackProviders, [string]$CycleStart)
   if (-not (Test-Path -LiteralPath $parserPath)) {
     throw "$parserPath is missing; install it next to this script."
   }
@@ -59,34 +59,47 @@ function Read-ProviderTokens {
   if (-not $node -or -not $npx) { throw 'Node.js/npx was not found in PATH.' }
 
   $errorFile = Join-Path ([IO.Path]::GetTempPath()) ("usageratio-ccusage-{0}.log" -f [Guid]::NewGuid())
+  $blocksFile = Join-Path ([IO.Path]::GetTempPath()) ("usageratio-blocks-{0}.json" -f [Guid]::NewGuid())
   # Windows PowerShell 5.1 turns every redirected stderr line of a native command
   # (an npm notice, a Node deprecation warning) into a terminating error under
   # 'Stop'. Relaxed for this function only: the exit codes below decide instead.
   $ErrorActionPreference = 'Continue'
   try {
+    # Claude Code's usage by clock hour, read before the daily report so the hours
+    # never run ahead of the days. Optional: without it the days are sent whole.
+    $blocksArgs = @('--yes', 'ccusage@latest', 'blocks', '--json', '--offline', '--session-length', '1', '--since', ($SinceDate -replace '-', ''), '--timezone', $TimeZone)
+    try {
+      $blocksRaw = & $npx.Source @blocksArgs 2> $null | Out-String
+      if ($LASTEXITCODE -eq 0 -and $blocksRaw) { [IO.File]::WriteAllText($blocksFile, $blocksRaw) }
+    } catch { }
+    $hourlyArgs = @()
+    if ($CycleStart -and (Test-Path -LiteralPath $blocksFile)) { $hourlyArgs = @($blocksFile, $CycleStart, $TimeZone) }
+    # Windows PowerShell 5.1 drops an empty argument, which would shift the ones after it.
+    if (-not $FallbackProviders) { $FallbackProviders = ',' }
+
     $ccusageArgs = @('--yes', 'ccusage@latest', 'daily', '--json', '--by-agent', '--breakdown', '--no-cost', '--since', $SinceDate, '--timezone', $TimeZone)
     $raw = & $npx.Source @ccusageArgs 2> $errorFile | Out-String
     if ($LASTEXITCODE -ne 0) {
       $details = if (Test-Path -LiteralPath $errorFile) { Get-Content -LiteralPath $errorFile -Raw } else { '' }
       throw "ccusage exited with code $LASTEXITCODE. $details"
     }
-    $providersJson = $raw | & $node.Source $parserPath parse $FallbackProviders 2>> $errorFile
+    $providersJson = $raw | & $node.Source $parserPath parse $FallbackProviders @hourlyArgs 2>> $errorFile
     if ($LASTEXITCODE -ne 0 -or -not $providersJson) {
       $details = if (Test-Path -LiteralPath $errorFile) { Get-Content -LiteralPath $errorFile -Raw } else { '' }
       throw "The ccusage JSON could not be converted. $details"
     }
     # The splits by model and by day are optional: without them the report still goes out.
     try {
-      $splitJson = $raw | & $node.Source $parserPath parse-models $FallbackProviders 2> $null
+      $splitJson = $raw | & $node.Source $parserPath parse-models $FallbackProviders @hourlyArgs 2> $null
       if ($LASTEXITCODE -eq 0 -and $splitJson) { $script:modelsJson = [string]$splitJson }
     } catch { }
     try {
-      $daysSplitJson = $raw | & $node.Source $parserPath parse-days 2> $null
+      $daysSplitJson = $raw | & $node.Source $parserPath parse-days $FallbackProviders @hourlyArgs 2> $null
       if ($LASTEXITCODE -eq 0 -and $daysSplitJson) { $script:daysJson = [string]$daysSplitJson }
     } catch { }
     return [string]$providersJson
   } finally {
-    Remove-Item -LiteralPath $errorFile -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $errorFile, $blocksFile -Force -ErrorAction SilentlyContinue
   }
 }
 
@@ -188,7 +201,12 @@ if ($Providers) {
     $timeZone = [string]$cycleResponse.cycle.timeZone
     $fallbackProviders = @($cycleResponse.providers) -join ','
     if (-not $sinceDate -or -not $timeZone) { throw 'The server did not return a complete cycle.' }
-    $providersJson = Read-ProviderTokens -SinceDate $sinceDate -TimeZone $timeZone -FallbackProviders $fallbackProviders
+    # PowerShell 7 turns ISO date strings of a JSON response into DateTime values; 5.1 keeps the string.
+    $cycleStart = $cycleResponse.cycle.start
+    if ($cycleStart -is [DateTime]) {
+      $cycleStart = $cycleStart.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+    }
+    $providersJson = Read-ProviderTokens -SinceDate $sinceDate -TimeZone $timeZone -FallbackProviders $fallbackProviders -CycleStart ([string]$cycleStart)
   } catch {
     Write-Log "ERROR: ccusage could not be read: $($_.Exception.Message)"
     exit 3
@@ -211,7 +229,7 @@ if ($modelsJson -and $modelsJson.Trim() -ne '{}') {
 if ($daysJson -and $daysJson.Trim() -ne '{}') {
   try { $report.days = $daysJson | ConvertFrom-Json } catch { }
 }
-# The split by day nests five levels deep; ConvertTo-Json stops at two by default.
+# The split by day and hour nests six levels deep; ConvertTo-Json stops at two by default.
 $payload = $report | ConvertTo-Json -Compress -Depth 8
 
 if ($DryRun) {

@@ -7,17 +7,22 @@ import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
 type ModelMap = Record<string, Record<string, number>>;
-type DayMap = Record<string, { providers: Record<string, number>; models?: ModelMap }>;
+type DayMap = Record<
+  string,
+  { providers: Record<string, number>; models?: ModelMap; hours?: Record<string, Record<string, number>> }
+>;
+type Hourly = { blocks: unknown; cycleStartMs: number; timeZone: string } | null;
 const PARSER = join(__dirname, "../clients/shared/ccusage-providers.cjs");
 const { normalizeModelMap, normalizeProviderMap, parseCcusageDays, parseCcusageProviders, parseCcusageUsage } =
   require("../clients/shared/ccusage-providers.cjs") as {
     normalizeModelMap: (input: unknown, providers: Record<string, number>) => ModelMap;
     normalizeProviderMap: (input: unknown) => Record<string, number>;
-    parseCcusageDays: (input: unknown) => DayMap;
-    parseCcusageProviders: (input: unknown, fallbackProviders?: string[]) => Record<string, number>;
+    parseCcusageDays: (input: unknown, hourly?: Hourly) => DayMap;
+    parseCcusageProviders: (input: unknown, fallbackProviders?: string[], hourly?: Hourly) => Record<string, number>;
     parseCcusageUsage: (
       input: unknown,
       fallbackProviders?: string[],
+      hourly?: Hourly,
     ) => { providers: Record<string, number>; models: ModelMap };
   };
 
@@ -173,9 +178,9 @@ describe("ccusage split by day", () => {
   });
 
   it("gives up the models, then the whole split, when it would not fit the server's limits", () => {
-    // 20 models with long ids on each of 31 days: about 45 KB of split by model.
+    // 20 models with long ids on each of 31 days: about 51 KB of split by model.
     const models = Array.from({ length: 20 }, (_, i) => ({
-      modelName: `claude-model-with-a-very-long-descriptive-name-number-${i}`,
+      modelName: `claude-model-with-a-very-long-and-rather-descriptive-name-no-${String(i).padStart(2, "0")}`,
       totalTokens: 1_000_000_000_000 + i,
     }));
     const day = (period: string) => ({ period, agents: [{ agent: "claude", modelBreakdowns: models }] });
@@ -210,5 +215,143 @@ describe("ccusage split by day", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  }, 30_000);
+});
+
+describe("ccusage split by hour", () => {
+  const opus = (totalTokens: number) => ({ modelName: "claude-opus-5", totalTokens });
+  const daily = {
+    daily: [
+      {
+        period: "2026-09-19",
+        agents: [{ agent: "claude", modelBreakdowns: [opus(100), { modelName: "claude-sonnet-5", totalTokens: 20 }] }],
+      },
+      {
+        period: "2026-09-20",
+        agents: [
+          { agent: "claude", modelBreakdowns: [opus(50)] },
+          { agent: "codex", modelsUsed: ["gpt-5-codex"], totalTokens: 10 },
+        ],
+      },
+      // Today.
+      { period: "2026-09-21", agents: [{ agent: "claude", modelBreakdowns: [opus(80)] }] },
+    ],
+  };
+  const block = (start: string, totalTokens: number, models = ["claude-opus-5"]) => {
+    const startMs = Date.parse(start);
+    return {
+      startTime: new Date(startMs).toISOString(),
+      endTime: new Date(startMs + 3_600_000).toISOString(),
+      isGap: false,
+      models,
+      totalTokens,
+    };
+  };
+  const blocks = [
+    // 11:00 in Budapest: before the reset at 13:00 (11:00 UTC).
+    block("2026-09-19T09:00:00Z", 20),
+    block("2026-09-19T11:00:00Z", 60, ["claude-opus-5", "claude-sonnet-5"]),
+    { ...block("2026-09-19T15:00:00Z", 0), isGap: true },
+    block("2026-09-19T20:00:00Z", 40),
+    block("2026-09-20T08:00:00Z", 30),
+    block("2026-09-20T10:00:00Z", 20),
+    // The hour in progress was read a moment before the daily report: 10 tokens short.
+    block("2026-09-21T07:00:00Z", 70),
+  ];
+  const hourly = (list: unknown[] = blocks): Hourly => ({
+    blocks: { blocks: list },
+    cycleStartMs: Date.parse("2026-09-19T11:00:00Z"),
+    timeZone: "Europe/Budapest",
   });
+
+  it("takes the hours before the reset off its day, scaling the day's models down with it", () => {
+    expect(parseCcusageUsage(daily, [], hourly())).toEqual({
+      providers: { claude: 230, openai: 10 },
+      // 100 of 120 tokens are left of Saturday: opus 100 → 83, sonnet 20 → 16.
+      models: { claude: { "claude-opus-5": 213, "claude-sonnet-5": 16 }, openai: { "gpt-5-codex": 10 } },
+    });
+    // Without the blocks the whole Saturday counts, as before.
+    expect(parseCcusageProviders(daily)).toEqual({ claude: 250, openai: 10 });
+  });
+
+  it("splits the days by hour where the hours add up to the day", () => {
+    const days = parseCcusageDays(daily, hourly());
+    expect(days["2026-09-19"]).toEqual({
+      providers: { claude: 100 },
+      models: { claude: { "claude-opus-5": 83, "claude-sonnet-5": 16 } },
+      hours: { claude: { "2026-09-19T11:00:00Z": 60, "2026-09-19T20:00:00Z": 40 } },
+    });
+    expect(days["2026-09-20"]!.hours).toEqual({ claude: { "2026-09-20T08:00:00Z": 30, "2026-09-20T10:00:00Z": 20 } });
+    // Today's hours may fall short of the day: the rest is in the hour in progress.
+    expect(days["2026-09-21"]!.hours).toEqual({ claude: { "2026-09-21T07:00:00Z": 70 } });
+    // The days still add up to the snapshot.
+    const total = Object.values(days).reduce((sum, day) => sum + (day.providers.claude ?? 0), 0);
+    expect(total).toBe(parseCcusageProviders(daily, [], hourly()).claude);
+  });
+
+  it("gives up the hours of a past day they do not add up to", () => {
+    // Another agent used Claude on Sunday too: Claude Code's hours are only part of the day.
+    const days = parseCcusageDays(daily, hourly(blocks.filter((entry) => entry.startTime !== "2026-09-20T10:00:00.000Z")));
+    expect(days["2026-09-20"]).not.toHaveProperty("hours");
+    expect(days["2026-09-20"]!.providers.claude).toBe(50);
+    expect(days["2026-09-19"]).toHaveProperty("hours");
+  });
+
+  it("trusts nothing of a day whose hours claim more than the day", () => {
+    const extra = [...blocks, block("2026-09-19T12:00:00Z", 1)];
+    const days = parseCcusageDays(daily, hourly(extra));
+    expect(days["2026-09-19"]).toEqual({
+      providers: { claude: 120 },
+      models: { claude: { "claude-opus-5": 100, "claude-sonnet-5": 20 } },
+    });
+  });
+
+  it("keeps no hours for a provider on a day an hour mixed it with another", () => {
+    const mixed = blocks.map((entry) =>
+      entry.startTime === "2026-09-20T08:00:00.000Z" ? { ...entry, models: ["claude-opus-5", "deepseek-chat"] } : entry,
+    );
+    expect(parseCcusageDays(daily, hourly(mixed))["2026-09-20"]).not.toHaveProperty("hours");
+  });
+
+  it("ignores blocks that are not clock hours", () => {
+    const fiveHours = blocks.map((entry) => ({
+      ...entry,
+      endTime: new Date(Date.parse(entry.startTime) + 5 * 3_600_000).toISOString(),
+    }));
+    expect(parseCcusageUsage(daily, [], hourly(fiveHours))).toEqual(parseCcusageUsage(daily));
+    expect(parseCcusageDays(daily, hourly(fiveHours))).toEqual(parseCcusageDays(daily));
+  });
+
+  it("reads the blocks from the command line and sends the hours", () => {
+    const dir = mkdtempSync(join(tmpdir(), "usageratio-hours-"));
+    try {
+      const dailyFile = join(dir, "daily.json");
+      const blocksFile = join(dir, "blocks.json");
+      writeFileSync(dailyFile, JSON.stringify(daily));
+      writeFileSync(blocksFile, JSON.stringify({ blocks }));
+      const run = (...args: string[]) =>
+        execFileSync("node", [PARSER, ...args], { input: JSON.stringify(daily), encoding: "utf8" });
+      const hourlyArgs = [blocksFile, "2026-09-19T11:00:00.000Z", "Europe/Budapest"];
+
+      expect(JSON.parse(run("parse", "claude", ...hourlyArgs))).toEqual({ claude: 230, openai: 10 });
+      writeFileSync(join(dir, "days.json"), run("parse-days", "claude", ...hourlyArgs));
+      writeFileSync(join(dir, "models.json"), run("parse-models", "claude", ...hourlyArgs));
+      const payload = JSON.parse(
+        execFileSync(
+          "node",
+          [PARSER, "payload", "mac", "Personal", "2026-09-21T08:30:00Z", join(dir, "models.json"), join(dir, "days.json")],
+          { input: JSON.stringify({ claude: 230, openai: 10 }), encoding: "utf8" },
+        ),
+      );
+      expect(payload.days["2026-09-19"].hours.claude).toEqual({ "2026-09-19T11:00:00Z": 60, "2026-09-19T20:00:00Z": 40 });
+      expect(payload.models.claude).toEqual({ "claude-opus-5": 213, "claude-sonnet-5": 16 });
+      // A missing blocks file only means no hours.
+      expect(JSON.parse(run("parse", "claude", join(dir, "none.json"), hourlyArgs[1]!, hourlyArgs[2]!))).toEqual({
+        claude: 250,
+        openai: 10,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

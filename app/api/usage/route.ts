@@ -21,8 +21,10 @@ import { parseUsageReport } from "@/lib/validation";
  *
  * `models` is optional: each provider's tokens split by model, for the
  * dashboard's per-model chart. So is `days`: the same snapshot split by
- * calendar day in the cycle's time zone, which lets the charts place the
- * tokens of days the machine did not report on (see lib/days.ts).
+ * calendar day in the cycle's time zone, some providers' days also by clock
+ * hour (`"hours": { "claude": { "2026-09-20T08:00:00Z": 3000 } }`), which lets
+ * the charts place the tokens of times the machine did not report at (see
+ * lib/days.ts).
  *
  * A `groupId` that is not on the settings panel's list is added to it with a
  * random colour (`"groupRegistered": true` in the response).
@@ -33,7 +35,7 @@ import { parseUsageReport } from "@/lib/validation";
  * 401 bad token · 413 body too large · 500 server misconfigured · 503 Redis down
  */
 
-// Room for the optional splits: up to 60 model ids, and those again for each of up to 32 days.
+// Room for the optional splits: up to 60 model ids, and those again for each of up to 32 days, with their hours.
 const MAX_BODY_BYTES = 65_536;
 const MIN_TOKEN_LENGTH = 16;
 
@@ -131,20 +133,24 @@ export async function POST(request: Request): Promise<Response> {
     now,
     maxClockSkewMinutes: config.maxClockSkewMinutes,
     retentionDays: config.retentionDays,
+    // Never on the settings panel: the clients split their days in this one.
+    timeZone: config.reset.timeZone,
   });
   if (!parsed.ok) return json({ error: "invalid_payload", details: parsed.errors }, 400);
 
+  // The cycle the report falls in bounds its checkpoints (lib/days.ts). A report
+  // must not fail over it: without the settings it is stored alone, and the
+  // next report brings the same checkpoints along.
+  const rawSettings = await loadRawSettings().catch(() => undefined);
+  const reset = rawSettings === undefined ? null : resolveConfig(config, rawSettings).reset;
+  const reportCycle = reset && {
+    timeZone: reset.timeZone,
+    startMs: getCycle(new Date(parsed.report.timestampMs), reset).start.getTime(),
+  };
+
   let stored: Awaited<ReturnType<typeof storeReport>>;
-  let rawSettings: string | null | undefined;
   try {
-    [stored, rawSettings] = await Promise.all([
-      // The time zone is never on the settings panel: the clients split their days in this one.
-      storeReport(parsed.report, now, config.retentionDays, config.reset.timeZone),
-      // Only feeds the informational `cycle` below. A stored report must never be
-      // answered with an error (the client would send its tokens again), so a
-      // failed read just leaves the cycle out.
-      loadRawSettings().catch(() => undefined),
-    ]);
+    stored = await storeReport(parsed.report, now, config.retentionDays, reportCycle);
   } catch (error) {
     if (error instanceof StorageNotConfiguredError) {
       console.error(`[usageratio] ${error.message}`);
@@ -154,8 +160,7 @@ export async function POST(request: Request): Promise<Response> {
     return json({ error: "storage_unavailable" }, 503, { "Retry-After": "60" });
   }
 
-  const cycle =
-    rawSettings === undefined ? null : getCycle(now, resolveConfig(config, rawSettings).reset);
+  const cycle = reset && getCycle(now, reset);
   return json(
     {
       ok: true,

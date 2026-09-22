@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseUsageReport } from "@/lib/validation";
 
 const NOW = new Date("2026-09-21T10:00:30Z");
-const OPTIONS = { now: NOW, maxClockSkewMinutes: 10, retentionDays: 35 };
+const OPTIONS = { now: NOW, maxClockSkewMinutes: 10, retentionDays: 35, timeZone: "Europe/Budapest" };
 
 const VALID = {
   machineId: "mac-studio",
@@ -158,9 +158,51 @@ describe("parseUsageReport", () => {
         date: "2026-09-20",
         providers: { claude: 5000, deepseek: 1234 },
         models: { claude: { "claude-opus-4-5": 4000 } },
+        hours: {},
       },
-      { date: "2026-09-21", providers: { claude: 600 }, models: {} },
+      { date: "2026-09-21", providers: { claude: 600 }, models: {}, hours: {} },
     ]);
+  });
+
+  it("accepts a day's hours, sorted, even when they cover only part of the day", () => {
+    const result = parseUsageReport(
+      {
+        ...VALID,
+        days: {
+          "2026-09-21": {
+            providers: { claude: 600 },
+            // 00:00 and 01:00 in Budapest, which is two hours ahead of UTC in September.
+            hours: { Claude: { "2026-09-20T23:00:00Z": 200, "2026-09-20T22:00:00Z": 300 } },
+          },
+        },
+      },
+      OPTIONS,
+    );
+    expect(result.ok && result.report.days[0]!.hours).toEqual({
+      claude: [
+        { startMs: Date.parse("2026-09-20T22:00:00Z"), tokens: 300 },
+        { startMs: Date.parse("2026-09-20T23:00:00Z"), tokens: 200 },
+      ],
+    });
+  });
+
+  it.each([
+    ["not an object", 5],
+    ["a provider not of the day", { deepseek: { "2026-09-21T08:00:00Z": 1 } }],
+    ["hours not an object", { claude: 5 }],
+    ["a key that is not a whole hour", { claude: { "2026-09-21T08:30:00Z": 1 } }],
+    ["a key that is not in UTC", { claude: { "2026-09-21T10:00:00+02:00": 1 } }],
+    ["an hour that does not exist", { claude: { "2026-09-21T24:00:00Z": 1 } }],
+    ["an hour of the day before", { claude: { "2026-09-20T21:00:00Z": 1 } }],
+    ["an hour of the day after", { claude: { "2026-09-21T22:00:00Z": 1 } }],
+    ["a fractional token count", { claude: { "2026-09-21T08:00:00Z": 1.5 } }],
+    ["more tokens than the day", { claude: { "2026-09-21T08:00:00Z": 400, "2026-09-21T09:00:00Z": 201 } }],
+    [
+      "too many hours",
+      { claude: Object.fromEntries(Array.from({ length: 26 }, (_, i) => [`2026-09-${i < 2 ? 20 : 21}T${String((22 + i) % 24).padStart(2, "0")}:00:00Z`, 1])) },
+    ],
+  ])("rejects hours with %s", (_, hours) => {
+    expect(errorsOf({ ...VALID, days: { "2026-09-21": { providers: { claude: 600 }, hours } } })).toHaveLength(1);
   });
 
   it.each([

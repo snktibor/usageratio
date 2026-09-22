@@ -1,6 +1,6 @@
 import type { UsageEvent } from "@/lib/aggregate";
 import type { KnownMachine } from "@/lib/dashboard";
-import { dayCheckpoints } from "@/lib/days";
+import { reportCheckpoints } from "@/lib/days";
 import { DEFAULT_PROVIDER_ID, mergeProviderIds, normalizeProviderId } from "@/lib/providers";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import {
@@ -35,9 +35,10 @@ import type { UsageReport } from "@/lib/validation";
  * history. Members are unique per (provider, machine, tokens, time), so a
  * retried POST is a no-op.
  *
- * A report split by day also leaves a checkpoint at the end of each finished
- * day: the machine's running total at that moment. Every later report sends
- * the same days again, so these are no-ops too, until a day's total changes.
+ * A report split by day (and hour) also leaves a checkpoint at the end of each
+ * finished day and hour of its cycle: the machine's running total at that
+ * moment. Every later report sends the same days again, so these are no-ops
+ * too, until a day's total changes.
  *
  * Pre-provider keys (`usage:events:{groupId}` and plain machine hash fields)
  * are still read as DeepSeek data, so the refactor does not hide history.
@@ -93,20 +94,21 @@ function parseModelSplit(raw: unknown): Record<string, number> | null {
 }
 
 /**
- * Persists one report, and the checkpoints of its split by day (in
- * `timeZone`, the one the clients split the days in). `duplicate` is true when
- * the identical report was already stored; `newGroup` when its group was
- * unknown and got registered with a random colour.
+ * Persists one report, and the checkpoints of its split by day inside its
+ * cycle (`cycle`: the time zone the clients split the days in, and the start
+ * of the cycle the report falls in; null stores the report alone).
+ * `duplicate` is true when the identical report was already stored;
+ * `newGroup` when its group was unknown and got registered with a random colour.
  */
 export async function storeReport(
   report: UsageReport,
   now: Date,
   retentionDays: number,
-  timeZone: string,
+  cycle: { timeZone: string; startMs: number } | null,
 ): Promise<{ duplicate: boolean; newGroup: boolean; newProviders: string[] }> {
   const providers = Object.entries(report.providers);
   const oldestMs = now.getTime() - retentionDays * DAY_MS;
-  const checkpoints = dayCheckpoints(report, timeZone).filter((checkpoint) => checkpoint.ts > oldestMs);
+  const checkpoints = cycle ? reportCheckpoints(report, cycle.timeZone, Math.max(cycle.startMs, oldestMs)) : [];
 
   const tx = getRedis().multi();
   tx.hsetnx(KEYS.groups, report.groupId, serializeGroupEntry(randomGroupColor(), now.getTime()));
@@ -124,12 +126,12 @@ export async function storeReport(
   tx.hset(KEYS.machines, machineEntries);
   // After everything the results below are read from, so their positions stay fixed.
   for (const [providerId] of providers) {
-    const members = checkpoints.flatMap((checkpoint) => {
-      const tokens = checkpoint.providers[providerId];
-      if (tokens === undefined) return [];
-      const member = eventMember(report.machineId, tokens, checkpoint.ts, checkpoint.models[providerId], true);
-      return [{ score: checkpoint.ts, member }];
-    });
+    const members = checkpoints
+      .filter((checkpoint) => checkpoint.providerId === providerId)
+      .map((checkpoint) => ({
+        score: checkpoint.ts,
+        member: eventMember(report.machineId, checkpoint.tokens, checkpoint.ts, checkpoint.models, true),
+      }));
     const [first, ...rest] = members;
     if (first) tx.zadd(KEYS.events(providerId, report.groupId), { nx: true }, first, ...rest);
   }

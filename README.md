@@ -164,15 +164,26 @@ első jelentése előtti napok (egy ciklus közben telepített gépnél) és a m
 napok is a saját napjukon látszanak, nem a következő jelentés pillanatában ugranak fel. Az
 összesítésben ezek a tokenek eddig is benne voltak, hiszen a snapshot a ciklus eleje óta számol. A
 napzáró pont nem jelentés: a géptábla jelentésszámlálója és a „késik” jelzés nem veszi figyelembe,
-és csak `snapshot` módban olvasódik. A napon belüli eloszlást a `ccusage daily` nem adja meg, ezért a
-visszatöltött szakasz napi lépcsőkben emelkedik. Ami egy ciklusból a reset előtt jelentés nélkül
+és csak `snapshot` módban olvasódik.
+
+A Claude Code használatát a kliens **óránként** is bontja: a `ccusage daily` előtt lefuttatja a
+`ccusage blocks --session-length 1` parancsot, amely egész órás blokkokat ad. Egy nap órái csak akkor
+mennek fel, ha tokenre kiadják a napot (a mai napon kevesebbet is adhatnak, a folyamatban lévő óra
+miatt); ha nem (például egy másik ügynök is Claude-modellt használt aznap), a nap egyben megy. A
+szerver ilyenkor minden lezárult óra végére is napzáró pontot ír, modellbontás nélkül (a blokkokban
+nincs modellenkénti szám). A reset napján a ciklus kezdete előtti órák kimaradnak a Claude-összegből,
+így a reset napjának délelőttje nem számít bele két ciklusba; az aznapi modellbontás ennek arányában
+csökken. Minden más (Codex és a többi ügynök) napi felbontású marad: a `blocks` csak a Claude Code-ot
+látja, ezért ott a visszatöltött szakasz napi lépcsőkben emelkedik. Ami egy ciklusból a reset előtt jelentés nélkül
 marad (manuális módban az utolsó futtatás és a reset közti rész), azt a következő ciklus jelentései
 nem hozzák vissza: azok csak az új ciklus napjait tartalmazzák.
 
 A provider kulcs kisbetűs azonosító (`a-z`, szám, pont, kötőjel, aláhúzás). Ismert nevekhez a UI
 szép címkét ad (`openai` → OpenAI, `deepseek` → DeepSeek); ismeretlen azonosító is használható.
-Mivel a `ccusage daily` naptári napokra bont, a ciklus első napját napfelbontással lehet szűrni; a
-teljes pontossághoz a reset időpontját tartsd éjfélen (ez az alapbeállítás).
+Mivel a `ccusage daily` naptári napokra bont, a ciklus első napját napfelbontással lehet szűrni: a
+Claude Code-ot a fenti órás bontás pontosan a reset pillanatától számolja, a többi ügynöknél viszont
+a reset napjának egésze az új ciklusba kerül. Ott a teljes pontossághoz a reset időpontját tartsd
+éjfélen (ez az alapbeállítás).
 
 ## 4. Beállítások
 
@@ -296,7 +307,8 @@ A **kezdőérték** addig érvényes, amíg a Beállítások panelen nem mentesz
   "days": {
     "2026-09-20": {
       "providers": { "claude": 12000, "openai": 9000 },
-      "models": { "claude": { "claude-opus-4-5-20251101": 12000 } }
+      "models": { "claude": { "claude-opus-4-5-20251101": 12000 } },
+      "hours": { "claude": { "2026-09-20T08:00:00Z": 5000, "2026-09-20T09:00:00Z": 7000 } }
     },
     "2026-09-21": { "providers": { "deepseek": 15000, "claude": 10000 } }
   }
@@ -311,7 +323,10 @@ Csak a `providers`-ben szereplő provider bontható, és a modellek összege nem
 értékénél (kisebb lehet: nem minden token köthető modellhez). A `days` is elhagyható: ugyanez a
 snapshot naptári napokra bontva (`ÉÉÉÉ-HH-NN` kulcsok a ciklus időzónájában, legfeljebb 32 nap), naponként
 `providers` és elhagyható `models`, ugyanazokkal a szabályokkal. Egy nap csak a `providers`-ben szereplő
-providert tartalmazhatja, és egy provider napjai együtt sem lehetnek többek a teljes értékénél. A válasz
+providert tartalmazhatja, és egy provider napjai együtt sem lehetnek többek a teljes értékénél. A napok
+elhagyható `hours` mezője providerenként az adott nap óráit adja (kulcs: az óra kezdete UTC-ben, egész
+órára, és a napon belül kell lennie; naponként legfeljebb 25 óra). Egy provider órái nem lehetnek többek a
+napjánál. A szerver csak a jelentés saját ciklusába eső napzáró pontokat tárolja. A válasz
 `groupRegistered` és `providersRegistered` mezője jelzi az új indexbejegyzéseket.
 
 | Kód | Jelentés |

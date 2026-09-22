@@ -1,4 +1,5 @@
-import { MAX_REPORT_DAYS } from "@/lib/days";
+import { getDayEnd, getDayStart } from "@/lib/cycle";
+import { HOUR_MS, MAX_DAY_HOURS, MAX_REPORT_DAYS } from "@/lib/days";
 import { MAX_MODELS_PER_PROVIDER, MAX_MODELS_PER_REPORT, normalizeModelId } from "@/lib/models";
 import { MAX_PROVIDERS, normalizeProviderId } from "@/lib/providers";
 
@@ -10,6 +11,14 @@ export interface DayUsage {
   providers: Record<string, number>;
   /** Those tokens split by model, like the report's `models`. */
   models: Record<string, Record<string, number>>;
+  /** Some providers' tokens that day by clock hour, oldest first: providerId → hours. */
+  hours: Record<string, HourUsage[]>;
+}
+
+export interface HourUsage {
+  /** The start of the clock hour, epoch ms. */
+  startMs: number;
+  tokens: number;
 }
 
 /** A validated multi-provider snapshot, as sent by the client scripts. */
@@ -41,12 +50,15 @@ export interface ParseOptions {
   now: Date;
   maxClockSkewMinutes: number;
   retentionDays: number;
+  /** The one the clients split their days in: every hour of a day must lie inside it. */
+  timeZone: string;
 }
 
 const MAX_ID_LENGTH = 64;
 // Letters and digits of any script, plus space . _ - (the ids end up in Redis key names).
 const ID_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u;
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+const HOUR_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:00:00Z$/;
 const ISO_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}:\d{2})$/;
 
@@ -212,12 +224,84 @@ function parseModels(
 }
 
 /**
+ * A day's optional `hours`: `{ "claude": { "2026-09-21T08:00:00Z": 300 } }`,
+ * each key the start of a clock hour of that day (in UTC). Every provider in
+ * it must be one of the day's, and its hours may not add up to more than its
+ * day (they may to less on the day in progress).
+ */
+function parseHours(
+  input: unknown,
+  date: string,
+  providers: Record<string, number>,
+  field: string,
+  timeZone: string,
+  errors: string[],
+): Record<string, HourUsage[]> {
+  const hours: Record<string, HourUsage[]> = {};
+  if (input === undefined) return hours;
+  if (!isObject(input)) {
+    errors.push(`${field} must be a JSON object`);
+    return hours;
+  }
+  const dayStartMs = getDayStart(date, timeZone).getTime();
+  const dayEndMs = getDayEnd(date, timeZone).getTime();
+
+  for (const [rawProvider, rawHours] of Object.entries(input)) {
+    const provider = normalizeProviderId(rawProvider);
+    if (!provider || !Object.hasOwn(providers, provider)) {
+      errors.push(`${field}.${rawProvider} must name a provider of the day`);
+      continue;
+    }
+    if (Object.hasOwn(hours, provider)) {
+      errors.push(`${field}.${rawProvider} is listed twice after normalization`);
+      continue;
+    }
+    if (!isObject(rawHours)) {
+      errors.push(`${field}.${rawProvider} must be a JSON object`);
+      continue;
+    }
+    const entries = Object.entries(rawHours);
+    if (entries.length > MAX_DAY_HOURS) {
+      errors.push(`${field}.${rawProvider} may contain at most ${MAX_DAY_HOURS} hours`);
+      continue;
+    }
+
+    const list: HourUsage[] = [];
+    let sum = 0;
+    for (const [key, tokens] of entries) {
+      const startMs = HOUR_PATTERN.test(key) ? Date.parse(key) : NaN;
+      if (!Number.isFinite(startMs) || new Date(startMs).toISOString() !== key.replace("Z", ".000Z")) {
+        errors.push(`${field}.${rawProvider} must be keyed by hours like "2026-09-21T08:00:00Z", got ${JSON.stringify(key)}`);
+      } else if (startMs < dayStartMs || startMs + HOUR_MS > dayEndMs) {
+        errors.push(`${field}.${rawProvider}.${key} is not an hour of ${date} in ${timeZone}`);
+      } else if (!isTokenCount(tokens)) {
+        errors.push(`${field}.${rawProvider}.${key} must be a non-negative integer (a JSON number)`);
+      } else {
+        list.push({ startMs, tokens });
+        sum += tokens;
+      }
+    }
+    if (sum > providers[provider]!) {
+      errors.push(`${field}.${rawProvider} adds up to more tokens than the day`);
+    }
+    hours[provider] = list.sort((a, b) => a.startMs - b.startMs);
+  }
+  return hours;
+}
+
+/**
  * The optional `days` object: the `providers` snapshot split by calendar day,
- * `{ "2026-09-21": { "providers": { "claude": 900 }, "models": { "claude": { "claude-opus-4-5": 800 } } } }`.
+ * `{ "2026-09-21": { "providers": { "claude": 900 }, "models": { "claude": { "claude-opus-4-5": 800 } },
+ * "hours": { "claude": { "2026-09-21T08:00:00Z": 300, "2026-09-21T09:00:00Z": 600 } } } }`.
  * Every provider of a day must be in `providers`, and a provider's days may
  * not add up to more than its total there.
  */
-function parseDays(input: unknown, providers: Record<string, number>, errors: string[]): DayUsage[] {
+function parseDays(
+  input: unknown,
+  providers: Record<string, number>,
+  timeZone: string,
+  errors: string[],
+): DayUsage[] {
   if (input === undefined) return [];
   if (!isObject(input)) {
     errors.push("days must be a JSON object");
@@ -249,7 +333,8 @@ function parseDays(input: unknown, providers: Record<string, number>, errors: st
       totals[provider] = (totals[provider] ?? 0) + tokens;
     }
     const models = parseModels(rawDay.models, dayProviders, errors, `${field}.models`, `${field}.providers`);
-    days.push({ date, providers: dayProviders, models });
+    const hours = parseHours(rawDay.hours, date, dayProviders, `${field}.hours`, timeZone, errors);
+    days.push({ date, providers: dayProviders, models, hours });
   }
 
   for (const [provider, total] of Object.entries(totals)) {
@@ -274,7 +359,7 @@ export function parseUsageReport(input: unknown, options: ParseOptions): ParseRe
 
   const providers = parseProviders(body.providers, "providers", errors);
   const models = parseModels(body.models, providers, errors);
-  const days = parseDays(body.days, providers, errors);
+  const days = parseDays(body.days, providers, options.timeZone, errors);
 
   let timestampMs: number | null = null;
   if (typeof body.timestamp === "string") timestampMs = parseIsoTimestamp(body.timestamp.trim());
