@@ -39,18 +39,37 @@ case "$OUTPUT_MODE" in
   *) OUTPUT_MODE="silent" ;;
 esac
 
+# Runs ccusage with the given arguments into the file $1: the global ccusage
+# first, and when that fails (an older version may not know unified reports
+# yet), the current package through npx.
+run_ccusage() {
+  local output="$1"
+  shift
+  if command -v ccusage >/dev/null 2>&1 && ccusage "$@" >"$output"; then
+    return 0
+  fi
+  command -v npx >/dev/null 2>&1 || return 1
+  npx --yes ccusage@latest "$@" >"$output"
+}
+
 # Runs ccusage's unified daily report and converts every model/source to a
-# provider snapshot, plus each provider's split by model in $WORK_DIR/models.json.
+# provider snapshot, plus each provider's split by model in $WORK_DIR/models.json
+# and the snapshot's split by day (Claude Code's also by hour, from ccusage's
+# one-hour blocks) in $WORK_DIR/days.json.
 # No jq is needed; the shared parser uses Node.js.
 read_provider_tokens() {
   local output_file="$WORK_DIR/ccusage.json"
+  local blocks_file="$WORK_DIR/blocks.json"
   local error_file="$WORK_DIR/ccusage-error"
   local cycle_file="$WORK_DIR/cycle.json"
   local cycle_code
+  local cycle_start
   local cycle_since
   local cycle_timezone
   local cycle_providers
   local -a ccusage_args
+  local -a blocks_args
+  local -a hourly_args
 
   cycle_code="$(curl --silent --show-error \
     --config "$WORK_DIR/curl.conf" \
@@ -68,26 +87,27 @@ read_provider_tokens() {
   cycle_since="$(node "$CCUSAGE_PARSER" cycle-since <"$cycle_file" 2>>"$error_file")" || return 1
   cycle_timezone="$(node "$CCUSAGE_PARSER" cycle-timezone <"$cycle_file" 2>>"$error_file")" || return 1
   cycle_providers="$(node "$CCUSAGE_PARSER" cycle-providers <"$cycle_file" 2>>"$error_file")" || return 1
+  # Only the hours need the exact start: without it the days are sent whole.
+  cycle_start="$(node "$CCUSAGE_PARSER" cycle-start <"$cycle_file" 2>/dev/null)" || cycle_start=""
   ccusage_args=(daily --json --by-agent --breakdown --no-cost --since "$cycle_since" --timezone "$cycle_timezone")
+  blocks_args=(blocks --json --offline --session-length 1 --since "${cycle_since//-/}" --timezone "$cycle_timezone")
 
-  if command -v ccusage >/dev/null 2>&1; then
-    if ! ccusage "${ccusage_args[@]}" >"$output_file" 2>>"$error_file"; then
-      # An older global ccusage may not understand unified reports yet. Try the
-      # current package before treating the read as failed.
-      command -v npx >/dev/null 2>&1 || return 1
-      npx --yes ccusage@latest "${ccusage_args[@]}" >"$output_file" 2>>"$error_file" || return 1
-    fi
-  elif command -v npx >/dev/null 2>&1; then
-    npx --yes ccusage@latest "${ccusage_args[@]}" >"$output_file" 2>>"$error_file" || return 1
-  else
+  if ! command -v ccusage >/dev/null 2>&1 && ! command -v npx >/dev/null 2>&1; then
     printf '%s\n' "Neither ccusage nor npx was found in PATH." >"$error_file"
     return 1
   fi
+  # Read before the daily report, so the hours never run ahead of the days.
+  # Optional: a failed read only means the days are sent without hours.
+  run_ccusage "$blocks_file" "${blocks_args[@]}" 2>/dev/null || rm -f "$blocks_file"
+  run_ccusage "$output_file" "${ccusage_args[@]}" 2>>"$error_file" || return 1
 
-  PROVIDERS_JSON="$(node "$CCUSAGE_PARSER" parse "$cycle_providers" <"$output_file" 2>>"$error_file")" || return 1
-  # The split by model is optional: without it the report still goes out.
-  node "$CCUSAGE_PARSER" parse-models "$cycle_providers" <"$output_file" >"$WORK_DIR/models.json" 2>/dev/null ||
+  hourly_args=("$blocks_file" "$cycle_start" "$cycle_timezone")
+  PROVIDERS_JSON="$(node "$CCUSAGE_PARSER" parse "$cycle_providers" "${hourly_args[@]}" <"$output_file" 2>>"$error_file")" || return 1
+  # The splits by model and by day are optional: without them the report still goes out.
+  node "$CCUSAGE_PARSER" parse-models "$cycle_providers" "${hourly_args[@]}" <"$output_file" >"$WORK_DIR/models.json" 2>/dev/null ||
     rm -f "$WORK_DIR/models.json"
+  node "$CCUSAGE_PARSER" parse-days "$cycle_providers" "${hourly_args[@]}" <"$output_file" >"$WORK_DIR/days.json" 2>/dev/null ||
+    rm -f "$WORK_DIR/days.json"
   [ -n "$PROVIDERS_JSON" ]
 }
 
@@ -257,7 +277,7 @@ fi
 # ─── Payload ──────────────────────────────────────────────────────────────────
 
 TIMESTAMP="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-PAYLOAD="$(printf '%s' "$PROVIDERS_JSON" | node "$CCUSAGE_PARSER" payload "$MACHINE_ID" "$GROUP_ID" "$TIMESTAMP" "$WORK_DIR/models.json" 2>"$WORK_DIR/payload-error")" || {
+PAYLOAD="$(printf '%s' "$PROVIDERS_JSON" | node "$CCUSAGE_PARSER" payload "$MACHINE_ID" "$GROUP_ID" "$TIMESTAMP" "$WORK_DIR/models.json" "$WORK_DIR/days.json" 2>"$WORK_DIR/payload-error")" || {
   log "ERROR: could not create the JSON payload"
   exit 3
 }

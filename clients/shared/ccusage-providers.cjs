@@ -3,7 +3,8 @@
 
 /**
  * Converts ccusage's JSON output to the compact provider snapshot accepted by
- * /api/usage, and to its optional split by model. Kept in one dependency-free
+ * /api/usage, and to its optional splits by model, by day and (for Claude Code,
+ * from `ccusage blocks`) by hour. Kept in one dependency-free
  * file so Bash and PowerShell use the exact same classification rules. Node
  * is already required by npx/ccusage.
  */
@@ -14,6 +15,12 @@ const MAX_PROVIDERS = 20;
 // The server's limits for the optional split by model (lib/models.ts).
 const MAX_MODELS_PER_PROVIDER = 20;
 const MAX_MODELS = 60;
+// The server's limit for the optional split by day (lib/days.ts): a monthly cycle touches up to 32 days.
+const MAX_DAYS = 32;
+// The split by day (with its hours) stays well inside the server's 64 KB body limit, next to everything else.
+const MAX_DAYS_BYTES = 48_000;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const HOUR_MS = 3_600_000;
 
 function asObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
@@ -224,24 +231,223 @@ function normalizeModelMap(input, providers) {
   return sorted;
 }
 
-/** ccusage's JSON → { providers: { provider: tokens }, models: { provider: { model: tokens } } }. */
-function parseCcusageUsage(input, fallbackProviders = []) {
+function newUsage() {
+  return { providers: new Map(), models: new Map() };
+}
+
+/** One row of a report (a day of a daily report, or a row of an older format) into `usage`. */
+function addRow(usage, item, documentSource) {
+  if (Array.isArray(item.agents) && item.agents.length > 0) {
+    for (const agent of item.agents) addUsage(usage, agent, item.agent ?? item.source ?? documentSource);
+  } else {
+    addUsage(usage, item, documentSource);
+  }
+}
+
+function mergeUsage(target, part) {
+  for (const [provider, tokens] of part.providers) add(target.providers, provider, tokens);
+  for (const [provider, byModel] of part.models) {
+    const targetModels = target.models.get(provider) || new Map();
+    target.models.set(provider, targetModels);
+    for (const [model, tokens] of byModel) add(targetModels, model, tokens);
+  }
+}
+
+function modelObject(models) {
+  return Object.fromEntries([...models].map(([provider, byModel]) => [provider, Object.fromEntries(byModel)]));
+}
+
+/** A daily row's calendar day ("YYYY-MM-DD"), or "" for rows without one. */
+function rowDate(item) {
+  for (const key of ["period", "date", "day"]) {
+    const value = item[key];
+    if (typeof value === "string" && DATE_PATTERN.test(value)) return value;
+  }
+  return "";
+}
+
+const dateFormatters = new Map();
+
+/** The calendar day ("YYYY-MM-DD") an instant falls on in `timeZone`. */
+function localDate(ms, timeZone) {
+  let formatter = dateFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+    dateFormatters.set(timeZone, formatter);
+  }
+  const parts = {};
+  for (const part of formatter.formatToParts(new Date(ms))) parts[part.type] = part.value;
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+/** "2026-09-19T11:00:00Z": how the server expects an hour. */
+function hourKey(startMs) {
+  return new Date(startMs).toISOString().replace(".000Z", "Z");
+}
+
+function sumTokens(hours) {
+  return hours.reduce((total, hour) => total + hour.tokens, 0);
+}
+
+/**
+ * ccusage's one-hour blocks (`blocks --session-length 1`, which only sees
+ * Claude Code) → Map(date → Map(provider → [{ startMs, tokens }])), plus the
+ * "date provider" pairs whose blocks cannot be pinned down: a block that used
+ * models of two providers, or one that runs over midnight (a time zone off
+ * UTC by half an hour). Null when the blocks are not whole clock hours, as
+ * from a ccusage that ignored --session-length.
+ */
+function hourlyBlocks(input, timeZone) {
+  const blocks = asObject(input)?.blocks;
+  if (!Array.isArray(blocks)) return null;
+  const byDate = new Map();
+  const unclear = new Set();
+
+  for (const raw of blocks) {
+    const block = asObject(raw);
+    if (!block || block.isGap === true) continue;
+    const startMs = Date.parse(block.startTime);
+    const endMs = Date.parse(block.endTime);
+    if (!Number.isFinite(startMs) || endMs - startMs !== HOUR_MS || startMs % HOUR_MS !== 0) return null;
+    const tokens = tokenTotal(block);
+    if (tokens === 0) continue;
+
+    const models = Array.isArray(block.models) ? block.models : [];
+    const providers = new Set(models.map((model) => providerFrom(model, "claude")));
+    if (providers.size === 0) providers.add("claude");
+    const date = localDate(startMs, timeZone);
+    const lastDate = localDate(endMs - 1, timeZone);
+    if (providers.size > 1 || date !== lastDate) {
+      for (const provider of providers) {
+        unclear.add(`${date} ${provider}`);
+        unclear.add(`${lastDate} ${provider}`);
+      }
+      continue;
+    }
+
+    const [provider] = providers;
+    const byProvider = byDate.get(date) || new Map();
+    byDate.set(date, byProvider);
+    const hours = byProvider.get(provider) || [];
+    byProvider.set(provider, hours);
+    hours.push({ startMs, tokens });
+  }
+  return { byDate, unclear };
+}
+
+/** Takes `amount` of `provider`'s tokens off `usage`, and scales its split by model down to what is left. */
+function trimProvider(usage, provider, amount) {
+  const total = usage.providers.get(provider) || 0;
+  const left = total - amount;
+  usage.providers.set(provider, left);
+  const byModel = usage.models.get(provider);
+  if (!byModel || total === 0) return;
+  for (const [model, tokens] of byModel) {
+    // Integer arithmetic: the scaled models never add up to more than what is left.
+    byModel.set(model, Number((BigInt(tokens) * BigInt(left)) / BigInt(total)));
+  }
+}
+
+/**
+ * Lays the one-hour blocks of `hourly` over the days of a daily report
+ * (`days`: date → usage, changed in place) and returns each day's hours by
+ * provider. The blocks are read a moment before the daily report, so on the
+ * last day they may miss a little of the hour in progress; on every other
+ * day a provider's hours are kept only when they add up to its day exactly
+ * (another agent may have used the same provider's models).
+ *
+ * On the day of the reset, the hours before the cycle's start are taken off
+ * the provider's day, so they no longer count in both cycles; the day's split
+ * by model is scaled down in proportion (the blocks carry no split of their
+ * own). The providers without hours keep the whole day.
+ */
+function applyHourly(days, hourly) {
+  const hoursByDate = new Map();
+  const blocks = hourly && hourlyBlocks(hourly.blocks, hourly.timeZone);
+  if (!blocks) return hoursByDate;
+  const firstDate = localDate(hourly.cycleStartMs, hourly.timeZone);
+  const lastDate = [...days.keys()].sort().at(-1);
+
+  for (const [date, usage] of days) {
+    for (const [provider, blockHours] of blocks.byDate.get(date) || []) {
+      const total = usage.providers.get(provider) || 0;
+      const blockTotal = sumTokens(blockHours);
+      // More in the blocks than in the day: not the same reading, so neither is trusted.
+      if (blockTotal > total) continue;
+
+      let hours = blockHours;
+      if (date === firstDate) {
+        const before = sumTokens(blockHours.filter((hour) => hour.startMs + HOUR_MS <= hourly.cycleStartMs));
+        if (before > 0) trimProvider(usage, provider, before);
+        hours = blockHours.filter((hour) => hour.startMs + HOUR_MS > hourly.cycleStartMs);
+      }
+
+      const complete = blockTotal === total || date === lastDate;
+      if (!complete || blocks.unclear.has(`${date} ${provider}`) || hours.length === 0) continue;
+      const byProvider = hoursByDate.get(date) || new Map();
+      hoursByDate.set(date, byProvider);
+      byProvider.set(provider, hours);
+    }
+  }
+  return hoursByDate;
+}
+
+/** A report's rows gathered by calendar day (and those without one), with `hourly` laid over the days. */
+function collectUsage(input, hourly) {
   const document = asObject(input) || (Array.isArray(input) ? input : null);
   if (!document) throw new Error("ccusage did not return a JSON object");
-  const usage = { providers: new Map(), models: new Map() };
   const documentSource = document.agent ?? document.source ?? document.provider ?? "";
+  const days = new Map();
+  const undated = newUsage();
 
   for (const row of reportRows(document)) {
     const item = asObject(row);
     if (!item) continue;
-    if (Array.isArray(item.agents) && item.agents.length > 0) {
-      for (const agent of item.agents) {
-        addUsage(usage, agent, item.agent ?? item.source ?? documentSource);
-      }
-    } else {
-      addUsage(usage, item, documentSource);
+    const date = rowDate(item);
+    let usage = undated;
+    if (date) {
+      usage = days.get(date) || newUsage();
+      days.set(date, usage);
     }
+    addRow(usage, item, documentSource);
   }
+  return { document, documentSource, days, undated, hoursByDate: applyHourly(days, hourly) };
+}
+
+/** { "YYYY-MM-DD": { providers, models?, hours? } }, days without tokens left out. */
+function dayMap(days, hoursByDate) {
+  const result = {};
+  for (const date of [...days.keys()].sort()) {
+    const usage = days.get(date);
+    const providers = Object.fromEntries(
+      [...usage.providers].filter(([, tokens]) => tokens > 0).sort(([a], [b]) => a.localeCompare(b)),
+    );
+    if (Object.keys(providers).length === 0) continue;
+    const day = { providers };
+    const models = normalizeModelMap(modelObject(usage.models), providers);
+    if (Object.keys(models).length > 0) day.models = models;
+
+    const hours = {};
+    for (const [provider, list] of [...(hoursByDate.get(date) || [])].sort(([a], [b]) => a.localeCompare(b))) {
+      if (!Object.hasOwn(providers, provider)) continue;
+      const sorted = [...list].sort((a, b) => a.startMs - b.startMs);
+      hours[provider] = Object.fromEntries(sorted.map((hour) => [hourKey(hour.startMs), hour.tokens]));
+    }
+    if (Object.keys(hours).length > 0) day.hours = hours;
+    result[date] = day;
+  }
+  return result;
+}
+
+/**
+ * ccusage's daily JSON → { providers: { provider: tokens }, models: { provider: { model: tokens } } }.
+ * `hourly` ({ blocks, cycleStartMs, timeZone }, optional) lays Claude Code's
+ * hours over the days first: see applyHourly.
+ */
+function parseCcusageUsage(input, fallbackProviders = [], hourly = null) {
+  const { document, documentSource, days, undated } = collectUsage(input, hourly);
+  const usage = newUsage();
+  for (const part of [...days.values(), undated]) mergeUsage(usage, part);
 
   // Focused/older ccusage formats can contain only a totals/summary object.
   if (usage.providers.size === 0) {
@@ -256,14 +462,52 @@ function parseCcusageUsage(input, fallbackProviders = []) {
   }
 
   const providers = normalizeProviderMap(Object.fromEntries(usage.providers));
-  const models = Object.fromEntries(
-    [...usage.models].map(([provider, byModel]) => [provider, Object.fromEntries(byModel)]),
-  );
-  return { providers, models: normalizeModelMap(models, providers) };
+  return { providers, models: normalizeModelMap(modelObject(usage.models), providers) };
 }
 
-function parseCcusageProviders(input, fallbackProviders = []) {
-  return parseCcusageUsage(input, fallbackProviders).providers;
+function parseCcusageProviders(input, fallbackProviders = [], hourly = null) {
+  return parseCcusageUsage(input, fallbackProviders, hourly).providers;
+}
+
+/**
+ * ccusage's daily JSON → { "YYYY-MM-DD": { providers, models, hours } }: the
+ * snapshot of parseCcusageUsage split by calendar day, and with `hourly`
+ * Claude Code's days by hour too ({ provider: { "2026-09-19T11:00:00Z": tokens } }).
+ * When it would not fit the server's limits, the days lose their split by
+ * model first, then their hours, then the whole split is given up ({}): the
+ * report itself goes out either way.
+ */
+function parseCcusageDays(input, hourly = null) {
+  const { days, hoursByDate } = collectUsage(input, hourly);
+  const split = dayMap(days, hoursByDate);
+  if (Object.keys(split).length > MAX_DAYS) return {};
+
+  const fits = (value) => Buffer.byteLength(JSON.stringify(value)) <= MAX_DAYS_BYTES;
+  const without = (...keys) =>
+    Object.fromEntries(
+      Object.entries(split).map(([date, day]) => [
+        date,
+        Object.fromEntries(Object.entries(day).filter(([key]) => !keys.includes(key))),
+      ]),
+    );
+  for (const candidate of [split, without("models"), without("models", "hours")]) {
+    if (fits(candidate)) return candidate;
+  }
+  return {};
+}
+
+/** The `hourly` input of the parse commands; null when any part of it is missing or unreadable. */
+function readHourly(blocksPath, cycleStart, timeZone) {
+  if (!blocksPath || !cycleStart || !timeZone) return null;
+  const cycleStartMs = Date.parse(cycleStart);
+  if (!Number.isFinite(cycleStartMs)) return null;
+  try {
+    localDate(cycleStartMs, timeZone);
+    const blocks = JSON.parse(fs.readFileSync(blocksPath, "utf8").replace(/^﻿/, ""));
+    return { blocks, cycleStartMs, timeZone };
+  } catch {
+    return null;
+  }
 }
 
 /** The split saved by `parse-models`; a missing or unreadable file only means no split is sent. */
@@ -271,6 +515,41 @@ function readModelFile(path, providers) {
   if (!path) return {};
   try {
     return normalizeModelMap(JSON.parse(fs.readFileSync(path, "utf8").replace(/^\uFEFF/, "")), providers);
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The split saved by `parse-days`, when it matches `providers`: every day's
+ * providers listed there, no provider's days adding up to more than its
+ * total, and no day's hours to more than the day. Anything else sends no
+ * split by day at all.
+ */
+function readDaysFile(path, providers) {
+  if (!path) return {};
+  try {
+    const days = asObject(JSON.parse(fs.readFileSync(path, "utf8").replace(/^\uFEFF/, "")));
+    if (!days) return {};
+    const totals = {};
+    for (const [date, day] of Object.entries(days)) {
+      const dayProviders = asObject(asObject(day)?.providers);
+      if (!DATE_PATTERN.test(date) || !dayProviders) return {};
+      for (const [provider, tokens] of Object.entries(dayProviders)) {
+        if (!Object.hasOwn(providers, provider) || tokenNumber(tokens) === null) return {};
+        totals[provider] = (totals[provider] || 0) + tokens;
+      }
+      const hours = asObject(day).hours;
+      if (hours === undefined) continue;
+      if (!asObject(hours)) return {};
+      for (const [provider, byHour] of Object.entries(hours)) {
+        const counts = Object.values(asObject(byHour) || {}).map(tokenNumber);
+        if (!Object.hasOwn(dayProviders, provider) || counts.includes(null)) return {};
+        if (counts.reduce((total, tokens) => total + tokens, 0) > dayProviders[provider]) return {};
+      }
+    }
+    if (Object.entries(totals).some(([provider, total]) => total > providers[provider])) return {};
+    return days;
   } catch {
     return {};
   }
@@ -312,14 +591,19 @@ async function main() {
     throw new Error(`input is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
 
+  // parse, parse-models, parse-days: <fallback providers> [<blocks file> <cycle start> <time zone>]
+  const fallbacks = String(process.argv[3] ?? "").split(",").filter(Boolean);
+  const hourly = readHourly(process.argv[4], process.argv[5], process.argv[6]);
   if (command === "parse") {
-    const fallbacks = String(process.argv[3] ?? "").split(",").filter(Boolean);
-    process.stdout.write(JSON.stringify(parseCcusageProviders(parsed, fallbacks)));
+    process.stdout.write(JSON.stringify(parseCcusageProviders(parsed, fallbacks, hourly)));
     return;
   }
   if (command === "parse-models") {
-    const fallbacks = String(process.argv[3] ?? "").split(",").filter(Boolean);
-    process.stdout.write(JSON.stringify(parseCcusageUsage(parsed, fallbacks).models));
+    process.stdout.write(JSON.stringify(parseCcusageUsage(parsed, fallbacks, hourly).models));
+    return;
+  }
+  if (command === "parse-days") {
+    process.stdout.write(JSON.stringify(parseCcusageDays(parsed, hourly)));
     return;
   }
   if (command === "validate") {
@@ -331,13 +615,19 @@ async function main() {
     return;
   }
   if (command === "payload") {
-    const [, , , machineId, groupId, timestamp, modelFile] = process.argv;
+    const [, , , machineId, groupId, timestamp, modelFile, daysFile] = process.argv;
     if (!machineId || !groupId || !timestamp) throw new Error("payload needs machineId, groupId and timestamp");
     const providers = normalizeProviderMap(parsed);
     const models = readModelFile(modelFile, providers);
+    const days = readDaysFile(daysFile, providers);
     const payload = { machineId, groupId, timestamp, providers };
     if (Object.keys(models).length > 0) payload.models = models;
+    if (Object.keys(days).length > 0) payload.days = days;
     process.stdout.write(JSON.stringify(payload));
+    return;
+  }
+  if (command === "cycle-start") {
+    process.stdout.write(cycleField(parsed, "start"));
     return;
   }
   if (command === "cycle-since") {
@@ -365,6 +655,7 @@ if (require.main === module) {
 module.exports = {
   normalizeModelMap,
   normalizeProviderMap,
+  parseCcusageDays,
   parseCcusageProviders,
   parseCcusageUsage,
   providerFrom,

@@ -151,6 +151,18 @@ export function getPreviousCycle(cycle: Cycle, reset: ResetConfig): Cycle {
   return getCycle(new Date(cycle.start.getTime() - 1), reset);
 }
 
+/** The instant a calendar day ("YYYY-MM-DD") begins in `timeZone`: its local midnight. */
+export function getDayStart(date: string, timeZone: string): Date {
+  const [year = NaN, month = NaN, day = NaN] = date.split("-").map(Number);
+  return zonedTimeToUtc(year, month, day, 0, 0, timeZone);
+}
+
+/** The instant a calendar day ("YYYY-MM-DD") ends in `timeZone`: the local midnight after it. */
+export function getDayEnd(date: string, timeZone: string): Date {
+  const [year = NaN, month = NaN, day = NaN] = date.split("-").map(Number);
+  return zonedTimeToUtc(year, month, day + 1, 0, 0, timeZone);
+}
+
 /** Splits a cycle at every local midnight, for the day ruler under the meter. */
 export function getDaySegments(cycle: Cycle, timeZone: string): DaySegment[] {
   const segments: DaySegment[] = [];

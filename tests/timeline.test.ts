@@ -113,6 +113,43 @@ describe("buildTimeline", () => {
   });
 });
 
+describe("buildTimeline with day checkpoints", () => {
+  const checkpoint = (tokens: number, hoursIntoCycle: number, models?: Record<string, number>): UsageEvent => ({
+    ...report("mac", "Personal", tokens, hoursIntoCycle, models),
+    checkpoint: true,
+  });
+  // Installed 3 hours into the cycle: its first report brought the checkpoints of the finished days along.
+  const events = [
+    checkpoint(100, 1, { "claude-opus-5": 100 }),
+    checkpoint(300, 2, { "claude-opus-5": 250 }),
+    report("mac", "Personal", 350, 3, { "claude-opus-5": 290 }),
+  ];
+
+  it("places the tokens of the days before a machine's first report on their own days", () => {
+    const timeline = buildTimeline(events, ["Personal"], WEEK, START + 4 * HOUR, "snapshot");
+    expect(timeline.groups[0]!.values).toEqual([0, 100, 300, 350, 350]);
+    expect(timeline.models[0]!.groups[0]!.values).toEqual([0, 100, 250, 290, 290]);
+  });
+
+  it.each<TokenMode>(["delta", "counter"])("leaves them out in %s mode", (mode) => {
+    const timeline = buildTimeline(events, ["Personal"], WEEK, START + 4 * HOUR, mode);
+    const withoutCheckpoints = buildTimeline(events.slice(2), ["Personal"], WEEK, START + 4 * HOUR, mode);
+    expect(timeline.groups).toEqual(withoutCheckpoints.groups);
+  });
+
+  it("reads the larger of two readings made at the same moment", () => {
+    // A day's checkpoint sent again after a late log write, next to its first version.
+    const timeline = buildTimeline(
+      [checkpoint(120, 2), checkpoint(100, 2), report("mac", "Personal", 150, 3)],
+      ["Personal"],
+      WEEK,
+      START + 3 * HOUR,
+      "snapshot",
+    );
+    expect(timeline.groups[0]!.values).toEqual([0, 0, 120, 150]);
+  });
+});
+
 describe("model names", () => {
   it("drops the snapshot date from the key", () => {
     expect(modelKey("claude-sonnet-4-5-20250929")).toBe("claude-sonnet-4-5");

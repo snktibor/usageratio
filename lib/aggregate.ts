@@ -9,6 +9,12 @@ export interface UsageEvent {
   ts: number;
   /** `tokens` split by model id, when the client sent the split. */
   models?: Record<string, number>;
+  /**
+   * Not a report of its own: the machine's running total at the end of a day,
+   * from a later report's split by day (lib/days.ts). Only snapshot mode can
+   * read a running total, the other modes skip these.
+   */
+  checkpoint?: boolean;
 }
 
 /** `startMs` inclusive, `endMs` exclusive. */
@@ -63,6 +69,7 @@ export function usageOfSeriesUntil(
   for (const event of events) {
     while (usages.length < endsMs.length && event.ts >= endsMs[usages.length]!) usages.push(usage);
     if (usages.length === endsMs.length) break;
+    if (event.checkpoint && mode !== "snapshot") continue;
     const inWindow = event.ts >= startMs;
 
     if (mode === "delta") {
@@ -86,7 +93,12 @@ function usageOfSeries(events: UsageEvent[], window: TimeWindow, mode: TokenMode
   return usageOfSeriesUntil(events, window.startMs, [window.endMs], mode)[0]!;
 }
 
-/** Reports split into series: one per group and machine, each sorted by time. */
+/**
+ * Reports split into series: one per group and machine, each sorted by time.
+ * Of two readings at the same moment the larger comes last, so snapshot mode
+ * reads it: a day's checkpoint sent again after a late log write, or a
+ * report made right at midnight next to that day's checkpoint.
+ */
 export function groupIntoSeries(events: UsageEvent[]): UsageEvent[][] {
   const bySeries = new Map<string, UsageEvent[]>();
   for (const event of events) {
@@ -96,7 +108,7 @@ export function groupIntoSeries(events: UsageEvent[]): UsageEvent[][] {
     else bySeries.set(key, [event]);
   }
   const series = [...bySeries.values()];
-  for (const list of series) list.sort((a, b) => a.ts - b.ts);
+  for (const list of series) list.sort((a, b) => a.ts - b.ts || a.tokens - b.tokens);
   return series;
 }
 
@@ -112,16 +124,19 @@ export function summarizeUsage(
 ): UsageSummary {
   const series: SeriesUsage[] = [];
   for (const list of groupIntoSeries(events)) {
-    const inWindow = list.filter((e) => e.ts >= window.startMs && e.ts < window.endMs);
+    const inWindow = list.filter(
+      (e) => e.ts >= window.startMs && e.ts < window.endMs && (!e.checkpoint || mode === "snapshot"),
+    );
     const last = inWindow[inWindow.length - 1];
     if (!last) continue;
+    const reports = inWindow.filter((e) => !e.checkpoint);
     series.push({
       machineId: last.machineId,
       groupId: last.groupId,
       tokens: usageOfSeries(list, window, mode),
       share: 0,
-      reports: inWindow.length,
-      lastReportAt: last.ts,
+      reports: reports.length,
+      lastReportAt: reports[reports.length - 1]?.ts ?? null,
     });
   }
 
