@@ -2,6 +2,7 @@ import { summarizeUsage, type TimeWindow, type UsageEvent } from "@/lib/aggregat
 import type { TokenMode } from "@/lib/config";
 import { modelKey, modelLabel } from "@/lib/models";
 import { assessQuota, type QuotaAssessment } from "@/lib/quota";
+import { totalTimeline } from "@/lib/timeline";
 
 /**
  * Sub-limits: a budget measured on some of a provider's models only, such as
@@ -126,6 +127,8 @@ export interface SubLimitModel {
   shareCap: number | null;
   /** Tokens its models measured this cycle. */
   total: number;
+  /** Its cumulative tokens at each sample of the dashboard's timeline; the last one is `total`. */
+  values: number[];
   /** Whether any report of this cycle came with a split by model: without one nothing is known of it. */
   hasSplit: boolean;
   /** This cycle's models that belong to it, by label, the heaviest first. */
@@ -135,13 +138,15 @@ export interface SubLimitModel {
 }
 
 /**
- * `reports` as split by `splitBySubLimits`; `providerLimit` is the provider's
- * token budget, null while the token limits are off.
+ * `reports` as split by `splitBySubLimits`; `times` are the samples of the
+ * dashboard's timeline; `providerLimit` is the provider's token budget, null
+ * while the token limits are off.
  */
 export function measureSubLimits(
   subLimits: SubLimit[],
   reports: SplitReports["bySubLimit"],
   window: TimeWindow & { nowMs: number },
+  times: number[],
   mode: TokenMode,
   providerLimit: number | null,
 ): SubLimitModel[] {
@@ -170,6 +175,7 @@ export function measureSubLimits(
       mode: sub.mode,
       shareCap,
       total,
+      values: totalTimeline(events, times, window, mode),
       hasSplit: inCycle.length > 0,
       models,
       quota: limit === null ? null : assessQuota(total, limit, window),

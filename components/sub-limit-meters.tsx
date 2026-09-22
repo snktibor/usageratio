@@ -1,18 +1,20 @@
 "use client";
 
-import { useId, useMemo } from "react";
+import { useId } from "react";
 import { AlertTriangleIcon, CheckCircleIcon, InfoCircleIcon, StopCircleIcon } from "@/components/icons";
 import { statusLabel } from "@/components/quota-meter";
-import { useOfficialEntry } from "@/components/use-official-entry";
+import type { Entry } from "@/components/use-official-entry";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatCycleMoment, formatHeroPercent, formatPercent, formatTokens } from "@/lib/format";
-import {
-  applySubLimitReading,
-  parseOfficialPercent,
-  type DashboardView,
-  type SubLimitView,
-} from "@/lib/ground-truth";
+import type { SubLimitView } from "@/lib/ground-truth";
 import type { SubLimitModel } from "@/lib/sub-limits";
+
+/** A sub-limit's field as typed, and how far the sub-limit is by it. */
+export interface SubLimitState {
+  entry: Entry;
+  invalid: boolean;
+  view: SubLimitView;
+}
 
 /** The slider's own colour carries the severity, next to the icon and the label below it. */
 const STATUS_STYLE = {
@@ -24,9 +26,8 @@ const UNKNOWN_STYLE = { accent: "accent-ink", icon: InfoCircleIcon, iconColor: "
 
 interface RowProps {
   model: DashboardModel;
-  view: DashboardView;
-  sub: SubLimitModel;
-  providerId: string;
+  state: SubLimitState;
+  onChange: (raw: string) => void;
   providerLabel: string;
 }
 
@@ -87,13 +88,9 @@ function unknownNote(subView: SubLimitView, providerLabel: string): string {
  * One sub-limit: a smaller twin of the official-usage field above it, with
  * its own entry, and a line on how it stands.
  */
-function SubLimitRow({ model, view, sub, providerId, providerLabel }: RowProps) {
-  const [entry, setEntry] = useOfficialEntry(providerId, model.cycle.startMs, sub.id);
-  const { percent, invalid } = parseOfficialPercent(entry.raw);
-  const subView = useMemo(
-    () => applySubLimitReading(model, view, sub, percent === null ? null : { percent, atMs: entry.enteredAt }),
-    [model, view, sub, percent, entry.enteredAt],
-  );
+function SubLimitRow({ model, state, onChange: setEntry, providerLabel }: RowProps) {
+  const { entry, invalid, view: subView } = state;
+  const { sub } = subView;
   const fieldId = useId();
   const hintId = useId();
 
@@ -181,29 +178,28 @@ function SubLimitRow({ model, view, sub, providerId, providerLabel }: RowProps) 
 /** The provider's sub-limits under its official-usage field; nothing while it has none. */
 export function SubLimitMeters({
   model,
-  view,
-  providerId,
+  subLimits,
+  onChange,
   providerLabel,
 }: {
   model: DashboardModel;
-  view: DashboardView;
-  providerId: string;
+  subLimits: SubLimitState[];
+  onChange: (subLimitId: string, raw: string) => void;
   providerLabel: string;
 }) {
-  if (model.subLimits.length === 0) return null;
+  if (subLimits.length === 0) return null;
   const hasSeparate = model.subLimits.some((sub) => sub.shareCap === null);
 
   return (
     <div className="mt-5 border-t border-hairline pt-5">
       <h3 className="text-sm text-ink-3">Alkeretek</h3>
       <ul className="mt-3 space-y-5">
-        {model.subLimits.map((sub) => (
+        {subLimits.map((state) => (
           <SubLimitRow
-            key={sub.id}
+            key={state.view.sub.id}
             model={model}
-            view={view}
-            sub={sub}
-            providerId={providerId}
+            state={state}
+            onChange={(raw) => onChange(state.view.sub.id, raw)}
             providerLabel={providerLabel}
           />
         ))}

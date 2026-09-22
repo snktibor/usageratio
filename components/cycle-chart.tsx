@@ -15,6 +15,8 @@ export interface ChartSeries {
   values: number[];
   /** The aggregate line: dashed, so it never reads as one more group. */
   dashed?: boolean;
+  /** A secondary line in a fainter shade: its end label takes its colour, and yields to the others. */
+  faint?: boolean;
 }
 
 interface CycleChartProps {
@@ -122,7 +124,10 @@ export function CycleChart({
   const endLabels: { series: ChartSeries; y: number }[] = [];
   if (size && width - endX >= END_LABEL_ROOM) {
     const byPriority = [...series].sort(
-      (a, b) => Number(Boolean(b.dashed)) - Number(Boolean(a.dashed)) || b.values[last]! - a.values[last]!,
+      (a, b) =>
+        Number(Boolean(b.dashed)) - Number(Boolean(a.dashed)) ||
+        Number(Boolean(a.faint)) - Number(Boolean(b.faint)) ||
+        b.values[last]! - a.values[last]!,
     );
     for (const s of byPriority) {
       const y = yOf(s.values[last]!);
@@ -267,7 +272,7 @@ export function CycleChart({
               key={s.id}
               aria-hidden="true"
               className="absolute -translate-y-1/2 whitespace-nowrap text-sm font-medium text-ink tabular-nums"
-              style={{ left: endX + 10, top: y }}
+              style={{ left: endX + 10, top: y, ...(s.faint && { color: s.color }) }}
             >
               {formatEndLabel(s.values[last]!)}
             </span>

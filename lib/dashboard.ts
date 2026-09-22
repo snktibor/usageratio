@@ -177,6 +177,15 @@ export function buildDashboard(
     });
   }
 
+  const timeline = buildTimeline(
+    split.main,
+    current.groups.map((g) => g.groupId),
+    { startMs, endMs },
+    nowMs,
+    config.tokenMode,
+    snapshot.events,
+  );
+
   return {
     generatedAt: nowMs,
     tokenMode: config.tokenMode,
@@ -205,15 +214,15 @@ export function buildDashboard(
       machines: g.machines,
       color: colorOf.get(g.groupId) ?? NEUTRAL_COLOR,
     })),
-    timeline: buildTimeline(
-      split.main,
-      current.groups.map((g) => g.groupId),
-      { startMs, endMs },
-      nowMs,
+    timeline,
+    subLimits: measureSubLimits(
+      subLimits,
+      split.bySubLimit,
+      { startMs, endMs, nowMs },
+      timeline.times,
       config.tokenMode,
-      snapshot.events,
+      limit,
     ),
-    subLimits: measureSubLimits(subLimits, split.bySubLimit, { startMs, endMs, nowMs }, config.tokenMode, limit),
     machines,
   };
 }
