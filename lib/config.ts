@@ -106,6 +106,10 @@ export interface AppConfig {
   reset: ResetConfig;
   /** False: the dashboard never states the tokens left, nor the overage. */
   showRemaining: boolean;
+  /** Providers the dashboard leaves out, account picker included; their reports are still stored. */
+  hiddenProviders: string[];
+  /** groupId → the providers whose reports from that group the dashboard leaves out. */
+  excludedProviders: Record<string, string[]>;
   tokenMode: TokenMode;
   reportIntervalMinutes: number;
   retentionDays: number;
@@ -190,6 +194,8 @@ export function getConfig(
     providerLimits: {},
     reset,
     showRemaining: DEFAULT_SHOW_REMAINING,
+    hiddenProviders: [],
+    excludedProviders: {},
     tokenMode,
     reportIntervalMinutes: REPORT_INTERVAL_MINUTES,
     retentionDays: RETENTION_DAYS,

@@ -22,7 +22,7 @@ tokenhasználatát csoportonként.
 | Fájl | Szerep |
 | --- | --- |
 | `lib/config.ts` | Telepítési beállítások (időzóna, token-értelmezés, megőrzés) és a keret **kezdőértékei** |
-| `lib/settings.ts` | Opcionális providerenkénti tokenkeretek, közös reset, csoportok és színek (validáció, migráció) |
+| `lib/settings.ts` | Opcionális providerenkénti tokenkeretek, közös reset, látható fiókok, csoportok, színek és hogy a csoport mely fiókokba számít (validáció, migráció) |
 | `lib/providers.ts` | Providerazonosítók normalizálása és megjelenítési nevei |
 | `app/api/settings/route.ts` | GET/PUT végpont a Beállítások panelhez, a PIN-session mögött |
 | `app/api/usage/route.ts` | GET ciklus-metaadat és POST ingest: Bearer token, validáció, mentés |
@@ -170,20 +170,28 @@ teljes pontossághoz a reset időpontját tartsd éjfélen (ez az alapbeállít�
 
 ## 4. Beállítások
 
-### A dashboardon: keret, reset, csoportok
+### A dashboardon: AI-fiókok, keret, reset, csoportok
 
 A fejléc **Beállítások** gombja (csak belépve látszik) a Redisben tárolt beállításokat szerkeszti,
 telepítés nélkül, azonnali hatállyal:
 
 | Beállítás | Értékek |
 | --- | --- |
+| AI-fiókok | melyik felismert provider/fiók látszik a dashboardon és az **AI-fiók** választóban |
 | Keret típusa | **Heti** vagy **Havi** ciklus |
 | Tokenkeret használata | alapból **ki**: a dashboard csak a mért tokenekből és a beírt hivatalos százalékból számol |
 | Keret összege | bekapcsolt tokenkeretnél minden felismert providerhez/fiókhoz külön tokenkeret |
 | Maradék tokenek mutatása | bekapcsolt tokenkeretnél: kikapcsolva sehol nem látszik, mennyi token maradt, és a túllépés mértéke sem |
 | Reset | heti keretnél a hét napja, havinál a hónap napja (1–31), és az időpont (`ÓÓ:PP`) |
-| Csoportok | név (amit a gép `groupId`-ként küld) és szín (`#rrggbb`: színválasztó vagy beírt HEX kód) |
+| Csoportok | név (amit a gép `groupId`-ként küld), szín (`#rrggbb`: színválasztó vagy beírt HEX kód), és hogy mely AI-fiókokba számít bele |
 
+- **AI-fiókok:** a kikapcsolt fiók eltűnik a dashboardról és a választóból (például ha a Codexet nem
+  akarod látni). A jelentéseit a szerver továbbra is tárolja, így visszakapcsolva az előzményekkel együtt
+  tér vissza. Legalább egy fióknak látszania kell.
+- **Beszámít:** csoportonként megadható, melyik AI-fiók fogyasztásába számít bele. Ha például a `Work`
+  csoportnál csak az OpenAI (Codex) van bekapcsolva, a Claude és a DeepSeek dashboardján a `Work` gépei és
+  tokenjei nem látszanak, és a hivatalos százalék is csak a többi csoport között oszlik meg. A jelentések
+  itt is tárolva maradnak. Új csoport és új provider alapból mindenhová beszámít.
 - Ha a hónapban nincs olyan nap (31., vagy februárban a 30.), a reset a **hónap utolsó napjára** esik.
 - Az **AI-fiók** választó azonnal, új kérés nélkül váltja a teljes dashboardot. Az utoljára választott
   fiók és a providerenként megadott hivatalos százalék a böngészőben külön-külön megmarad.
@@ -340,24 +348,31 @@ metódus `401`-et ad, és semmilyen adathoz nem nyúl.
   "limits": { "claude": 500000, "deepseek": 750000, "openai": 1000000 },
   "reset": { "weekday": 1, "monthDay": 1, "hour": 0, "minute": 0 },
   "showRemaining": true,
+  "hiddenProviders": ["openai"],
+  "excludedProviders": { "Work": ["claude", "deepseek"] },
   "groups": [{ "id": "Work", "color": "#3987e5" }],
   "removedGroups": ["Regi"]
 }
 ```
 
+A `hiddenProviders` a dashboardon nem látszó providerek listája; ha minden ismert provider benne van, a
+válasz `400`. Az `excludedProviders` csoportonként azokat a providereket sorolja, amelyekbe a csoport
+**nem** számít bele (a nem szereplő csoport mindenhová beszámít).
+
 A `limits` minden ismert provider külön kerete; `"useTokenLimits": false` mellett is tárolódik, csak
 nem számít. A `groups` létrehoz vagy átszínez; **a fel nem sorolt csoportok érintetlenek maradnak**
 (így egy közben magától felkerült csoportot a mentés nem töröl ki). A `weekday` és a `monthDay` mindig
 tárolódik, hogy a keret típusának visszaváltásakor megmaradjon a korábbi választás. A keret mezői
-mind kötelezők, a `useTokenLimits` és a `showRemaining` is: a `PUT` a teljes beállítást írja felül,
-semmit nem pótol alapértékkel. (A Redisben lévő, a kapcsolók előtt mentett dokumentum viszont gond
-nélkül olvasódik: ott a hiányzó `showRemaining` bekapcsoltat, a hiányzó `useTokenLimits` kikapcsoltat
-jelent.)
+mind kötelezők, a `useTokenLimits`, a `showRemaining`, a `hiddenProviders` és az `excludedProviders` is
+(az utóbbi kettő lehet üres): a `PUT` a teljes beállítást írja felül, semmit nem pótol alapértékkel. (A
+Redisben lévő, a kapcsolók előtt mentett dokumentum viszont gond nélkül olvasódik: ott a hiányzó
+`showRemaining` bekapcsoltat, a hiányzó `useTokenLimits` kikapcsoltat jelent, a hiányzó fióklisták
+pedig azt, hogy minden provider látszik és mindenhová beszámít.)
 
 | Kód | Jelentés |
 | --- | --- |
 | `200` | elmentve |
-| `400` | hibás JSON vagy mező (`details` felsorolja az összeset) |
+| `400` | hibás JSON vagy mező (`details` felsorolja az összeset), vagy minden provider rejtett lenne |
 | `401` | nincs érvényes session |
 | `403` | idegen `Origin` (a `SameSite=Lax` süti mellé második védvonal) |
 | `409` | egy törlendő csoportnak van tárolt jelentése (`groups`); **semmi nem lett elmentve** |
@@ -397,7 +412,8 @@ környezetben mindig az éles domainre (`VERCEL_PROJECT_PRODUCTION_URL`), mert a
 ## 6. Redis adatmodell
 
 ```
-usage:settings                    STRING {"v":2,"period","useTokenLimits","limits":{…},"reset":{…},…}
+usage:settings                    STRING {"v":2,"period","useTokenLimits","limits":{…},"reset":{…},
+                                         "hiddenProviders":[…],"excludedProviders":{groupId:[…]},…}
 usage:providers                   HASH providerId → első megjelenés (ms)
 usage:events:{provider}:{group}   ZSET score = jelentés ideje; member = {"m","t","ts","b"}
                                   ("b": modellenkénti bontás, csak ha a kliens küldött)

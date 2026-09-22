@@ -2,7 +2,15 @@ import { summarizeUsage, type UsageEvent } from "@/lib/aggregate";
 import type { AppConfig, BudgetPeriod, TokenMode } from "@/lib/config";
 import { getCycle, getDaySegments, getPreviousCycle } from "@/lib/cycle";
 import { assessQuota, type QuotaAssessment } from "@/lib/quota";
-import { NEUTRAL_COLOR, resolveGroupColors, type KnownGroup } from "@/lib/settings";
+import { providerLabel } from "@/lib/providers";
+import {
+  configForProvider,
+  countsForProvider,
+  NEUTRAL_COLOR,
+  resolveGroupColors,
+  visibleProviderIds,
+  type KnownGroup,
+} from "@/lib/settings";
 import { buildTimeline, type CycleTimeline } from "@/lib/timeline";
 
 /** The most recent report of a machine, kept even when it is silent this cycle. */
@@ -198,4 +206,39 @@ export function buildDashboard(
     ),
     machines,
   };
+}
+
+/** What the store holds for every provider: see lib/usage-store.ts. */
+export interface ProviderStoreSnapshot {
+  eventsByProvider: Record<string, UsageEvent[]>;
+  groups: KnownGroup[];
+  machines: (KnownMachine & { providerId: string })[];
+}
+
+/**
+ * The dashboard of every provider the settings do not hide. A group's reports
+ * of a provider it does not count for are left out of that provider's
+ * dashboard, and so are its machines there. `config` is the effective one.
+ */
+export function buildProviderDashboards(
+  now: Date,
+  config: AppConfig,
+  providerIds: string[],
+  store: ProviderStoreSnapshot,
+): ProviderDashboardModel[] {
+  return visibleProviderIds(config, providerIds).map((providerId) => {
+    const counts = (groupId: string) => countsForProvider(config.excludedProviders, groupId, providerId);
+    return {
+      id: providerId,
+      label: providerLabel(providerId),
+      dashboard: buildDashboard(now, configForProvider(config, providerId), {
+        events: (store.eventsByProvider[providerId] ?? []).filter((event) => counts(event.groupId)),
+        // All of them: a group's colour must not depend on which provider is selected.
+        groups: store.groups,
+        machines: store.machines.filter(
+          (machine) => machine.providerId === providerId && counts(machine.groupId),
+        ),
+      }),
+    };
+  });
 }
