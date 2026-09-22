@@ -3,11 +3,13 @@ import { headers } from "next/headers";
 import { PinGate } from "@/components/pin-gate";
 import { SetupView, type SetupGroup } from "@/components/setup-view";
 import { StorageProblem } from "@/components/storage-problem";
+import type { ApiTokenStatus } from "@/lib/api-token";
 import { isAuthenticated } from "@/lib/auth";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { NEUTRAL_COLOR, resolveGroupColors } from "@/lib/settings";
 import { detectOs, parseMode, parseOs } from "@/lib/setup";
 import { loadClientSources, usageEndpoint } from "@/lib/setup-package";
+import { loadApiTokenStatus } from "@/lib/token-vault";
 import { loadIndexes } from "@/lib/usage-store";
 
 // Rendered per request: the page depends on the session cookie and on the stored groups.
@@ -30,11 +32,12 @@ export default async function SetupPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   let groups: SetupGroup[] | null = null;
+  let tokenStatus: ApiTokenStatus = { state: "empty" };
   let storageError: unknown = null;
 
   try {
     // Like the dashboard: the stored groups are only read after the session check passed.
-    if (await isAuthenticated()) groups = await loadGroups();
+    if (await isAuthenticated()) [groups, tokenStatus] = await Promise.all([loadGroups(), loadApiTokenStatus()]);
   } catch (error) {
     storageError = error;
     console.error("[usageratio] The setup page could not load:", error);
@@ -56,6 +59,7 @@ export default async function SetupPage({
       apiUrl={usageEndpoint(requestHeaders)}
       groups={groups}
       sources={sources}
+      tokenStatus={tokenStatus}
     />
   );
 }

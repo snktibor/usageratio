@@ -1,7 +1,7 @@
 import { isAuthenticated } from "@/lib/auth";
 import { getConfig } from "@/lib/config";
+import { isForeignOrigin, json, storageFailure as failure } from "@/lib/http";
 import { mergeProviderIds } from "@/lib/providers";
-import { StorageNotConfiguredError } from "@/lib/redis";
 import {
   buildSettingsView,
   parseSettingsUpdate,
@@ -36,35 +36,7 @@ import { loadGroupActivity, loadIndexes, saveSettings } from "@/lib/usage-store"
 
 const MAX_BODY_BYTES = 16_384;
 
-function json(body: Record<string, unknown>, status: number, headers?: Record<string, string>) {
-  return Response.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } });
-}
-
-function storageFailure(error: unknown): Response {
-  if (error instanceof StorageNotConfiguredError) {
-    console.error(`[usageratio] ${error.message}`);
-    return json({ error: "storage_not_configured" }, 503);
-  }
-  console.error("[usageratio] The settings could not reach the store:", error);
-  return json({ error: "storage_unavailable" }, 503, { "Retry-After": "60" });
-}
-
-/**
- * Browsers put an Origin on every PUT. The SameSite=Lax session cookie already
- * stays home on cross-site requests; a foreign Origin is turned away all the same.
- */
-function isForeignOrigin(request: Request): boolean {
-  const origin = request.headers.get("origin");
-  if (!origin) return false;
-  const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "")
-    .split(",")[0]
-    ?.trim();
-  try {
-    return new URL(origin).host !== host;
-  } catch {
-    return true;
-  }
-}
+const storageFailure = (error: unknown) => failure(error, "The settings");
 
 export async function GET(): Promise<Response> {
   try {

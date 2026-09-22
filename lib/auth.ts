@@ -36,7 +36,7 @@ function sessionKey(sessionId: string, pin: string): string {
   return `usage:session:${sha256Hex(`${sessionId}:${pin}`)}`;
 }
 
-async function clientIp(): Promise<string> {
+export async function clientIp(): Promise<string> {
   const h = await headers();
   // On Vercel x-forwarded-for is set by the platform and cannot be spoofed by the client.
   const forwarded = h.get("x-forwarded-for")?.split(",")[0]?.trim();
@@ -119,6 +119,15 @@ export async function isAuthenticated(): Promise<boolean> {
   const sessionId = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!sessionId || !SESSION_ID_PATTERN.test(sessionId)) return false;
   return Number(await getRedis().exists(sessionKey(sessionId, pin))) === 1;
+}
+
+/**
+ * A short, stable name for the current browser session, for the audit trail:
+ * a hash of the session id, never the id itself. Null without a session cookie.
+ */
+export async function sessionTag(): Promise<string | null> {
+  const sessionId = (await cookies()).get(SESSION_COOKIE)?.value;
+  return sessionId && SESSION_ID_PATTERN.test(sessionId) ? sha256Hex(sessionId).slice(0, 8) : null;
 }
 
 export async function endSession(): Promise<void> {
