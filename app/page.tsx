@@ -5,6 +5,7 @@ import { isAuthenticated } from "@/lib/auth";
 import { getConfig } from "@/lib/config";
 import { getCycle, getPreviousCycle } from "@/lib/cycle";
 import { buildProviderDashboards, type ProviderDashboardModel } from "@/lib/dashboard";
+import { modelKeysIn } from "@/lib/models";
 import { mergeProviderIds } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { buildSettingsView, resolveConfig, storedProviderIds, type SettingsView } from "@/lib/settings";
@@ -39,7 +40,13 @@ async function loadDashboard(): Promise<DashboardData> {
       groups,
       machines: indexes.machines,
     }),
-    settings: buildSettingsView(config, groups, providerIds),
+    // The models seen lately, for picking a sub-limit's on the settings panel.
+    settings: buildSettingsView(
+      config,
+      groups,
+      providerIds,
+      Object.fromEntries(Object.entries(eventsByProvider).map(([providerId, events]) => [providerId, modelKeysIn(events)])),
+    ),
   };
 }
 

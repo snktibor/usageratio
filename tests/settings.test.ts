@@ -36,6 +36,12 @@ const MONTHLY: UsageSettings = {
   showRemaining: false,
   hiddenProviders: ["openai"],
   excludedProviders: { Work: ["claude", "deepseek"] },
+  subLimits: {
+    claude: [
+      { id: "fable", name: "Fable", models: ["fable"], mode: "separate", sharePercent: 50, limit: 400_000 },
+      { id: "opus", name: "Opus", models: ["opus-5", "opus-4"], mode: "share", sharePercent: 30, limit: 2_000_000 },
+    ],
+  },
 };
 
 describe("stored settings", () => {
@@ -48,6 +54,7 @@ describe("stored settings", () => {
       showRemaining: true,
       hiddenProviders: [],
       excludedProviders: {},
+      subLimits: {},
     });
     expect(parseStoredSettings(null, DEFAULTS)).toEqual(DEFAULTS);
     expect(resolveConfig(config, null)).toEqual({
@@ -66,6 +73,7 @@ describe("stored settings", () => {
       showRemaining: true,
       hiddenProviders: [],
       excludedProviders: {},
+      subLimits: {},
     });
   });
 
@@ -110,6 +118,7 @@ describe("stored settings", () => {
       showRemaining: true,
       hiddenProviders: [],
       excludedProviders: {},
+      subLimits: {},
     });
   });
 
@@ -124,6 +133,7 @@ describe("stored settings", () => {
       showRemaining: true,
       hiddenProviders: [],
       excludedProviders: {},
+      subLimits: {},
     });
     expect(resolveConfig(config, raw).showRemaining).toBe(true);
   });
@@ -139,6 +149,7 @@ describe("stored settings", () => {
     // Nor did the provider switches exist: every provider shows, and every group counts for it.
     expect(stored.hiddenProviders).toEqual([]);
     expect(stored.excludedProviders).toEqual({});
+    expect(stored.subLimits).toEqual({});
     const effective = resolveConfig(config, raw, ["claude", "deepseek"]);
     expect(effective.useTokenLimits).toBe(false);
     // Switching the limits back on finds them as they were.
@@ -181,6 +192,31 @@ describe("stored settings", () => {
     ).toEqual({});
   });
 
+  it("keep the valid sub-limits, each id once, and drop the rest", () => {
+    const fable = MONTHLY.subLimits.claude![0]!;
+    const raw = JSON.stringify({
+      ...MONTHLY,
+      subLimits: {
+        Claude: [
+          { ...fable, name: "  Fable   5 " },
+          { ...fable, name: "Twice" },
+          { ...fable, id: "Bad Id" },
+          { ...fable, id: "no-models", models: [] },
+          { ...fable, id: "bad-mode", mode: "both" },
+          { ...fable, id: "bad-share", sharePercent: 0 },
+          { ...fable, id: "bad-limit", limit: 1.5 },
+          { ...fable, id: "upper", models: [" Opus-5 ", "opus-5", "bad/part"] },
+        ],
+        "bad/provider": [fable],
+        deepseek: "fable",
+        openai: [],
+      },
+    });
+    expect(parseStoredSettings(raw, DEFAULTS).subLimits).toEqual({
+      claude: [{ ...fable, name: "Fable 5" }],
+    });
+  });
+
   it("never fail on a corrupt document", () => {
     for (const raw of ["", "not json", "null", "42", '"weekly"', "[]", '{"limit":0}', '{"limit":1.5}', '{"reset":7}']) {
       expect(parseStoredSettings(raw, DEFAULTS)).toEqual(DEFAULTS);
@@ -197,6 +233,13 @@ describe("parseSettingsUpdate", () => {
     showRemaining: false,
     hiddenProviders: ["OpenAI", "openai"],
     excludedProviders: { " Work ": ["claude", "deepseek"], Home: [] },
+    subLimits: {
+      Claude: [
+        { id: "fable", name: " Fable ", models: ["Fable"], mode: "separate", sharePercent: 50, limit: 400_000 },
+        { id: "opus", name: "Opus", models: ["opus-5", "OPUS-4", "opus-5"], mode: "share", sharePercent: 30, limit: 2_000_000 },
+      ],
+      deepseek: [],
+    },
     groups: [
       { id: " Work ", color: "#3987E5" },
       { id: "Személyes", color: "#abc" },
@@ -228,7 +271,7 @@ describe("parseSettingsUpdate", () => {
   it("defaults nothing: every budget field is required", () => {
     const result = parseSettingsUpdate({});
     expect(result.ok).toBe(false);
-    expect(!result.ok && result.errors).toHaveLength(10);
+    expect(!result.ok && result.errors).toHaveLength(11);
     expect(!result.ok && result.errors).toContain(
       `hiddenProviders must be an array of at most ${MAX_PROVIDERS} provider ids`,
     );
@@ -264,6 +307,20 @@ describe("parseSettingsUpdate", () => {
     ["exclusions that are not a list", { ...valid, excludedProviders: { Work: "claude" } }],
     ["an excluded provider that is no id", { ...valid, excludedProviders: { Work: ["bad/provider"] } }],
     ["a group excluded twice after trimming", { ...valid, excludedProviders: { Work: ["claude"], " Work": ["deepseek"] } }],
+    ["sub-limits that are a list", { ...valid, subLimits: [] }],
+    ["sub-limits of an invalid provider", { ...valid, subLimits: { "bad/provider": [] } }],
+    ["a provider's sub-limits that are no list", { ...valid, subLimits: { claude: {} } }],
+    ["too many sub-limits", { ...valid, subLimits: { claude: Array.from({ length: 6 }, (_, i) => ({ ...valid.subLimits.Claude[0], id: `s${i}` })) } }],
+    ["a sub-limit id with capitals", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], id: "Fable" }] } }],
+    ["the same sub-limit id twice", { ...valid, subLimits: { claude: [valid.subLimits.Claude[0], valid.subLimits.Claude[0]] } }],
+    ["an empty sub-limit name", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], name: "  " }] } }],
+    ["a sub-limit name that is too long", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], name: "x".repeat(41) }] } }],
+    ["a sub-limit without models", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], models: [] }] } }],
+    ["a model part with a slash", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], models: ["a/b"] }] } }],
+    ["an unknown sub-limit mode", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], mode: "own" }] } }],
+    ["a share above 100%", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], sharePercent: 101 }] } }],
+    ["a fractional share", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], sharePercent: 12.5 }] } }],
+    ["a sub-limit without a token limit", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], limit: undefined }] } }],
     ["groups that are not a list", { ...valid, groups: { Work: "#3987e5" } }],
     ["a group id with a slash", { ...valid, groups: [{ id: "a/b", color: "#3987e5" }] }],
     ["an empty group id", { ...valid, groups: [{ id: "  ", color: "#3987e5" }] }],
@@ -409,13 +466,14 @@ describe("buildSettingsView", () => {
         { groupId: "Work", color: "#ff00aa", firstSeenAt: 100, hasReports: false },
       ],
       ["claude", "deepseek"],
+      { claude: ["claude-fable-5-1"], openai: ["gpt-5"] },
     );
     expect(view).toEqual({
       settings: MONTHLY,
       timeZone: "Europe/Budapest",
       providers: [
-        { id: "claude", label: "Claude" },
-        { id: "deepseek", label: "DeepSeek" },
+        { id: "claude", label: "Claude", models: ["claude-fable-5-1"] },
+        { id: "deepseek", label: "DeepSeek", models: [] },
       ],
       groups: [
         { id: "Work", color: "#ff00aa", hasReports: false },
