@@ -150,7 +150,7 @@ function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => v
       <div
         tabIndex={0}
         aria-label="Auditbejegyzések"
-        className="code-scroll mx-6 mb-6 mt-4 min-h-24 grow overflow-y-auto rounded-lg border border-hairline"
+        className="code-scroll mx-6 mb-6 mt-4 min-h-24 grow overflow-y-auto overscroll-contain rounded-lg border border-hairline"
       >
         {load.phase === "loading" ? (
           <p className="px-4 py-4 text-sm text-ink-3">Betöltés…</p>
