@@ -9,11 +9,12 @@ import {
 import { parseId } from "@/lib/validation";
 
 /**
- * Everything the settings panel edits: the budget and the groups. Pure: the
- * Redis side is in lib/usage-store.ts, and the panel imports this file too.
+ * Everything the settings panel edits: the budget, the providers shown and
+ * the groups. Pure: the Redis side is in lib/usage-store.ts, and the panel
+ * imports this file too.
  */
 
-/** The budget, as stored under `usage:settings`. */
+/** The budget and which provider counts where, as stored under `usage:settings`. */
 export interface UsageSettings {
   period: BudgetPeriod;
   /**
@@ -40,6 +41,17 @@ export interface UsageSettings {
    * matters with the token limits on: without a limit nothing is left to count.
    */
   showRemaining: boolean;
+  /**
+   * Providers the dashboard does not show, not even in its account picker.
+   * Their reports are still stored: shown again, a provider has its history.
+   */
+  hiddenProviders: string[];
+  /**
+   * groupId → the providers whose usage in that group does not count: those
+   * reports are left out of the provider's dashboard. Kept as exclusions, so a
+   * group or a provider that reports for the first time always counts.
+   */
+  excludedProviders: Record<string, string[]>;
 }
 
 export interface GroupDefinition {
@@ -135,6 +147,8 @@ export function settingsFromConfig(
     ),
     reset: { weekday, monthDay, hour, minute },
     showRemaining: config.showRemaining,
+    hiddenProviders: [...config.hiddenProviders],
+    excludedProviders: copyExclusions(config.excludedProviders),
   };
 }
 
@@ -145,6 +159,8 @@ export function applySettings(config: AppConfig, settings: UsageSettings): AppCo
     providerLimits: { ...settings.limits },
     reset: { ...config.reset, period: settings.period, ...settings.reset },
     showRemaining: settings.showRemaining,
+    hiddenProviders: [...settings.hiddenProviders],
+    excludedProviders: copyExclusions(settings.excludedProviders),
   };
 }
 
@@ -163,6 +179,7 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
   const doc = asRecord(parsed);
   if (!doc) return defaults;
   const reset = asRecord(doc.reset) ?? {};
+  const storedExclusions = asRecord(doc.excludedProviders);
   const limits = { ...defaults.limits };
   const storedLimits = asRecord(doc.limits);
   if (storedLimits) {
@@ -190,6 +207,11 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
     },
     // Documents saved before the switch existed lack the field: they keep the default.
     showRemaining: typeof doc.showRemaining === "boolean" ? doc.showRemaining : defaults.showRemaining,
+    // Documents saved before these existed lack them: every provider shows, and counts everywhere.
+    hiddenProviders: Array.isArray(doc.hiddenProviders)
+      ? readProviderList(doc.hiddenProviders)
+      : defaults.hiddenProviders,
+    excludedProviders: storedExclusions ? readExclusions(storedExclusions) : defaults.excludedProviders,
   };
 }
 
@@ -232,6 +254,91 @@ export function configForProvider(config: AppConfig, providerId: string): AppCon
   return { ...config, limit: config.providerLimits[providerId] ?? config.limit };
 }
 
+// ── Providers on the dashboard ───────────────────────────────────────────────
+
+/**
+ * The providers the dashboard shows, in the order of `providerIds`. Never
+ * none: the panel always keeps one visible, and should a document edited by
+ * hand hide them all, they all show.
+ */
+export function visibleProviderIds(config: AppConfig, providerIds: string[]): string[] {
+  const visible = providerIds.filter((providerId) => !config.hiddenProviders.includes(providerId));
+  return visible.length > 0 ? visible : providerIds;
+}
+
+/** Whether a group's reports of a provider count on that provider's dashboard. */
+export function countsForProvider(
+  exclusions: Record<string, string[]>,
+  groupId: string,
+  providerId: string,
+): boolean {
+  // Group ids such as "constructor" are valid: only own keys are exclusions.
+  return !(Object.hasOwn(exclusions, groupId) && exclusions[groupId]!.includes(providerId));
+}
+
+function copyExclusions(exclusions: Record<string, string[]>): Record<string, string[]> {
+  return Object.fromEntries(Object.entries(exclusions).map(([groupId, providers]) => [groupId, [...providers]]));
+}
+
+/** A stored provider list: the valid ids, each once, invalid ones skipped. */
+function readProviderList(values: unknown[]): string[] {
+  const providers: string[] = [];
+  for (const value of values) {
+    const providerId = normalizeProviderId(value);
+    if (providerId && !providers.includes(providerId)) providers.push(providerId);
+    if (providers.length === MAX_PROVIDERS) break;
+  }
+  return providers;
+}
+
+/** The stored exclusions: groups with a valid id and at least one valid provider. */
+function readExclusions(stored: Record<string, unknown>): Record<string, string[]> {
+  const exclusions: Record<string, string[]> = {};
+  for (const [rawGroup, rawProviders] of Object.entries(stored).slice(0, MAX_GROUPS)) {
+    const errors: string[] = [];
+    const groupId = parseId(rawGroup, "group", errors);
+    const providers = Array.isArray(rawProviders) ? readProviderList(rawProviders) : [];
+    if (errors.length === 0 && providers.length > 0) exclusions[groupId] = providers;
+  }
+  return exclusions;
+}
+
+/** A provider list of the PUT body: every entry must be a valid id. Duplicates collapse. */
+function parseProviderList(value: unknown, field: string, errors: string[]): string[] {
+  if (!Array.isArray(value) || value.length > MAX_PROVIDERS) {
+    errors.push(`${field} must be an array of at most ${MAX_PROVIDERS} provider ids`);
+    return [];
+  }
+  const providers: string[] = [];
+  value.forEach((item, index) => {
+    const providerId = normalizeProviderId(item);
+    if (!providerId) errors.push(`${field}[${index}] is not a valid provider id`);
+    else if (!providers.includes(providerId)) providers.push(providerId);
+  });
+  return providers;
+}
+
+function parseExclusions(value: unknown, errors: string[]): Record<string, string[]> {
+  const body = asRecord(value);
+  const entries = body ? Object.entries(body) : [];
+  if (!body || entries.length > MAX_GROUPS) {
+    errors.push(`excludedProviders must be a JSON object of at most ${MAX_GROUPS} groups`);
+    return {};
+  }
+  const exclusions: Record<string, string[]> = {};
+  for (const [rawGroup, rawProviders] of entries) {
+    const groupId = parseId(rawGroup, `excludedProviders key ${JSON.stringify(rawGroup)}`, errors);
+    if (Object.hasOwn(exclusions, groupId)) {
+      errors.push(`excludedProviders.${rawGroup} is listed twice after trimming`);
+      continue;
+    }
+    const providers = parseProviderList(rawProviders, `excludedProviders.${rawGroup}`, errors);
+    // An empty list excludes nothing: it is simply not stored.
+    if (providers.length > 0) exclusions[groupId] = providers;
+  }
+  return exclusions;
+}
+
 /** Validates the JSON body of PUT /api/settings. Unlike stored settings, nothing is defaulted. */
 export function parseSettingsUpdate(input: unknown): SettingsParseResult {
   const body = asRecord(input);
@@ -269,6 +376,8 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
   if (!isIntegerIn(reset.hour, 0, 23)) errors.push("reset.hour must be 0 to 23");
   if (!isIntegerIn(reset.minute, 0, 59)) errors.push("reset.minute must be 0 to 59");
   if (typeof body.showRemaining !== "boolean") errors.push("showRemaining must be true or false");
+  const hiddenProviders = parseProviderList(body.hiddenProviders, "hiddenProviders", errors);
+  const excludedProviders = parseExclusions(body.excludedProviders, errors);
 
   const groups: GroupDefinition[] = [];
   const rawGroups = body.groups ?? [];
@@ -314,6 +423,8 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
           minute: reset.minute as number,
         },
         showRemaining: body.showRemaining as boolean,
+        hiddenProviders,
+        excludedProviders,
       },
       groups,
       removedGroups,

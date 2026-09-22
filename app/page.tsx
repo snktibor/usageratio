@@ -4,16 +4,10 @@ import { StorageProblem } from "@/components/storage-problem";
 import { isAuthenticated } from "@/lib/auth";
 import { getConfig } from "@/lib/config";
 import { getCycle, getPreviousCycle } from "@/lib/cycle";
-import { buildDashboard, type ProviderDashboardModel } from "@/lib/dashboard";
-import { mergeProviderIds, providerLabel } from "@/lib/providers";
+import { buildProviderDashboards, type ProviderDashboardModel } from "@/lib/dashboard";
+import { mergeProviderIds } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
-import {
-  buildSettingsView,
-  configForProvider,
-  resolveConfig,
-  storedProviderIds,
-  type SettingsView,
-} from "@/lib/settings";
+import { buildSettingsView, resolveConfig, storedProviderIds, type SettingsView } from "@/lib/settings";
 import { loadEvents, loadIndexes } from "@/lib/usage-store";
 
 // Rendered per request: the page depends on the session cookie and on live data.
@@ -40,15 +34,11 @@ async function loadDashboard(): Promise<DashboardData> {
   const { eventsByProvider, groups } = await loadEvents(providerIds, indexes.groups, since);
 
   return {
-    providers: providerIds.map((providerId) => ({
-      id: providerId,
-      label: providerLabel(providerId),
-      dashboard: buildDashboard(now, configForProvider(config, providerId), {
-        events: eventsByProvider[providerId] ?? [],
-        groups,
-        machines: indexes.machines.filter((machine) => machine.providerId === providerId),
-      }),
-    })),
+    providers: buildProviderDashboards(now, config, providerIds, {
+      eventsByProvider,
+      groups,
+      machines: indexes.machines,
+    }),
     settings: buildSettingsView(config, groups, providerIds),
   };
 }
