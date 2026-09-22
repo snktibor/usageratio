@@ -1,19 +1,16 @@
+import { CycleRuler } from "@/components/cycle-ruler";
 import { AlertTriangleIcon, CheckCircleIcon, InfoCircleIcon, StopCircleIcon } from "@/components/icons";
 import type { DashboardModel } from "@/lib/dashboard";
 import {
-  formatDateTime,
+  formatCycleMoment,
   formatDuration,
   formatHeroPercent,
   formatPercent,
   formatTokens,
-  formatWeekdayTime,
   periodAdjective,
-  weekdayShort,
 } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
 import type { QuotaAssessment } from "@/lib/quota";
-
-type Segment = DashboardModel["cycle"]["segments"][number];
 
 /** Fill carries severity; the track is a dimmer step of the same colour. */
 const STATUS_STYLE = {
@@ -47,11 +44,8 @@ function statusLabel(quota: QuotaAssessment): string {
   return "A tempó rendben.";
 }
 
-/** A moment inside the cycle: a weekday pins it down in a week, only a date does in a month. */
 function formatMoment(ms: number, model: DashboardModel): string {
-  return model.period === "monthly"
-    ? formatDateTime(ms, model.timeZone)
-    : formatWeekdayTime(ms, model.timeZone);
+  return formatCycleMoment(ms, model.period, model.timeZone);
 }
 
 function paceSentence(model: DashboardModel, view: DashboardView, quota: QuotaAssessment): string {
@@ -81,21 +75,6 @@ function paceSentence(model: DashboardModel, view: DashboardView, quota: QuotaAs
     );
   }
   return `Ilyen ütemben a resetig a keret kb. ${formatPercent(pace.projectedTotal / limit)}-a fogy el.`;
-}
-
-/**
- * The text under one day of the ruler. A week names every day that has the
- * room. A month does not have it: today, the 1st and every fifth day are
- * named, minus the ones that would run into today's.
- */
-function rulerLabel(model: DashboardModel, segment: Segment, index: number, todayIndex: number): string | null {
-  const width = segment.endFraction - segment.startFraction;
-  if (model.period === "weekly") return width >= 0.07 ? weekdayShort(segment.weekday) : null;
-
-  if (width < 0.02) return null;
-  const isLandmark = segment.monthDay === 1 || segment.monthDay % 5 === 0;
-  const named = index === todayIndex || (isLandmark && Math.abs(index - todayIndex) !== 1);
-  return named ? `${segment.monthDay}.` : null;
 }
 
 /** The bar is a meter while something fills it; until then it only carries the cycle's ruler. */
@@ -144,9 +123,6 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
   const nowAlign =
     nowFraction < 0.05 ? "translate-x-0" : nowFraction > 0.95 ? "-translate-x-full" : "-translate-x-1/2";
   const elapsedNote = `a ciklus ${formatPercent(nowFraction)}-a telt el`;
-  const todayIndex = model.cycle.segments.findIndex(
-    (segment) => nowFraction >= segment.startFraction && nowFraction < segment.endFraction,
-  );
 
   return (
     <section aria-labelledby="quota-heading">
@@ -197,30 +173,7 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
           style={{ left: `${nowFraction * 100}%` }}
         />
 
-        <div aria-hidden="true" className="relative mt-2 h-7">
-          {model.cycle.segments.map((segment, index) => {
-            const label = rulerLabel(model, segment, index, todayIndex);
-            return (
-              <div
-                key={segment.startFraction}
-                className="absolute top-0 h-full"
-                style={{
-                  left: `${segment.startFraction * 100}%`,
-                  width: `${(segment.endFraction - segment.startFraction) * 100}%`,
-                }}
-              >
-                {index > 0 && <span className="absolute left-0 top-0 h-2 w-px bg-rule" />}
-                {label && (
-                  <span
-                    className={`absolute left-1/2 top-2.5 -translate-x-1/2 whitespace-nowrap text-xs ${index === todayIndex ? "text-ink" : "text-ink-3"}`}
-                  >
-                    {label}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <CycleRuler model={model} />
       </div>
 
       <p className="mt-6 flex max-w-2xl items-start gap-2.5 text-base text-ink-2">

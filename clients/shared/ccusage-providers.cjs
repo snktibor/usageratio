@@ -3,11 +3,17 @@
 
 /**
  * Converts ccusage's JSON output to the compact provider snapshot accepted by
- * /api/usage. Kept in one dependency-free file so Bash and PowerShell use the
- * exact same classification rules. Node is already required by npx/ccusage.
+ * /api/usage, and to its optional split by model. Kept in one dependency-free
+ * file so Bash and PowerShell use the exact same classification rules. Node
+ * is already required by npx/ccusage.
  */
 
+const fs = require("node:fs");
+
 const MAX_PROVIDERS = 20;
+// The server's limits for the optional split by model (lib/models.ts).
+const MAX_MODELS_PER_PROVIDER = 20;
+const MAX_MODELS = 60;
 
 function asObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
@@ -109,7 +115,16 @@ function add(providers, provider, amount) {
   providers.set(provider, next);
 }
 
-function addUsage(providers, value, inheritedSource = "") {
+/** `models`: provider → Map(model → tokens). Tokens that cannot be tied to one model stay out of it. */
+function addModel(models, provider, modelName, amount) {
+  const model = slug(modelName);
+  if (!model || amount === 0) return;
+  const byModel = models.get(provider) || new Map();
+  models.set(provider, byModel);
+  add(byModel, model, amount);
+}
+
+function addUsage(usage, value, inheritedSource = "") {
   const item = asObject(value);
   if (!item) return;
   const source = item.provider ?? item.providerName ?? item.vendor ?? item.agent ?? item.source ?? inheritedSource;
@@ -118,8 +133,12 @@ function addUsage(providers, value, inheritedSource = "") {
   if (breakdowns.length > 0) {
     for (const entry of breakdowns) {
       const detail = asObject(entry) || {};
-      const model = detail.provider ?? detail.providerName ?? detail.vendor ?? detail.modelName ?? detail.model ?? "";
-      add(providers, providerFrom(model, source), tokenTotal(detail));
+      const modelName = detail.modelName ?? detail.model_name ?? detail.model ?? "";
+      const model = detail.provider ?? detail.providerName ?? detail.vendor ?? modelName;
+      const provider = providerFrom(model, source);
+      const tokens = tokenTotal(detail);
+      add(usage.providers, provider, tokens);
+      addModel(usage.models, provider, modelName, tokens);
     }
     return;
   }
@@ -129,7 +148,11 @@ function addUsage(providers, value, inheritedSource = "") {
     : Array.isArray(item.models)
       ? item.models
       : [];
-  add(providers, providerFrom(models[0] ?? source, source), tokenTotal(item));
+  const provider = providerFrom(models[0] ?? source, source);
+  const tokens = tokenTotal(item);
+  add(usage.providers, provider, tokens);
+  // Without a breakdown, a row's tokens belong to a model only when it used just the one.
+  if (models.length === 1) addModel(usage.models, provider, models[0], tokens);
 }
 
 function reportRows(document) {
@@ -161,10 +184,51 @@ function normalizeProviderMap(input) {
   return Object.fromEntries([...providers].sort(([a], [b]) => a.localeCompare(b)));
 }
 
-function parseCcusageProviders(input, fallbackProviders = []) {
+/**
+ * The provider split of a report ({ provider: model: tokens }), cut to the
+ * server's limits by dropping the smallest models: their tokens still count
+ * in the provider totals, just not under a model. Providers not in
+ * `providers` are dropped.
+ */
+function normalizeModelMap(input, providers) {
+  const value = asObject(input) || {};
+  const entries = [];
+  for (const [rawProvider, rawModels] of Object.entries(value)) {
+    const provider = slug(rawProvider);
+    if (!provider || !Object.hasOwn(providers, provider)) continue;
+    for (const [rawModel, rawTokens] of Object.entries(asObject(rawModels) || {})) {
+      const model = slug(rawModel);
+      const tokens = tokenNumber(rawTokens);
+      if (model && tokens !== null && tokens > 0) entries.push({ provider, model, tokens });
+    }
+  }
+  entries.sort((a, b) => b.tokens - a.tokens || a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model));
+
+  const models = {};
+  let count = 0;
+  for (const { provider, model, tokens } of entries) {
+    const byModel = models[provider] || (models[provider] = {});
+    if (count === MAX_MODELS || Object.keys(byModel).length === MAX_MODELS_PER_PROVIDER) continue;
+    if (Object.hasOwn(byModel, model)) continue;
+    byModel[model] = tokens;
+    count += 1;
+  }
+
+  const sorted = {};
+  for (const provider of Object.keys(models).sort()) {
+    const byModel = Object.entries(models[provider]).sort(([a], [b]) => a.localeCompare(b));
+    const total = byModel.reduce((sum, [, tokens]) => sum + tokens, 0);
+    // A split may not claim more tokens than its provider has; such a split is left out whole.
+    if (byModel.length > 0 && total <= providers[provider]) sorted[provider] = Object.fromEntries(byModel);
+  }
+  return sorted;
+}
+
+/** ccusage's JSON → { providers: { provider: tokens }, models: { provider: { model: tokens } } }. */
+function parseCcusageUsage(input, fallbackProviders = []) {
   const document = asObject(input) || (Array.isArray(input) ? input : null);
   if (!document) throw new Error("ccusage did not return a JSON object");
-  const providers = new Map();
+  const usage = { providers: new Map(), models: new Map() };
   const documentSource = document.agent ?? document.source ?? document.provider ?? "";
 
   for (const row of reportRows(document)) {
@@ -172,26 +236,44 @@ function parseCcusageProviders(input, fallbackProviders = []) {
     if (!item) continue;
     if (Array.isArray(item.agents) && item.agents.length > 0) {
       for (const agent of item.agents) {
-        addUsage(providers, agent, item.agent ?? item.source ?? documentSource);
+        addUsage(usage, agent, item.agent ?? item.source ?? documentSource);
       }
     } else {
-      addUsage(providers, item, documentSource);
+      addUsage(usage, item, documentSource);
     }
   }
 
   // Focused/older ccusage formats can contain only a totals/summary object.
-  if (providers.size === 0) {
+  if (usage.providers.size === 0) {
     const totals = asObject(document.totals) || asObject(document.summary);
     if (totals && tokenTotal(totals) > 0) {
-      addUsage(providers, totals, documentSource || "unknown");
+      addUsage(usage, totals, documentSource || "unknown");
     }
   }
 
-  if (providers.size === 0) {
-    for (const fallback of fallbackProviders) add(providers, providerFrom(fallback), 0);
+  if (usage.providers.size === 0) {
+    for (const fallback of fallbackProviders) add(usage.providers, providerFrom(fallback), 0);
   }
 
-  return normalizeProviderMap(Object.fromEntries(providers));
+  const providers = normalizeProviderMap(Object.fromEntries(usage.providers));
+  const models = Object.fromEntries(
+    [...usage.models].map(([provider, byModel]) => [provider, Object.fromEntries(byModel)]),
+  );
+  return { providers, models: normalizeModelMap(models, providers) };
+}
+
+function parseCcusageProviders(input, fallbackProviders = []) {
+  return parseCcusageUsage(input, fallbackProviders).providers;
+}
+
+/** The split saved by `parse-models`; a missing or unreadable file only means no split is sent. */
+function readModelFile(path, providers) {
+  if (!path) return {};
+  try {
+    return normalizeModelMap(JSON.parse(fs.readFileSync(path, "utf8").replace(/^\uFEFF/, "")), providers);
+  } catch {
+    return {};
+  }
 }
 
 function cycleField(input, field) {
@@ -235,6 +317,11 @@ async function main() {
     process.stdout.write(JSON.stringify(parseCcusageProviders(parsed, fallbacks)));
     return;
   }
+  if (command === "parse-models") {
+    const fallbacks = String(process.argv[3] ?? "").split(",").filter(Boolean);
+    process.stdout.write(JSON.stringify(parseCcusageUsage(parsed, fallbacks).models));
+    return;
+  }
   if (command === "validate") {
     process.stdout.write(JSON.stringify(normalizeProviderMap(parsed)));
     return;
@@ -244,9 +331,13 @@ async function main() {
     return;
   }
   if (command === "payload") {
-    const [, , , machineId, groupId, timestamp] = process.argv;
+    const [, , , machineId, groupId, timestamp, modelFile] = process.argv;
     if (!machineId || !groupId || !timestamp) throw new Error("payload needs machineId, groupId and timestamp");
-    process.stdout.write(JSON.stringify({ machineId, groupId, timestamp, providers: normalizeProviderMap(parsed) }));
+    const providers = normalizeProviderMap(parsed);
+    const models = readModelFile(modelFile, providers);
+    const payload = { machineId, groupId, timestamp, providers };
+    if (Object.keys(models).length > 0) payload.models = models;
+    process.stdout.write(JSON.stringify(payload));
     return;
   }
   if (command === "cycle-since") {
@@ -271,4 +362,11 @@ if (require.main === module) {
   });
 }
 
-module.exports = { normalizeProviderMap, parseCcusageProviders, providerFrom, tokenTotal };
+module.exports = {
+  normalizeModelMap,
+  normalizeProviderMap,
+  parseCcusageProviders,
+  parseCcusageUsage,
+  providerFrom,
+  tokenTotal,
+};

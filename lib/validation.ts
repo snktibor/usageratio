@@ -1,3 +1,4 @@
+import { MAX_MODELS_PER_PROVIDER, MAX_MODELS_PER_REPORT, normalizeModelId } from "@/lib/models";
 import { MAX_PROVIDERS, normalizeProviderId } from "@/lib/providers";
 
 /** A validated multi-provider snapshot, as sent by the client scripts. */
@@ -5,6 +6,11 @@ export interface UsageReport {
   machineId: string;
   groupId: string;
   providers: Record<string, number>;
+  /**
+   * The providers' tokens split by model: providerId → modelId → tokens. Empty
+   * for clients that do not send a split; a provider may be missing from it.
+   */
+  models: Record<string, Record<string, number>>;
   /** Event time in epoch milliseconds. */
   timestampMs: number;
   /** Event time normalized to UTC ISO 8601. */
@@ -71,6 +77,80 @@ export function parseIsoTimestamp(value: string): number | null {
   return wallClock - offsetMinutes * 60_000;
 }
 
+function isTokenCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+/**
+ * The optional `models` object: `{ "claude": { "claude-opus-4-5": 1200 } }`.
+ * Every provider in it must be in `providers` too, and its models may not add
+ * up to more than the provider's own total (they may to less: not every
+ * token can be tied to a model).
+ */
+function parseModels(
+  input: unknown,
+  providers: Record<string, number>,
+  errors: string[],
+): Record<string, Record<string, number>> {
+  const models: Record<string, Record<string, number>> = {};
+  if (input === undefined) return models;
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    errors.push("models must be a JSON object");
+    return models;
+  }
+
+  let count = 0;
+  for (const [rawProvider, rawModels] of Object.entries(input as Record<string, unknown>)) {
+    const provider = normalizeProviderId(rawProvider);
+    if (!provider || !Object.hasOwn(providers, provider)) {
+      errors.push(`models.${rawProvider} must name a provider listed in providers`);
+      continue;
+    }
+    if (Object.hasOwn(models, provider)) {
+      errors.push(`models.${rawProvider} is listed twice after normalization`);
+      continue;
+    }
+    if (typeof rawModels !== "object" || rawModels === null || Array.isArray(rawModels)) {
+      errors.push(`models.${rawProvider} must be a JSON object`);
+      continue;
+    }
+
+    const entries = Object.entries(rawModels as Record<string, unknown>);
+    if (entries.length > MAX_MODELS_PER_PROVIDER) {
+      errors.push(`models.${rawProvider} may contain at most ${MAX_MODELS_PER_PROVIDER} models`);
+      continue;
+    }
+    count += entries.length;
+
+    const split: Record<string, number> = {};
+    let sum = 0;
+    for (const [rawModel, tokens] of entries) {
+      const model = normalizeModelId(rawModel);
+      if (!model) {
+        errors.push(
+          `model ${JSON.stringify(rawModel)} must be 1-64 letters, digits, dots, dashes or underscores`,
+        );
+      } else if (Object.hasOwn(split, model)) {
+        errors.push(`model ${JSON.stringify(rawModel)} is listed twice after normalization`);
+      } else if (!isTokenCount(tokens)) {
+        errors.push(`models.${rawProvider}.${rawModel} must be a non-negative integer (a JSON number)`);
+      } else {
+        split[model] = tokens;
+        sum += tokens;
+      }
+    }
+    if (sum > providers[provider]!) {
+      errors.push(`models.${rawProvider} adds up to more tokens than providers.${rawProvider}`);
+    }
+    models[provider] = split;
+  }
+
+  if (count > MAX_MODELS_PER_REPORT) {
+    errors.push(`models may contain at most ${MAX_MODELS_PER_REPORT} models in total`);
+  }
+  return models;
+}
+
 /** Validates the JSON body of POST /api/usage. */
 export function parseUsageReport(input: unknown, options: ParseOptions): ParseResult {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
@@ -99,13 +179,15 @@ export function parseUsageReport(input: unknown, options: ParseOptions): ParseRe
         );
       } else if (Object.hasOwn(providers, provider)) {
         errors.push(`provider ${JSON.stringify(rawProvider)} is listed twice after normalization`);
-      } else if (typeof tokens !== "number" || !Number.isSafeInteger(tokens) || tokens < 0) {
+      } else if (!isTokenCount(tokens)) {
         errors.push(`providers.${rawProvider} must be a non-negative integer (a JSON number)`);
       } else {
         providers[provider] = tokens;
       }
     }
   }
+
+  const models = parseModels(body.models, providers, errors);
 
   let timestampMs: number | null = null;
   if (typeof body.timestamp === "string") timestampMs = parseIsoTimestamp(body.timestamp.trim());
@@ -129,6 +211,7 @@ export function parseUsageReport(input: unknown, options: ParseOptions): ParseRe
       machineId,
       groupId,
       providers,
+      models,
       timestampMs,
       timestamp: new Date(timestampMs).toISOString(),
     },

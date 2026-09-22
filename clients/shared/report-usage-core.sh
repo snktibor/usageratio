@@ -37,7 +37,8 @@ case "$OUTPUT_MODE" in
 esac
 
 # Runs ccusage's unified daily report and converts every model/source to a
-# provider snapshot. No jq is needed; the shared parser uses Node.js.
+# provider snapshot, plus each provider's split by model in $WORK_DIR/models.json.
+# No jq is needed; the shared parser uses Node.js.
 read_provider_tokens() {
   local output_file="$WORK_DIR/ccusage.json"
   local error_file="$WORK_DIR/ccusage-error"
@@ -81,6 +82,9 @@ read_provider_tokens() {
   fi
 
   PROVIDERS_JSON="$(node "$CCUSAGE_PARSER" parse "$cycle_providers" <"$output_file" 2>>"$error_file")" || return 1
+  # The split by model is optional: without it the report still goes out.
+  node "$CCUSAGE_PARSER" parse-models "$cycle_providers" <"$output_file" >"$WORK_DIR/models.json" 2>/dev/null ||
+    rm -f "$WORK_DIR/models.json"
   [ -n "$PROVIDERS_JSON" ]
 }
 
@@ -250,7 +254,7 @@ fi
 # ─── Payload ──────────────────────────────────────────────────────────────────
 
 TIMESTAMP="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-PAYLOAD="$(printf '%s' "$PROVIDERS_JSON" | node "$CCUSAGE_PARSER" payload "$MACHINE_ID" "$GROUP_ID" "$TIMESTAMP" 2>"$WORK_DIR/payload-error")" || {
+PAYLOAD="$(printf '%s' "$PROVIDERS_JSON" | node "$CCUSAGE_PARSER" payload "$MACHINE_ID" "$GROUP_ID" "$TIMESTAMP" "$WORK_DIR/models.json" 2>"$WORK_DIR/payload-error")" || {
   log "ERROR: could not create the JSON payload"
   exit 3
 }

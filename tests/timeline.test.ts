@@ -1,0 +1,132 @@
+import { describe, expect, it } from "vitest";
+import { summarizeUsage, type UsageEvent } from "@/lib/aggregate";
+import type { TokenMode } from "@/lib/config";
+import { modelKey, modelLabel } from "@/lib/models";
+import { buildTimeline, sampleTimes } from "@/lib/timeline";
+
+const HOUR = 3_600_000;
+const START = Date.parse("2026-09-20T22:00:00Z");
+const WEEK = { startMs: START, endMs: START + 168 * HOUR };
+
+function report(
+  machineId: string,
+  groupId: string,
+  tokens: number,
+  hoursIntoCycle: number,
+  models?: Record<string, number>,
+): UsageEvent {
+  return { machineId, groupId, tokens, ts: START + hoursIntoCycle * HOUR, ...(models && { models }) };
+}
+
+describe("sampleTimes", () => {
+  it("samples a week hourly and ends at now", () => {
+    const times = sampleTimes(WEEK.startMs, WEEK.endMs, START + 5.5 * HOUR);
+    expect(times).toEqual([0, 1, 2, 3, 4, 5, 5.5].map((h) => START + h * HOUR));
+  });
+
+  it("widens the step for a month", () => {
+    const end = START + 31 * 24 * HOUR;
+    const times = sampleTimes(START, end, end);
+    expect(times[1]! - times[0]!).toBe(4 * HOUR);
+    expect(times.length).toBeLessThanOrEqual(200);
+    expect(times[times.length - 1]).toBe(end);
+  });
+
+  it("has a single sample at the very start of the cycle", () => {
+    expect(sampleTimes(WEEK.startMs, WEEK.endMs, START)).toEqual([START]);
+  });
+});
+
+describe("buildTimeline", () => {
+  const events = [
+    report("mac", "Personal", 100, 0.5),
+    report("mac", "Personal", 250, 2.5),
+    report("win", "Work", 400, 1.5),
+    report("win", "Work", 600, 3),
+    // Reported from a clock slightly ahead: still counts in the last sample.
+    report("win", "Work", 700, 4.05),
+  ];
+
+  it.each<TokenMode>(["delta", "snapshot", "counter"])(
+    "ends on the same totals as the rest of the dashboard (%s mode)",
+    (mode) => {
+      const timeline = buildTimeline(events, ["Work", "Personal"], WEEK, START + 4 * HOUR, mode);
+      const summary = summarizeUsage(events, WEEK, mode);
+      for (const group of timeline.groups) {
+        const expected = summary.groups.find((g) => g.groupId === group.groupId)?.tokens;
+        expect(group.values[group.values.length - 1]).toBe(expected);
+      }
+    },
+  );
+
+  it("accumulates snapshots over time, a report counting from its own hour", () => {
+    const timeline = buildTimeline(events, ["Work", "Personal"], WEEK, START + 4 * HOUR, "snapshot");
+    expect(timeline.times).toEqual([0, 1, 2, 3, 4].map((h) => START + h * HOUR));
+    expect(timeline.groups).toEqual([
+      { groupId: "Work", values: [0, 0, 400, 600, 700] },
+      { groupId: "Personal", values: [0, 100, 100, 250, 250] },
+    ]);
+  });
+
+  it("charts only the requested groups, zero where a group has no reports", () => {
+    const timeline = buildTimeline(events, ["Personal", "Idle"], WEEK, START + 4 * HOUR, "snapshot");
+    expect(timeline.groups.map((g) => g.groupId)).toEqual(["Personal", "Idle"]);
+    expect(timeline.groups[1]!.values).toEqual([0, 0, 0, 0, 0]);
+  });
+
+  it("splits by model, leaving out the reports without a split", () => {
+    const withModels = [
+      report("mac", "Personal", 300, 0.5),
+      report("mac", "Personal", 500, 1.5, { "claude-opus-4-5-20251101": 350, "claude-haiku-4-5": 100 }),
+      report("win", "Work", 900, 1.5, { "claude-opus-4-5-20251101": 900 }),
+      report("win", "Work", 1_000, 2.5, { "claude-opus-4-5-20251101": 950, "claude-haiku-4-5": 50 }),
+    ];
+    const timeline = buildTimeline(withModels, ["Work", "Personal"], WEEK, START + 3 * HOUR, "snapshot");
+
+    expect(timeline.models.map(({ modelId, label, tokens }) => ({ modelId, label, tokens }))).toEqual([
+      { modelId: "claude-opus-4-5", label: "Claude Opus 4.5", tokens: 1_300 },
+      { modelId: "claude-haiku-4-5", label: "Claude Haiku 4.5", tokens: 150 },
+    ]);
+    expect(timeline.models[0]!.groups).toEqual([
+      { groupId: "Work", values: [0, 0, 900, 950] },
+      { groupId: "Personal", values: [0, 0, 350, 350] },
+    ]);
+    // The first Personal report had no split: the provider total still counts it.
+    expect(timeline.groups[1]!.values).toEqual([0, 300, 500, 500]);
+  });
+
+  it("merges dated builds of a model and drops models unused this cycle", () => {
+    const timeline = buildTimeline(
+      [
+        // The previous cycle's model: nothing of it this cycle.
+        report("mac", "Personal", 40, -10, { "claude-opus-4": 40 }),
+        report("mac", "Personal", 60, 1, { "claude-sonnet-4-20250514": 20, "claude-sonnet-4": 40 }),
+      ],
+      ["Personal"],
+      WEEK,
+      START + 2 * HOUR,
+      "delta",
+    );
+    expect(timeline.models).toHaveLength(1);
+    expect(timeline.models[0]!.modelId).toBe("claude-sonnet-4");
+    expect(timeline.models[0]!.groups[0]!.values).toEqual([0, 60, 60]);
+  });
+});
+
+describe("model names", () => {
+  it("drops the snapshot date from the key", () => {
+    expect(modelKey("claude-sonnet-4-5-20250929")).toBe("claude-sonnet-4-5");
+    expect(modelKey("deepseek-chat")).toBe("deepseek-chat");
+  });
+
+  it.each([
+    ["claude-opus-4-5", "Claude Opus 4.5"],
+    ["claude-3-5-haiku", "Claude 3.5 Haiku"],
+    ["deepseek-chat", "DeepSeek Chat"],
+    ["deepseek-v3-1", "DeepSeek V3.1"],
+    ["gpt-5-codex", "GPT 5 Codex"],
+    ["gemini-2.5-pro", "Gemini 2.5 Pro"],
+  ])("labels %s as %s", (key, label) => {
+    expect(modelLabel(key)).toBe(label);
+  });
+});

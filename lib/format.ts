@@ -94,6 +94,11 @@ export function formatDateTime(ms: number, timeZone: string): string {
   return zoned(ms, timeZone, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+/** A moment inside a cycle: a weekday pins it down in a week, only a date does in a month. */
+export function formatCycleMoment(ms: number, period: BudgetPeriod, timeZone: string): string {
+  return period === "monthly" ? formatDateTime(ms, timeZone) : formatWeekdayTime(ms, timeZone);
+}
+
 /** Remaining time, two largest units: "4 nap 9 óra", "9 óra 12 perc", "12 perc". */
 export function formatDuration(ms: number): string {
   const total = Math.max(0, ms);
