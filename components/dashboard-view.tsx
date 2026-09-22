@@ -7,12 +7,12 @@ import { GroupBreakdown } from "@/components/group-breakdown";
 import { MachineTable } from "@/components/machine-table";
 import { ModelChart } from "@/components/model-chart";
 import { QuotaMeter } from "@/components/quota-meter";
-import { SubLimitMeters } from "@/components/sub-limit-meters";
+import { SubLimitMeters, type SubLimitState } from "@/components/sub-limit-meters";
 import { UsageChart } from "@/components/usage-chart";
-import { useOfficialEntry } from "@/components/use-official-entry";
+import { EMPTY_ENTRY, useOfficialEntry, useSubLimitEntries } from "@/components/use-official-entry";
 import type { ProviderDashboardModel } from "@/lib/dashboard";
 import { formatDateTime, formatTokens } from "@/lib/format";
-import { applyGroundTruth, parseOfficialPercent } from "@/lib/ground-truth";
+import { applyGroundTruth, applySubLimitReading, parseOfficialPercent } from "@/lib/ground-truth";
 
 const PROVIDER_KEY = "usageratio:selected-provider";
 
@@ -45,6 +45,23 @@ function ProviderView({
     [model, percent, entry.enteredAt],
   );
 
+  // Both the fields under the official one and the chart show them: they are worked out here, once.
+  const [subEntries, setSubEntry] = useSubLimitEntries(
+    selected.id,
+    model.cycle.startMs,
+    model.subLimits.map((sub) => sub.id),
+  );
+  const subLimits = useMemo<SubLimitState[]>(
+    () =>
+      model.subLimits.map((sub) => {
+        const subEntry = subEntries.get(sub.id) ?? EMPTY_ENTRY;
+        const parsed = parseOfficialPercent(subEntry.raw);
+        const reading = parsed.percent === null ? null : { percent: parsed.percent, atMs: subEntry.enteredAt };
+        return { entry: subEntry, invalid: parsed.invalid, view: applySubLimitReading(model, view, sub, reading) };
+      }),
+    [model, view, subEntries],
+  );
+
   return (
     <>
       <main className="mt-10 space-y-16 sm:mt-12">
@@ -61,10 +78,17 @@ function ProviderView({
             providers={providers.map(({ id, label }) => ({ id, label }))}
             onProviderChange={onProviderChange}
           >
-            <SubLimitMeters model={model} view={view} providerId={selected.id} providerLabel={selected.label} />
+            <SubLimitMeters
+              model={model}
+              subLimits={subLimits}
+              onChange={setSubEntry}
+              providerLabel={selected.label}
+            />
           </GroundTruthInput>
           <QuotaMeter model={model} view={view} />
-          {model.machines.length > 0 && <UsageChart model={model} view={view} />}
+          {model.machines.length > 0 && (
+            <UsageChart model={model} view={view} subLimits={subLimits.map((state) => state.view)} />
+          )}
         </div>
 
         {model.machines.length > 0 ? (

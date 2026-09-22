@@ -317,6 +317,9 @@ adja át; az utolsó pont pontosan a táblázatok összege.
   `hivatalos százalék / összes mért token` (tokenkerettel és üres mezővel `1 / keret`), így a szaggatott
   vonal a nagy számon ér véget, a csoportok pedig a mért tokenjeik arányában osztoznak rajta. Tokenkeret
   és hivatalos százalék nélkül nincs mihez mérni: ilyenkor a grafikon helyén rövid útmutatás áll.
+  A fiók **alkeretei** (ha az állásuk ismert, és a gépek mértek rájuk tokent) halványabb árnyalatú vonalat
+  kapnak, a **saját keretük** százalékában: ugyanaz a szabály, a vonal az alkeret csúszkáján látható
+  értéken ér véget. Több alkeretnél mindegyik egy fokkal halványabb.
 - **Modellek** (az oldal alján): a kapcsolóval kiválasztott modell mért tokenjei csoportonként, a
   csoportok színében; más modell nem látszik, két csoportnál tehát két vonal. A választó a kiválasztott
   AI-fiók modelljeit sorolja fel, a legtöbbet használttal kezdve; a dátumozott buildek
