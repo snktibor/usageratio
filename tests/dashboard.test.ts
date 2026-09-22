@@ -353,3 +353,24 @@ describe("buildDashboard — machines", () => {
     ]);
   });
 });
+
+describe("buildDashboard — timeline", () => {
+  it("charts the groups in the table's order and ends on their totals", () => {
+    const model = buildDashboard(
+      NOW,
+      config,
+      snapshot({
+        events: [
+          report("mac", "Personal", 100_000, 20),
+          { ...report("win-1", "Work", 150_000, 10), models: { "claude-opus-4-5": 150_000 } },
+        ],
+      }),
+    );
+    expect(model.timeline.times[0]).toBe(CYCLE_START);
+    expect(model.timeline.times[model.timeline.times.length - 1]).toBe(NOW.getTime());
+    expect(model.timeline.groups.map((g) => [g.groupId, g.values[g.values.length - 1]])).toEqual(
+      model.groups.map((g) => [g.groupId, g.tokens]),
+    );
+    expect(model.timeline.models.map((m) => [m.modelId, m.tokens])).toEqual([["claude-opus-4-5", 150_000]]);
+  });
+});

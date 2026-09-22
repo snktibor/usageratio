@@ -26,6 +26,7 @@ describe("parseUsageReport", () => {
         machineId: "mac-studio",
         groupId: "Personal",
         providers: { deepseek: 1234, claude: 5678 },
+        models: {},
         timestampMs: Date.parse("2026-09-21T10:00:00Z"),
         timestamp: "2026-09-21T10:00:00.000Z",
       },
@@ -105,6 +106,36 @@ describe("parseUsageReport", () => {
   it("rejects timestamps older than the retention window", () => {
     expect(parseUsageReport({ ...VALID, timestamp: "2026-08-20T10:00:00Z" }, OPTIONS).ok).toBe(true);
     expect(errorsOf({ ...VALID, timestamp: "2026-08-10T10:00:00Z" })[0]).toMatch(/older/);
+  });
+
+  it("accepts a split by model and normalizes its ids", () => {
+    const result = parseUsageReport(
+      { ...VALID, models: { Claude: { "Claude-Opus-4-5-20251101": 5000, "claude-haiku-4-5": 678 } } },
+      OPTIONS,
+    );
+    expect(result.ok && result.report.models).toEqual({
+      claude: { "claude-opus-4-5-20251101": 5000, "claude-haiku-4-5": 678 },
+    });
+  });
+
+  it("accepts a split that covers only part of a provider's tokens", () => {
+    expect(parseUsageReport({ ...VALID, models: { claude: { "claude-opus-4-5": 10 } } }, OPTIONS).ok).toBe(true);
+  });
+
+  it.each([
+    ["not an object", []],
+    ["a provider not in providers", { openai: { "gpt-5": 1 } }],
+    ["a provider's models not an object", { claude: 5678 }],
+    ["an invalid model id", { claude: { "bad/model": 1 } }],
+    ["a duplicate model id", { claude: { "Claude-Opus": 1, "claude-opus": 2 } }],
+    ["a fractional token count", { claude: { "claude-opus": 1.5 } }],
+    ["more tokens than the provider", { claude: { "claude-opus": 5000, "claude-haiku": 679 } }],
+    [
+      "too many models",
+      { claude: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`model-${i}`, 1])) },
+    ],
+  ])("rejects models with %s", (_, models) => {
+    expect(errorsOf({ ...VALID, models })).toHaveLength(1);
   });
 
   it("ignores unknown extra fields", () => {

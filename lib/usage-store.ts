@@ -19,7 +19,9 @@ import type { UsageReport } from "@/lib/validation";
  *   usage:settings                       STRING provider limits and shared reset/display settings
  *   usage:providers                      HASH providerId → first-seen ms
  *   usage:events:{providerId}:{groupId}  ZSET  score = report time (epoch ms)
- *                                              member = {"m": machineId, "t": tokens, "ts": ms}
+ *                                              member = {"m": machineId, "t": tokens, "ts": ms,
+ *                                                        "b": {modelId: tokens}}
+ *                                              ("b", the split by model, only from clients that send one)
  *   usage:groups            HASH  groupId   → {"color": "#rrggbb", "ts": first-seen ms}
  *                                 (a bare ms number in entries older than group colours)
  *   usage:machines          HASH  providerId:machineId → {"g": groupId, "ts": ms, "t": tokens}
@@ -53,6 +55,35 @@ const KEYS = {
 const DAY_MS = 86_400_000;
 
 /**
+ * One stored report of one provider. The models are sorted so a retried POST
+ * serializes to the very same member, which ZADD NX then skips.
+ */
+function eventMember(
+  machineId: string,
+  tokens: number,
+  timestampMs: number,
+  models: Record<string, number> | undefined,
+): string {
+  const entries = Object.entries(models ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return JSON.stringify(
+    entries.length > 0
+      ? { m: machineId, t: tokens, ts: timestampMs, b: Object.fromEntries(entries) }
+      : { m: machineId, t: tokens, ts: timestampMs },
+  );
+}
+
+/** The stored split by model; null when the member has none or it is damaged. */
+function parseModelSplit(raw: unknown): Record<string, number> | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const split: Record<string, number> = {};
+  for (const [modelId, tokens] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof tokens !== "number" || !Number.isFinite(tokens) || tokens < 0) return null;
+    split[modelId] = tokens;
+  }
+  return split;
+}
+
+/**
  * Persists one report. `duplicate` is true when the identical report was already
  * stored; `newGroup` when its group was unknown and got registered with a random colour.
  */
@@ -68,7 +99,7 @@ export async function storeReport(
   const machineEntries: Record<string, string> = {};
   for (const [providerId, tokens] of providers) {
     const eventsKey = KEYS.events(providerId, report.groupId);
-    const member = JSON.stringify({ m: report.machineId, t: tokens, ts: report.timestampMs });
+    const member = eventMember(report.machineId, tokens, report.timestampMs, report.models[providerId]);
     const lastReport = JSON.stringify({ g: report.groupId, ts: report.timestampMs, t: tokens });
     tx.hsetnx(KEYS.providers, providerId, now.getTime());
     tx.zadd(eventsKey, { nx: true }, { score: report.timestampMs, member });
@@ -90,10 +121,11 @@ function parseEvent(raw: unknown, groupId: string): UsageEvent | null {
   try {
     const value: unknown = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (typeof value !== "object" || value === null) return null;
-    const { m, t, ts } = value as Record<string, unknown>;
+    const { m, t, ts, b } = value as Record<string, unknown>;
     if (typeof m !== "string" || typeof t !== "number" || typeof ts !== "number") return null;
     if (!Number.isFinite(t) || t < 0 || !Number.isFinite(ts)) return null;
-    return { machineId: m, groupId, tokens: t, ts };
+    const models = parseModelSplit(b);
+    return models ? { machineId: m, groupId, tokens: t, ts, models } : { machineId: m, groupId, tokens: t, ts };
   } catch {
     return null;
   }

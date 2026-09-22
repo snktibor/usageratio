@@ -13,7 +13,11 @@ import { parseUsageReport } from "@/lib/validation";
  *   Authorization: Bearer <USAGE_API_TOKEN>
  *   { "machineId": "mac-studio", "groupId": "Personal",
  *     "providers": { "deepseek": 15000, "claude": 22000 },
+ *     "models": { "claude": { "claude-opus-4-5-20251101": 20000 } },
  *     "timestamp": "2026-09-21T10:00:00Z" }
+ *
+ * `models` is optional: each provider's tokens split by model, for the
+ * dashboard's per-model chart.
  *
  * A `groupId` that is not on the settings panel's list is added to it with a
  * random colour (`"groupRegistered": true` in the response).
@@ -24,7 +28,8 @@ import { parseUsageReport } from "@/lib/validation";
  * 401 bad token · 413 body too large · 500 server misconfigured · 503 Redis down
  */
 
-const MAX_BODY_BYTES = 4096;
+// Room for the optional split by model: up to 60 model ids next to the providers.
+const MAX_BODY_BYTES = 16_384;
 const MIN_TOKEN_LENGTH = 16;
 
 function json(body: Record<string, unknown>, status: number, headers?: Record<string, string>) {

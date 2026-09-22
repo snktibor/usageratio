@@ -7,6 +7,8 @@ export interface UsageEvent {
   tokens: number;
   /** Event time, epoch ms. */
   ts: number;
+  /** `tokens` split by model id, when the client sent the split. */
+  models?: Record<string, number>;
 }
 
 /** `startMs` inclusive, `endMs` exclusive. */
@@ -42,15 +44,26 @@ export interface UsageSummary {
   series: SeriesUsage[];
 }
 
-/** Tokens one series used inside the window; `events` sorted by time, may start before the window. */
-function usageOfSeries(events: UsageEvent[], window: TimeWindow, mode: TokenMode): number {
+/**
+ * Tokens one series used from `startMs` up to each of `endsMs` (ascending,
+ * exclusive): entry i is the usage inside [startMs, endsMs[i]). `events` are
+ * sorted by time and may start before `startMs`.
+ */
+export function usageOfSeriesUntil(
+  events: UsageEvent[],
+  startMs: number,
+  endsMs: number[],
+  mode: TokenMode,
+): number[] {
+  const usages: number[] = [];
   let usage = 0;
   // Counter mode: the last reading before the window is the baseline.
   let previous: number | null = null;
 
   for (const event of events) {
-    if (event.ts >= window.endMs) break;
-    const inWindow = event.ts >= window.startMs;
+    while (usages.length < endsMs.length && event.ts >= endsMs[usages.length]!) usages.push(usage);
+    if (usages.length === endsMs.length) break;
+    const inWindow = event.ts >= startMs;
 
     if (mode === "delta") {
       if (inWindow) usage += event.tokens;
@@ -64,7 +77,27 @@ function usageOfSeries(events: UsageEvent[], window: TimeWindow, mode: TokenMode
       previous = event.tokens;
     }
   }
-  return usage;
+  while (usages.length < endsMs.length) usages.push(usage);
+  return usages;
+}
+
+/** Tokens one series used inside the window; `events` sorted by time, may start before the window. */
+function usageOfSeries(events: UsageEvent[], window: TimeWindow, mode: TokenMode): number {
+  return usageOfSeriesUntil(events, window.startMs, [window.endMs], mode)[0]!;
+}
+
+/** Reports split into series: one per group and machine, each sorted by time. */
+export function groupIntoSeries(events: UsageEvent[]): UsageEvent[][] {
+  const bySeries = new Map<string, UsageEvent[]>();
+  for (const event of events) {
+    const key = JSON.stringify([event.groupId, event.machineId]);
+    const list = bySeries.get(key);
+    if (list) list.push(event);
+    else bySeries.set(key, [event]);
+  }
+  const series = [...bySeries.values()];
+  for (const list of series) list.sort((a, b) => a.ts - b.ts);
+  return series;
 }
 
 /**
@@ -77,17 +110,8 @@ export function summarizeUsage(
   window: TimeWindow,
   mode: TokenMode,
 ): UsageSummary {
-  const bySeries = new Map<string, UsageEvent[]>();
-  for (const event of events) {
-    const key = JSON.stringify([event.groupId, event.machineId]);
-    const list = bySeries.get(key);
-    if (list) list.push(event);
-    else bySeries.set(key, [event]);
-  }
-
   const series: SeriesUsage[] = [];
-  for (const list of bySeries.values()) {
-    list.sort((a, b) => a.ts - b.ts);
+  for (const list of groupIntoSeries(events)) {
     const inWindow = list.filter((e) => e.ts >= window.startMs && e.ts < window.endMs);
     const last = inWindow[inWindow.length - 1];
     if (!last) continue;

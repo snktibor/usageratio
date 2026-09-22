@@ -71,6 +71,11 @@ function Read-ProviderTokens {
       $details = if (Test-Path -LiteralPath $errorFile) { Get-Content -LiteralPath $errorFile -Raw } else { '' }
       throw "The ccusage JSON could not be converted. $details"
     }
+    # The split by model is optional: without it the report still goes out.
+    try {
+      $splitJson = $raw | & $node.Source $parserPath parse-models $FallbackProviders 2> $null
+      if ($LASTEXITCODE -eq 0 -and $splitJson) { $script:modelsJson = [string]$splitJson }
+    } catch { }
     return [string]$providersJson
   } finally {
     Remove-Item -LiteralPath $errorFile -Force -ErrorAction SilentlyContinue
@@ -150,6 +155,8 @@ if (-not $nodeCommand) {
 # --- Provider snapshots -------------------------------------------------------
 
 $providersJson = $null
+# Each provider's split by model, as JSON; only ccusage readings have one.
+$modelsJson = $null
 if ($Providers) {
   try {
     $providersJson = $Providers | & $nodeCommand.Source $parserPath validate
@@ -183,12 +190,17 @@ if ($Providers) {
 
 $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
 $providerMap = $providersJson | ConvertFrom-Json
-$payload = [ordered]@{
+$report = [ordered]@{
   machineId = $machineId
   groupId   = $groupId
   timestamp = $timestamp
   providers = $providerMap
-} | ConvertTo-Json -Compress
+}
+if ($modelsJson -and $modelsJson.Trim() -ne '{}') {
+  try { $report.models = $modelsJson | ConvertFrom-Json } catch { }
+}
+# The split by model nests three levels deep; ConvertTo-Json stops at two by default.
+$payload = $report | ConvertTo-Json -Compress -Depth 5
 
 if ($DryRun) {
   Write-Output $payload

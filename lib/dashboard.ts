@@ -3,6 +3,7 @@ import type { AppConfig, BudgetPeriod, TokenMode } from "@/lib/config";
 import { getCycle, getDaySegments, getPreviousCycle } from "@/lib/cycle";
 import { assessQuota, type QuotaAssessment } from "@/lib/quota";
 import { NEUTRAL_COLOR, resolveGroupColors, type KnownGroup } from "@/lib/settings";
+import { buildTimeline, type CycleTimeline } from "@/lib/timeline";
 
 /** The most recent report of a machine, kept even when it is silent this cycle. */
 export interface KnownMachine {
@@ -60,6 +61,8 @@ export interface DashboardModel {
     /** "#rrggbb": as set on the settings panel, or drawn when the group first reported. */
     color: string;
   }[];
+  /** The groups' measured tokens over the cycle so far, in total and by model; same groups as `groups`. */
+  timeline: CycleTimeline;
   machines: {
     machineId: string;
     groupId: string;
@@ -186,6 +189,13 @@ export function buildDashboard(
       machines: g.machines,
       color: colorOf.get(g.groupId) ?? NEUTRAL_COLOR,
     })),
+    timeline: buildTimeline(
+      snapshot.events,
+      current.groups.map((g) => g.groupId),
+      { startMs, endMs },
+      nowMs,
+      config.tokenMode,
+    ),
     machines,
   };
 }

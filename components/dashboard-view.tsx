@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { GroundTruthInput } from "@/components/ground-truth-input";
 import { GroupBreakdown } from "@/components/group-breakdown";
 import { MachineTable } from "@/components/machine-table";
+import { ModelChart } from "@/components/model-chart";
 import { QuotaMeter } from "@/components/quota-meter";
+import { UsageChart } from "@/components/usage-chart";
 import type { ProviderDashboardModel } from "@/lib/dashboard";
 import { formatDateTime, formatTokens } from "@/lib/format";
 import { applyGroundTruth, parseOfficialPercent } from "@/lib/ground-truth";
@@ -116,12 +118,14 @@ function ProviderView({
             onProviderChange={onProviderChange}
           />
           <QuotaMeter model={model} view={view} />
+          {model.machines.length > 0 && <UsageChart model={model} view={view} />}
         </div>
 
         {model.machines.length > 0 ? (
           <>
             <GroupBreakdown model={model} view={view} />
             <MachineTable model={model} view={view} />
+            <ModelChart model={model} />
           </>
         ) : (
           <section aria-labelledby="empty-heading" className="max-w-xl">

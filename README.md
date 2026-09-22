@@ -3,7 +3,9 @@
 Pehelysúlyú, saját hosztolású használatkövető több AI-szolgáltató vagy fiók (például Claude,
 DeepSeek és OpenAI) heti vagy havi tokenkeretéhez. A gépek óránként egy közös, providerenkénti
 snapshotot küldenek. A PIN-nel védett dashboardon fiókot lehet váltani; a keret, a csoport- és
-gépbontás, valamint a hivatalos százalékkal kalibrált érték együtt vált át.
+gépbontás, valamint a hivatalos százalékkal kalibrált érték együtt vált át. Két grafikon mutatja a
+ciklus menetét: a keret fogyását csoportonként és összesen, valamint a kiválasztott modell
+tokenhasználatát csoportonként.
 
 ```
  Mac (bash + cron) ──┐
@@ -27,6 +29,7 @@ gépbontás, valamint a hivatalos százalékkal kalibrált érték együtt vált
 | `lib/usage-store.ts` | Redis adatmodell (írás, olvasás) |
 | `lib/cycle.ts` | Heti és havi ciklus számítása időzónával, nyári időszámítással |
 | `lib/aggregate.ts`, `lib/dashboard.ts`, `lib/quota.ts` | Összesítés csoportra és gépre, tempóbecslés |
+| `lib/timeline.ts`, `lib/models.ts`, `lib/chart.ts` | A grafikonok idősora (csoportonként és modellenként), modellnevek, tengelyek |
 | `lib/ground-truth.ts` | „Valós százalék": a kiválasztott provider bontásának átszámítása (a böngészőben fut) |
 | `lib/auth.ts`, `app/actions.ts` | PIN-ellenőrzés, session, próbálkozáskorlát |
 | `app/page.tsx`, `components/` | PIN-képernyő és dashboard (Tailwind, sötét téma) |
@@ -109,6 +112,13 @@ legutolsó beküldését veszi. A nyers események megmaradnak, így a mód szü
 | `snapshot` (alap) | a gép/provider futó összegét az aktuális ciklusra | sorozatonként a ciklus legutolsó értékét veszi |
 | `counter` | egy folyamatosan növő számlálót („kilométeróra") | a beküldések közti növekményeket adja össze; a visszaesést újraindulásnak veszi |
 
+A kliens a providerek mellett a **modellenkénti bontást** is elküldi (`models`, lásd az 5. pontot): a
+`ccusage` napi `modelBreakdowns` adataiból, providerenként legfeljebb 20, összesen legfeljebb 60 modellt,
+a legnagyobbaktól kezdve. Ha a bontás valamiért nem készül el, a jelentés nélküle megy el. A régebbi
+kliensek bontás nélkül jelentenek: az ő tokenjeik a providerösszegben számítanak, a modellgrafikonon nem.
+Snapshot módban a frissített kliens első jelentése a ciklus eleje óta futó modellösszegeket hozza, így a
+grafikon attól a ponttól teljes.
+
 A provider kulcs kisbetűs azonosító (`a-z`, szám, pont, kötőjel, aláhúzás). Ismert nevekhez a UI
 szép címkét ad (`openai` → OpenAI, `deepseek` → DeepSeek); ismeretlen azonosító is használható.
 Mivel a `ccusage daily` naptári napokra bont, a ciklus első napját napfelbontással lehet szűrni; a
@@ -175,6 +185,26 @@ csoportok és a gépek „A keretből" oszlopa pedig a fenti képlet szerint osz
 Az érték csak a böngészőben él (`localStorage`), providerenként külön kulcson; a szerverre nem kerül
 fel, és a ciklus végén magától törlődik. A tempót a dashboard a beírás időpontjára vetíti.
 
+### Grafikonok
+
+Mindkét grafikon vízszintes tengelye a teljes ciklus (a fő sávval egy vonalban), a vonalak a mostani
+pillanatig tartanak. A szerver a ciklust egyenletes rácson mintázza (heti ciklusnál óránként, havinál
+4 óránként, plusz a mostani pillanat), és a rács minden pontján a ciklus eleje óta halmozott tokeneket
+adja át; az utolsó pont pontosan a táblázatok összege.
+
+- **Fogyás időben** (a nagy százalék alatt): csoportonként egy vonal a csoport színében, és fehér
+  szaggatottal az összesített. A függőleges tengely a keret százaléka: minden mért token ugyanannyit ér,
+  `hivatalos százalék / összes mért token` (tokenkerettel és üres mezővel `1 / keret`), így a szaggatott
+  vonal a nagy számon ér véget, a csoportok pedig a mért tokenjeik arányában osztoznak rajta. Tokenkeret
+  és hivatalos százalék nélkül nincs mihez mérni: ilyenkor a grafikon helyén rövid útmutatás áll.
+- **Modellek** (az oldal alján): a kapcsolóval kiválasztott modell mért tokenjei csoportonként, a
+  csoportok színében; más modell nem látszik, két csoportnál tehát két vonal. A választó a kiválasztott
+  AI-fiók modelljeit sorolja fel, a legtöbbet használttal kezdve; a dátumozott buildek
+  (`claude-sonnet-4-5-20250929`) a dátum nélküli névvel egy vonalba kerülnek.
+
+Egérrel vagy (a grafikonra fókuszálva) a nyilakkal egy időpont összes értéke kiolvasható; a
+„Táblázatként" lenyíló ugyanezt napokra bontva, szövegesen adja.
+
 ### A kódban: `lib/config.ts`
 
 Ami nem a panelen van, az a `lib/config.ts` elején; a környezeti változó felülírja az ott lévő
@@ -208,13 +238,20 @@ A **kezdőérték** addig érvényes, amíg a Beállítások panelen nem mentesz
   "machineId": "mac-home",
   "groupId": "Personal",
   "timestamp": "2026-09-21T10:00:00Z",
-  "providers": { "deepseek": 15000, "claude": 22000, "openai": 9000 }
+  "providers": { "deepseek": 15000, "claude": 22000, "openai": 9000 },
+  "models": {
+    "claude": { "claude-opus-4-5-20251101": 18000, "claude-haiku-4-5-20251001": 4000 },
+    "deepseek": { "deepseek-chat": 15000 }
+  }
 }
 ```
 
 A `machineId` és a `groupId` 1–64 karakter: betű (ékezetes is), szám, szóköz, `.`, `_`, `-`.
 A `providers` 1–20 bejegyzésből áll; minden érték nemnegatív, biztonságos egész JSON-szám. A
-`timestamp` ISO 8601, zónajelöléssel. A válasz `groupRegistered` és `providersRegistered` mezője
+`timestamp` ISO 8601, zónajelöléssel. A `models` elhagyható: providerenként a tokenek modellekre
+bontva (providerenként legfeljebb 20, összesen legfeljebb 60 modell; az azonosító formátuma a provideré).
+Csak a `providers`-ben szereplő provider bontható, és a modellek összege nem lehet nagyobb a provider
+értékénél (kisebb lehet: nem minden token köthető modellhez). A válasz `groupRegistered` és `providersRegistered` mezője
 jelzi az új indexbejegyzéseket.
 
 | Kód | Jelentés |
@@ -223,7 +260,7 @@ jelzi az új indexbejegyzéseket.
 | `200` | pontosan ez a jelentés már megvan (`"duplicate": true`): az újraküldés nem számol duplán |
 | `400` | hibás JSON vagy mező (`details` felsorolja az összeset) |
 | `401` | hiányzó vagy rossz token |
-| `413` | 4 KB-nál nagyobb törzs |
+| `413` | 16 KB-nál nagyobb törzs |
 | `500` | a szerveren nincs (elég hosszú) `USAGE_API_TOKEN` |
 | `503` | a Redis nincs bekötve vagy nem elérhető: a kliens a következő órában újrapróbálja |
 
@@ -270,7 +307,8 @@ jelent.)
 ```
 usage:settings                    STRING {"v":2,"period","useTokenLimits","limits":{…},"reset":{…},…}
 usage:providers                   HASH providerId → első megjelenés (ms)
-usage:events:{provider}:{group}   ZSET score = jelentés ideje; member = {"m","t","ts"}
+usage:events:{provider}:{group}   ZSET score = jelentés ideje; member = {"m","t","ts","b"}
+                                  ("b": modellenkénti bontás, csak ha a kliens küldött)
 usage:groups                      HASH groupId → {"color":"#rrggbb","ts": első megjelenés}
 usage:machines                    HASH providerId:machineId → {"g","ts","t"}
 usage:session:{hash}     STRING, 30 napos lejárattal
