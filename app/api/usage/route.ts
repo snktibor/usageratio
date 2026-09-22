@@ -14,10 +14,15 @@ import { parseUsageReport } from "@/lib/validation";
  *   { "machineId": "mac-studio", "groupId": "Personal",
  *     "providers": { "deepseek": 15000, "claude": 22000 },
  *     "models": { "claude": { "claude-opus-4-5-20251101": 20000 } },
+ *     "days": { "2026-09-20": { "providers": { "claude": 12000 },
+ *                               "models": { "claude": { "claude-opus-4-5-20251101": 11000 } } },
+ *               "2026-09-21": { "providers": { "deepseek": 15000, "claude": 10000 } } },
  *     "timestamp": "2026-09-21T10:00:00Z" }
  *
  * `models` is optional: each provider's tokens split by model, for the
- * dashboard's per-model chart.
+ * dashboard's per-model chart. So is `days`: the same snapshot split by
+ * calendar day in the cycle's time zone, which lets the charts place the
+ * tokens of days the machine did not report on (see lib/days.ts).
  *
  * A `groupId` that is not on the settings panel's list is added to it with a
  * random colour (`"groupRegistered": true` in the response).
@@ -28,8 +33,8 @@ import { parseUsageReport } from "@/lib/validation";
  * 401 bad token · 413 body too large · 500 server misconfigured · 503 Redis down
  */
 
-// Room for the optional split by model: up to 60 model ids next to the providers.
-const MAX_BODY_BYTES = 16_384;
+// Room for the optional splits: up to 60 model ids, and those again for each of up to 32 days.
+const MAX_BODY_BYTES = 65_536;
 const MIN_TOKEN_LENGTH = 16;
 
 function json(body: Record<string, unknown>, status: number, headers?: Record<string, string>) {
@@ -133,7 +138,8 @@ export async function POST(request: Request): Promise<Response> {
   let rawSettings: string | null | undefined;
   try {
     [stored, rawSettings] = await Promise.all([
-      storeReport(parsed.report, now, config.retentionDays),
+      // The time zone is never on the settings panel: the clients split their days in this one.
+      storeReport(parsed.report, now, config.retentionDays, config.reset.timeZone),
       // Only feeds the informational `cycle` below. A stored report must never be
       // answered with an error (the client would send its tokens again), so a
       // failed read just leaves the cycle out.

@@ -3,7 +3,7 @@
 
 /**
  * Converts ccusage's JSON output to the compact provider snapshot accepted by
- * /api/usage, and to its optional split by model. Kept in one dependency-free
+ * /api/usage, and to its optional splits by model and by day. Kept in one dependency-free
  * file so Bash and PowerShell use the exact same classification rules. Node
  * is already required by npx/ccusage.
  */
@@ -14,6 +14,11 @@ const MAX_PROVIDERS = 20;
 // The server's limits for the optional split by model (lib/models.ts).
 const MAX_MODELS_PER_PROVIDER = 20;
 const MAX_MODELS = 60;
+// The server's limit for the optional split by day (lib/days.ts): a monthly cycle touches up to 32 days.
+const MAX_DAYS = 32;
+// The split by day stays well inside the server's 64 KB body limit, next to everything else.
+const MAX_DAYS_BYTES = 40_000;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 function asObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
@@ -266,11 +271,94 @@ function parseCcusageProviders(input, fallbackProviders = []) {
   return parseCcusageUsage(input, fallbackProviders).providers;
 }
 
+/** A daily row's calendar day ("YYYY-MM-DD"), or "" for rows without one. */
+function rowDate(item) {
+  for (const key of ["period", "date", "day"]) {
+    const value = item[key];
+    if (typeof value === "string" && DATE_PATTERN.test(value)) return value;
+  }
+  return "";
+}
+
+/**
+ * ccusage's daily JSON → { "YYYY-MM-DD": { providers, models } }: the snapshot
+ * of parseCcusageUsage split by calendar day. Days without tokens are left
+ * out. When it would not fit the server's limits, the days lose their split
+ * by model first, then the whole split is given up ({}): the report itself
+ * goes out either way.
+ */
+function parseCcusageDays(input) {
+  const document = asObject(input) || (Array.isArray(input) ? input : null);
+  if (!document) throw new Error("ccusage did not return a JSON object");
+  const documentSource = document.agent ?? document.source ?? document.provider ?? "";
+  const byDate = new Map();
+
+  for (const row of reportRows(document)) {
+    const item = asObject(row);
+    const date = item && rowDate(item);
+    if (!date) continue;
+    const usage = byDate.get(date) || { providers: new Map(), models: new Map() };
+    byDate.set(date, usage);
+    if (Array.isArray(item.agents) && item.agents.length > 0) {
+      for (const agent of item.agents) addUsage(usage, agent, item.agent ?? item.source ?? documentSource);
+    } else {
+      addUsage(usage, item, documentSource);
+    }
+  }
+
+  const days = {};
+  for (const date of [...byDate.keys()].sort()) {
+    const usage = byDate.get(date);
+    const providers = Object.fromEntries(
+      [...usage.providers].filter(([, tokens]) => tokens > 0).sort(([a], [b]) => a.localeCompare(b)),
+    );
+    if (Object.keys(providers).length === 0) continue;
+    const models = normalizeModelMap(
+      Object.fromEntries([...usage.models].map(([provider, byModel]) => [provider, Object.fromEntries(byModel)])),
+      providers,
+    );
+    days[date] = Object.keys(models).length > 0 ? { providers, models } : { providers };
+  }
+
+  if (Object.keys(days).length > MAX_DAYS) return {};
+  if (Buffer.byteLength(JSON.stringify(days)) <= MAX_DAYS_BYTES) return days;
+  const withoutModels = Object.fromEntries(
+    Object.entries(days).map(([date, day]) => [date, { providers: day.providers }]),
+  );
+  return Buffer.byteLength(JSON.stringify(withoutModels)) <= MAX_DAYS_BYTES ? withoutModels : {};
+}
+
 /** The split saved by `parse-models`; a missing or unreadable file only means no split is sent. */
 function readModelFile(path, providers) {
   if (!path) return {};
   try {
     return normalizeModelMap(JSON.parse(fs.readFileSync(path, "utf8").replace(/^\uFEFF/, "")), providers);
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The split saved by `parse-days`, when it matches `providers`: every day's
+ * providers listed there, and no provider's days adding up to more than its
+ * total. Anything else sends no split by day at all.
+ */
+function readDaysFile(path, providers) {
+  if (!path) return {};
+  try {
+    const days = asObject(JSON.parse(fs.readFileSync(path, "utf8").replace(/^\uFEFF/, "")));
+    if (!days) return {};
+    const totals = {};
+    for (const [date, day] of Object.entries(days)) {
+      const dayProviders = asObject(asObject(day)?.providers);
+      if (!DATE_PATTERN.test(date) || !dayProviders) return {};
+      for (const [provider, tokens] of Object.entries(dayProviders)) {
+        if (!Object.hasOwn(providers, provider) || tokenNumber(tokens) === null) return {};
+        totals[provider] = (totals[provider] || 0) + tokens;
+      }
+    }
+    if (Object.entries(totals).some(([provider, total]) => total > providers[provider])) return {};
+    return days;
   } catch {
     return {};
   }
@@ -322,6 +410,10 @@ async function main() {
     process.stdout.write(JSON.stringify(parseCcusageUsage(parsed, fallbacks).models));
     return;
   }
+  if (command === "parse-days") {
+    process.stdout.write(JSON.stringify(parseCcusageDays(parsed)));
+    return;
+  }
   if (command === "validate") {
     process.stdout.write(JSON.stringify(normalizeProviderMap(parsed)));
     return;
@@ -331,12 +423,14 @@ async function main() {
     return;
   }
   if (command === "payload") {
-    const [, , , machineId, groupId, timestamp, modelFile] = process.argv;
+    const [, , , machineId, groupId, timestamp, modelFile, daysFile] = process.argv;
     if (!machineId || !groupId || !timestamp) throw new Error("payload needs machineId, groupId and timestamp");
     const providers = normalizeProviderMap(parsed);
     const models = readModelFile(modelFile, providers);
+    const days = readDaysFile(daysFile, providers);
     const payload = { machineId, groupId, timestamp, providers };
     if (Object.keys(models).length > 0) payload.models = models;
+    if (Object.keys(days).length > 0) payload.days = days;
     process.stdout.write(JSON.stringify(payload));
     return;
   }
@@ -365,6 +459,7 @@ if (require.main === module) {
 module.exports = {
   normalizeModelMap,
   normalizeProviderMap,
+  parseCcusageDays,
   parseCcusageProviders,
   parseCcusageUsage,
   providerFrom,

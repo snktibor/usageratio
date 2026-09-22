@@ -157,6 +157,18 @@ kliensek bontás nélkül jelentenek: az ő tokenjeik a providerösszegben szám
 Snapshot módban a frissített kliens első jelentése a ciklus eleje óta futó modellösszegeket hozza, így a
 grafikon attól a ponttól teljes.
 
+A kliens a **napi bontást** is elküldi (`days`): ugyanazt a snapshotot naptári napokra szedve (a
+ciklus időzónájában), modellenként is. A szerver ebből minden már lezárult nap végére, helyi éjfélre
+egy **napzáró pontot** ír a gép sorozatába: a gép addigi futó összegét. Így a grafikonokon a gép
+első jelentése előtti napok (egy ciklus közben telepített gépnél) és a manuális módban kihagyott
+napok is a saját napjukon látszanak, nem a következő jelentés pillanatában ugranak fel. Az
+összesítésben ezek a tokenek eddig is benne voltak, hiszen a snapshot a ciklus eleje óta számol. A
+napzáró pont nem jelentés: a géptábla jelentésszámlálója és a „késik” jelzés nem veszi figyelembe,
+és csak `snapshot` módban olvasódik. A napon belüli eloszlást a `ccusage daily` nem adja meg, ezért a
+visszatöltött szakasz napi lépcsőkben emelkedik. Ami egy ciklusból a reset előtt jelentés nélkül
+marad (manuális módban az utolsó futtatás és a reset közti rész), azt a következő ciklus jelentései
+nem hozzák vissza: azok csak az új ciklus napjait tartalmazzák.
+
 A provider kulcs kisbetűs azonosító (`a-z`, szám, pont, kötőjel, aláhúzás). Ismert nevekhez a UI
 szép címkét ad (`openai` → OpenAI, `deepseek` → DeepSeek); ismeretlen azonosító is használható.
 Mivel a `ccusage daily` naptári napokra bont, a ciklus első napját napfelbontással lehet szűrni; a
@@ -280,6 +292,13 @@ A **kezdőérték** addig érvényes, amíg a Beállítások panelen nem mentesz
   "models": {
     "claude": { "claude-opus-4-5-20251101": 18000, "claude-haiku-4-5-20251001": 4000 },
     "deepseek": { "deepseek-chat": 15000 }
+  },
+  "days": {
+    "2026-09-20": {
+      "providers": { "claude": 12000, "openai": 9000 },
+      "models": { "claude": { "claude-opus-4-5-20251101": 12000 } }
+    },
+    "2026-09-21": { "providers": { "deepseek": 15000, "claude": 10000 } }
   }
 }
 ```
@@ -289,8 +308,11 @@ A `providers` 1–20 bejegyzésből áll; minden érték nemnegatív, biztonság
 `timestamp` ISO 8601, zónajelöléssel. A `models` elhagyható: providerenként a tokenek modellekre
 bontva (providerenként legfeljebb 20, összesen legfeljebb 60 modell; az azonosító formátuma a provideré).
 Csak a `providers`-ben szereplő provider bontható, és a modellek összege nem lehet nagyobb a provider
-értékénél (kisebb lehet: nem minden token köthető modellhez). A válasz `groupRegistered` és `providersRegistered` mezője
-jelzi az új indexbejegyzéseket.
+értékénél (kisebb lehet: nem minden token köthető modellhez). A `days` is elhagyható: ugyanez a
+snapshot naptári napokra bontva (`ÉÉÉÉ-HH-NN` kulcsok a ciklus időzónájában, legfeljebb 32 nap), naponként
+`providers` és elhagyható `models`, ugyanazokkal a szabályokkal. Egy nap csak a `providers`-ben szereplő
+providert tartalmazhatja, és egy provider napjai együtt sem lehetnek többek a teljes értékénél. A válasz
+`groupRegistered` és `providersRegistered` mezője jelzi az új indexbejegyzéseket.
 
 | Kód | Jelentés |
 | --- | --- |
@@ -298,7 +320,7 @@ jelzi az új indexbejegyzéseket.
 | `200` | pontosan ez a jelentés már megvan (`"duplicate": true`): az újraküldés nem számol duplán |
 | `400` | hibás JSON vagy mező (`details` felsorolja az összeset) |
 | `401` | hiányzó vagy rossz token |
-| `413` | 16 KB-nál nagyobb törzs |
+| `413` | 64 KB-nál nagyobb törzs |
 | `500` | a szerveren nincs (elég hosszú) `USAGE_API_TOKEN` |
 | `503` | a Redis nincs bekötve vagy nem elérhető: a kliens a következő órában újrapróbálja |
 

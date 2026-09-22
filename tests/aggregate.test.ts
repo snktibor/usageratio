@@ -57,6 +57,27 @@ describe("summarizeUsage — snapshot mode", () => {
   });
 });
 
+describe("summarizeUsage — day checkpoints", () => {
+  const checkpoint = (tokens: number, ts: number): UsageEvent => ({ ...ev("mac", "Personal", tokens, ts), checkpoint: true });
+  const events = [checkpoint(100, 1100), checkpoint(300, 1400), ev("mac", "Personal", 350, 1500)];
+
+  it("does not count them as reports", () => {
+    const [series] = summarizeUsage(events, WINDOW, "snapshot").series;
+    expect(series).toMatchObject({ tokens: 350, reports: 1, lastReportAt: 1500 });
+  });
+
+  it("reads the running total of the last finished day when no report of the window follows it", () => {
+    // The report that brought the checkpoint in was already made in the next window.
+    const [series] = summarizeUsage([checkpoint(300, 1400), ev("mac", "Personal", 350, 2100)], WINDOW, "snapshot").series;
+    expect(series).toMatchObject({ tokens: 300, reports: 0, lastReportAt: null });
+  });
+
+  it("ignores them outside snapshot mode", () => {
+    expect(summarizeUsage(events, WINDOW, "delta").total).toBe(350);
+    expect(summarizeUsage([checkpoint(300, 1400)], WINDOW, "counter").series).toEqual([]);
+  });
+});
+
 describe("summarizeUsage — counter mode", () => {
   const summary = summarizeUsage(
     [

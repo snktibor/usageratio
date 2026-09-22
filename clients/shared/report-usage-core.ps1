@@ -75,10 +75,14 @@ function Read-ProviderTokens {
       $details = if (Test-Path -LiteralPath $errorFile) { Get-Content -LiteralPath $errorFile -Raw } else { '' }
       throw "The ccusage JSON could not be converted. $details"
     }
-    # The split by model is optional: without it the report still goes out.
+    # The splits by model and by day are optional: without them the report still goes out.
     try {
       $splitJson = $raw | & $node.Source $parserPath parse-models $FallbackProviders 2> $null
       if ($LASTEXITCODE -eq 0 -and $splitJson) { $script:modelsJson = [string]$splitJson }
+    } catch { }
+    try {
+      $daysSplitJson = $raw | & $node.Source $parserPath parse-days 2> $null
+      if ($LASTEXITCODE -eq 0 -and $daysSplitJson) { $script:daysJson = [string]$daysSplitJson }
     } catch { }
     return [string]$providersJson
   } finally {
@@ -159,8 +163,9 @@ if (-not $nodeCommand) {
 # --- Provider snapshots -------------------------------------------------------
 
 $providersJson = $null
-# Each provider's split by model, as JSON; only ccusage readings have one.
+# Each provider's split by model, and the snapshot's split by day, as JSON; only ccusage readings have them.
 $modelsJson = $null
+$daysJson = $null
 if ($Providers) {
   try {
     $providersJson = $Providers | & $nodeCommand.Source $parserPath validate
@@ -203,8 +208,11 @@ $report = [ordered]@{
 if ($modelsJson -and $modelsJson.Trim() -ne '{}') {
   try { $report.models = $modelsJson | ConvertFrom-Json } catch { }
 }
-# The split by model nests three levels deep; ConvertTo-Json stops at two by default.
-$payload = $report | ConvertTo-Json -Compress -Depth 5
+if ($daysJson -and $daysJson.Trim() -ne '{}') {
+  try { $report.days = $daysJson | ConvertFrom-Json } catch { }
+}
+# The split by day nests five levels deep; ConvertTo-Json stops at two by default.
+$payload = $report | ConvertTo-Json -Compress -Depth 8
 
 if ($DryRun) {
   Write-Output $payload

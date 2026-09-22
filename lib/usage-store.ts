@@ -1,5 +1,6 @@
 import type { UsageEvent } from "@/lib/aggregate";
 import type { KnownMachine } from "@/lib/dashboard";
+import { dayCheckpoints } from "@/lib/days";
 import { DEFAULT_PROVIDER_ID, mergeProviderIds, normalizeProviderId } from "@/lib/providers";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import {
@@ -20,8 +21,9 @@ import type { UsageReport } from "@/lib/validation";
  *   usage:providers                      HASH providerId → first-seen ms
  *   usage:events:{providerId}:{groupId}  ZSET  score = report time (epoch ms)
  *                                              member = {"m": machineId, "t": tokens, "ts": ms,
- *                                                        "b": {modelId: tokens}}
- *                                              ("b", the split by model, only from clients that send one)
+ *                                                        "b": {modelId: tokens}, "c": 1}
+ *                                              ("b", the split by model, only from clients that send one;
+ *                                              "c" marks a day's checkpoint, see lib/days.ts)
  *   usage:groups            HASH  groupId   → {"color": "#rrggbb", "ts": first-seen ms}
  *                                 (a bare ms number in entries older than group colours)
  *   usage:machines          HASH  providerId:machineId → {"g": groupId, "ts": ms, "t": tokens}
@@ -32,6 +34,10 @@ import type { UsageReport } from "@/lib/validation";
  * bound of the query, and changing the reset time or the period re-slices
  * history. Members are unique per (provider, machine, tokens, time), so a
  * retried POST is a no-op.
+ *
+ * A report split by day also leaves a checkpoint at the end of each finished
+ * day: the machine's running total at that moment. Every later report sends
+ * the same days again, so these are no-ops too, until a day's total changes.
  *
  * Pre-provider keys (`usage:events:{groupId}` and plain machine hash fields)
  * are still read as DeepSeek data, so the refactor does not hide history.
@@ -55,21 +61,24 @@ const KEYS = {
 const DAY_MS = 86_400_000;
 
 /**
- * One stored report of one provider. The models are sorted so a retried POST
- * serializes to the very same member, which ZADD NX then skips.
+ * One stored report (or checkpoint) of one provider. The models are sorted so
+ * a retried POST serializes to the very same member, which ZADD NX then skips.
  */
 function eventMember(
   machineId: string,
   tokens: number,
   timestampMs: number,
   models: Record<string, number> | undefined,
+  checkpoint = false,
 ): string {
   const entries = Object.entries(models ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  return JSON.stringify(
-    entries.length > 0
-      ? { m: machineId, t: tokens, ts: timestampMs, b: Object.fromEntries(entries) }
-      : { m: machineId, t: tokens, ts: timestampMs },
-  );
+  return JSON.stringify({
+    m: machineId,
+    t: tokens,
+    ts: timestampMs,
+    ...(entries.length > 0 && { b: Object.fromEntries(entries) }),
+    ...(checkpoint && { c: 1 }),
+  });
 }
 
 /** The stored split by model; null when the member has none or it is damaged. */
@@ -84,15 +93,20 @@ function parseModelSplit(raw: unknown): Record<string, number> | null {
 }
 
 /**
- * Persists one report. `duplicate` is true when the identical report was already
- * stored; `newGroup` when its group was unknown and got registered with a random colour.
+ * Persists one report, and the checkpoints of its split by day (in
+ * `timeZone`, the one the clients split the days in). `duplicate` is true when
+ * the identical report was already stored; `newGroup` when its group was
+ * unknown and got registered with a random colour.
  */
 export async function storeReport(
   report: UsageReport,
   now: Date,
   retentionDays: number,
+  timeZone: string,
 ): Promise<{ duplicate: boolean; newGroup: boolean; newProviders: string[] }> {
   const providers = Object.entries(report.providers);
+  const oldestMs = now.getTime() - retentionDays * DAY_MS;
+  const checkpoints = dayCheckpoints(report, timeZone).filter((checkpoint) => checkpoint.ts > oldestMs);
 
   const tx = getRedis().multi();
   tx.hsetnx(KEYS.groups, report.groupId, serializeGroupEntry(randomGroupColor(), now.getTime()));
@@ -103,11 +117,22 @@ export async function storeReport(
     const lastReport = JSON.stringify({ g: report.groupId, ts: report.timestampMs, t: tokens });
     tx.hsetnx(KEYS.providers, providerId, now.getTime());
     tx.zadd(eventsKey, { nx: true }, { score: report.timestampMs, member });
-    tx.zremrangebyscore(eventsKey, 0, now.getTime() - retentionDays * DAY_MS);
+    tx.zremrangebyscore(eventsKey, 0, oldestMs);
     tx.expire(eventsKey, (retentionDays + 1) * 86_400);
     machineEntries[`${providerId}:${report.machineId}`] = lastReport;
   }
   tx.hset(KEYS.machines, machineEntries);
+  // After everything the results below are read from, so their positions stay fixed.
+  for (const [providerId] of providers) {
+    const members = checkpoints.flatMap((checkpoint) => {
+      const tokens = checkpoint.providers[providerId];
+      if (tokens === undefined) return [];
+      const member = eventMember(report.machineId, tokens, checkpoint.ts, checkpoint.models[providerId], true);
+      return [{ score: checkpoint.ts, member }];
+    });
+    const [first, ...rest] = members;
+    if (first) tx.zadd(KEYS.events(providerId, report.groupId), { nx: true }, first, ...rest);
+  }
   const results: unknown[] = await tx.exec();
 
   const duplicate = providers.every((_, index) => Number(results[2 + index * 4]) === 0);
@@ -121,11 +146,18 @@ function parseEvent(raw: unknown, groupId: string): UsageEvent | null {
   try {
     const value: unknown = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (typeof value !== "object" || value === null) return null;
-    const { m, t, ts, b } = value as Record<string, unknown>;
+    const { m, t, ts, b, c } = value as Record<string, unknown>;
     if (typeof m !== "string" || typeof t !== "number" || typeof ts !== "number") return null;
     if (!Number.isFinite(t) || t < 0 || !Number.isFinite(ts)) return null;
     const models = parseModelSplit(b);
-    return models ? { machineId: m, groupId, tokens: t, ts, models } : { machineId: m, groupId, tokens: t, ts };
+    return {
+      machineId: m,
+      groupId,
+      tokens: t,
+      ts,
+      ...(models && { models }),
+      ...(c === 1 && { checkpoint: true }),
+    };
   } catch {
     return null;
   }
@@ -274,7 +306,7 @@ export async function loadEvents(
       for (const raw of members) {
         const event = parseEvent(raw, groupId);
         if (!event) continue;
-        const identity = JSON.stringify([event.machineId, event.groupId, event.tokens, event.ts]);
+        const identity = JSON.stringify([event.machineId, event.groupId, event.tokens, event.ts, !!event.checkpoint]);
         if (!seen.has(identity)) {
           seen.add(identity);
           target.push(event);

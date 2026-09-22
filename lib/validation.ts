@@ -1,5 +1,16 @@
+import { MAX_REPORT_DAYS } from "@/lib/days";
 import { MAX_MODELS_PER_PROVIDER, MAX_MODELS_PER_REPORT, normalizeModelId } from "@/lib/models";
 import { MAX_PROVIDERS, normalizeProviderId } from "@/lib/providers";
+
+/** One calendar day of a report's snapshot. */
+export interface DayUsage {
+  /** "YYYY-MM-DD", in the cycle's time zone (the client got it from GET /api/usage). */
+  date: string;
+  /** The providers' tokens used that day; each is in the report's `providers`. */
+  providers: Record<string, number>;
+  /** Those tokens split by model, like the report's `models`. */
+  models: Record<string, Record<string, number>>;
+}
 
 /** A validated multi-provider snapshot, as sent by the client scripts. */
 export interface UsageReport {
@@ -11,6 +22,11 @@ export interface UsageReport {
    * for clients that do not send a split; a provider may be missing from it.
    */
   models: Record<string, Record<string, number>>;
+  /**
+   * `providers` split by calendar day, oldest first: see lib/days.ts. Empty
+   * for clients that do not send the split.
+   */
+  days: DayUsage[];
   /** Event time in epoch milliseconds. */
   timestampMs: number;
   /** Event time normalized to UTC ISO 8601. */
@@ -30,6 +46,7 @@ export interface ParseOptions {
 const MAX_ID_LENGTH = 64;
 // Letters and digits of any script, plus space . _ - (the ids end up in Redis key names).
 const ID_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u;
+const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ISO_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}:\d{2})$/;
 
@@ -81,6 +98,47 @@ function isTokenCount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** "YYYY-MM-DD" naming a day that exists. */
+function isCalendarDate(value: string): boolean {
+  const match = DATE_PATTERN.exec(value);
+  if (!match) return false;
+  const [year, month, day] = match.slice(1).map(Number) as [number, number, number];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+/** A `{ provider: tokens }` object, found in the body under the name `field`. */
+function parseProviders(input: unknown, field: string, errors: string[]): Record<string, number> {
+  const providers: Record<string, number> = {};
+  if (!isObject(input)) {
+    errors.push(`${field} must be a JSON object`);
+    return providers;
+  }
+  const entries = Object.entries(input);
+  if (entries.length < 1 || entries.length > MAX_PROVIDERS) {
+    errors.push(`${field} must contain between 1 and ${MAX_PROVIDERS} entries`);
+  }
+  for (const [rawProvider, tokens] of entries) {
+    const provider = normalizeProviderId(rawProvider);
+    if (!provider) {
+      errors.push(
+        `provider ${JSON.stringify(rawProvider)} must be 1-64 letters, digits, dots, dashes or underscores`,
+      );
+    } else if (Object.hasOwn(providers, provider)) {
+      errors.push(`provider ${JSON.stringify(rawProvider)} is listed twice after normalization`);
+    } else if (!isTokenCount(tokens)) {
+      errors.push(`${field}.${rawProvider} must be a non-negative integer (a JSON number)`);
+    } else {
+      providers[provider] = tokens;
+    }
+  }
+  return providers;
+}
+
 /**
  * The optional `models` object: `{ "claude": { "claude-opus-4-5": 1200 } }`.
  * Every provider in it must be in `providers` too, and its models may not add
@@ -91,33 +149,35 @@ function parseModels(
   input: unknown,
   providers: Record<string, number>,
   errors: string[],
+  field = "models",
+  providersField = "providers",
 ): Record<string, Record<string, number>> {
   const models: Record<string, Record<string, number>> = {};
   if (input === undefined) return models;
-  if (typeof input !== "object" || input === null || Array.isArray(input)) {
-    errors.push("models must be a JSON object");
+  if (!isObject(input)) {
+    errors.push(`${field} must be a JSON object`);
     return models;
   }
 
   let count = 0;
-  for (const [rawProvider, rawModels] of Object.entries(input as Record<string, unknown>)) {
+  for (const [rawProvider, rawModels] of Object.entries(input)) {
     const provider = normalizeProviderId(rawProvider);
     if (!provider || !Object.hasOwn(providers, provider)) {
-      errors.push(`models.${rawProvider} must name a provider listed in providers`);
+      errors.push(`${field}.${rawProvider} must name a provider listed in ${providersField}`);
       continue;
     }
     if (Object.hasOwn(models, provider)) {
-      errors.push(`models.${rawProvider} is listed twice after normalization`);
+      errors.push(`${field}.${rawProvider} is listed twice after normalization`);
       continue;
     }
-    if (typeof rawModels !== "object" || rawModels === null || Array.isArray(rawModels)) {
-      errors.push(`models.${rawProvider} must be a JSON object`);
+    if (!isObject(rawModels)) {
+      errors.push(`${field}.${rawProvider} must be a JSON object`);
       continue;
     }
 
-    const entries = Object.entries(rawModels as Record<string, unknown>);
+    const entries = Object.entries(rawModels);
     if (entries.length > MAX_MODELS_PER_PROVIDER) {
-      errors.push(`models.${rawProvider} may contain at most ${MAX_MODELS_PER_PROVIDER} models`);
+      errors.push(`${field}.${rawProvider} may contain at most ${MAX_MODELS_PER_PROVIDER} models`);
       continue;
     }
     count += entries.length;
@@ -133,22 +193,72 @@ function parseModels(
       } else if (Object.hasOwn(split, model)) {
         errors.push(`model ${JSON.stringify(rawModel)} is listed twice after normalization`);
       } else if (!isTokenCount(tokens)) {
-        errors.push(`models.${rawProvider}.${rawModel} must be a non-negative integer (a JSON number)`);
+        errors.push(`${field}.${rawProvider}.${rawModel} must be a non-negative integer (a JSON number)`);
       } else {
         split[model] = tokens;
         sum += tokens;
       }
     }
     if (sum > providers[provider]!) {
-      errors.push(`models.${rawProvider} adds up to more tokens than providers.${rawProvider}`);
+      errors.push(`${field}.${rawProvider} adds up to more tokens than ${providersField}.${rawProvider}`);
     }
     models[provider] = split;
   }
 
   if (count > MAX_MODELS_PER_REPORT) {
-    errors.push(`models may contain at most ${MAX_MODELS_PER_REPORT} models in total`);
+    errors.push(`${field} may contain at most ${MAX_MODELS_PER_REPORT} models in total`);
   }
   return models;
+}
+
+/**
+ * The optional `days` object: the `providers` snapshot split by calendar day,
+ * `{ "2026-09-21": { "providers": { "claude": 900 }, "models": { "claude": { "claude-opus-4-5": 800 } } } }`.
+ * Every provider of a day must be in `providers`, and a provider's days may
+ * not add up to more than its total there.
+ */
+function parseDays(input: unknown, providers: Record<string, number>, errors: string[]): DayUsage[] {
+  if (input === undefined) return [];
+  if (!isObject(input)) {
+    errors.push("days must be a JSON object");
+    return [];
+  }
+  const entries = Object.entries(input);
+  if (entries.length > MAX_REPORT_DAYS) {
+    errors.push(`days may contain at most ${MAX_REPORT_DAYS} days`);
+    return [];
+  }
+
+  const days: DayUsage[] = [];
+  const totals: Record<string, number> = {};
+  for (const [date, rawDay] of entries) {
+    const field = `days.${date}`;
+    if (!isCalendarDate(date)) {
+      errors.push(`days must be keyed by dates like "2026-09-21", got ${JSON.stringify(date)}`);
+      continue;
+    }
+    if (!isObject(rawDay)) {
+      errors.push(`${field} must be a JSON object`);
+      continue;
+    }
+    const dayProviders = parseProviders(rawDay.providers, `${field}.providers`, errors);
+    for (const [provider, tokens] of Object.entries(dayProviders)) {
+      if (!Object.hasOwn(providers, provider)) {
+        errors.push(`${field}.providers.${provider} must name a provider listed in providers`);
+      }
+      totals[provider] = (totals[provider] ?? 0) + tokens;
+    }
+    const models = parseModels(rawDay.models, dayProviders, errors, `${field}.models`, `${field}.providers`);
+    days.push({ date, providers: dayProviders, models });
+  }
+
+  for (const [provider, total] of Object.entries(totals)) {
+    if (Object.hasOwn(providers, provider) && total > providers[provider]!) {
+      errors.push(`days add up to more tokens than providers.${provider}`);
+    }
+  }
+  days.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return days;
 }
 
 /** Validates the JSON body of POST /api/usage. */
@@ -162,32 +272,9 @@ export function parseUsageReport(input: unknown, options: ParseOptions): ParseRe
   const machineId = parseId(body.machineId, "machineId", errors);
   const groupId = parseId(body.groupId, "groupId", errors);
 
-  const providers: Record<string, number> = {};
-  const rawProviders = body.providers;
-  if (typeof rawProviders !== "object" || rawProviders === null || Array.isArray(rawProviders)) {
-    errors.push("providers must be a JSON object");
-  } else {
-    const entries = Object.entries(rawProviders as Record<string, unknown>);
-    if (entries.length < 1 || entries.length > MAX_PROVIDERS) {
-      errors.push(`providers must contain between 1 and ${MAX_PROVIDERS} entries`);
-    }
-    for (const [rawProvider, tokens] of entries) {
-      const provider = normalizeProviderId(rawProvider);
-      if (!provider) {
-        errors.push(
-          `provider ${JSON.stringify(rawProvider)} must be 1-64 letters, digits, dots, dashes or underscores`,
-        );
-      } else if (Object.hasOwn(providers, provider)) {
-        errors.push(`provider ${JSON.stringify(rawProvider)} is listed twice after normalization`);
-      } else if (!isTokenCount(tokens)) {
-        errors.push(`providers.${rawProvider} must be a non-negative integer (a JSON number)`);
-      } else {
-        providers[provider] = tokens;
-      }
-    }
-  }
-
+  const providers = parseProviders(body.providers, "providers", errors);
   const models = parseModels(body.models, providers, errors);
+  const days = parseDays(body.days, providers, errors);
 
   let timestampMs: number | null = null;
   if (typeof body.timestamp === "string") timestampMs = parseIsoTimestamp(body.timestamp.trim());
@@ -212,6 +299,7 @@ export function parseUsageReport(input: unknown, options: ParseOptions): ParseRe
       groupId,
       providers,
       models,
+      days,
       timestampMs,
       timestamp: new Date(timestampMs).toISOString(),
     },

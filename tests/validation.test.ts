@@ -27,6 +27,7 @@ describe("parseUsageReport", () => {
         groupId: "Personal",
         providers: { deepseek: 1234, claude: 5678 },
         models: {},
+        days: [],
         timestampMs: Date.parse("2026-09-21T10:00:00Z"),
         timestamp: "2026-09-21T10:00:00.000Z",
       },
@@ -136,6 +137,59 @@ describe("parseUsageReport", () => {
     ],
   ])("rejects models with %s", (_, models) => {
     expect(errorsOf({ ...VALID, models })).toHaveLength(1);
+  });
+
+  it("accepts a split by day, sorts the days and normalizes their ids", () => {
+    const result = parseUsageReport(
+      {
+        ...VALID,
+        days: {
+          "2026-09-21": { providers: { Claude: 600 } },
+          "2026-09-20": {
+            providers: { claude: 5000, deepseek: 1234 },
+            models: { claude: { "Claude-Opus-4-5": 4000 } },
+          },
+        },
+      },
+      OPTIONS,
+    );
+    expect(result.ok && result.report.days).toEqual([
+      {
+        date: "2026-09-20",
+        providers: { claude: 5000, deepseek: 1234 },
+        models: { claude: { "claude-opus-4-5": 4000 } },
+      },
+      { date: "2026-09-21", providers: { claude: 600 }, models: {} },
+    ]);
+  });
+
+  it.each([
+    ["not an object", []],
+    ["a key that is not a date", { yesterday: { providers: { claude: 1 } } }],
+    ["a date that does not exist", { "2026-02-30": { providers: { claude: 1 } } }],
+    ["a day that is not an object", { "2026-09-20": 5 }],
+    ["a day without providers", { "2026-09-20": { models: {} } }],
+    ["a provider not in providers", { "2026-09-20": { providers: { openai: 1 } } }],
+    ["a fractional token count", { "2026-09-20": { providers: { claude: 1.5 } } }],
+    [
+      "a model split larger than its day",
+      { "2026-09-20": { providers: { claude: 10 }, models: { claude: { "claude-opus": 11 } } } },
+    ],
+    [
+      "days adding up to more than the provider",
+      { "2026-09-20": { providers: { claude: 5000 } }, "2026-09-21": { providers: { claude: 679 } } },
+    ],
+    [
+      "too many days",
+      Object.fromEntries(
+        Array.from({ length: 33 }, (_, i) => [
+          new Date(Date.UTC(2026, 7, 1 + i)).toISOString().slice(0, 10),
+          { providers: { claude: 1 } },
+        ]),
+      ),
+    ],
+  ])("rejects days with %s", (_, days) => {
+    expect(errorsOf({ ...VALID, days })).toHaveLength(1);
   });
 
   it("ignores unknown extra fields", () => {
