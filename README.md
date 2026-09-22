@@ -29,6 +29,7 @@ tokenhasználatát csoportonként.
 | `lib/usage-store.ts` | Redis adatmodell (írás, olvasás) |
 | `lib/cycle.ts` | Heti és havi ciklus számítása időzónával, nyári időszámítással |
 | `lib/aggregate.ts`, `lib/dashboard.ts`, `lib/quota.ts` | Összesítés csoportra és gépre, tempóbecslés |
+| `lib/sub-limits.ts` | Alkeretek (pl. Claude/Fable): modell → alkeret, a jelentések szétválasztása, mért állás |
 | `lib/timeline.ts`, `lib/models.ts`, `lib/chart.ts` | A grafikonok idősora (csoportonként és modellenként), modellnevek, tengelyek |
 | `lib/ground-truth.ts` | „Valós százalék": a kiválasztott provider bontásának átszámítása (a böngészőben fut) |
 | `lib/auth.ts`, `app/actions.ts` | PIN-ellenőrzés, session, próbálkozáskorlát |
@@ -181,6 +182,7 @@ telepítés nélkül, azonnali hatállyal:
 | Keret típusa | **Heti** vagy **Havi** ciklus |
 | Tokenkeret használata | alapból **ki**: a dashboard csak a mért tokenekből és a beírt hivatalos százalékból számol |
 | Keret összege | bekapcsolt tokenkeretnél minden felismert providerhez/fiókhoz külön tokenkeret |
+| Alkeretek | fiókonként külön mért keretek, például a Claude-nál a Fable: név, modellek, **önálló keret** vagy **a keret része** (legfeljebb X%) |
 | Maradék tokenek mutatása | bekapcsolt tokenkeretnél: kikapcsolva sehol nem látszik, mennyi token maradt, és a túllépés mértéke sem |
 | Reset | heti keretnél a hét napja, havinál a hónap napja (1–31), és az időpont (`ÓÓ:PP`) |
 | Csoportok | név (amit a gép `groupId`-ként küld), szín (`#rrggbb`: színválasztó vagy beírt HEX kód), és hogy mely AI-fiókokba számít bele |
@@ -192,6 +194,15 @@ telepítés nélkül, azonnali hatállyal:
   csoportnál csak az OpenAI (Codex) van bekapcsolva, a Claude és a DeepSeek dashboardján a `Work` gépei és
   tokenjei nem látszanak, és a hivatalos százalék is csak a többi csoport között oszlik meg. A jelentések
   itt is tárolva maradnak. Új csoport és új provider alapból mindenhová beszámít.
+- **Alkeretek:** egy fiókon belül külön mért keret, a dashboardon a fő csúszka alatt saját, kisebb
+  csúszkával (lásd lent). Hogy mely modellek tartoznak hozzá, azt a modellazonosító egy-egy része adja meg
+  (`fable` → `claude-fable-5-1`); egy modell az első olyan alkeretbe kerül, amelynek valamelyik része
+  benne van az azonosítójában. Fiókonként legfeljebb 5 alkeret vehető fel.
+  - **Önálló keret:** a fiók keretétől független; a modelljei tokenjei **nem** számítanak bele a fiók
+    keretébe, így a fő százalék, a csoportok, a gépek és a „Fogyás időben" grafikon nélkülük értendők (a
+    „Modellek" grafikonon továbbra is látszanak). Bekapcsolt tokenkeretnél saját tokenkerete van.
+  - **A keret része:** a modelljei a fiók keretébe számítanak, és abból legfeljebb a megadott arányt
+    használhatják (bekapcsolt tokenkeretnél: a fiók keretének ennyi százaléka a saját kerete).
 - Ha a hónapban nincs olyan nap (31., vagy februárban a 30.), a reset a **hónap utolsó napjára** esik.
 - Az **AI-fiók** választó azonnal, új kérés nélkül váltja a teljes dashboardot. Az utoljára választott
   fiók és a providerenként megadott hivatalos százalék a böngészőben külön-külön megmarad.
@@ -254,6 +265,22 @@ csoportok és a gépek „A keretből" oszlopa pedig a fenti képlet szerint osz
 
 Az érték csak a böngészőben él (`localStorage`), providerenként külön kulcson; a szerverre nem kerül
 fel, és a ciklus végén magától törlődik. A tempót a dashboard a beírás időpontjára vetíti.
+
+**Alkeretek:** a fiók alkeretei a fő mező alatt kisebb mezőt és csúszkát kapnak, az állapotukkal (ikon,
+elfogyott rész, tempó) együtt. A százalék mindig az **alkeret saját keretének** százaléka, ahogy a
+provider kijelzője mutatja. Ha nincs beírva:
+
+- **a keret része** a fiók hivatalos értékéből számol, a mért arány szerint:
+
+  ```
+  alkeret állása = (fiók hivatalos %-a × az alkeret mért tokenjei / a fiók mért tokenjei) / megengedett arány
+  ```
+
+  Példa: a Claude 40%-on áll, a mért tokenek 86%-a Opus, az Opus legfeljebb 40%-ot használhat: a teljes
+  keret 34,5%-a az övé, vagyis a saját keretének 86%-a fogyott el.
+- **önálló keret** csak bekapcsolt tokenkeretnél becsülhető (a mért tokenjei a saját keretéhez mérve).
+- Modellenkénti bontás nélkül (régi kliensek) az alkeret mért része nem ismert: ilyenkor csak a beírt
+  érték számít.
 
 ### Grafikonok
 
@@ -350,6 +377,11 @@ metódus `401`-et ad, és semmilyen adathoz nem nyúl.
   "showRemaining": true,
   "hiddenProviders": ["openai"],
   "excludedProviders": { "Work": ["claude", "deepseek"] },
+  "subLimits": {
+    "claude": [
+      { "id": "fable", "name": "Fable", "models": ["fable"], "mode": "separate", "sharePercent": 50, "limit": 400000 }
+    ]
+  },
   "groups": [{ "id": "Work", "color": "#3987e5" }],
   "removedGroups": ["Regi"]
 }
@@ -357,14 +389,17 @@ metódus `401`-et ad, és semmilyen adathoz nem nyúl.
 
 A `hiddenProviders` a dashboardon nem látszó providerek listája; ha minden ismert provider benne van, a
 válasz `400`. Az `excludedProviders` csoportonként azokat a providereket sorolja, amelyekbe a csoport
-**nem** számít bele (a nem szereplő csoport mindenhová beszámít).
+**nem** számít bele (a nem szereplő csoport mindenhová beszámít). A `subLimits` fiókonként az alkeretek
+listája: `mode` `"separate"` (önálló keret, saját `limit` tokenkerettel) vagy `"share"` (a fiók keretének
+része, legfeljebb `sharePercent` %-a); a nem használt mező is tárolódik, hogy a mód visszaváltásakor
+megmaradjon. Az `id` fiókon belül egyedi (`a-z`, `0-9`, `-`), a `models` 1–10 modellazonosító-rész.
 
 A `limits` minden ismert provider külön kerete; `"useTokenLimits": false` mellett is tárolódik, csak
 nem számít. A `groups` létrehoz vagy átszínez; **a fel nem sorolt csoportok érintetlenek maradnak**
 (így egy közben magától felkerült csoportot a mentés nem töröl ki). A `weekday` és a `monthDay` mindig
 tárolódik, hogy a keret típusának visszaváltásakor megmaradjon a korábbi választás. A keret mezői
-mind kötelezők, a `useTokenLimits`, a `showRemaining`, a `hiddenProviders` és az `excludedProviders` is
-(az utóbbi kettő lehet üres): a `PUT` a teljes beállítást írja felül, semmit nem pótol alapértékkel. (A
+mind kötelezők, a `useTokenLimits`, a `showRemaining`, a `hiddenProviders`, az `excludedProviders` és a
+`subLimits` is (az utóbbi három lehet üres): a `PUT` a teljes beállítást írja felül, semmit nem pótol alapértékkel. (A
 Redisben lévő, a kapcsolók előtt mentett dokumentum viszont gond nélkül olvasódik: ott a hiányzó
 `showRemaining` bekapcsoltat, a hiányzó `useTokenLimits` kikapcsoltat jelent, a hiányzó fióklisták
 pedig azt, hogy minden provider látszik és mindenhová beszámít.)
@@ -413,7 +448,8 @@ környezetben mindig az éles domainre (`VERCEL_PROJECT_PRODUCTION_URL`), mert a
 
 ```
 usage:settings                    STRING {"v":2,"period","useTokenLimits","limits":{…},"reset":{…},
-                                         "hiddenProviders":[…],"excludedProviders":{groupId:[…]},…}
+                                         "hiddenProviders":[…],"excludedProviders":{groupId:[…]},
+                                         "subLimits":{providerId:[{"id","name","models","mode",…}]},…}
 usage:providers                   HASH providerId → első megjelenés (ms)
 usage:events:{provider}:{group}   ZSET score = jelentés ideje; member = {"m","t","ts","b"}
                                   ("b": modellenkénti bontás, csak ha a kliens küldött)

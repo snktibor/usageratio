@@ -6,6 +6,15 @@ import {
   normalizeProviderId,
   providerLabel,
 } from "@/lib/providers";
+import {
+  isSubLimitId,
+  MAX_SUB_LIMIT_MODELS,
+  MAX_SUB_LIMITS,
+  normalizeModelPart,
+  normalizeSubLimitName,
+  type SubLimit,
+  type SubLimitMode,
+} from "@/lib/sub-limits";
 import { parseId } from "@/lib/validation";
 
 /**
@@ -52,6 +61,11 @@ export interface UsageSettings {
    * group or a provider that reports for the first time always counts.
    */
   excludedProviders: Record<string, string[]>;
+  /**
+   * providerId → its sub-limits, such as Claude's Fable, in the order the
+   * dashboard lists them. See lib/sub-limits.ts.
+   */
+  subLimits: Record<string, SubLimit[]>;
 }
 
 export interface GroupDefinition {
@@ -85,7 +99,8 @@ export interface SettingsUpdate {
 export interface SettingsView {
   settings: UsageSettings;
   timeZone: string;
-  providers: { id: string; label: string }[];
+  /** `models`: this cycle's model ids of the provider (without their dates), for picking a sub-limit's. */
+  providers: { id: string; label: string; models: string[] }[];
   /** In order of first appearance. */
   groups: (GroupDefinition & { hasReports: boolean })[];
 }
@@ -149,6 +164,7 @@ export function settingsFromConfig(
     showRemaining: config.showRemaining,
     hiddenProviders: [...config.hiddenProviders],
     excludedProviders: copyExclusions(config.excludedProviders),
+    subLimits: copySubLimits(config.subLimits),
   };
 }
 
@@ -161,6 +177,7 @@ export function applySettings(config: AppConfig, settings: UsageSettings): AppCo
     showRemaining: settings.showRemaining,
     hiddenProviders: [...settings.hiddenProviders],
     excludedProviders: copyExclusions(settings.excludedProviders),
+    subLimits: copySubLimits(settings.subLimits),
   };
 }
 
@@ -180,6 +197,7 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
   if (!doc) return defaults;
   const reset = asRecord(doc.reset) ?? {};
   const storedExclusions = asRecord(doc.excludedProviders);
+  const storedSubLimits = asRecord(doc.subLimits);
   const limits = { ...defaults.limits };
   const storedLimits = asRecord(doc.limits);
   if (storedLimits) {
@@ -212,6 +230,7 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
       ? readProviderList(doc.hiddenProviders)
       : defaults.hiddenProviders,
     excludedProviders: storedExclusions ? readExclusions(storedExclusions) : defaults.excludedProviders,
+    subLimits: storedSubLimits ? readSubLimits(storedSubLimits) : defaults.subLimits,
   };
 }
 
@@ -256,6 +275,11 @@ export function configForProvider(config: AppConfig, providerId: string): AppCon
 
 // ── Providers on the dashboard ───────────────────────────────────────────────
 
+/** A provider's sub-limits; none for a provider without any. */
+export function subLimitsOf(config: AppConfig, providerId: string): SubLimit[] {
+  return Object.hasOwn(config.subLimits, providerId) ? config.subLimits[providerId]! : [];
+}
+
 /**
  * The providers the dashboard shows, in the order of `providerIds`. Never
  * none: the panel always keeps one visible, and should a document edited by
@@ -274,6 +298,15 @@ export function countsForProvider(
 ): boolean {
   // Group ids such as "constructor" are valid: only own keys are exclusions.
   return !(Object.hasOwn(exclusions, groupId) && exclusions[groupId]!.includes(providerId));
+}
+
+function copySubLimits(subLimits: Record<string, SubLimit[]>): Record<string, SubLimit[]> {
+  return Object.fromEntries(
+    Object.entries(subLimits).map(([providerId, list]) => [
+      providerId,
+      list.map((sub) => ({ ...sub, models: [...sub.models] })),
+    ]),
+  );
 }
 
 function copyExclusions(exclusions: Record<string, string[]>): Record<string, string[]> {
@@ -339,6 +372,103 @@ function parseExclusions(value: unknown, errors: string[]): Record<string, strin
   return exclusions;
 }
 
+// ── Sub-limits ───────────────────────────────────────────────────────────────
+
+const SUB_LIMIT_MODES: readonly SubLimitMode[] = ["separate", "share"];
+
+/**
+ * One sub-limit. `field` names it in the errors; without `errors` a problem
+ * just makes it null (the stored document is read leniently).
+ */
+function parseSubLimit(input: unknown, field: string, errors?: string[]): SubLimit | null {
+  const problems: string[] = [];
+  const entry = asRecord(input) ?? {};
+  if (!isSubLimitId(entry.id)) problems.push(`${field}.id must be 1-32 lower-case letters, digits or dashes`);
+  const name = normalizeSubLimitName(entry.name);
+  if (name === null) problems.push(`${field}.name must be 1-40 characters`);
+
+  const models: string[] = [];
+  if (!Array.isArray(entry.models) || entry.models.length < 1 || entry.models.length > MAX_SUB_LIMIT_MODELS) {
+    problems.push(`${field}.models must list 1-${MAX_SUB_LIMIT_MODELS} parts of model ids`);
+  } else {
+    entry.models.forEach((value, index) => {
+      const part = normalizeModelPart(value);
+      if (!part) problems.push(`${field}.models[${index}] must be letters, digits, dots, dashes or underscores`);
+      else if (!models.includes(part)) models.push(part);
+    });
+  }
+  if (!(SUB_LIMIT_MODES as readonly unknown[]).includes(entry.mode)) {
+    problems.push(`${field}.mode must be "separate" or "share"`);
+  }
+  if (!isIntegerIn(entry.sharePercent, 1, 100)) problems.push(`${field}.sharePercent must be an integer from 1 to 100`);
+  if (!isIntegerIn(entry.limit, 1, MAX_LIMIT)) problems.push(`${field}.limit must be an integer between 1 and ${MAX_LIMIT}`);
+
+  if (problems.length > 0) {
+    errors?.push(...problems);
+    return null;
+  }
+  return {
+    id: entry.id as string,
+    name: name!,
+    models,
+    mode: entry.mode as SubLimitMode,
+    sharePercent: entry.sharePercent as number,
+    limit: entry.limit as number,
+  };
+}
+
+/** The stored sub-limits: the valid ones of valid providers, each id once. */
+function readSubLimits(stored: Record<string, unknown>): Record<string, SubLimit[]> {
+  const subLimits: Record<string, SubLimit[]> = {};
+  for (const [rawProvider, rawList] of Object.entries(stored).slice(0, MAX_PROVIDERS)) {
+    const providerId = normalizeProviderId(rawProvider);
+    if (!providerId || !Array.isArray(rawList) || Object.hasOwn(subLimits, providerId)) continue;
+    const list: SubLimit[] = [];
+    for (const item of rawList.slice(0, MAX_SUB_LIMITS)) {
+      const sub = parseSubLimit(item, "subLimit");
+      if (sub && !list.some((other) => other.id === sub.id)) list.push(sub);
+    }
+    if (list.length > 0) subLimits[providerId] = list;
+  }
+  return subLimits;
+}
+
+function parseSubLimits(value: unknown, errors: string[]): Record<string, SubLimit[]> {
+  const body = asRecord(value);
+  const entries = body ? Object.entries(body) : [];
+  if (!body || entries.length > MAX_PROVIDERS) {
+    errors.push(`subLimits must be a JSON object of at most ${MAX_PROVIDERS} providers`);
+    return {};
+  }
+  const subLimits: Record<string, SubLimit[]> = {};
+  for (const [rawProvider, rawList] of entries) {
+    const providerId = normalizeProviderId(rawProvider);
+    if (!providerId) {
+      errors.push(`subLimits.${rawProvider} has an invalid provider id`);
+      continue;
+    }
+    if (Object.hasOwn(subLimits, providerId)) {
+      errors.push(`subLimits.${rawProvider} is listed twice after normalization`);
+      continue;
+    }
+    if (!Array.isArray(rawList) || rawList.length > MAX_SUB_LIMITS) {
+      errors.push(`subLimits.${rawProvider} must be an array of at most ${MAX_SUB_LIMITS} sub-limits`);
+      continue;
+    }
+    const list: SubLimit[] = [];
+    rawList.forEach((item, index) => {
+      const sub = parseSubLimit(item, `subLimits.${rawProvider}[${index}]`, errors);
+      if (sub && list.some((other) => other.id === sub.id)) {
+        errors.push(`subLimits.${rawProvider}[${index}].id is listed twice`);
+      } else if (sub) {
+        list.push(sub);
+      }
+    });
+    if (list.length > 0) subLimits[providerId] = list;
+  }
+  return subLimits;
+}
+
 /** Validates the JSON body of PUT /api/settings. Unlike stored settings, nothing is defaulted. */
 export function parseSettingsUpdate(input: unknown): SettingsParseResult {
   const body = asRecord(input);
@@ -378,6 +508,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
   if (typeof body.showRemaining !== "boolean") errors.push("showRemaining must be true or false");
   const hiddenProviders = parseProviderList(body.hiddenProviders, "hiddenProviders", errors);
   const excludedProviders = parseExclusions(body.excludedProviders, errors);
+  const subLimits = parseSubLimits(body.subLimits, errors);
 
   const groups: GroupDefinition[] = [];
   const rawGroups = body.groups ?? [];
@@ -425,6 +556,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
         showRemaining: body.showRemaining as boolean,
         hiddenProviders,
         excludedProviders,
+        subLimits,
       },
       groups,
       removedGroups,
@@ -525,13 +657,18 @@ export function buildSettingsView(
   config: AppConfig,
   groups: KnownGroup[],
   providerIds: string[] = Object.keys(config.providerLimits),
+  modelsByProvider: Record<string, string[]> = {},
 ): SettingsView {
   const colors = resolveGroupColors(groups);
   const providers = mergeProviderIds(providerIds, Object.keys(config.providerLimits));
   return {
     settings: settingsFromConfig(config, providers),
     timeZone: config.reset.timeZone,
-    providers: providers.map((id) => ({ id, label: providerLabel(id) })),
+    providers: providers.map((id) => ({
+      id,
+      label: providerLabel(id),
+      models: Object.hasOwn(modelsByProvider, id) ? [...modelsByProvider[id]!] : [],
+    })),
     groups: [...groups].sort(byFirstAppearance).map((group) => ({
       id: group.groupId,
       color: colors.get(group.groupId) ?? NEUTRAL_COLOR,
