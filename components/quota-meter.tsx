@@ -32,7 +32,7 @@ const STATUS_STYLE = {
 /** No token limit and no official reading: nothing tells how much of the budget is gone. */
 const UNKNOWN_STYLE = { fill: "bg-ink", track: "bg-rule", icon: InfoCircleIcon, iconColor: "text-ink-3" } as const;
 
-function statusLabel(quota: QuotaAssessment): string {
+export function statusLabel(quota: QuotaAssessment): string {
   if (quota.status === "critical") return "A keret elfogyott.";
   if (quota.pace.earlyBurn) return "Erős kezdés.";
   if (quota.status === "warning") {

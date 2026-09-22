@@ -8,9 +8,11 @@ import {
   countsForProvider,
   NEUTRAL_COLOR,
   resolveGroupColors,
+  subLimitsOf,
   visibleProviderIds,
   type KnownGroup,
 } from "@/lib/settings";
+import { measureSubLimits, splitBySubLimits, type SubLimit, type SubLimitModel } from "@/lib/sub-limits";
 import { buildTimeline, type CycleTimeline } from "@/lib/timeline";
 
 /** The most recent report of a machine, kept even when it is silent this cycle. */
@@ -43,7 +45,7 @@ export interface DashboardModel {
   period: BudgetPeriod;
   /** False: nothing on the page may state the tokens left, nor the overage. */
   showRemaining: boolean;
-  /** Tokens the machines measured this cycle. */
+  /** Tokens the machines measured this cycle; a separate sub-limit's are not among them. */
   total: number;
   /**
    * `total` against the provider's token limit. Null while the token limits
@@ -71,6 +73,8 @@ export interface DashboardModel {
   }[];
   /** The groups' measured tokens over the cycle so far, in total and by model; same groups as `groups`. */
   timeline: CycleTimeline;
+  /** The provider's sub-limits (such as Claude's Fable), each as its models measured it. */
+  subLimits: SubLimitModel[];
   machines: {
     machineId: string;
     groupId: string;
@@ -106,11 +110,14 @@ function healthOf(ageMs: number, reportIntervalMinutes: number): MachineHealth {
 /**
  * Turns raw store data into everything the dashboard renders. Pure.
  * `config` is the effective one: the saved settings already applied.
+ * `subLimits` are the provider's: a separate one's tokens are taken out of
+ * every figure but the models and its own.
  */
 export function buildDashboard(
   now: Date,
   config: AppConfig,
   snapshot: StoreSnapshot,
+  subLimits: SubLimit[] = [],
 ): DashboardModel {
   const nowMs = now.getTime();
   const cycle = getCycle(now, config.reset);
@@ -119,9 +126,10 @@ export function buildDashboard(
   const endMs = cycle.end.getTime();
   const lengthMs = endMs - startMs;
 
-  const current = summarizeUsage(snapshot.events, { startMs, endMs }, config.tokenMode);
+  const split = splitBySubLimits(snapshot.events, subLimits);
+  const current = summarizeUsage(split.main, { startMs, endMs }, config.tokenMode);
   const previous = summarizeUsage(
-    snapshot.events,
+    split.main,
     { startMs: previousCycle.start.getTime(), endMs: startMs },
     config.tokenMode,
   );
@@ -198,12 +206,14 @@ export function buildDashboard(
       color: colorOf.get(g.groupId) ?? NEUTRAL_COLOR,
     })),
     timeline: buildTimeline(
-      snapshot.events,
+      split.main,
       current.groups.map((g) => g.groupId),
       { startMs, endMs },
       nowMs,
       config.tokenMode,
+      snapshot.events,
     ),
+    subLimits: measureSubLimits(subLimits, split.bySubLimit, { startMs, endMs, nowMs }, config.tokenMode, limit),
     machines,
   };
 }
@@ -231,14 +241,19 @@ export function buildProviderDashboards(
     return {
       id: providerId,
       label: providerLabel(providerId),
-      dashboard: buildDashboard(now, configForProvider(config, providerId), {
-        events: (store.eventsByProvider[providerId] ?? []).filter((event) => counts(event.groupId)),
-        // All of them: a group's colour must not depend on which provider is selected.
-        groups: store.groups,
-        machines: store.machines.filter(
-          (machine) => machine.providerId === providerId && counts(machine.groupId),
-        ),
-      }),
+      dashboard: buildDashboard(
+        now,
+        configForProvider(config, providerId),
+        {
+          events: (store.eventsByProvider[providerId] ?? []).filter((event) => counts(event.groupId)),
+          // All of them: a group's colour must not depend on which provider is selected.
+          groups: store.groups,
+          machines: store.machines.filter(
+            (machine) => machine.providerId === providerId && counts(machine.groupId),
+          ),
+        },
+        subLimitsOf(config, providerId),
+      ),
     };
   });
 }

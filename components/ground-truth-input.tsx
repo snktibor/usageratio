@@ -18,6 +18,8 @@ interface GroundTruthInputProps {
   providerLabel: string;
   providers: { id: string; label: string }[];
   onProviderChange: (providerId: string) => void;
+  /** Under the field: the provider's sub-limits, if it has any. */
+  children?: React.ReactNode;
 }
 
 function hint({ invalid, enteredAt, view, timeZone, providerLabel }: GroundTruthInputProps): string {
@@ -151,6 +153,8 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
         {invalid && <StopCircleIcon className="mt-0.5 shrink-0 text-critical" />}
         <span>{hint(props)}</span>
       </p>
+
+      {props.children}
     </section>
   );
 }

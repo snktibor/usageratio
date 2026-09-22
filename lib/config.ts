@@ -1,3 +1,5 @@
+import type { SubLimit } from "@/lib/sub-limits";
+
 /**
  * Central configuration.
  *
@@ -110,6 +112,8 @@ export interface AppConfig {
   hiddenProviders: string[];
   /** groupId → the providers whose reports from that group the dashboard leaves out. */
   excludedProviders: Record<string, string[]>;
+  /** providerId → its sub-limits, such as Claude's Fable: see lib/sub-limits.ts. */
+  subLimits: Record<string, SubLimit[]>;
   tokenMode: TokenMode;
   reportIntervalMinutes: number;
   retentionDays: number;
@@ -196,6 +200,7 @@ export function getConfig(
     showRemaining: DEFAULT_SHOW_REMAINING,
     hiddenProviders: [],
     excludedProviders: {},
+    subLimits: {},
     tokenMode,
     reportIntervalMinutes: REPORT_INTERVAL_MINUTES,
     retentionDays: RETENTION_DAYS,
