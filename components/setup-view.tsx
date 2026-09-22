@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useId, useState } from "react";
 import { BreakablePath, CommandBlock, FileBlock } from "@/components/code-block";
 import { ArrowLeftIcon, DownloadIcon, StopCircleIcon } from "@/components/icons";
+import { TokenCopyButton } from "@/components/token-copy-button";
+import type { ApiTokenStatus } from "@/lib/api-token";
 import {
   checkMachineSettings,
   folderCommand,
@@ -107,14 +109,17 @@ function Step({ number, children }: { number: number; children: React.ReactNode 
   );
 }
 
-function TokenNote({ os, mode }: { os: SetupOs; mode: SetupMode }) {
+function TokenNote({ os, mode, tokenStatus }: { os: SetupOs; mode: SetupMode; tokenStatus: ApiTokenStatus }) {
   return (
-    <p>
-      Amikor kéri, add meg a <Code>USAGE_API_TOKEN</Code>-t; gépelés közben nem látszik. A telepítő ellenőrzi a
-      szerveren, a helyükre másolja a fájlokat
-      {os === "windows" && mode === "auto" ? ", regisztrálja az ütemezett feladatot" : ""}, és elküld egy
-      próbajelentést.
-    </p>
+    <>
+      <p>
+        Amikor kéri, add meg a <Code>USAGE_API_TOKEN</Code>-t; gépelés közben nem látszik. A telepítő ellenőrzi a
+        szerveren, a helyükre másolja a fájlokat
+        {os === "windows" && mode === "auto" ? ", regisztrálja az ütemezett feladatot" : ""}, és elküld egy
+        próbajelentést.
+      </p>
+      <TokenCopyButton status={tokenStatus} />
+    </>
   );
 }
 
@@ -128,12 +133,14 @@ export function SetupView({
   apiUrl,
   groups,
   sources,
+  tokenStatus,
 }: {
   initialOs: SetupOs;
   initialMode: SetupMode;
   apiUrl: string;
   groups: SetupGroup[];
   sources: ClientSources;
+  tokenStatus: ApiTokenStatus;
 }) {
   const [os, setOs] = useState(initialOs);
   const [mode, setMode] = useState(initialMode);
@@ -335,7 +342,7 @@ export function SetupView({
             </>
           )}
           <Step number={3}>
-            <TokenNote os={os} mode={mode} />
+            <TokenNote os={os} mode={mode} tokenStatus={tokenStatus} />
           </Step>
         </ol>
       </section>
@@ -381,7 +388,7 @@ export function SetupView({
           <Step number={3}>
             <p>Futtasd a telepítőt ugyanebben a mappában:</p>
             <CommandBlock command={installerCommand(os)} label="A telepítő parancsa" />
-            <TokenNote os={os} mode={mode} />
+            <TokenNote os={os} mode={mode} tokenStatus={tokenStatus} />
           </Step>
         </ol>
       </section>
@@ -403,7 +410,8 @@ export function SetupView({
             <Code>
               <BreakablePath path={INSTALLED_CONFIG.windows} />
             </Code>{" "}
-            (Windows). Újratelepítéskor Enterrel megtarthatod a mentettet.
+            (Windows). Újratelepítéskor Enterrel megtarthatod a mentettet. A <strong className="font-medium text-ink">Token
+            másolása</strong> gomb a Beállítások panelen megadott, titkosítva tárolt másolatot teszi a vágólapra.
           </dd>
 
           <dt className="text-ink-3">Frissítés</dt>

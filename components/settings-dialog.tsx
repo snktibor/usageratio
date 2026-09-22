@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
+import { ApiTokenSettings } from "@/components/api-token-settings";
 import { PlusIcon, SlidersIcon, StopCircleIcon, XIcon } from "@/components/icons";
 import type { BudgetPeriod } from "@/lib/config";
 import { formatTokens, weekdayLong } from "@/lib/format";
@@ -45,6 +46,8 @@ interface Draft {
   /** Taken off the list in this session; kept whole so a refused removal can be put back. */
   removed: DraftGroup[];
   newGroupName: string;
+  /** The API-token field: saved by its own button, never with the rest. */
+  apiToken: string;
 }
 
 interface SettingsRequest {
@@ -84,6 +87,7 @@ function draftFrom(view: SettingsView): Draft {
     groups: view.groups.map((group) => ({ ...group, colorText: group.color })),
     removed: [],
     newGroupName: "",
+    apiToken: "",
   };
 }
 
@@ -202,6 +206,13 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
   }
 
   async function save() {
+    // The token has its own save, with its own confirmation: typed but not saved, it would be lost.
+    if (draft.apiToken.trim() !== "") {
+      return setProblem(
+        "Az API-token mezőjében mentetlen érték van: mentsd a mellette lévő gombbal, vagy ürítsd ki a mezőt.",
+      );
+    }
+
     // A name left in the field was meant to be added: do not lose it silently.
     let pending = draft;
     if (draft.newGroupName.trim() !== "") {
@@ -523,6 +534,13 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
             lehet, amelynek nincs tárolt jelentése.
           </p>
         </section>
+
+        <ApiTokenSettings
+          headingId={`${titleId}-token`}
+          value={draft.apiToken}
+          onChange={(apiToken) => patch({ apiToken })}
+          timeZone={view.timeZone}
+        />
       </div>
 
       <footer className="sticky bottom-0 border-t border-hairline bg-raised px-6 py-4">
@@ -579,7 +597,10 @@ export function SettingsDialog({ view }: { view: SettingsView }) {
 
       <dialog
         ref={dialogRef}
-        onClose={() => setOpen(false)}
+        // The token section's own dialogs sit inside this one, and React bubbles their close events here.
+        onClose={(event) => {
+          if (event.target === event.currentTarget) setOpen(false);
+        }}
         aria-labelledby={titleId}
         className="m-auto max-h-[calc(100dvh-2rem)] w-[min(34rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-rule bg-raised text-base text-ink shadow-2xl backdrop:bg-black/60"
       >

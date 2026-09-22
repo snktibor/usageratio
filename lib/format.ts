@@ -94,6 +94,18 @@ export function formatDateTime(ms: number, timeZone: string): string {
   return zoned(ms, timeZone, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+/** "2026. szept. 21. 14:05:09": a moment worth pinning down to the second, such as an audit entry. */
+export function formatTimestamp(ms: number, timeZone: string): string {
+  return zoned(ms, timeZone, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 /** A moment inside a cycle: a weekday pins it down in a week, only a date does in a month. */
 export function formatCycleMoment(ms: number, period: BudgetPeriod, timeZone: string): string {
   return period === "monthly" ? formatDateTime(ms, timeZone) : formatWeekdayTime(ms, timeZone);

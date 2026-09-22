@@ -35,6 +35,7 @@ tokenhasználatát csoportonként.
 | `app/page.tsx`, `components/` | PIN-képernyő és dashboard (Tailwind, sötét téma) |
 | `app/setup/page.tsx`, `components/setup-view.tsx` | A **Telepítés** oldal: rendszer és mód, ZIP-letöltés, másolható fájlok |
 | `app/api/setup/route.ts`, `lib/setup.ts`, `lib/setup-package.ts`, `lib/zip.ts` | A telepítőcsomag: fájllista, generált config és README, ZIP |
+| `app/api/api-token/`, `lib/token-vault.ts`, `lib/secret-box.ts`, `lib/api-token.ts` | A tárolt API-token: AES-256-GCM titkosítás, másolás a Telepítés oldalon, auditnapló |
 | `clients/setup/` | A csomagok telepítői: `install.sh` (macOS), `install.ps1` és `install.cmd` (Windows) |
 | `clients/auto/` | Csendes Bash/PowerShell jelentők és a Windows Task Scheduler telepítője |
 | `clients/manual/` | Kézzel indítható Bash/PowerShell jelentők konzolos visszajelzéssel |
@@ -59,6 +60,7 @@ tokenhasználatát csoportonként.
    | --- | --- |
    | `USAGE_API_TOKEN` | a kliensek Bearer tokenje, legalább 16 karakter: `openssl rand -hex 32` |
    | `DASHBOARD_PIN` | pontosan 5 számjegy |
+   | `TOKEN_ENCRYPTION_KEY` | nem kötelező: a Telepítés oldal *Token másolása* gombjához, 32 bájt: `openssl rand -base64 32` |
 
 4. **Domain:** *Settings → Domains → Add* → `usageratio.snktibor.hu`, majd a DNS-szolgáltatónál
    (a `snktibor.hu` a Cloudflare-nél van) vedd fel a Vercel által kiírt rekordot:
@@ -104,6 +106,10 @@ egy kattintással), és ha kell, a gép azonosítóját. Utána két út van, ug
 - **Másold és hozd létre:** ugyanezek a fájlok másolható blokkokban, a nevükkel és a végleges helyükkel.
   A mappa helye mindegy, csak minden fájl egy mappába kerüljön. Mentés a vágólapról:
   `pbpaste > fájlnév`, Windowson a lap első parancsa által felvett `paste fájlnév`.
+
+A token beírásánál a **Token másolása** gomb a vágólapra teszi a Beállítások panelen megadott tokent
+(lásd lent: [API-token](#api-token-a-telepítés-oldal-másológombjához)). A token nem része az oldalnak:
+a gomb kattintáskor kéri le a szervertől, és a lekérés az auditnaplóba kerül.
 
 A telepítő (`clients/setup/`):
 
@@ -195,6 +201,24 @@ telepítés nélkül, azonnali hatállyal:
   azt mondja meg, mikor jön a következő reset. A százalék, az elfogyott mennyiség és a reset ideje megmarad.
 - **Törlés:** csak olyan csoport törölhető, amelynek nincs tárolt jelentése. Különben a jelentései
   eltűnnének a dashboardról, a következő beküldéskor pedig a csoport új színnel térne vissza.
+
+### API-token a Telepítés oldal másológombjához
+
+A Beállítások panel alján megadható a `USAGE_API_TOKEN` másolata. A szerver **AES-256-GCM**-mel
+titkosítja (kulcs: `TOKEN_ENCRYPTION_KEY`, értékenként friss IV, a céljához kötött AAD), és csak a
+titkosított formát írja a Redisbe; a kulcs csak a szerver környezetében van. A panel sosem mutatja a
+tokent, csak az állapotát: tárolva van-e, mikor mentették, és **egyezik-e a szerver `USAGE_API_TOKEN`-jével**
+(ha nem, a telepítő úgyis elutasítaná).
+
+- **Hozzáadás** azonnal ment. **Módosítás** előtt megerősítő ablak jön, és az *Igen* gomb csak
+  5 másodperc után nyomható meg.
+- Az **Audit** gomb görgethető listában mutatja, mikor, melyik böngészőből (böngésző, rendszer,
+  User-Agent, IP-cím, a munkamenet rövid azonosítója) adták hozzá, módosították vagy kérték le a tokent.
+  Az utolsó 500 esemény marad meg. A lekérés előbb kerül a naplóba, és csak utána adja ki a szerver a tokent.
+- A kliensek továbbra is a `USAGE_API_TOKEN` környezeti változóval azonosítanak: a tárolt másolat csak
+  a másolást szolgálja, a hitelesítésbe nem szól bele.
+- Ha a `TOKEN_ENCRYPTION_KEY` hiányzik, a szekció ezt jelzi, és nem enged menteni. Ha megváltozik, a
+  tárolt másolat nem fejthető vissza: add meg újra.
 
 A dashboard **kizárólag a legutóbbi reset óta** érkezett jelentéseket összesíti. A resethez nem
 kell időzített feladat, és nem töröl semmit: a ciklus kezdete egyszerűen a lekérdezés alsó határa.
@@ -340,6 +364,21 @@ jelent.)
 | `413` / `415` | 16 KB-nál nagyobb, illetve nem JSON törzs |
 | `503` | a Redis nincs bekötve vagy nem elérhető |
 
+### `/api/api-token`: a tárolt token és az auditnapló
+
+Mind a session-sütivel hitelesít, mint a `/api/settings`; session nélkül `401`, és semmihez nem nyúl.
+Az írások csak azonos eredetről (`Origin`) fogadhatók el.
+
+| Végpont | Mit csinál |
+| --- | --- |
+| `GET /api/api-token` | állapot: `{"status":{"state":"no_key"\|"empty"\|"unreadable"\|"stored","updatedAt","matchesServer"}}`, a token nélkül |
+| `PUT /api/api-token` | `{"token":"…"}` (16–512 szóköz nélküli ASCII karakter): titkosítva menti, a naplóba `created`/`updated` kerül |
+| `POST /api/api-token/reveal` | `{"token":"…"}`: előbb `revealed` bejegyzés a naplóba, csak utána a token. `404` ha nincs, `409` ha nem fejthető vissza |
+| `GET /api/api-token/audit` | `{"entries":[{"at","action","browser","os","userAgent","ip","session"}],"currentSession"}`, a legfrissebb elöl |
+
+Hiányzó vagy hibás `TOKEN_ENCRYPTION_KEY` mellett a `PUT` és a `reveal` `500`-at ad
+(`encryption_key_missing`), a `GET` pedig `"state":"no_key"`-t.
+
 ### `/api/setup`: a telepítőcsomag letöltése
 
 `GET /api/setup?os=macos|windows&mode=auto|manual&group=Work&machine=win-desktop` a Telepítés oldal
@@ -364,6 +403,8 @@ usage:events:{provider}:{group}   ZSET score = jelentés ideje; member = {"m","t
                                   ("b": modellenkénti bontás, csak ha a kliens küldött)
 usage:groups                      HASH groupId → {"color":"#rrggbb","ts": első megjelenés}
 usage:machines                    HASH providerId:machineId → {"g","ts","t"}
+usage:api-token                   STRING {"v":1,"iv","ct","tag","updatedAt"}: AES-256-GCM, a token sosem nyíltan
+usage:api-token:audit             LIST a legfrissebb elöl, legfeljebb 500: {"at","a","ua","ch","pf","ip","s"}
 usage:session:{hash}     STRING, 30 napos lejárattal
 usage:auth:*             próbálkozás-számlálók lejárattal
 ```
@@ -399,6 +440,10 @@ DeepSeek-adatként olvassa. A korábbi csoportszín-formátum is megmaradt; kéz
 - **Telepítés:** a `/setup` oldal és a `/api/setup` letöltés is a PIN-session mögött van. A csomag nem
   tartalmaz titkot: a tokent a telepítő kéri be rejtetten, a szerveren ellenőrzi, és csak a gép saját
   configjába írja (macOS-en 600-as joggal, Windowson a felhasználói profil alá).
+- **Tárolt token:** a Beállítások panelen megadott másolat AES-256-GCM-mel titkosítva kerül a Redisbe, a
+  kulcs (`TOKEN_ENCRYPTION_KEY`) csak a szerveren van. A token nem kerül a HTML-be: a *Token másolása*
+  gomb `POST`-tal kéri le (`Cache-Control: no-store`), és minden lekérés, mentés a böngésző adataival az
+  auditnaplóba kerül, mielőtt a szerver válaszolna. Csere előtt megerősítés kell, 5 másodperces várakozással.
 - A keresők ki vannak tiltva (`robots.txt`, `X-Robots-Tag`), az oldal nem ágyazható be (`X-Frame-Options`).
 
 ## 8. Helyi fejlesztés
