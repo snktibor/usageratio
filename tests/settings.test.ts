@@ -27,6 +27,7 @@ const DEFAULTS = settingsFromConfig(config);
 // Every field differs from its default, so a round trip proves each one is carried.
 const MONTHLY: UsageSettings = {
   period: "monthly",
+  useTokenLimits: true,
   limits: { claude: 2_000_000, deepseek: 1_250_000 },
   reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30 },
   showRemaining: false,
@@ -36,6 +37,7 @@ describe("stored settings", () => {
   it("fall back to the configured defaults while nothing is saved", () => {
     expect(DEFAULTS).toEqual({
       period: "weekly",
+      useTokenLimits: false,
       limits: { deepseek: 500_000 },
       reset: { weekday: 1, monthDay: 1, hour: 0, minute: 0 },
       showRemaining: true,
@@ -51,6 +53,7 @@ describe("stored settings", () => {
     const seeded = settingsFromConfig(getConfig({ WEEKLY_LIMIT: "750_000", RESET_WEEKDAY: "3", RESET_TIME: "06:15" }));
     expect(seeded).toEqual({
       period: "weekly",
+      useTokenLimits: false,
       limits: { deepseek: 750_000 },
       reset: { weekday: 3, monthDay: 1, hour: 6, minute: 15 },
       showRemaining: true,
@@ -75,6 +78,7 @@ describe("stored settings", () => {
       minute: 30,
       timeZone: "Europe/Budapest",
     });
+    expect(effective.useTokenLimits).toBe(true);
     expect(effective.showRemaining).toBe(false);
     expect(effective.tokenMode).toBe(config.tokenMode);
     expect(effective.retentionDays).toBe(config.retentionDays);
@@ -91,6 +95,7 @@ describe("stored settings", () => {
     });
     expect(parseStoredSettings(raw, DEFAULTS)).toEqual({
       period: "weekly",
+      useTokenLimits: false,
       limits: { deepseek: 1_234_567 },
       reset: { weekday: 1, monthDay: 31, hour: 0, minute: 45 },
       showRemaining: true,
@@ -103,18 +108,38 @@ describe("stored settings", () => {
       '{"v":1,"period":"monthly","limit":2000000,"reset":{"weekday":4,"monthDay":15,"hour":9,"minute":30},"updatedAt":1789997466594}';
     expect(parseStoredSettings(raw, DEFAULTS)).toEqual({
       ...MONTHLY,
+      useTokenLimits: false,
       limits: { deepseek: 2_000_000 },
       showRemaining: true,
     });
     expect(resolveConfig(config, raw).showRemaining).toBe(true);
   });
 
-  it("take only a real boolean for the switch", () => {
+  it("read a document saved before the token-limit switch existed: the limits go off, but are kept", () => {
+    // What the panel wrote until then: per-provider limits and the remaining-tokens switch, no `useTokenLimits`.
+    const raw =
+      '{"v":2,"period":"weekly","limits":{"claude":2000000,"deepseek":750000},"reset":{"weekday":1,"monthDay":1,"hour":0,"minute":0},"showRemaining":false,"updatedAt":1790000000000}';
+    const stored = parseStoredSettings(raw, DEFAULTS);
+    expect(stored.useTokenLimits).toBe(false);
+    expect(stored.limits).toEqual({ claude: 2_000_000, deepseek: 750_000 });
+    expect(stored.showRemaining).toBe(false);
+    const effective = resolveConfig(config, raw, ["claude", "deepseek"]);
+    expect(effective.useTokenLimits).toBe(false);
+    // Switching the limits back on finds them as they were.
+    expect(configForProvider(effective, "claude").limit).toBe(2_000_000);
+  });
+
+  it("take only a real boolean for the switches", () => {
     for (const value of ["false", 0, null, "no", []]) {
       const raw = JSON.stringify({ ...MONTHLY, showRemaining: value });
       expect(parseStoredSettings(raw, DEFAULTS).showRemaining).toBe(true);
     }
     expect(parseStoredSettings(JSON.stringify(MONTHLY), DEFAULTS).showRemaining).toBe(false);
+    for (const value of ["true", 1, null, "yes", {}]) {
+      const raw = JSON.stringify({ ...MONTHLY, useTokenLimits: value });
+      expect(parseStoredSettings(raw, DEFAULTS).useTokenLimits).toBe(false);
+    }
+    expect(parseStoredSettings(JSON.stringify(MONTHLY), DEFAULTS).useTokenLimits).toBe(true);
   });
 
   it("never fail on a corrupt document", () => {
@@ -127,6 +152,7 @@ describe("stored settings", () => {
 describe("parseSettingsUpdate", () => {
   const valid = {
     period: "monthly",
+    useTokenLimits: true,
     limits: { claude: 2_000_000, deepseek: 1_250_000 },
     reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30 },
     showRemaining: false,
@@ -161,13 +187,17 @@ describe("parseSettingsUpdate", () => {
   it("defaults nothing: every budget field is required", () => {
     const result = parseSettingsUpdate({});
     expect(result.ok).toBe(false);
-    expect(!result.ok && result.errors).toHaveLength(7);
+    expect(!result.ok && result.errors).toHaveLength(8);
+    expect(!result.ok && result.errors).toContain("useTokenLimits must be true or false");
     expect(!result.ok && result.errors).toContain("showRemaining must be true or false");
   });
 
   it.each([
     ["a non-object body", [valid]],
     ["an unknown period", { ...valid, period: "daily" }],
+    ["a missing token-limit switch", { ...valid, useTokenLimits: undefined }],
+    ["the token-limit switch given as text", { ...valid, useTokenLimits: "true" }],
+    ["the token-limit switch given as a number", { ...valid, useTokenLimits: 1 }],
     ["an empty limits map", { ...valid, limits: {} }],
     ["a zero limit", { ...valid, limits: { claude: 0 } }],
     ["a fractional limit", { ...valid, limits: { claude: 1000.5 } }],

@@ -1,5 +1,5 @@
 import type { DashboardModel } from "@/lib/dashboard";
-import { formatPercent, formatTokens } from "@/lib/format";
+import { formatLimitShare, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
 
 type Group = DashboardModel["groups"][number];
@@ -15,9 +15,14 @@ export function Swatch({ color }: { color: string }) {
   );
 }
 
-/** Next to a section heading while an official figure restates the token counts below it. */
-export function CalibratedNote() {
-  return <span className="text-sm font-normal text-ink-3">a hivatalos értékhez igazítva</span>;
+/** Next to a section heading while an official figure restates the figures below it. */
+export function CalibratedNote({ view }: { view: DashboardView }) {
+  return (
+    <span className="text-sm font-normal text-ink-3">
+      {/* Without a token limit the token counts stay as measured: only the shares of the limit follow the figure. */}
+      {view.inTokens ? "a hivatalos értékhez igazítva" : "a hivatalos százalék a mért arányok szerint elosztva"}
+    </span>
+  );
 }
 
 /** Part-to-whole bar: 100% is this cycle's usage. The table below is its accessible twin. */
@@ -62,12 +67,14 @@ function ShareBar({ groups }: { groups: Group[] }) {
 export function GroupBreakdown({ model, view }: { model: DashboardModel; view: DashboardView }) {
   // The split itself always comes from the machines: without measurements there is nothing to show.
   const hasUsage = model.total > 0;
+  // No token limit and no official figure: there is no limit to take a share of.
+  const hasLimitShare = view.quota !== null;
 
   return (
     <section aria-labelledby="groups-heading">
       <h2 id="groups-heading" className="flex flex-wrap items-baseline gap-x-3 text-xl font-medium">
         Csoportok
-        {view.calibrated && hasUsage && <CalibratedNote />}
+        {view.calibrated && hasUsage && <CalibratedNote view={view} />}
       </h2>
 
       {hasUsage ? (
@@ -88,9 +95,11 @@ export function GroupBreakdown({ model, view }: { model: DashboardModel; view: D
                 <th scope="col" className="hidden py-2 pl-4 text-right font-normal sm:table-cell">
                   Részesedés
                 </th>
-                <th scope="col" className="whitespace-nowrap py-2 pl-4 text-right font-normal">
-                  A keretből
-                </th>
+                {hasLimitShare && (
+                  <th scope="col" className="whitespace-nowrap py-2 pl-4 text-right font-normal">
+                    A keretből
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody className="tabular-nums">
@@ -111,7 +120,9 @@ export function GroupBreakdown({ model, view }: { model: DashboardModel; view: D
                   <td className="hidden py-3 pl-4 text-right text-ink-2 sm:table-cell">
                     {formatPercent(group.share)}
                   </td>
-                  <td className="py-3 pl-4 text-right">{formatPercent(group.limitShare)}</td>
+                  {hasLimitShare && (
+                    <td className="py-3 pl-4 text-right">{formatLimitShare(group.limitShare)}</td>
+                  )}
                 </tr>
               ))}
             </tbody>

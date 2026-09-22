@@ -4,7 +4,8 @@ import { buildDashboard, type StoreSnapshot } from "@/lib/dashboard";
 import { NEUTRAL_COLOR, PRESET_COLORS, type KnownGroup } from "@/lib/settings";
 
 const HOUR = 3_600_000;
-const config = { ...getConfig({}), limit: 500_000, tokenMode: "delta" as const };
+// The token limits are off by default; most of these cases are about measuring against one.
+const config = { ...getConfig({}), useTokenLimits: true, limit: 500_000, tokenMode: "delta" as const };
 
 // Wednesday 12:00 Budapest time; the cycle started Monday 00:00 (= Sunday 22:00 UTC), 60 h ago.
 const NOW = new Date("2026-09-23T10:00:00Z");
@@ -33,9 +34,9 @@ describe("buildDashboard — quota and pace", () => {
       }),
     );
     expect(model.total).toBe(250_000);
-    expect(model.usedFraction).toBe(0.5);
-    expect(model.remaining).toBe(250_000);
-    expect(model.overage).toBe(0);
+    expect(model.quota?.usedFraction).toBe(0.5);
+    expect(model.quota?.remaining).toBe(250_000);
+    expect(model.quota?.overage).toBe(0);
     expect(model.cycle.elapsedFraction).toBeCloseTo(60 / 168, 10);
   });
 
@@ -45,10 +46,10 @@ describe("buildDashboard — quota and pace", () => {
       config,
       snapshot({ events: [report("win-1", "Work", 250_000, 10)] }),
     );
-    expect(model.pace.projectedTotal).toBeCloseTo(700_000, 5);
-    expect(model.status).toBe("warning");
+    expect(model.quota?.pace.projectedTotal).toBeCloseTo(700_000, 5);
+    expect(model.quota?.status).toBe("warning");
     // Half the limit took 60 h, so the whole limit lasts 120 h.
-    expect(model.pace.runOutAt).toBe(CYCLE_START + 120 * HOUR);
+    expect(model.quota?.pace.runOutAt).toBe(CYCLE_START + 120 * HOUR);
   });
 
   it("is fine when the pace fits the limit", () => {
@@ -57,9 +58,9 @@ describe("buildDashboard — quota and pace", () => {
       config,
       snapshot({ events: [report("win-1", "Work", 100_000, 10)] }),
     );
-    expect(model.status).toBe("good");
-    expect(model.pace.projectedTotal).toBeCloseTo(280_000, 5);
-    expect(model.pace.runOutAt).toBeNull();
+    expect(model.quota?.status).toBe("good");
+    expect(model.quota?.pace.projectedTotal).toBeCloseTo(280_000, 5);
+    expect(model.quota?.pace.runOutAt).toBeNull();
   });
 
   it("warns above 80% even if the pace is fine", () => {
@@ -69,8 +70,8 @@ describe("buildDashboard — quota and pace", () => {
       config,
       snapshot({ events: [report("win-1", "Work", 410_000, 10)] }),
     );
-    expect(model.pace.projectedTotal).toBeLessThan(500_000);
-    expect(model.status).toBe("warning");
+    expect(model.quota?.pace.projectedTotal).toBeLessThan(500_000);
+    expect(model.quota?.status).toBe("warning");
   });
 
   it("is critical once the limit is used up", () => {
@@ -79,10 +80,10 @@ describe("buildDashboard — quota and pace", () => {
       config,
       snapshot({ events: [report("win-1", "Work", 560_000, 10)] }),
     );
-    expect(model.status).toBe("critical");
-    expect(model.remaining).toBe(0);
-    expect(model.overage).toBe(60_000);
-    expect(model.pace.runOutAt).toBeNull();
+    expect(model.quota?.status).toBe("critical");
+    expect(model.quota?.remaining).toBe(0);
+    expect(model.quota?.overage).toBe(60_000);
+    expect(model.quota?.pace.runOutAt).toBeNull();
   });
 
   it("does not extrapolate during the first day of a cycle", () => {
@@ -92,9 +93,9 @@ describe("buildDashboard — quota and pace", () => {
       config,
       snapshot({ events: [report("win-1", "Work", 60_000, 2)] }),
     );
-    expect(model.pace.projectedTotal).toBeNull();
-    expect(model.pace.earlyBurn).toBe(false);
-    expect(model.status).toBe("good");
+    expect(model.quota?.pace.projectedTotal).toBeNull();
+    expect(model.quota?.pace.earlyBurn).toBe(false);
+    expect(model.quota?.status).toBe("good");
   });
 
   it("still warns on the first day when usage is far beyond a day's fair share", () => {
@@ -105,10 +106,10 @@ describe("buildDashboard — quota and pace", () => {
       config,
       snapshot({ events: [report("win-1", "Work", 200_000, 2)] }),
     );
-    expect(model.pace.projectedTotal).toBeNull();
-    expect(model.pace.earlyBurn).toBe(true);
-    expect(model.pace.dailyShare).toBeCloseTo(1 / 7, 10);
-    expect(model.status).toBe("warning");
+    expect(model.quota?.pace.projectedTotal).toBeNull();
+    expect(model.quota?.pace.earlyBurn).toBe(true);
+    expect(model.quota?.pace.dailyShare).toBeCloseTo(1 / 7, 10);
+    expect(model.quota?.status).toBe("warning");
   });
 
   it("stops flagging an early burn once a real projection is available", () => {
@@ -117,8 +118,8 @@ describe("buildDashboard — quota and pace", () => {
       config,
       snapshot({ events: [report("win-1", "Work", 200_000, 2)] }),
     );
-    expect(model.pace.projectedTotal).not.toBeNull();
-    expect(model.pace.earlyBurn).toBe(false);
+    expect(model.quota?.pace.projectedTotal).not.toBeNull();
+    expect(model.quota?.pace.earlyBurn).toBe(false);
   });
 
   it("ignores reports from before the current cycle, but totals the previous one", () => {
@@ -145,7 +146,7 @@ describe("buildDashboard — quota and pace", () => {
     expect(hidden.showRemaining).toBe(false);
     // Display only: everything else is the same model.
     expect(hidden).toEqual({ ...shown, showRemaining: false });
-    expect(hidden.remaining).toBe(350_000);
+    expect(hidden.quota?.remaining).toBe(350_000);
   });
 
   it("lays the cycle out as seven day segments from 0 to 1", () => {
@@ -154,6 +155,42 @@ describe("buildDashboard — quota and pace", () => {
     expect(model.cycle.segments[0]?.startFraction).toBe(0);
     expect(model.cycle.segments[6]?.endFraction).toBe(1);
     expect(model.cycle.segments.map((s) => s.weekday)).toEqual([1, 2, 3, 4, 5, 6, 0]);
+  });
+});
+
+describe("buildDashboard — without token limits", () => {
+  const events = [report("win-1", "Work", 150_000, 10), report("mac", "Personal", 50_000, 20)];
+  const known = [{ machineId: "old", groupId: "Work", lastSeenAt: NOW.getTime() - 48 * HOUR, lastTokens: 0 }];
+  const bare = buildDashboard(NOW, { ...config, useTokenLimits: false }, snapshot({ events, machines: known }));
+
+  it("is the default", () => {
+    expect(getConfig({}).useTokenLimits).toBe(false);
+    expect(buildDashboard(NOW, getConfig({}), snapshot({ events })).quota).toBeNull();
+  });
+
+  it("measures the tokens and their proportions, but nothing against a limit", () => {
+    expect(bare.total).toBe(200_000);
+    expect(bare.quota).toBeNull();
+    expect(bare.groups.map((g) => [g.groupId, g.tokens, g.share, g.limitShare])).toEqual([
+      ["Work", 150_000, 0.75, null],
+      ["Personal", 50_000, 0.25, null],
+    ]);
+    expect(bare.machines.map((m) => [m.machineId, m.share, m.limitShare])).toEqual([
+      ["win-1", 0.75, null],
+      ["mac", 0.25, null],
+      ["old", 0, null],
+    ]);
+  });
+
+  it("is otherwise the model the limits would give", () => {
+    const limited = buildDashboard(NOW, config, snapshot({ events, machines: known }));
+    expect(limited.quota).not.toBeNull();
+    expect(bare).toEqual({
+      ...limited,
+      quota: null,
+      groups: limited.groups.map((g) => ({ ...g, limitShare: null })),
+      machines: limited.machines.map((m) => ({ ...m, limitShare: null })),
+    });
   });
 });
 
@@ -240,8 +277,8 @@ describe("buildDashboard — monthly budget", () => {
     expect(model.previousTotal).toBe(9_000);
     expect(model.cycle.startMs).toBe(MONTH_START);
     expect(model.cycle.elapsedFraction).toBeCloseTo(540 / 720, 10);
-    expect(model.pace.projectedTotal).toBeCloseTo(400_000, 5);
-    expect(model.status).toBe("good");
+    expect(model.quota?.pace.projectedTotal).toBeCloseTo(400_000, 5);
+    expect(model.quota?.status).toBe("good");
   });
 
   it("takes one day of the month as the daily share", () => {
@@ -252,10 +289,10 @@ describe("buildDashboard — monthly budget", () => {
       // 8% gone before the first day is over; an even day is 1/30 ≈ 3.3%.
       snapshot({ events: [{ machineId: "mac", groupId: "Personal", tokens: 40_000, ts: MONTH_START + HOUR }] }),
     );
-    expect(model.pace.dailyShare).toBeCloseTo(1 / 30, 10);
-    expect(model.pace.projectedTotal).toBeNull();
-    expect(model.pace.earlyBurn).toBe(true);
-    expect(model.status).toBe("warning");
+    expect(model.quota?.pace.dailyShare).toBeCloseTo(1 / 30, 10);
+    expect(model.quota?.pace.projectedTotal).toBeNull();
+    expect(model.quota?.pace.earlyBurn).toBe(true);
+    expect(model.quota?.status).toBe("warning");
   });
 
   it("lays the cycle out as the days of the month", () => {

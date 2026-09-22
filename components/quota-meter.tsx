@@ -1,4 +1,4 @@
-import { AlertTriangleIcon, CheckCircleIcon, StopCircleIcon } from "@/components/icons";
+import { AlertTriangleIcon, CheckCircleIcon, InfoCircleIcon, StopCircleIcon } from "@/components/icons";
 import type { DashboardModel } from "@/lib/dashboard";
 import {
   formatDateTime,
@@ -11,6 +11,7 @@ import {
   weekdayShort,
 } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
+import type { QuotaAssessment } from "@/lib/quota";
 
 type Segment = DashboardModel["cycle"]["segments"][number];
 
@@ -31,7 +32,10 @@ const STATUS_STYLE = {
   },
 } as const;
 
-function statusLabel({ quota }: DashboardView): string {
+/** No token limit and no official reading: nothing tells how much of the budget is gone. */
+const UNKNOWN_STYLE = { fill: "bg-ink", track: "bg-rule", icon: InfoCircleIcon, iconColor: "text-ink-3" } as const;
+
+function statusLabel(quota: QuotaAssessment): string {
   if (quota.status === "critical") return "A keret elfogyott.";
   if (quota.pace.earlyBurn) return "Erős kezdés.";
   if (quota.status === "warning") {
@@ -50,11 +54,12 @@ function formatMoment(ms: number, model: DashboardModel): string {
     : formatWeekdayTime(ms, model.timeZone);
 }
 
-function paceSentence(model: DashboardModel, { quota }: DashboardView): string {
+function paceSentence(model: DashboardModel, view: DashboardView, quota: QuotaAssessment): string {
   const { total, limit, pace } = quota;
   if (total >= limit) {
     // With the remaining tokens switched off, the overage (tokens left, below zero) stays unsaid too.
-    if (!model.showRemaining) {
+    // Without a token limit there are no tokens to state at all.
+    if (!view.inTokens || !model.showRemaining) {
       return `A következő reset ${formatDuration(model.cycle.endMs - model.generatedAt)} múlva indít új keretet.`;
     }
     return quota.overage > 0
@@ -93,16 +98,48 @@ function rulerLabel(model: DashboardModel, segment: Segment, index: number, toda
   return named ? `${segment.monthDay}.` : null;
 }
 
+/** The bar is a meter while something fills it; until then it only carries the cycle's ruler. */
+function meterAttributes(
+  model: DashboardModel,
+  quota: QuotaAssessment | null,
+  tokenQuota: QuotaAssessment | null,
+): React.HTMLAttributes<HTMLDivElement> {
+  if (!quota) return { "aria-hidden": true };
+  const label = model.period === "monthly" ? "Havi" : "Heti";
+  if (tokenQuota) {
+    return {
+      role: "meter",
+      "aria-label": `${label} tokenkeret`,
+      "aria-valuemin": 0,
+      "aria-valuemax": tokenQuota.limit,
+      "aria-valuenow": Math.round(Math.min(tokenQuota.total, tokenQuota.limit)),
+      "aria-valuetext": `${formatTokens(tokenQuota.total)} / ${formatTokens(tokenQuota.limit)} token, ${formatHeroPercent(tokenQuota.usedFraction)}`,
+    };
+  }
+  return {
+    role: "meter",
+    "aria-label": `${label} keret`,
+    "aria-valuemin": 0,
+    "aria-valuemax": 100,
+    "aria-valuenow": Math.round(Math.min(1, quota.usedFraction) * 1000) / 10,
+    "aria-valuetext": `${formatHeroPercent(quota.usedFraction)}, hivatalos érték`,
+  };
+}
+
 /**
  * The page's one gauge: usage against the limit, laid over the cycle itself.
  * Fill ahead of the "most" marker means burning faster than time passes.
+ * Without a token limit only an official reading fills it.
  */
 export function QuotaMeter({ model, view }: { model: DashboardModel; view: DashboardView }) {
   const { quota } = view;
-  const style = STATUS_STYLE[quota.status];
+  // Token amounts mean tokens only against a limit: without one `quota` counts fractions of the budget.
+  const tokenQuota = view.inTokens ? quota : null;
+  const showRemaining = tokenQuota !== null && model.showRemaining;
+  const style = quota ? STATUS_STYLE[quota.status] : UNKNOWN_STYLE;
   const StatusIcon = style.icon;
   const period = periodAdjective(model.period);
-  const fillPercent = Math.min(1, quota.usedFraction) * 100;
+  const fillPercent = quota ? Math.min(1, quota.usedFraction) * 100 : 0;
   const nowFraction = model.cycle.elapsedFraction;
   const nowAlign =
     nowFraction < 0.05 ? "translate-x-0" : nowFraction > 0.95 ? "-translate-x-full" : "-translate-x-1/2";
@@ -114,8 +151,19 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
   return (
     <section aria-labelledby="quota-heading">
       <h1 id="quota-heading" className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
-        <span className="hero-figure">{formatHeroPercent(quota.usedFraction)}</span>
-        <span className="text-xl text-ink-2 sm:text-2xl">elfogyott a {period} keretből</span>
+        {quota ? (
+          <>
+            <span className="hero-figure">{formatHeroPercent(quota.usedFraction)}</span>
+            <span className="text-xl text-ink-2 sm:text-2xl">elfogyott a {period} keretből</span>
+          </>
+        ) : (
+          <>
+            <span aria-hidden="true" className="hero-figure text-ink-3">
+              –%
+            </span>
+            <span className="text-xl text-ink-2 sm:text-2xl">még nincs hivatalos érték</span>
+          </>
+        )}
         {view.calibrated && (
           <span className="rounded-full border border-ink-3 px-3 py-1 text-sm text-ink-2">
             hivatalos érték
@@ -133,12 +181,7 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
         </span>
 
         <div
-          role="meter"
-          aria-label={model.period === "monthly" ? "Havi tokenkeret" : "Heti tokenkeret"}
-          aria-valuemin={0}
-          aria-valuemax={quota.limit}
-          aria-valuenow={Math.round(Math.min(quota.total, quota.limit))}
-          aria-valuetext={`${formatTokens(quota.total)} / ${formatTokens(quota.limit)} token, ${formatHeroPercent(quota.usedFraction)}`}
+          {...meterAttributes(model, quota, tokenQuota)}
           className={`relative h-5 w-full rounded-r-[4px] transition-colors duration-500 ${style.track}`}
         >
           <div
@@ -182,28 +225,43 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
 
       <p className="mt-6 flex max-w-2xl items-start gap-2.5 text-base text-ink-2">
         <StatusIcon className={`mt-1 shrink-0 ${style.iconColor}`} />
-        <span>
-          <strong className="font-medium text-ink">{statusLabel(view)}</strong> {paceSentence(model, view)}
-        </span>
+        {quota ? (
+          <span>
+            <strong className="font-medium text-ink">{statusLabel(quota)}</strong> {paceSentence(model, view, quota)}
+          </span>
+        ) : (
+          <span>
+            <strong className="font-medium text-ink">A keret állása a hivatalos értékből derül ki.</strong> Írd be
+            fent a százalékot: a tempó és a bontás abból számol.
+          </span>
+        )}
       </p>
 
       <dl
         className={`mt-8 grid grid-cols-1 gap-x-10 gap-y-5 border-t border-hairline pt-6 ${
-          model.showRemaining ? "sm:grid-cols-3" : "sm:grid-cols-2"
+          showRemaining ? "sm:grid-cols-3" : "sm:grid-cols-2"
         }`}
       >
-        <div>
-          <dt className="text-sm text-ink-3">Elfogyott</dt>
-          <dd className="mt-1 text-2xl font-medium">{formatTokens(quota.total)} token</dd>
-          <dd className="text-sm text-ink-3">
-            a {period} {formatTokens(quota.limit)} tokenből
-          </dd>
-        </div>
-        {model.showRemaining && (
+        {tokenQuota ? (
           <div>
-            <dt className="text-sm text-ink-3">{quota.overage > 0 ? "Túllépés" : "Maradt"}</dt>
+            <dt className="text-sm text-ink-3">Elfogyott</dt>
+            <dd className="mt-1 text-2xl font-medium">{formatTokens(tokenQuota.total)} token</dd>
+            <dd className="text-sm text-ink-3">
+              a {period} {formatTokens(tokenQuota.limit)} tokenből
+            </dd>
+          </div>
+        ) : (
+          <div>
+            <dt className="text-sm text-ink-3">Mért fogyasztás</dt>
+            <dd className="mt-1 text-2xl font-medium">{formatTokens(view.measured.total)} token</dd>
+            <dd className="text-sm text-ink-3">a gépek mérése szerint</dd>
+          </div>
+        )}
+        {showRemaining && tokenQuota && (
+          <div>
+            <dt className="text-sm text-ink-3">{tokenQuota.overage > 0 ? "Túllépés" : "Maradt"}</dt>
             <dd className="mt-1 text-2xl font-medium">
-              {formatTokens(quota.overage > 0 ? quota.overage : quota.remaining)} token
+              {formatTokens(tokenQuota.overage > 0 ? tokenQuota.overage : tokenQuota.remaining)} token
             </dd>
             <dd className="text-sm text-ink-3">{elapsedNote}</dd>
           </div>
@@ -216,7 +274,7 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
           <dd className="text-sm text-ink-3">
             {formatMoment(model.cycle.endMs, model)}
             {/* How far the cycle is belongs to neither figure: it moves here when its block is off. */}
-            {!model.showRemaining && <> · {elapsedNote}</>}
+            {!showRemaining && <> · {elapsedNote}</>}
           </dd>
         </div>
       </dl>

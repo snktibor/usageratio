@@ -4,7 +4,7 @@ import { buildDashboard } from "@/lib/dashboard";
 import { applyGroundTruth, parseOfficialPercent } from "@/lib/ground-truth";
 
 const HOUR = 3_600_000;
-const config = { ...getConfig({}), limit: 500_000, tokenMode: "delta" as const };
+const config = { ...getConfig({}), useTokenLimits: true, limit: 500_000, tokenMode: "delta" as const };
 
 // Wednesday 12:00 Budapest time; the weekly cycle started Monday 00:00, 60 h ago.
 const NOW = new Date("2026-09-23T10:00:00Z");
@@ -55,10 +55,10 @@ describe("applyGroundTruth — no official figure", () => {
   it("passes the measured figures through", () => {
     expect(view.calibrated).toBe(false);
     expect(view.scale).toBeNull();
-    expect(view.quota.total).toBe(40_000);
-    expect(view.quota.usedFraction).toBe(0.08);
-    expect(view.quota.status).toBe(model.status);
-    expect(view.quota.pace).toBe(model.pace);
+    expect(view.quota?.total).toBe(40_000);
+    expect(view.quota?.usedFraction).toBe(0.08);
+    expect(view.quota?.status).toBe(model.quota?.status);
+    expect(view.quota).toBe(model.quota);
     expect(view.groups).toBe(model.groups);
     expect(view.machines).toBe(model.machines);
   });
@@ -80,10 +80,10 @@ describe("applyGroundTruth — with the official figure", () => {
 
   it("leads with the official figure", () => {
     expect(view.calibrated).toBe(true);
-    expect(view.quota.usedFraction).toBe(0.2);
-    expect(view.quota.total).toBe(100_000);
-    expect(view.quota.remaining).toBe(400_000);
-    expect(view.quota.limit).toBe(500_000);
+    expect(view.quota?.usedFraction).toBe(0.2);
+    expect(view.quota?.total).toBe(100_000);
+    expect(view.quota?.remaining).toBe(400_000);
+    expect(view.quota?.limit).toBe(500_000);
   });
 
   it("still knows what the machines measured, and how far off that is", () => {
@@ -107,8 +107,9 @@ describe("applyGroundTruth — with the official figure", () => {
   });
 
   it("adds up: the parts make the official total", () => {
-    const sum = (rows: { tokens: number; limitShare: number }[]) =>
-      rows.reduce((acc, row) => ({ tokens: acc.tokens + row.tokens, share: acc.share + row.limitShare }), {
+    // A missing share of the limit makes the sum NaN: every calibrated row must have one.
+    const sum = (rows: { tokens: number; limitShare: number | null }[]) =>
+      rows.reduce((acc, row) => ({ tokens: acc.tokens + row.tokens, share: acc.share + (row.limitShare ?? NaN) }), {
         tokens: 0,
         share: 0,
       });
@@ -127,41 +128,115 @@ describe("applyGroundTruth — with the official figure", () => {
 
   it("judges the pace by the official figure", () => {
     // 8% measured in 60 of 168 hours projects to 22%: fine. 45% official projects to 126%.
-    expect(model.status).toBe("good");
+    expect(model.quota?.status).toBe("good");
     const hot = applyGroundTruth(model, { percent: 45, atMs: null });
-    expect(hot.quota.status).toBe("warning");
-    expect(hot.quota.pace.projectedTotal).toBeCloseTo(630_000, 5);
+    expect(hot.quota?.status).toBe("warning");
+    expect(hot.quota?.pace.projectedTotal).toBeCloseTo(630_000, 5);
     // 45% took 60 h, so 100% lasts 133 h 20 min.
-    expect(hot.quota.pace.runOutAt).toBe(CYCLE_START + Math.round((60 / 0.45) * HOUR));
+    expect(hot.quota?.pace.runOutAt).toBe(CYCLE_START + Math.round((60 / 0.45) * HOUR));
 
-    expect(applyGroundTruth(model, { percent: 85, atMs: null }).quota.status).toBe("warning");
+    expect(applyGroundTruth(model, { percent: 85, atMs: null }).quota?.status).toBe("warning");
     const spent = applyGroundTruth(model, { percent: 100, atMs: null });
-    expect(spent.quota.status).toBe("critical");
-    expect(spent.quota.remaining).toBe(0);
+    expect(spent.quota?.status).toBe("critical");
+    expect(spent.quota?.remaining).toBe(0);
   });
 
   it("judges the pace as of the moment the figure was read", () => {
     // 45% read at hour 30 is a much faster burn than 45% at hour 60.
     const earlier = applyGroundTruth(model, { percent: 45, atMs: CYCLE_START + 30 * HOUR });
-    expect(earlier.quota.pace.projectedTotal).toBeCloseTo(1_260_000, 5);
-    expect(earlier.quota.pace.runOutAt).toBe(CYCLE_START + Math.round((30 / 0.45) * HOUR));
+    expect(earlier.quota?.pace.projectedTotal).toBeCloseTo(1_260_000, 5);
+    expect(earlier.quota?.pace.runOutAt).toBe(CYCLE_START + Math.round((30 / 0.45) * HOUR));
   });
 
   it("keeps the reading's time inside the cycle, and not after the dashboard's own", () => {
     const fromTheFuture = applyGroundTruth(model, { percent: 45, atMs: NOW.getTime() + 5 * HOUR });
-    expect(fromTheFuture.quota.pace.projectedTotal).toBeCloseTo(630_000, 5);
+    expect(fromTheFuture.quota?.pace.projectedTotal).toBeCloseTo(630_000, 5);
     const fromLastCycle = applyGroundTruth(model, { percent: 45, atMs: CYCLE_START - 5 * HOUR });
-    expect(fromLastCycle.quota.pace.projectedTotal).toBeNull();
+    expect(fromLastCycle.quota?.pace.projectedTotal).toBeNull();
   });
 
   it("accepts 0%: nothing is used, whatever the machines measured", () => {
     const zero = applyGroundTruth(model, { percent: 0, atMs: null });
     expect(zero.calibrated).toBe(true);
-    expect(zero.quota.total).toBe(0);
+    expect(zero.quota?.total).toBe(0);
     expect(zero.scale).toBe(0);
     expect(zero.machines.every((m) => m.tokens === 0 && m.limitShare === 0)).toBe(true);
     // The proportions are still there for the share bar.
     expect(zero.groups.map((g) => g.share)).toEqual(model.groups.map((g) => g.share));
+  });
+});
+
+describe("applyGroundTruth — without token limits", () => {
+  const bare = buildDashboard(NOW, { ...config, useTokenLimits: false }, {
+    events: [report("mac", "Personal", 10_000), report("win-1", "Work", 18_000), report("win-2", "Work", 12_000)],
+    groups: [],
+    machines: [],
+  });
+  const officialView = applyGroundTruth(bare, { percent: 20, atMs: null });
+  const machine = (id: string) => officialView.machines.find((m) => m.machineId === id)!;
+  const group = (id: string) => officialView.groups.find((g) => g.groupId === id)!;
+
+  it("knows nothing of the budget until the official figure is given", () => {
+    const view = applyGroundTruth(bare, null);
+    expect(view.calibrated).toBe(false);
+    expect(view.inTokens).toBe(false);
+    expect(view.quota).toBeNull();
+    expect(view.scale).toBeNull();
+    expect(view.measured).toEqual({ total: 40_000, usedFraction: null });
+    expect(view.machines.map((m) => [m.machineId, m.tokens, m.limitShare])).toEqual([
+      ["win-1", 18_000, null],
+      ["win-2", 12_000, null],
+      ["mac", 10_000, null],
+    ]);
+  });
+
+  it("takes the official figure as the part of the budget gone", () => {
+    expect(officialView.calibrated).toBe(true);
+    expect(officialView.inTokens).toBe(false);
+    expect(officialView.quota?.usedFraction).toBe(0.2);
+    // No limit, so no official tokens: neither a factor nor a measured share of the limit.
+    expect(officialView.scale).toBeNull();
+    expect(officialView.measured).toEqual({ total: 40_000, usedFraction: null });
+  });
+
+  it("splits it by the measured proportions: the Mac's quarter of the tokens is 5% of the budget", () => {
+    expect(machine("mac").limitShare).toBeCloseTo(0.05, 12);
+    expect(machine("win-1").limitShare).toBeCloseTo(0.09, 12);
+    expect(group("Work").limitShare).toBeCloseTo(0.15, 12);
+    expect(group("Personal").limitShare).toBeCloseTo(0.05, 12);
+    const sum = officialView.machines.reduce((acc, m) => acc + (m.limitShare ?? NaN), 0);
+    expect(sum).toBeCloseTo(0.2, 12);
+  });
+
+  it("leaves the token counts as measured: there is no limit to convert by", () => {
+    expect(officialView.machines.map((m) => [m.machineId, m.tokens])).toEqual([
+      ["win-1", 18_000],
+      ["win-2", 12_000],
+      ["mac", 10_000],
+    ]);
+    expect(group("Work").tokens).toBe(30_000);
+    expect(bare.machines.every((m) => m.limitShare === null)).toBe(true);
+  });
+
+  it.each([
+    [0, null],
+    [20, null],
+    [45, null],
+    [85, null],
+    [100, null],
+    [45, CYCLE_START + 30 * HOUR],
+    [30, CYCLE_START + 5 * HOUR],
+  ])("judges the pace of %d%% exactly as against a limit (read at %s)", (percent, atMs) => {
+    const without = applyGroundTruth(bare, { percent, atMs }).quota!;
+    const against = applyGroundTruth(model, { percent, atMs }).quota!;
+    expect(without.status).toBe(against.status);
+    expect(without.usedFraction).toBeCloseTo(against.usedFraction, 12);
+    expect(without.pace.runOutAt).toBe(against.pace.runOutAt);
+    expect(without.pace.earlyBurn).toBe(against.pace.earlyBurn);
+    // Counted in fractions of the budget: the limit is 1.
+    expect(without.limit).toBe(1);
+    if (against.pace.projectedTotal === null) expect(without.pace.projectedTotal).toBeNull();
+    else expect(without.pace.projectedTotal).toBeCloseTo(against.pace.projectedTotal / against.limit, 12);
   });
 });
 
@@ -174,8 +249,8 @@ describe("applyGroundTruth — nothing measured", () => {
 
   it("shows the official figure, but has no proportions to split it by", () => {
     const view = applyGroundTruth(idle, { percent: 30, atMs: null });
-    expect(view.quota.usedFraction).toBe(0.3);
-    expect(view.quota.total).toBe(150_000);
+    expect(view.quota?.usedFraction).toBe(0.3);
+    expect(view.quota?.total).toBe(150_000);
     expect(view.scale).toBeNull();
     expect(view.machines.map((m) => [m.tokens, m.limitShare])).toEqual([[0, 0]]);
   });

@@ -28,11 +28,14 @@ interface DraftLimit {
   id: string;
   label: string;
   value: string;
+  /** The stored limit: saved again while the limits are off and the field holds no valid number. */
+  saved: number;
 }
 
 /** The form's state: strings as typed, validated only when saving. */
 interface Draft {
   period: BudgetPeriod;
+  useTokenLimits: boolean;
   limits: DraftLimit[];
   weekday: number;
   monthDay: number;
@@ -46,6 +49,7 @@ interface Draft {
 
 interface SettingsRequest {
   period: BudgetPeriod;
+  useTokenLimits: boolean;
   limits: Record<string, number>;
   reset: { weekday: number; monthDay: number; hour: number; minute: number };
   showRemaining: boolean;
@@ -63,13 +67,15 @@ const QUIET_BUTTON =
   "rounded-md border border-rule px-3 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink disabled:pointer-events-none disabled:opacity-40";
 
 function draftFrom(view: SettingsView): Draft {
-  const { period, limits, reset, showRemaining } = view.settings;
+  const { period, useTokenLimits, limits, reset, showRemaining } = view.settings;
   const twoDigits = (value: number) => String(value).padStart(2, "0");
   return {
     period,
+    useTokenLimits,
     limits: view.providers.map((provider) => ({
       ...provider,
       value: String(limits[provider.id]),
+      saved: limits[provider.id]!,
     })),
     weekday: reset.weekday,
     monthDay: reset.monthDay,
@@ -121,7 +127,11 @@ function withNewGroup(draft: Draft): Draft {
 }
 
 function toRequest(draft: Draft): { request: SettingsRequest } | { problem: string } {
-  const parsedLimits = draft.limits.map((limit) => ({ ...limit, parsed: parseLimit(limit.value) }));
+  const parsedLimits = draft.limits.map((limit) => ({
+    ...limit,
+    // Hidden while the limits are off: a half-typed value left there must not block the save.
+    parsed: parseLimit(limit.value) ?? (draft.useTokenLimits ? null : limit.saved),
+  }));
   const badLimit = parsedLimits.find((limit) => limit.parsed === null);
   if (badLimit) {
     return {
@@ -140,6 +150,7 @@ function toRequest(draft: Draft): { request: SettingsRequest } | { problem: stri
   return {
     request: {
       period: draft.period,
+      useTokenLimits: draft.useTokenLimits,
       limits: Object.fromEntries(parsedLimits.map((limit) => [limit.id, limit.parsed as number])),
       reset: {
         weekday: draft.weekday,
@@ -299,36 +310,74 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
             </div>
           </fieldset>
 
-          <fieldset>
-            <legend className="text-sm text-ink-3">Szolgáltatónkénti keret (token)</legend>
-            <div className="mt-2 grid gap-3 sm:grid-cols-2">
-              {draft.limits.map((provider) => {
-                const limit = parseLimit(provider.value);
-                return (
-                  <label key={provider.id} className="rounded-lg border border-hairline bg-page/40 p-3">
-                    <span className="font-medium text-ink">{provider.label}</span>
-                    <span className="mt-2 flex items-center gap-2">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        autoComplete="off"
-                        value={provider.value}
-                        onChange={(event) => patchLimit(provider.id, event.target.value)}
-                        aria-invalid={limit === null || undefined}
-                        aria-label={`${provider.label} tokenkerete`}
-                        className={`min-w-0 grow tabular-nums ${FIELD}`}
-                      />
-                    </span>
-                    <span className="mt-1.5 block text-sm text-ink-3">
-                      {limit === null
-                        ? "Pozitív egész szám."
-                        : `${formatTokens(limit)} token ${draft.period === "weekly" ? "hetente" : "havonta"}.`}
-                    </span>
-                  </label>
-                );
-              })}
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              checked={draft.useTokenLimits}
+              onChange={(event) => patch({ useTokenLimits: event.target.checked })}
+              className="mt-1 size-4 shrink-0 cursor-pointer accent-ink"
+            />
+            <span>
+              Tokenkeret használata
+              <span className="mt-0.5 block text-sm text-ink-3">
+                Kikapcsolva a dashboard csak a gépek mért tokenjeiből és a beírt hivatalos százalékból számol: a
+                százalék a mért arányok szerint oszlik meg a csoportok és a gépek között. Bekapcsolva egy
+                szolgáltatónként megadott tokenkerethez is viszonyít, és kiírhatja a maradék tokeneket.
+              </span>
+            </span>
+          </label>
+
+          {/* Hidden while off, yet kept in the draft: switching back on restores the limits as they were. */}
+          {draft.useTokenLimits && (
+            <div className="space-y-4 border-l border-hairline pl-4 sm:pl-7">
+              <fieldset>
+                <legend className="text-sm text-ink-3">Szolgáltatónkénti keret (token)</legend>
+                <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                  {draft.limits.map((provider) => {
+                    const limit = parseLimit(provider.value);
+                    return (
+                      <label key={provider.id} className="rounded-lg border border-hairline bg-page/40 p-3">
+                        <span className="font-medium text-ink">{provider.label}</span>
+                        <span className="mt-2 flex items-center gap-2">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="off"
+                            value={provider.value}
+                            onChange={(event) => patchLimit(provider.id, event.target.value)}
+                            aria-invalid={limit === null || undefined}
+                            aria-label={`${provider.label} tokenkerete`}
+                            className={`min-w-0 grow tabular-nums ${FIELD}`}
+                          />
+                        </span>
+                        <span className="mt-1.5 block text-sm text-ink-3">
+                          {limit === null
+                            ? "Pozitív egész szám."
+                            : `${formatTokens(limit)} token ${draft.period === "weekly" ? "hetente" : "havonta"}.`}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={draft.showRemaining}
+                  onChange={(event) => patch({ showRemaining: event.target.checked })}
+                  className="mt-1 size-4 shrink-0 cursor-pointer accent-ink"
+                />
+                <span>
+                  Maradék tokenek mutatása
+                  <span className="mt-0.5 block text-sm text-ink-3">
+                    Kikapcsolva a dashboard sehol nem írja ki, mennyi token maradt a keretből, és a túllépés
+                    mértékét sem. A százalék, az elfogyott mennyiség és a reset ideje megmarad.
+                  </span>
+                </span>
+              </label>
             </div>
-          </fieldset>
+          )}
         </section>
 
         <section aria-labelledby={`${titleId}-reset`} className="space-y-4">
@@ -388,27 +437,6 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
               <> Ha egy hónapban nincs {draft.monthDay}. nap, a hónap utolsó napja számít.</>
             )}
           </p>
-        </section>
-
-        <section aria-labelledby={`${titleId}-display`}>
-          <h3 id={`${titleId}-display`} className="font-medium">
-            Megjelenítés
-          </h3>
-          <label className="mt-3 flex cursor-pointer items-start gap-3">
-            <input
-              type="checkbox"
-              checked={draft.showRemaining}
-              onChange={(event) => patch({ showRemaining: event.target.checked })}
-              className="mt-1 size-4 shrink-0 cursor-pointer accent-ink"
-            />
-            <span>
-              Maradék tokenek mutatása
-              <span className="mt-0.5 block text-sm text-ink-3">
-                Kikapcsolva a dashboard sehol nem írja ki, mennyi token maradt a keretből, és a túllépés
-                mértékét sem. A százalék, az elfogyott mennyiség és a reset ideje megmarad.
-              </span>
-            </span>
-          </label>
         </section>
 
         <section aria-labelledby={`${titleId}-groups`}>

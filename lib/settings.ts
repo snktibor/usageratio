@@ -16,6 +16,11 @@ import { parseId } from "@/lib/validation";
 /** The budget, as stored under `usage:settings`. */
 export interface UsageSettings {
   period: BudgetPeriod;
+  /**
+   * False: the dashboard uses no token limit at all, only the measured tokens
+   * and the official percentage. `limits` are kept for switching it back on.
+   */
+  useTokenLimits: boolean;
   /** Token budget of one cycle, independently for every provider/account. */
   limits: Record<string, number>;
   /**
@@ -30,7 +35,10 @@ export interface UsageSettings {
     hour: number;
     minute: number;
   };
-  /** False: the dashboard never states the tokens left, nor the overage. */
+  /**
+   * False: the dashboard never states the tokens left, nor the overage. Only
+   * matters with the token limits on: without a limit nothing is left to count.
+   */
   showRemaining: boolean;
 }
 
@@ -121,6 +129,7 @@ export function settingsFromConfig(
   const providers = mergeProviderIds(providerIds, Object.keys(config.providerLimits));
   return {
     period,
+    useTokenLimits: config.useTokenLimits,
     limits: Object.fromEntries(
       providers.map((providerId) => [providerId, config.providerLimits[providerId] ?? config.limit]),
     ),
@@ -132,6 +141,7 @@ export function settingsFromConfig(
 export function applySettings(config: AppConfig, settings: UsageSettings): AppConfig {
   return {
     ...config,
+    useTokenLimits: settings.useTokenLimits,
     providerLimits: { ...settings.limits },
     reset: { ...config.reset, period: settings.period, ...settings.reset },
     showRemaining: settings.showRemaining,
@@ -168,6 +178,9 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
 
   return {
     period: isPeriod(doc.period) ? doc.period : defaults.period,
+    // Documents saved before this switch existed lack the field: they get the default (off).
+    useTokenLimits:
+      typeof doc.useTokenLimits === "boolean" ? doc.useTokenLimits : defaults.useTokenLimits,
     limits,
     reset: {
       weekday: isIntegerIn(reset.weekday, 0, 6) ? reset.weekday : defaults.reset.weekday,
@@ -226,6 +239,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
   const errors: string[] = [];
 
   if (!isPeriod(body.period)) errors.push('period must be "weekly" or "monthly"');
+  if (typeof body.useTokenLimits !== "boolean") errors.push("useTokenLimits must be true or false");
   const limits: Record<string, number> = {};
   const rawLimits = asRecord(body.limits);
   if (!rawLimits) {
@@ -291,6 +305,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
     update: {
       settings: {
         period: body.period as BudgetPeriod,
+        useTokenLimits: body.useTokenLimits as boolean,
         limits,
         reset: {
           weekday: reset.weekday as number,

@@ -23,6 +23,13 @@ interface GroundTruthInputProps {
 function hint({ invalid, enteredAt, view, timeZone, providerLabel }: GroundTruthInputProps): string {
   if (invalid) return "0 és 100 közötti számot adj meg, például 45 vagy 45,5.";
   if (!view.calibrated) {
+    if (!view.inTokens) {
+      return (
+        `Írd be, hány százalékon áll a keret a(z) ${providerLabel} saját kijelzőjén: ebből számol a dashboard, ` +
+        "a gépek és a csoportok a mért tokenjeik arányában osztoznak rajta. Üresen hagyva csak a mért " +
+        "tokenek és arányaik látszanak."
+      );
+    }
     return (
       `Írd be, hány százalékon áll a keret a(z) ${providerLabel} saját kijelzőjén: a gépek és a csoportok ` +
       "fogyasztása ehhez igazodik. Üresen hagyva a gépek saját mérése számít."
@@ -30,10 +37,17 @@ function hint({ invalid, enteredAt, view, timeZone, providerLabel }: GroundTruth
   }
 
   const entered = enteredAt === null ? "" : ` Megadva: ${formatDateTime(enteredAt, timeZone)}.`;
-  if (view.scale === null) {
+  if (view.measured.total === 0) {
     return (
       "A gépek ebben a ciklusban még nem mértek fogyasztást, ezért a hivatalos érték nem osztható " +
       `szét gépekre és csoportokra.${entered}`
+    );
+  }
+  // Without a token limit there is neither a measured share of the limit nor a factor to state.
+  if (view.scale === null || view.measured.usedFraction === null) {
+    return (
+      `A gépek ${formatTokens(view.measured.total)} tokent mértek: a hivatalos érték ezek arányában ` +
+      `oszlik meg a csoportok és a gépek között.${entered}`
     );
   }
   return (
@@ -52,10 +66,9 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
   const fieldId = useId();
   const hintId = useId();
 
-  // Left alone, the slider rests on the measured figure: dragging starts from what is known.
-  const sliderValue = view.calibrated
-    ? view.quota.usedFraction * 100
-    : Math.min(1, view.measured.usedFraction) * 100;
+  // Left alone, the slider rests on the measured figure (on 0 without a token limit): dragging starts from what is known.
+  const sliderFraction = (view.calibrated ? view.quota?.usedFraction : view.measured.usedFraction) ?? 0;
+  const sliderValue = Math.min(1, sliderFraction) * 100;
 
   return (
     <section

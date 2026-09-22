@@ -20,7 +20,7 @@ gépbontás, valamint a hivatalos százalékkal kalibrált érték együtt vált
 | Fájl | Szerep |
 | --- | --- |
 | `lib/config.ts` | Telepítési beállítások (időzóna, token-értelmezés, megőrzés) és a keret **kezdőértékei** |
-| `lib/settings.ts` | Providerenkénti keretek, közös reset, csoportok és színek (validáció, migráció) |
+| `lib/settings.ts` | Opcionális providerenkénti tokenkeretek, közös reset, csoportok és színek (validáció, migráció) |
 | `lib/providers.ts` | Providerazonosítók normalizálása és megjelenítési nevei |
 | `app/api/settings/route.ts` | GET/PUT végpont a Beállítások panelhez, a PIN-session mögött |
 | `app/api/usage/route.ts` | GET ciklus-metaadat és POST ingest: Bearer token, validáció, mentés |
@@ -124,9 +124,10 @@ telepítés nélkül, azonnali hatállyal:
 | Beállítás | Értékek |
 | --- | --- |
 | Keret típusa | **Heti** vagy **Havi** ciklus |
-| Keret összege | minden felismert providerhez/fiókhoz külön tokenkeret |
+| Tokenkeret használata | alapból **ki**: a dashboard csak a mért tokenekből és a beírt hivatalos százalékból számol |
+| Keret összege | bekapcsolt tokenkeretnél minden felismert providerhez/fiókhoz külön tokenkeret |
+| Maradék tokenek mutatása | bekapcsolt tokenkeretnél: kikapcsolva sehol nem látszik, mennyi token maradt, és a túllépés mértéke sem |
 | Reset | heti keretnél a hét napja, havinál a hónap napja (1–31), és az időpont (`ÓÓ:PP`) |
-| Maradék tokenek mutatása | kikapcsolva a dashboard sehol nem írja ki, mennyi token maradt, és a túllépés mértékét sem |
 | Csoportok | név (amit a gép `groupId`-ként küld) és szín (`#rrggbb`: színválasztó vagy beírt HEX kód) |
 
 - Ha a hónapban nincs olyan nap (31., vagy februárban a 30.), a reset a **hónap utolsó napjára** esik.
@@ -136,9 +137,14 @@ telepítés nélkül, azonnali hatállyal:
   érkező osztálynévhez nem lenne stílus. A színt a komponensek inline stílusként alkalmazzák.
 - **Ismeretlen csoport:** ha egy gép olyan `groupId`-t küld, amely nincs a listán, a rendszer
   magától felveszi, véletlen (a sötét háttéren olvasható sávból húzott) színnel. A szín utólag átírható.
-- **Maradék tokenek:** a kapcsoló csak a megjelenítést érinti. Kikapcsolva eltűnik a „Maradt" / „Túllépés"
-  blokk, és a keret elfogyásakor a szöveg a tokenek helyett azt mondja meg, mikor jön a következő reset.
-  A százalék, az elfogyott mennyiség és a reset ideje megmarad.
+- **Tokenkeret:** alapból ki van kapcsolva, mert a providerek tokenben mért kerete nem ismert, csak a
+  saját kijelzőjükön látható százalék. Kikapcsolva a dashboard semmit nem számol tokenkerethez: nincs
+  maradék token, és a keret állását, a tempót, valamint a csoportok és gépek keretbeli részét csak a
+  beírt hivatalos százalék adja (lásd lent). Bekapcsolva a korábbi működés tér vissza, a megadott
+  keretekkel. A keretek kikapcsolva is tárolva maradnak, így visszakapcsoláskor megvannak.
+- **Maradék tokenek:** a kapcsoló csak bekapcsolt tokenkeretnél látszik, és csak a megjelenítést érinti.
+  Kikapcsolva eltűnik a „Maradt" / „Túllépés" blokk, és a keret elfogyásakor a szöveg a tokenek helyett
+  azt mondja meg, mikor jön a következő reset. A százalék, az elfogyott mennyiség és a reset ideje megmarad.
 - **Törlés:** csak olyan csoport törölhető, amelynek nincs tárolt jelentése. Különben a jelentései
   eltűnnének a dashboardról, a következő beküldéskor pedig a csoport új színnel térne vissza.
 
@@ -157,11 +163,17 @@ egy gép része a keretből = (a gép mért tokenjei / az összes mért token) �
 ```
 
 Példa: a gépek összesen 40 000 tokent mértek, ebből a Mac 10 000-et. Ha a hivatalos érték 20%, a Mac a
-teljes keret 5%-át használta el. Ilyenkor a fő sáv, a tempóbecslés, a csoportok és a gépek tokenszámai
-is a hivatalos értékhez igazodnak; a panel kiírja a mért értéket és a szorzót is. **Üres mezővel** minden
-a gépek saját mérése és a beállított keret szerint számol. Az érték csak a böngészőben él
-(`localStorage`), providerenként külön kulcson; a szerverre nem kerül fel, és a ciklus végén magától
-törlődik. A tempót a dashboard a beírás időpontjára vetíti.
+teljes keret 5%-át használta el. Ilyenkor a fő sáv és a tempóbecslés a hivatalos értékből számol, a
+csoportok és a gépek „A keretből" oszlopa pedig a fenti képlet szerint osztja szét.
+
+- **Tokenkeret nélkül** (alapbeállítás) a tokenszámok a gépek mért értékei maradnak, hiszen nincs keret,
+  amelyre át lehetne váltani őket. **Üres mezővel** a dashboard a keret állását nem ismeri: csak a mért
+  tokeneket és az arányokat mutatja, a fő sáv üres, és „A keretből" oszlop sem látszik.
+- **Tokenkerettel** a tokenszámok is a hivatalos értékhez igazodnak; a panel kiírja a mért értéket és a
+  szorzót is. **Üres mezővel** minden a gépek saját mérése és a beállított keret szerint számol.
+
+Az érték csak a böngészőben él (`localStorage`), providerenként külön kulcson; a szerverre nem kerül
+fel, és a ciklus végén magától törlődik. A tempót a dashboard a beírás időpontjára vetíti.
 
 ### A kódban: `lib/config.ts`
 
@@ -170,7 +182,8 @@ Ami nem a panelen van, az a `lib/config.ts` elején; a környezeti változó fel
 
 | Konstans | Env | Alapérték | Jelentés |
 | --- | --- | --- | --- |
-| `DEFAULT_LIMIT` | `WEEKLY_LIMIT` | `500000` | minden új provider keretének **kezdőértéke** |
+| `DEFAULT_USE_TOKEN_LIMITS` | – | `false` | a „Tokenkeret használata" kapcsoló **kezdőértéke** |
+| `DEFAULT_LIMIT` | `WEEKLY_LIMIT` | `500000` | minden új provider tokenkeretének **kezdőértéke** (csak bekapcsolt tokenkeretnél számít) |
 | `DEFAULT_RESET.weekday` | `RESET_WEEKDAY` | `1` | a reset napjának **kezdőértéke**: 0 = vasárnap … 6 = szombat |
 | `DEFAULT_RESET.hour/minute` | `RESET_TIME` | `00:00` | a reset időpontjának **kezdőértéke** (`ÓÓ:PP`) |
 | `DEFAULT_RESET.timeZone` | `RESET_TIMEZONE` | `Europe/Budapest` | a reset ebben az időzónában értendő, óraátállítással együtt |
@@ -224,6 +237,7 @@ metódus `401`-et ad, és semmilyen adathoz nem nyúl.
 ```json
 {
   "period": "weekly",
+  "useTokenLimits": false,
   "limits": { "claude": 500000, "deepseek": 750000, "openai": 1000000 },
   "reset": { "weekday": 1, "monthDay": 1, "hour": 0, "minute": 0 },
   "showRemaining": true,
@@ -232,13 +246,14 @@ metódus `401`-et ad, és semmilyen adathoz nem nyúl.
 }
 ```
 
-A `limits` minden ismert provider külön kerete. A `groups` létrehoz vagy átszínez; **a fel nem
-sorolt csoportok érintetlenek maradnak** (így egy
-közben magától felkerült csoportot a mentés nem töröl ki). A `weekday` és a `monthDay` mindig
+A `limits` minden ismert provider külön kerete; `"useTokenLimits": false` mellett is tárolódik, csak
+nem számít. A `groups` létrehoz vagy átszínez; **a fel nem sorolt csoportok érintetlenek maradnak**
+(így egy közben magától felkerült csoportot a mentés nem töröl ki). A `weekday` és a `monthDay` mindig
 tárolódik, hogy a keret típusának visszaváltásakor megmaradjon a korábbi választás. A keret mezői
-mind kötelezők, a `showRemaining` is: a `PUT` a teljes beállítást írja felül, semmit nem pótol
-alapértékkel. (A Redisben lévő, a kapcsoló előtt mentett dokumentum viszont gond nélkül olvasódik:
-ott a hiányzó mező bekapcsoltat jelent.)
+mind kötelezők, a `useTokenLimits` és a `showRemaining` is: a `PUT` a teljes beállítást írja felül,
+semmit nem pótol alapértékkel. (A Redisben lévő, a kapcsolók előtt mentett dokumentum viszont gond
+nélkül olvasódik: ott a hiányzó `showRemaining` bekapcsoltat, a hiányzó `useTokenLimits` kikapcsoltat
+jelent.)
 
 | Kód | Jelentés |
 | --- | --- |
@@ -253,7 +268,7 @@ ott a hiányzó mező bekapcsoltat jelent.)
 ## 6. Redis adatmodell
 
 ```
-usage:settings                    STRING {"v":2,"period","limits":{…},"reset":{…},…}
+usage:settings                    STRING {"v":2,"period","useTokenLimits","limits":{…},"reset":{…},…}
 usage:providers                   HASH providerId → első megjelenés (ms)
 usage:events:{provider}:{group}   ZSET score = jelentés ideje; member = {"m","t","ts"}
 usage:groups                      HASH groupId → {"color":"#rrggbb","ts": első megjelenés}
