@@ -106,3 +106,29 @@ export function PlusIcon({ className }: IconProps) {
     </Glyph>
   );
 }
+
+export function DownloadIcon({ className }: IconProps) {
+  return (
+    <Glyph className={className}>
+      <path d="M8 2.4v7.4m0 0 3-3m-3 3-3-3" />
+      <path d="M2.6 10.6v1.6c0 .7.5 1.2 1.2 1.2h8.4c.7 0 1.2-.5 1.2-1.2v-1.6" />
+    </Glyph>
+  );
+}
+
+export function CopyIcon({ className }: IconProps) {
+  return (
+    <Glyph className={className}>
+      <rect x="5.4" y="5.4" width="8" height="8" rx="1.4" />
+      <path d="M10.6 5.4V3.8c0-.8-.6-1.4-1.4-1.4H3.8c-.8 0-1.4.6-1.4 1.4v5.4c0 .8.6 1.4 1.4 1.4h1.6" />
+    </Glyph>
+  );
+}
+
+export function ArrowLeftIcon({ className }: IconProps) {
+  return (
+    <Glyph className={className}>
+      <path d="M13 8H3.4m0 0 4-4m-4 4 4 4" />
+    </Glyph>
+  );
+}

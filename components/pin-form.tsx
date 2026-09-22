@@ -6,8 +6,8 @@ import { StopCircleIcon } from "@/components/icons";
 
 const INITIAL_STATE: LoginState = { error: null };
 
-/** `labelledBy`: id of the heading that names the field. */
-export function PinForm({ labelledBy }: { labelledBy: string }) {
+/** `labelledBy`: id of the heading that names the field. `next`: where a successful login continues. */
+export function PinForm({ labelledBy, next }: { labelledBy: string; next: string }) {
   const [state, formAction, pending] = useActionState(login, INITIAL_STATE);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -15,6 +15,7 @@ export function PinForm({ labelledBy }: { labelledBy: string }) {
     <form ref={formRef} action={formAction} className="mt-10 max-w-xs">
       {/* Lets password managers file the PIN under a recognisable account name. */}
       <input type="text" name="username" autoComplete="username" defaultValue="usageratio" readOnly hidden />
+      <input type="hidden" name="next" value={next} />
 
       <input
         id="pin"

@@ -1,7 +1,10 @@
 import { PinForm } from "@/components/pin-form";
 
-/** The only thing an unauthenticated visitor ever receives: no usage data is rendered here. */
-export function PinGate() {
+/**
+ * The only thing an unauthenticated visitor ever receives: no usage data is rendered here.
+ * `next`: the page to return to after a successful login (default: the dashboard).
+ */
+export function PinGate({ next = "/" }: { next?: string }) {
   return (
     <main className="mx-auto w-full max-w-4xl px-5 pt-6 sm:px-8 sm:pt-8">
       <p className="text-lg font-medium tracking-tight">usageratio</p>
@@ -13,7 +16,7 @@ export function PinGate() {
         <p className="mt-4 max-w-md text-ink-2">
           A tokenkeret adatai csak a helyes, 5 jegyű kód után töltődnek be.
         </p>
-        <PinForm labelledBy="pin-heading" />
+        <PinForm labelledBy="pin-heading" next={next} />
       </div>
     </main>
   );

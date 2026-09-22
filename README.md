@@ -33,6 +33,9 @@ tokenhasználatát csoportonként.
 | `lib/ground-truth.ts` | „Valós százalék": a kiválasztott provider bontásának átszámítása (a böngészőben fut) |
 | `lib/auth.ts`, `app/actions.ts` | PIN-ellenőrzés, session, próbálkozáskorlát |
 | `app/page.tsx`, `components/` | PIN-képernyő és dashboard (Tailwind, sötét téma) |
+| `app/setup/page.tsx`, `components/setup-view.tsx` | A **Telepítés** oldal: rendszer és mód, ZIP-letöltés, másolható fájlok |
+| `app/api/setup/route.ts`, `lib/setup.ts`, `lib/setup-package.ts`, `lib/zip.ts` | A telepítőcsomag: fájllista, generált config és README, ZIP |
+| `clients/setup/` | A csomagok telepítői: `install.sh` (macOS), `install.ps1` és `install.cmd` (Windows) |
 | `clients/auto/` | Csendes Bash/PowerShell jelentők és a Windows Task Scheduler telepítője |
 | `clients/manual/` | Kézzel indítható Bash/PowerShell jelentők konzolos visszajelzéssel |
 | `clients/shared/` | A két mód közös jelentési magja és `ccusage-providers.cjs` parsere |
@@ -89,6 +92,39 @@ terjeszd ki az éles domainre; ott a Bearer token és a PIN véd.
 Mindkét mód ugyanazt a `clients/shared/` alatti gyűjtőlogikát használja. Az automatikus belépőpontok
 normál futáskor nem írnak a konzolra; a manuális belépőpontok siker- vagy hibaüzenetet adnak.
 
+### Telepítés a dashboardról
+
+A fejléc **Telepítés** gombja a `/setup` oldalra visz (ez is a PIN mögött van). Ott kiválasztod a gép
+rendszerét (macOS vagy Windows), a futtatás módját (automatikus vagy manuális), a csoportot (a meglévők
+egy kattintással), és ha kell, a gép azonosítóját. Utána két út van, ugyanazzal az eredménnyel:
+
+- **Letöltés ZIP-ben:** kész csomag a telepítővel. macOS-en
+  `bash ~/Downloads/usageratio-macos-auto/install.sh`, Windowson kibontás után dupla kattintás az
+  `install.cmd`-re.
+- **Másold és hozd létre:** ugyanezek a fájlok másolható blokkokban, a nevükkel és a végleges helyükkel.
+  A mappa helye mindegy, csak minden fájl egy mappába kerüljön. Mentés a vágólapról:
+  `pbpaste > fájlnév`, Windowson a lap első parancsa által felvett `paste fájlnév`.
+
+A telepítő (`clients/setup/`):
+
+1. a mellette lévő `report-usage-auto.*` vagy `report-usage-manual.*` fájlból tudja, melyik módot telepíti;
+2. rejtett beírással bekéri a `USAGE_API_TOKEN`-t, és egy `GET /api/usage` kéréssel ellenőrzi (`401`-nél
+   újra kéri; a `USAGERATIO_API_TOKEN` környezeti változóval kérdés nélkül fut). **A csomag nem
+   tartalmaz tokent.** Újratelepítéskor Enterrel megtartható a már mentett token;
+3. a fájlokat a megszokott helyükre másolja (`~/.usageratio/{auto,manual,shared}`, a config
+   `~/.config/usageratio/config`, 600-as joggal; Windowson `%USERPROFILE%\.usageratio`). A letöltött mappa
+   ezért bárhol lehet, és utána törölhető; a macOS cron a Letöltések vagy a Dokumentumok mappát nem is olvashatná;
+4. üresen hagyott gépazonosítónál megtartja a gépen már használt azonosítót, első telepítéskor a számítógép
+   nevét írja be, így egy újratelepítés nem bontja ketté a gép történetét;
+5. elküld egy próbajelentést, majd beállítja a cront vagy a `sync-tokens` aliast (`~/.zshrc`), illetve
+   Windowson az ütemezett feladatot (ehhez egyszer rendszergazdai jogot kér) vagy az asztali „Sync tokens”
+   parancsikont.
+
+Ha a `node` nem a szokásos helyen van (nvm, volta), a macOS-telepítő egy `PATH=` sort is ír a configba,
+hogy a cron is megtalálja.
+
+### Kapcsolók és kilépési kódok
+
 | Kapcsoló | Mire jó |
 | --- | --- |
 | `--dry-run` / `-DryRun` | kiírja a JSON payloadot, nem küldi el |
@@ -96,6 +132,8 @@ normál futáskor nem írnak a konzolra; a manuális belépőpontok siker- vagy 
 | `--tokens N` / `-Tokens N` | kompatibilitási rövidítés: `{"deepseek":N}` |
 
 Kilépési kódok: `0` elküldve · `1` küldési hiba · `2` hibás beállítás · `3` adatolvasási/JSON-hiba.
+
+Csomag nélküli, parancssori telepítés a repóból:
 
 - Automatikus telepítés: [`setup-auto.md`](setup-auto.md)
 - Manuális telepítés: [`setup-manual.md`](setup-manual.md)
@@ -302,6 +340,21 @@ jelent.)
 | `413` / `415` | 16 KB-nál nagyobb, illetve nem JSON törzs |
 | `503` | a Redis nincs bekötve vagy nem elérhető |
 
+### `/api/setup`: a telepítőcsomag letöltése
+
+`GET /api/setup?os=macos|windows&mode=auto|manual&group=Work&machine=win-desktop` a Telepítés oldal
+ZIP-je. A session-sütivel hitelesít, mint az oldal; session nélkül `303`-mal a `/setup` PIN-képernyőjére
+küld. A `machine` üres is lehet. A csomagban lévő config a szerver saját címére mutat; éles
+környezetben mindig az éles domainre (`VERCEL_PROJECT_PRODUCTION_URL`), mert a generált
+`*.vercel.app` címeken a kliensek `401 Protected deployment` választ kapnának.
+
+| Kód | Jelentés |
+| --- | --- |
+| `200` | `application/zip`, `Content-Disposition: attachment` |
+| `303` | nincs érvényes session |
+| `400` | hibás rendszer, mód, csoport vagy gépazonosító |
+| `503` | a Redis nincs bekötve vagy nem elérhető |
+
 ## 6. Redis adatmodell
 
 ```
@@ -343,6 +396,9 @@ DeepSeek-adatként olvassa. A korábbi csoportszín-formátum is megmaradt; kéz
   nem parancssori argumentumként adják át, így a folyamatlistában sem látszik.
 - **Beállítások:** a `/api/settings` ugyanazt a sessiont ellenőrzi, mint az oldal; session nélkül sem
   olvasni, sem írni nem enged. Az írás csak azonos eredetről (`Origin`) és JSON törzzsel fogadható el.
+- **Telepítés:** a `/setup` oldal és a `/api/setup` letöltés is a PIN-session mögött van. A csomag nem
+  tartalmaz titkot: a tokent a telepítő kéri be rejtetten, a szerveren ellenőrzi, és csak a gép saját
+  configjába írja (macOS-en 600-as joggal, Windowson a felhasználói profil alá).
 - A keresők ki vannak tiltva (`robots.txt`, `X-Robots-Tag`), az oldal nem ágyazható be (`X-Frame-Options`).
 
 ## 8. Helyi fejlesztés

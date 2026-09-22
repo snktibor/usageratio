@@ -59,6 +59,10 @@ function Read-ProviderTokens {
   if (-not $node -or -not $npx) { throw 'Node.js/npx was not found in PATH.' }
 
   $errorFile = Join-Path ([IO.Path]::GetTempPath()) ("usageratio-ccusage-{0}.log" -f [Guid]::NewGuid())
+  # Windows PowerShell 5.1 turns every redirected stderr line of a native command
+  # (an npm notice, a Node deprecation warning) into a terminating error under
+  # 'Stop'. Relaxed for this function only: the exit codes below decide instead.
+  $ErrorActionPreference = 'Continue'
   try {
     $ccusageArgs = @('--yes', 'ccusage@latest', 'daily', '--json', '--by-agent', '--breakdown', '--no-cost', '--since', $SinceDate, '--timezone', $TimeZone)
     $raw = & $npx.Source @ccusageArgs 2> $errorFile | Out-String
