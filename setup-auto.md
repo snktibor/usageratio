@@ -2,9 +2,34 @@
 
 ## Vercel
 
+### Upstash-változók: ne módosítsd
+
+| Változó | Teendő |
+| --- | --- |
+| `KV_REST_API_URL` | Hagyd változatlanul |
+| `KV_REST_API_TOKEN` | Hagyd változatlanul; ne másold a kliensbe |
+| `KV_REST_API_READ_ONLY_TOKEN` | Hagyd változatlanul |
+| `KV_URL` | Hagyd változatlanul |
+| `REDIS_URL` | Hagyd változatlanul |
+
 ```text
 Vercel → Project → Storage → Create Database → Upstash Redis → Frankfurt (eu-central-1) → Connect → Production
 ```
+
+### Saját változók: ezt a kettőt hozd létre
+
+| Változó | Érték |
+| --- | --- |
+| `USAGE_API_TOKEN` | A következő blokk automatikusan generálja |
+| `DASHBOARD_PIN` | Az általad megadott 5 számjegy |
+
+Futtatás helye: **macOS → Terminal**, a projekt gyökérkönyvtárában.
+
+```bash
+cd "/Users/snktibor/Documents/Projects/usageratio"
+```
+
+Az alábbi blokkot teljes egészében másold a Terminalba. Semmit nem kell átírni. A `DASHBOARD_PIN` értékét futás közben kell beírni.
 
 ```bash
 npm install --global vercel
@@ -16,21 +41,28 @@ printf 'DASHBOARD_PIN (5 számjegy): ' >&2
 IFS= read -r -s DASHBOARD_PIN
 printf '\n' >&2
 
-printf '%s' "$USAGE_API_TOKEN" | vercel env add USAGE_API_TOKEN production --sensitive --force
-printf '%s' "$DASHBOARD_PIN" | vercel env add DASHBOARD_PIN production --sensitive --force
+printf '%s' "$USAGE_API_TOKEN" | vercel env add USAGE_API_TOKEN production --sensitive
+printf '%s' "$DASHBOARD_PIN" | vercel env add DASHBOARD_PIN production --sensitive
 
 vercel env ls production
 vercel --prod
 printf 'USAGE_API_TOKEN=%s\n' "$USAGE_API_TOKEN"
 ```
 
-Elvárt Vercel-változók:
+Az utolsó sorban kiírt `USAGE_API_TOKEN` értéket másold a kliens beállításakor az `API_TOKEN` / `apiToken` mezőbe.
+
+Szerver–kliens megfeleltetés:
 
 ```text
-USAGE_API_TOKEN
-DASHBOARD_PIN
-KV_REST_API_URL
-KV_REST_API_TOKEN
+Vercel USAGE_API_TOKEN → macOS API_TOKEN
+Vercel USAGE_API_TOKEN → Windows apiToken
+```
+
+```text
+Vercel-beállítás: egyszer, egy gépen
+USAGE_API_TOKEN: ugyanaz minden kliensgépen
+MACHINE_ID / machineId: minden fizikai gépen különböző és később változatlan
+GROUP_ID / groupId: azonos csoportba tartozó gépeken lehet ugyanaz
 ```
 
 ## macOS: Bash + Cron

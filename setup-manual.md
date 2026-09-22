@@ -1,5 +1,11 @@
 # Manuális beállítás
 
+```text
+USAGE_API_TOKEN: ugyanaz minden kliensgépen
+MACHINE_ID / machineId: minden fizikai gépen különböző és később változatlan
+GROUP_ID / groupId: azonos csoportba tartozó gépeken lehet ugyanaz
+```
+
 ## macOS: Bash + terminál alias
 
 ```bash
