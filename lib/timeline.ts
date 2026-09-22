@@ -91,7 +91,9 @@ function reportsOfModel(events: UsageEvent[], key: string): UsageEvent[] {
 
 /**
  * `events` may reach back before the cycle (counter mode's baseline);
- * `groupIds` are the groups to chart, in the order to chart them.
+ * `groupIds` are the groups to chart, in the order to chart them. The models
+ * come from `modelEvents`: the provider's reports as sent, while `events` may
+ * have a separate sub-limit's tokens taken out (lib/sub-limits.ts).
  */
 export function buildTimeline(
   events: UsageEvent[],
@@ -99,18 +101,19 @@ export function buildTimeline(
   window: { startMs: number; endMs: number },
   nowMs: number,
   mode: TokenMode,
+  modelEvents: UsageEvent[] = events,
 ): CycleTimeline {
   const times = sampleTimes(window.startMs, window.endMs, nowMs);
   const last = times.length - 1;
 
   const keys = new Set<string>();
-  for (const event of events) {
+  for (const event of modelEvents) {
     for (const modelId of Object.keys(event.models ?? {})) keys.add(modelKey(modelId));
   }
 
   const models = [...keys]
     .map((key) => {
-      const groups = groupTimelines(reportsOfModel(events, key), groupIds, times, window, mode);
+      const groups = groupTimelines(reportsOfModel(modelEvents, key), groupIds, times, window, mode);
       const tokens = groups.reduce((sum, group) => sum + group.values[last]!, 0);
       return { modelId: key, label: modelLabel(key), tokens, groups };
     })

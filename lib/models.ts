@@ -47,3 +47,12 @@ export function modelLabel(key: string): string {
   }
   return words.join(" ") || key;
 }
+
+/** Every model key the reports' splits name, in alphabetical order. */
+export function modelKeysIn(events: { models?: Record<string, number> }[]): string[] {
+  const keys = new Set<string>();
+  for (const event of events) {
+    for (const modelId of Object.keys(event.models ?? {})) keys.add(modelKey(modelId));
+  }
+  return [...keys].sort((a, b) => a.localeCompare(b));
+}

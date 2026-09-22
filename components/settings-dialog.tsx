@@ -6,6 +6,7 @@ import { ApiTokenSettings } from "@/components/api-token-settings";
 import { CheckIcon, PlusIcon, SlidersIcon, StopCircleIcon, XIcon } from "@/components/icons";
 import type { BudgetPeriod } from "@/lib/config";
 import { formatTokens, weekdayLong } from "@/lib/format";
+import { modelLabel } from "@/lib/models";
 import {
   MAX_GROUPS,
   MAX_LIMIT,
@@ -14,6 +15,16 @@ import {
   suggestGroupColor,
   type SettingsView,
 } from "@/lib/settings";
+import {
+  MAX_SUB_LIMIT_MODELS,
+  MAX_SUB_LIMIT_NAME_LENGTH,
+  MAX_SUB_LIMITS,
+  normalizeModelPart,
+  normalizeSubLimitName,
+  subLimitIdFor,
+  type SubLimit,
+  type SubLimitMode,
+} from "@/lib/sub-limits";
 import { parseId } from "@/lib/validation";
 
 interface DraftGroup {
@@ -27,15 +38,34 @@ interface DraftGroup {
   excluded: string[];
 }
 
+interface DraftSubLimit {
+  /** Null until it is first saved: then it gets one from its name, and keeps it through renames. */
+  id: string | null;
+  /** Keys its row: the id may not exist yet. */
+  key: string;
+  name: string;
+  /** The model-id parts, comma-separated, as typed. */
+  modelsText: string;
+  mode: SubLimitMode;
+  shareText: string;
+  limitText: string;
+  /** Saved again while their fields are hidden and hold no valid number. */
+  savedShare: number;
+  savedLimit: number;
+}
+
 interface DraftProvider {
   id: string;
   label: string;
+  /** This cycle's model ids (without their dates), to match a sub-limit's parts against. */
+  models: string[];
   /** False: hidden from the dashboard. */
   visible: boolean;
   /** The token-limit field exactly as typed. */
   limitText: string;
   /** The stored limit: saved again while its field is hidden and holds no valid number. */
   savedLimit: number;
+  subLimits: DraftSubLimit[];
 }
 
 /** The form's state: strings as typed, validated only when saving. */
@@ -63,6 +93,7 @@ interface SettingsRequest {
   showRemaining: boolean;
   hiddenProviders: string[];
   excludedProviders: Record<string, string[]>;
+  subLimits: Record<string, SubLimit[]>;
   groups: { id: string; color: string }[];
   removedGroups: string[];
 }
@@ -108,7 +139,7 @@ function ToggleChip({
 }
 
 function draftFrom(view: SettingsView): Draft {
-  const { period, useTokenLimits, limits, reset, showRemaining, hiddenProviders, excludedProviders } =
+  const { period, useTokenLimits, limits, reset, showRemaining, hiddenProviders, excludedProviders, subLimits } =
     view.settings;
   const twoDigits = (value: number) => String(value).padStart(2, "0");
   return {
@@ -119,6 +150,17 @@ function draftFrom(view: SettingsView): Draft {
       visible: !hiddenProviders.includes(provider.id),
       limitText: String(limits[provider.id]),
       savedLimit: limits[provider.id]!,
+      subLimits: (Object.hasOwn(subLimits, provider.id) ? subLimits[provider.id]! : []).map((sub) => ({
+        id: sub.id,
+        key: sub.id,
+        name: sub.name,
+        modelsText: sub.models.join(", "),
+        mode: sub.mode,
+        shareText: String(sub.sharePercent),
+        limitText: String(sub.limit),
+        savedShare: sub.sharePercent,
+        savedLimit: sub.limit,
+      })),
     })),
     weekday: reset.weekday,
     monthDay: reset.monthDay,
@@ -142,6 +184,59 @@ function parseLimit(text: string): number | null {
   if (!/^\d{1,13}$/.test(digits)) return null;
   const limit = Number(digits);
   return limit >= 1 && limit <= MAX_LIMIT ? limit : null;
+}
+
+/** "30", "30 %" → 30; null unless a whole percentage from 1 to 100. */
+function parseSharePercent(text: string): number | null {
+  const digits = text.trim().replace(/\s*%$/, "");
+  if (!/^\d{1,3}$/.test(digits)) return null;
+  const percent = Number(digits);
+  return percent >= 1 && percent <= 100 ? percent : null;
+}
+
+/** "fable, Opus-5" → ["fable", "opus-5"]; null when a part is no valid one, or there are none. */
+function parseModelParts(text: string): string[] | null {
+  const parts: string[] = [];
+  for (const raw of text.split(/[,;\s]+/).filter(Boolean)) {
+    const part = normalizeModelPart(raw);
+    if (!part) return null;
+    if (!parts.includes(part)) parts.push(part);
+  }
+  return parts.length >= 1 && parts.length <= MAX_SUB_LIMIT_MODELS ? parts : null;
+}
+
+/** A provider's sub-limits as the PUT body wants them, or what is wrong with one. */
+function subLimitsRequest(provider: DraftProvider, useTokenLimits: boolean): { list: SubLimit[] } | { problem: string } {
+  const list: SubLimit[] = [];
+  for (const draft of provider.subLimits) {
+    const name = normalizeSubLimitName(draft.name);
+    if (name === null) {
+      return {
+        problem: `A(z) ${provider.label} egyik alkeretének adj nevet (legfeljebb ${MAX_SUB_LIMIT_NAME_LENGTH} karakter).`,
+      };
+    }
+    if (list.some((other) => other.name.toLowerCase() === name.toLowerCase())) {
+      return { problem: `A(z) ${provider.label} két alkeretének ugyanaz a neve: „${name}”.` };
+    }
+    const models = parseModelParts(draft.modelsText);
+    if (models === null) {
+      return {
+        problem:
+          `A(z) „${name}” alkeret modelljei: a modellazonosítók egy-egy része (betű, szám, pont, kötőjel), ` +
+          `vesszővel elválasztva, legfeljebb ${MAX_SUB_LIMIT_MODELS}, például fable.`,
+      };
+    }
+    // Hidden fields must not block the save: they keep what was saved.
+    const share = parseSharePercent(draft.shareText) ?? (draft.mode === "share" ? null : draft.savedShare);
+    if (share === null) return { problem: `A(z) „${name}” alkeret aránya 1 és 100 közötti egész szám legyen.` };
+    const limit =
+      parseLimit(draft.limitText) ?? (draft.mode === "separate" && useTokenLimits ? null : draft.savedLimit);
+    if (limit === null) return { problem: `A(z) „${name}” alkeret tokenkerete pozitív egész szám legyen.` };
+
+    const taken = [...provider.subLimits.flatMap((other) => (other.id ? [other.id] : [])), ...list.map((sub) => sub.id)];
+    list.push({ id: draft.id ?? subLimitIdFor(name, taken), name, models, mode: draft.mode, sharePercent: share, limit });
+  }
+  return { list };
 }
 
 /** Why `name` cannot be added as a group; null when it can. */
@@ -206,6 +301,13 @@ function toRequest(draft: Draft): { request: SettingsRequest } | { problem: stri
     return { problem: `A(z) „${invalid.id}” csoport színe nem érvényes HEX kód (ilyen például a #3987e5).` };
   }
 
+  const subLimits: Record<string, SubLimit[]> = {};
+  for (const provider of draft.providers) {
+    const result = subLimitsRequest(provider, draft.useTokenLimits);
+    if ("problem" in result) return result;
+    if (result.list.length > 0) subLimits[provider.id] = result.list;
+  }
+
   return {
     request: {
       period: draft.period,
@@ -223,10 +325,150 @@ function toRequest(draft: Draft): { request: SettingsRequest } | { problem: stri
       excludedProviders: Object.fromEntries(
         draft.groups.filter((group) => group.excluded.length > 0).map((group) => [group.id, group.excluded]),
       ),
+      subLimits,
       groups: draft.groups.map(({ id, color }) => ({ id, color })),
       removedGroups: draft.removed.map((group) => group.id),
     },
   };
+}
+
+/** Which of the provider's models this cycle a sub-limit takes, as its parts are typed. */
+function matchNote(sub: DraftSubLimit, provider: DraftProvider): string {
+  const parts = parseModelParts(sub.modelsText);
+  if (parts === null) {
+    const known = provider.models.slice(0, 6).join(", ");
+    return known === "" ? "A modellazonosító része, vesszővel több is." : `A modellazonosító része, például: ${known}.`;
+  }
+  // A model an earlier sub-limit takes stays there: the first match wins (lib/sub-limits.ts).
+  const earlier = provider.subLimits
+    .slice(0, provider.subLimits.indexOf(sub))
+    .flatMap((other) => parseModelParts(other.modelsText) ?? []);
+  const takes = (model: string, list: string[]) => list.some((part) => model.includes(part));
+  const matches = provider.models.filter((model) => takes(model, parts) && !takes(model, earlier));
+  if (matches.length === 0) return "Ebben a ciklusban még nem jelentett egyező modellt egy gép sem.";
+  return `Egyező modellek: ${matches.map(modelLabel).join(", ")}.`;
+}
+
+function SubLimitEditor({
+  sub,
+  provider,
+  useTokenLimits,
+  onChange,
+  onRemove,
+}: {
+  sub: DraftSubLimit;
+  provider: DraftProvider;
+  useTokenLimits: boolean;
+  onChange: (changes: Partial<DraftSubLimit>) => void;
+  onRemove: () => void;
+}) {
+  const modeName = useId();
+  const label = sub.name.trim() || "Új alkeret";
+  const share = parseSharePercent(sub.shareText);
+  const limit = parseLimit(sub.limitText);
+
+  return (
+    <li className="rounded-lg border border-hairline bg-page/40 p-3">
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          autoComplete="off"
+          maxLength={MAX_SUB_LIMIT_NAME_LENGTH}
+          placeholder="Neve, például Fable"
+          value={sub.name}
+          onChange={(event) => onChange({ name: event.target.value })}
+          aria-label={`${provider.label} alkeretének neve`}
+          className={`min-w-0 grow font-medium ${FIELD}`}
+        />
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={`„${label}” alkeret törlése`}
+          title="Törlés"
+          className="rounded-md p-2 text-ink-3 transition-colors hover:text-ink"
+        >
+          <XIcon />
+        </button>
+      </div>
+
+      <label className="mt-3 block">
+        <span className="text-sm text-ink-3">Modellek</span>
+        <input
+          type="text"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="fable"
+          value={sub.modelsText}
+          onChange={(event) => onChange({ modelsText: event.target.value })}
+          className={`mt-1 block w-full font-mono text-sm ${FIELD}`}
+        />
+        <span className="mt-1 block text-sm text-ink-3">{matchNote(sub, provider)}</span>
+      </label>
+
+      <fieldset className="mt-3">
+        <legend className="sr-only">„{label}” fajtája</legend>
+        <div className="inline-flex flex-wrap rounded-md border border-rule p-0.5">
+          {(["separate", "share"] as const).map((mode) => (
+            <label
+              key={mode}
+              className="cursor-pointer rounded-[5px] px-3 py-1 text-sm text-ink-2 transition-colors has-[:checked]:bg-ink has-[:checked]:text-page has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ink"
+            >
+              <input
+                type="radio"
+                name={modeName}
+                value={mode}
+                checked={sub.mode === mode}
+                onChange={() => onChange({ mode })}
+                className="sr-only"
+              />
+              {mode === "separate" ? "Önálló keret" : "A keret része"}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      {sub.mode === "share" ? (
+        <label className="mt-3 flex flex-wrap items-center gap-2 text-sm text-ink-3">
+          Legfeljebb
+          <span className="relative">
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={4}
+              value={sub.shareText}
+              onChange={(event) => onChange({ shareText: event.target.value })}
+              aria-invalid={share === null || undefined}
+              className={`w-20 pr-7 text-base tabular-nums ${FIELD}`}
+            />
+            <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+              %
+            </span>
+          </span>
+          a(z) {provider.label} keretéből
+        </label>
+      ) : (
+        <>
+          {useTokenLimits && (
+            <label className="mt-3 flex flex-wrap items-center gap-2 text-sm text-ink-3">
+              Tokenkeret
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                value={sub.limitText}
+                onChange={(event) => onChange({ limitText: event.target.value })}
+                aria-invalid={limit === null || undefined}
+                className={`w-36 text-base tabular-nums ${FIELD}`}
+              />
+              {limit !== null && <span>{formatTokens(limit)} token</span>}
+            </label>
+          )}
+          <p className="mt-2 text-sm text-ink-3">A modelljei nem számítanak bele a(z) {provider.label} keretébe.</p>
+        </>
+      )}
+    </li>
+  );
 }
 
 function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId: string; onClose: () => void }) {
@@ -262,6 +504,32 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
       ),
     }));
   const visibleProviders = draft.providers.filter((provider) => provider.visible);
+
+  const newSubLimitKey = useRef(0);
+  const patchSubLimits = (providerId: string, change: (list: DraftSubLimit[]) => DraftSubLimit[]) =>
+    setDraft((current) => ({
+      ...current,
+      providers: current.providers.map((provider) =>
+        provider.id === providerId ? { ...provider, subLimits: change(provider.subLimits) } : provider,
+      ),
+    }));
+  const patchSubLimit = (providerId: string, key: string, changes: Partial<DraftSubLimit>) =>
+    patchSubLimits(providerId, (list) => list.map((sub) => (sub.key === key ? { ...sub, ...changes } : sub)));
+  const addSubLimit = (provider: DraftProvider) =>
+    patchSubLimits(provider.id, (list) => [
+      ...list,
+      {
+        id: null,
+        key: `new-${(newSubLimitKey.current += 1)}`,
+        name: "",
+        modelsText: "",
+        mode: "separate",
+        shareText: "50",
+        limitText: provider.limitText,
+        savedShare: 50,
+        savedLimit: parseLimit(provider.limitText) ?? provider.savedLimit,
+      },
+    ]);
 
   function addGroup() {
     const nameProblem = groupNameProblem(draft.newGroupName, draft.groups);
@@ -490,6 +758,53 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
               </label>
             </div>
           )}
+        </section>
+
+        <section aria-labelledby={`${titleId}-sub-limits`}>
+          <h3 id={`${titleId}-sub-limits`} className="font-medium">
+            Alkeretek
+          </h3>
+          <p className="mt-1.5 text-sm text-ink-3">
+            Egy fiókon belül külön mért keret, például a Claude-nál a Fable: a dashboardon a fő csúszka alatt
+            saját, kisebb csúszkát kap. Az <strong className="font-medium text-ink-2">önálló keret</strong>{" "}
+            modelljei nem számítanak bele a fiók keretébe; <strong className="font-medium text-ink-2">a keret
+            része</strong> a fiók keretéből legfeljebb a megadott arányt használhatja.
+          </p>
+
+          <div className="mt-4 space-y-4">
+            {visibleProviders.map((provider) => (
+              <div key={provider.id}>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-ink-2">{provider.label}</span>
+                  <button
+                    type="button"
+                    onClick={() => addSubLimit(provider)}
+                    disabled={provider.subLimits.length >= MAX_SUB_LIMITS}
+                    aria-label={`Alkeret hozzáadása: ${provider.label}`}
+                    className={`flex shrink-0 items-center gap-2 text-sm ${QUIET_BUTTON}`}
+                  >
+                    <PlusIcon />
+                    Alkeret
+                  </button>
+                </div>
+
+                {provider.subLimits.length > 0 && (
+                  <ul className="mt-2.5 space-y-3">
+                    {provider.subLimits.map((sub) => (
+                      <SubLimitEditor
+                        key={sub.key}
+                        sub={sub}
+                        provider={provider}
+                        useTokenLimits={draft.useTokenLimits}
+                        onChange={(changes) => patchSubLimit(provider.id, sub.key, changes)}
+                        onRemove={() => patchSubLimits(provider.id, (list) => list.filter((other) => other.key !== sub.key))}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
         </section>
 
         <section aria-labelledby={`${titleId}-reset`} className="space-y-4">
