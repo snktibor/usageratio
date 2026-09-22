@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getConfig } from "@/lib/config";
-import { buildDashboard, type StoreSnapshot } from "@/lib/dashboard";
+import { buildDashboard, buildProviderDashboards, type StoreSnapshot } from "@/lib/dashboard";
 import { NEUTRAL_COLOR, PRESET_COLORS, type KnownGroup } from "@/lib/settings";
 
 const HOUR = 3_600_000;
@@ -372,5 +372,67 @@ describe("buildDashboard — timeline", () => {
       model.groups.map((g) => [g.groupId, g.tokens]),
     );
     expect(model.timeline.models.map((m) => [m.modelId, m.tokens])).toEqual([["claude-opus-4-5", 150_000]]);
+  });
+});
+
+describe("buildProviderDashboards — which provider counts where", () => {
+  const seen = NOW.getTime() - 0.5 * HOUR;
+  const store = {
+    eventsByProvider: {
+      claude: [report("mac", "Home", 300, 50), report("work-pc", "Work", 700, 50)],
+      openai: [report("mac", "Home", 100, 50), report("work-pc", "Work", 400, 50)],
+      deepseek: [report("mac", "Home", 50, 50)],
+    },
+    groups: [group("Home", 1, "#3987e5"), group("Work", 2, "#d95926")],
+    machines: [
+      { providerId: "claude", machineId: "mac", groupId: "Home", lastSeenAt: seen, lastTokens: 300 },
+      { providerId: "claude", machineId: "work-pc", groupId: "Work", lastSeenAt: seen, lastTokens: 700 },
+      { providerId: "openai", machineId: "mac", groupId: "Home", lastSeenAt: seen, lastTokens: 100 },
+      { providerId: "openai", machineId: "work-pc", groupId: "Work", lastSeenAt: seen, lastTokens: 400 },
+      { providerId: "deepseek", machineId: "mac", groupId: "Home", lastSeenAt: seen, lastTokens: 50 },
+    ],
+  };
+  const providerIds = ["claude", "openai", "deepseek"];
+
+  it("shows every provider, with every group, while nothing is switched off", () => {
+    const dashboards = buildProviderDashboards(NOW, config, providerIds, store);
+    expect(dashboards.map((d) => [d.id, d.label, d.dashboard.total])).toEqual([
+      ["claude", "Claude", 1000],
+      ["openai", "OpenAI", 500],
+      ["deepseek", "DeepSeek", 50],
+    ]);
+  });
+
+  it("leaves a hidden provider out altogether", () => {
+    const dashboards = buildProviderDashboards(NOW, { ...config, hiddenProviders: ["openai"] }, providerIds, store);
+    expect(dashboards.map((d) => d.id)).toEqual(["claude", "deepseek"]);
+  });
+
+  it("leaves a group's reports of a provider it does not count for out of that provider only", () => {
+    // The work machines only count for OpenAI.
+    const scoped = { ...config, excludedProviders: { Work: ["claude", "deepseek"] } };
+    const [claude, openai] = buildProviderDashboards(NOW, scoped, providerIds, store);
+
+    expect(claude!.dashboard.total).toBe(300);
+    expect(claude!.dashboard.groups.map((g) => [g.groupId, g.share])).toEqual([["Home", 1]]);
+    expect(claude!.dashboard.machines.map((m) => m.machineId)).toEqual(["mac"]);
+    expect(claude!.dashboard.timeline.groups.map((g) => g.groupId)).toEqual(["Home"]);
+
+    expect(openai!.dashboard.total).toBe(500);
+    expect(openai!.dashboard.groups.map((g) => g.groupId)).toEqual(["Work", "Home"]);
+    expect(openai!.dashboard.machines.map((m) => m.machineId)).toEqual(["work-pc", "mac"]);
+  });
+
+  it("keeps a silent machine of an excluded group off the list too", () => {
+    const quiet = { ...store, eventsByProvider: {} };
+    const scoped = { ...config, excludedProviders: { Work: ["claude"] } };
+    const [claude] = buildProviderDashboards(NOW, scoped, providerIds, quiet);
+    expect(claude!.dashboard.machines.map((m) => [m.machineId, m.tokens])).toEqual([["mac", 0]]);
+  });
+
+  it("keeps each group's colour whichever provider is selected", () => {
+    const scoped = { ...config, excludedProviders: { Home: ["openai"] } };
+    const [, openai] = buildProviderDashboards(NOW, scoped, providerIds, store);
+    expect(openai!.dashboard.groups.map((g) => [g.groupId, g.color])).toEqual([["Work", "#d95926"]]);
   });
 });

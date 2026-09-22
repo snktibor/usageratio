@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { ApiTokenSettings } from "@/components/api-token-settings";
-import { PlusIcon, SlidersIcon, StopCircleIcon, XIcon } from "@/components/icons";
+import { CheckIcon, PlusIcon, SlidersIcon, StopCircleIcon, XIcon } from "@/components/icons";
 import type { BudgetPeriod } from "@/lib/config";
 import { formatTokens, weekdayLong } from "@/lib/format";
 import {
@@ -23,21 +23,26 @@ interface DraftGroup {
   /** The HEX field exactly as typed; may be half-written. */
   colorText: string;
   hasReports: boolean;
+  /** The providers whose usage in this group does not count. */
+  excluded: string[];
 }
 
-interface DraftLimit {
+interface DraftProvider {
   id: string;
   label: string;
-  value: string;
-  /** The stored limit: saved again while the limits are off and the field holds no valid number. */
-  saved: number;
+  /** False: hidden from the dashboard. */
+  visible: boolean;
+  /** The token-limit field exactly as typed. */
+  limitText: string;
+  /** The stored limit: saved again while its field is hidden and holds no valid number. */
+  savedLimit: number;
 }
 
 /** The form's state: strings as typed, validated only when saving. */
 interface Draft {
   period: BudgetPeriod;
   useTokenLimits: boolean;
-  limits: DraftLimit[];
+  providers: DraftProvider[];
   weekday: number;
   monthDay: number;
   time: string;
@@ -56,6 +61,8 @@ interface SettingsRequest {
   limits: Record<string, number>;
   reset: { weekday: number; monthDay: number; hour: number; minute: number };
   showRemaining: boolean;
+  hiddenProviders: string[];
+  excludedProviders: Record<string, string[]>;
   groups: { id: string; color: string }[];
   removedGroups: string[];
 }
@@ -69,22 +76,60 @@ const FIELD =
 const QUIET_BUTTON =
   "rounded-md border border-rule px-3 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink disabled:pointer-events-none disabled:opacity-40";
 
+/** A pill that switches something on (filled, with a tick) or off (outlined). */
+function ToggleChip({
+  checked,
+  onChange,
+  disabled = false,
+  title,
+  children,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label title={title} className="relative">
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+        className="peer sr-only"
+      />
+      <span className="flex cursor-pointer items-center gap-1.5 rounded-full border border-rule px-3 py-1 text-sm text-ink-3 transition-colors hover:border-ink-3 hover:text-ink peer-checked:border-ink peer-checked:bg-ink peer-checked:text-page peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink peer-disabled:cursor-not-allowed peer-disabled:hover:border-ink">
+        {checked && <CheckIcon className="-ml-0.5 size-3.5 shrink-0" />}
+        {children}
+      </span>
+    </label>
+  );
+}
+
 function draftFrom(view: SettingsView): Draft {
-  const { period, useTokenLimits, limits, reset, showRemaining } = view.settings;
+  const { period, useTokenLimits, limits, reset, showRemaining, hiddenProviders, excludedProviders } =
+    view.settings;
   const twoDigits = (value: number) => String(value).padStart(2, "0");
   return {
     period,
     useTokenLimits,
-    limits: view.providers.map((provider) => ({
+    providers: view.providers.map((provider) => ({
       ...provider,
-      value: String(limits[provider.id]),
-      saved: limits[provider.id]!,
+      visible: !hiddenProviders.includes(provider.id),
+      limitText: String(limits[provider.id]),
+      savedLimit: limits[provider.id]!,
     })),
     weekday: reset.weekday,
     monthDay: reset.monthDay,
     time: `${twoDigits(reset.hour)}:${twoDigits(reset.minute)}`,
     showRemaining,
-    groups: view.groups.map((group) => ({ ...group, colorText: group.color })),
+    groups: view.groups.map((group) => ({
+      ...group,
+      colorText: group.color,
+      // A group id such as "constructor" must not find the object's prototype.
+      excluded: Object.hasOwn(excludedProviders, group.id) ? [...excludedProviders[group.id]!] : [],
+    })),
     removed: [],
     newGroupName: "",
     apiToken: "",
@@ -123,7 +168,13 @@ function withNewGroup(draft: Draft): Draft {
     ...draft,
     groups: [
       ...draft.groups,
-      { id, color, colorText: color, hasReports: restored?.hasReports ?? false },
+      {
+        id,
+        color,
+        colorText: color,
+        hasReports: restored?.hasReports ?? false,
+        excluded: restored?.excluded ?? [],
+      },
     ],
     removed: draft.removed.filter((group) => group.id !== id),
     newGroupName: "",
@@ -131,10 +182,14 @@ function withNewGroup(draft: Draft): Draft {
 }
 
 function toRequest(draft: Draft): { request: SettingsRequest } | { problem: string } {
-  const parsedLimits = draft.limits.map((limit) => ({
-    ...limit,
-    // Hidden while the limits are off: a half-typed value left there must not block the save.
-    parsed: parseLimit(limit.value) ?? (draft.useTokenLimits ? null : limit.saved),
+  if (!draft.providers.some((provider) => provider.visible)) {
+    return { problem: "Legalább egy AI-fióknak látszania kell a dashboardon." };
+  }
+
+  const parsedLimits = draft.providers.map((provider) => ({
+    ...provider,
+    // Hidden while the limits or the provider are off: a half-typed value left there must not block the save.
+    parsed: parseLimit(provider.limitText) ?? (draft.useTokenLimits && provider.visible ? null : provider.savedLimit),
   }));
   const badLimit = parsedLimits.find((limit) => limit.parsed === null);
   if (badLimit) {
@@ -163,6 +218,11 @@ function toRequest(draft: Draft): { request: SettingsRequest } | { problem: stri
         minute: Number(time[2]),
       },
       showRemaining: draft.showRemaining,
+      hiddenProviders: draft.providers.filter((provider) => !provider.visible).map((provider) => provider.id),
+      // Only the groups on the list: a removed group takes its exclusions with it.
+      excludedProviders: Object.fromEntries(
+        draft.groups.filter((group) => group.excluded.length > 0).map((group) => [group.id, group.excluded]),
+      ),
       groups: draft.groups.map(({ id, color }) => ({ id, color })),
       removedGroups: draft.removed.map((group) => group.id),
     },
@@ -182,11 +242,26 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
       ...current,
       groups: current.groups.map((group) => (group.id === id ? { ...group, ...changes } : group)),
     }));
-  const patchLimit = (id: string, value: string) =>
+  const patchProvider = (id: string, changes: Partial<DraftProvider>) =>
     setDraft((current) => ({
       ...current,
-      limits: current.limits.map((limit) => (limit.id === id ? { ...limit, value } : limit)),
+      providers: current.providers.map((provider) => (provider.id === id ? { ...provider, ...changes } : provider)),
     }));
+  const setCounted = (groupId: string, providerId: string, counted: boolean) =>
+    setDraft((current) => ({
+      ...current,
+      groups: current.groups.map((group) =>
+        group.id === groupId
+          ? {
+              ...group,
+              excluded: counted
+                ? group.excluded.filter((id) => id !== providerId)
+                : [...group.excluded.filter((id) => id !== providerId), providerId],
+            }
+          : group,
+      ),
+    }));
+  const visibleProviders = draft.providers.filter((provider) => provider.visible);
 
   function addGroup() {
     const nameProblem = groupNameProblem(draft.newGroupName, draft.groups);
@@ -294,6 +369,32 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
       </header>
 
       <div className="space-y-9 px-6 pb-7 pt-6">
+        <section aria-labelledby={`${titleId}-providers`}>
+          <h3 id={`${titleId}-providers`} className="font-medium">
+            AI-fiókok
+          </h3>
+          <div role="group" aria-label="Látható AI-fiókok" className="mt-3 flex flex-wrap gap-2">
+            {draft.providers.map((provider) => {
+              const isLastVisible = provider.visible && visibleProviders.length === 1;
+              return (
+                <ToggleChip
+                  key={provider.id}
+                  checked={provider.visible}
+                  onChange={(visible) => patchProvider(provider.id, { visible })}
+                  disabled={isLastVisible}
+                  title={isLastVisible ? "Legalább egy AI-fióknak látszania kell" : undefined}
+                >
+                  {provider.label}
+                </ToggleChip>
+              );
+            })}
+          </div>
+          <p className="mt-3 text-sm text-ink-3">
+            A kikapcsolt fiók eltűnik a dashboardról és az AI-fiók választóból. A gépek jelentéseit a szerver
+            továbbra is tárolja: visszakapcsolva az előzményekkel együtt tér vissza.
+          </p>
+        </section>
+
         <section aria-labelledby={`${titleId}-budget`} className="space-y-4">
           <h3 id={`${titleId}-budget`} className="font-medium">
             Keret
@@ -344,8 +445,8 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
               <fieldset>
                 <legend className="text-sm text-ink-3">Szolgáltatónkénti keret (token)</legend>
                 <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                  {draft.limits.map((provider) => {
-                    const limit = parseLimit(provider.value);
+                  {visibleProviders.map((provider) => {
+                    const limit = parseLimit(provider.limitText);
                     return (
                       <label key={provider.id} className="rounded-lg border border-hairline bg-page/40 p-3">
                         <span className="font-medium text-ink">{provider.label}</span>
@@ -354,8 +455,8 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                             type="text"
                             inputMode="numeric"
                             autoComplete="off"
-                            value={provider.value}
-                            onChange={(event) => patchLimit(provider.id, event.target.value)}
+                            value={provider.limitText}
+                            onChange={(event) => patchProvider(provider.id, { limitText: event.target.value })}
                             aria-invalid={limit === null || undefined}
                             aria-label={`${provider.label} tokenkerete`}
                             className={`min-w-0 grow tabular-nums ${FIELD}`}
@@ -458,43 +559,67 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
           {draft.groups.length > 0 && (
             <ul className="mt-3 border-t border-hairline">
               {draft.groups.map((group) => (
-                <li key={group.id} className="flex items-center gap-3 border-b border-hairline py-2.5">
-                  <input
-                    type="color"
-                    list={presetsId}
-                    value={group.color}
-                    onChange={(event) =>
-                      patchGroup(group.id, { color: event.target.value, colorText: event.target.value })
-                    }
-                    aria-label={`„${group.id}” színe`}
-                    className="color-well"
-                  />
-                  <span className="min-w-0 grow wrap-anywhere">{group.id}</span>
-                  <input
-                    type="text"
-                    autoComplete="off"
-                    spellCheck={false}
-                    maxLength={7}
-                    value={group.colorText}
-                    onChange={(event) => {
-                      const color = normalizeHexColor(event.target.value);
-                      patchGroup(group.id, { colorText: event.target.value, ...(color && { color }) });
-                    }}
-                    onBlur={() => patchGroup(group.id, { colorText: group.color })}
-                    aria-label={`„${group.id}” színének HEX kódja`}
-                    aria-invalid={normalizeHexColor(group.colorText) === null || undefined}
-                    className={`w-[6.5rem] font-mono text-sm ${FIELD}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeGroup(group)}
-                    disabled={group.hasReports}
-                    aria-label={`„${group.id}” törlése`}
-                    title={group.hasReports ? "Van tárolt jelentése, ezért nem törölhető" : "Törlés"}
-                    className="rounded-md p-2 text-ink-3 transition-colors hover:text-ink disabled:pointer-events-none disabled:opacity-30"
+                <li key={group.id} className="border-b border-hairline py-2.5">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      list={presetsId}
+                      value={group.color}
+                      onChange={(event) =>
+                        patchGroup(group.id, { color: event.target.value, colorText: event.target.value })
+                      }
+                      aria-label={`„${group.id}” színe`}
+                      className="color-well"
+                    />
+                    <span className="min-w-0 grow wrap-anywhere">{group.id}</span>
+                    <input
+                      type="text"
+                      autoComplete="off"
+                      spellCheck={false}
+                      maxLength={7}
+                      value={group.colorText}
+                      onChange={(event) => {
+                        const color = normalizeHexColor(event.target.value);
+                        patchGroup(group.id, { colorText: event.target.value, ...(color && { color }) });
+                      }}
+                      onBlur={() => patchGroup(group.id, { colorText: group.color })}
+                      aria-label={`„${group.id}” színének HEX kódja`}
+                      aria-invalid={normalizeHexColor(group.colorText) === null || undefined}
+                      className={`w-[6.5rem] font-mono text-sm ${FIELD}`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeGroup(group)}
+                      disabled={group.hasReports}
+                      aria-label={`„${group.id}” törlése`}
+                      title={group.hasReports ? "Van tárolt jelentése, ezért nem törölhető" : "Törlés"}
+                      className="rounded-md p-2 text-ink-3 transition-colors hover:text-ink disabled:pointer-events-none disabled:opacity-30"
+                    >
+                      <XIcon />
+                    </button>
+                  </div>
+                  {/* Aligned with the name: the colour well is 2rem wide, the gap 0.75rem. */}
+                  <div
+                    role="group"
+                    aria-label={`AI-fiókok, amelyekbe a(z) „${group.id}” csoport beszámít`}
+                    className="mt-2 flex flex-wrap items-center gap-1.5 pl-11"
                   >
-                    <XIcon />
-                  </button>
+                    <span className="mr-1 text-sm text-ink-3" aria-hidden="true">
+                      Beszámít:
+                    </span>
+                    {visibleProviders.map((provider) => (
+                      <ToggleChip
+                        key={provider.id}
+                        checked={!group.excluded.includes(provider.id)}
+                        onChange={(counted) => setCounted(group.id, provider.id, counted)}
+                      >
+                        {provider.label}
+                      </ToggleChip>
+                    ))}
+                    {visibleProviders.every((provider) => group.excluded.includes(provider.id)) && (
+                      <span className="ml-1 text-sm text-ink-3">egyik látható fiókba sem</span>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -530,8 +655,9 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
 
           <p className="mt-4 text-sm text-ink-3">
             A név az, amit a gép <code className="text-ink-2">groupId</code>-ként küld. Ha egy gép a listán nem
-            szereplő csoportot jelent, az magától felkerül ide, véletlen színnel. Törölni csak olyan csoportot
-            lehet, amelynek nincs tárolt jelentése.
+            szereplő csoportot jelent, az magától felkerül ide, véletlen színnel, és minden fiókba beszámít.
+            Egy kikapcsolt fiók dashboardján a csoport tokenjei és gépei nem látszanak, a jelentéseik viszont
+            tárolva maradnak. Törölni csak olyan csoportot lehet, amelynek nincs tárolt jelentése.
           </p>
         </section>
 

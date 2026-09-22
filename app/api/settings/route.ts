@@ -17,7 +17,7 @@ import { loadGroupActivity, loadIndexes, saveSettings } from "@/lib/usage-store"
  *
  *   GET  → { "settings": { "period", "useTokenLimits", "limits": { "claude": 500000 },
  *                          "reset": { "weekday", "monthDay", "hour", "minute" },
- *                          "showRemaining" },
+ *                          "showRemaining", "hiddenProviders", "excludedProviders" },
  *            "timeZone": "Europe/Budapest",
  *            "groups": [{ "id", "color", "hasReports" }] }
  *
@@ -26,10 +26,12 @@ import { loadGroupActivity, loadIndexes, saveSettings } from "@/lib/usage-store"
  *            "limits": { "claude": 500000 },                     kept even while unused
  *            "reset": { "weekday": 1, "monthDay": 1, "hour": 0, "minute": 0 },
  *            "showRemaining": true,                              false hides the tokens left
+ *            "hiddenProviders": ["openai"],                      not on the dashboard; one must stay
+ *            "excludedProviders": { "Work": ["claude"] },        group → providers it does not count for
  *            "groups": [{ "id": "Work", "color": "#3987e5" }],   create or recolour; others stay
  *            "removedGroups": ["Old"] }                          only groups without stored reports
  *
- * 200 ok · 400 bad JSON/payload · 401 no session · 403 foreign origin ·
+ * 200 ok · 400 bad JSON/payload, or every provider hidden · 401 no session · 403 foreign origin ·
  * 409 a group to remove still has reports (nothing was saved) · 413 body too large ·
  * 415 not JSON · 503 Redis down
  */
@@ -103,6 +105,10 @@ export async function PUT(request: Request): Promise<Response> {
       storedProviderIds(indexes.settings),
       Object.keys(parsed.update.settings.limits),
     );
+    // The panel never lets the last one go: a dashboard needs a provider to show.
+    if (providerIds.every((providerId) => parsed.update.settings.hiddenProviders.includes(providerId))) {
+      return json({ error: "invalid_payload", details: ["at least one provider must stay visible"] }, 400);
+    }
     const saved = await saveSettings(parsed.update, new Date(), providerIds);
     if (!saved.ok) {
       return json({ error: "groups_have_reports", groups: saved.groupsWithReports }, 409);
