@@ -15,13 +15,15 @@ import { loadGroupActivity, loadIndexes, saveSettings } from "@/lib/usage-store"
  * Authenticated by the dashboard's session cookie: without a valid PIN session
  * both methods answer 401 and touch no data.
  *
- *   GET  → { "settings": { "period", "limits": { "claude": 500000 },
+ *   GET  → { "settings": { "period", "useTokenLimits", "limits": { "claude": 500000 },
  *                          "reset": { "weekday", "monthDay", "hour", "minute" },
  *                          "showRemaining" },
  *            "timeZone": "Europe/Budapest",
  *            "groups": [{ "id", "color", "hasReports" }] }
  *
- *   PUT    { "period": "weekly" | "monthly", "limits": { "claude": 500000 },
+ *   PUT    { "period": "weekly" | "monthly",
+ *            "useTokenLimits": false,                            false: no limit, only the official %
+ *            "limits": { "claude": 500000 },                     kept even while unused
  *            "reset": { "weekday": 1, "monthDay": 1, "hour": 0, "minute": 0 },
  *            "showRemaining": true,                              false hides the tokens left
  *            "groups": [{ "id": "Work", "color": "#3987e5" }],   create or recolour; others stay

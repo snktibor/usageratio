@@ -1,7 +1,7 @@
 /**
  * Central configuration.
  *
- * The budget itself (limit, weekly or monthly period, reset moment) and the
+ * The budget itself (period, reset moment, the optional token limits) and the
  * groups are edited on the dashboard's settings panel and live in Redis: see
  * lib/settings.ts. The DEFAULT_* constants below only seed that panel; they
  * apply until the first save. Everything else is set here (and redeployed),
@@ -9,7 +9,16 @@
  */
 
 /**
- * Token budget of one cycle, until the settings panel saves its own.
+ * Whether the dashboard measures usage against a token limit of its own. Off,
+ * it has no limit to count down: the share of the budget comes only from the
+ * official percentage typed on the dashboard, split among the machines and
+ * groups by their measured tokens. A seed: the settings panel has the switch.
+ */
+export const DEFAULT_USE_TOKEN_LIMITS = false;
+
+/**
+ * Token budget of one cycle, until the settings panel saves its own. Only
+ * used while the token limits are switched on.
  * Optional env override: WEEKLY_LIMIT
  */
 export const DEFAULT_LIMIT = 500_000;
@@ -33,7 +42,8 @@ export const DEFAULT_RESET: ResetConfig = {
 
 /**
  * Whether the dashboard states how many tokens are left (or how far over the
- * limit the usage is). A seed like the ones above: the settings panel has the switch.
+ * limit the usage is), while the token limits are on. A seed like the ones
+ * above: the settings panel has the switch.
  */
 export const DEFAULT_SHOW_REMAINING = true;
 
@@ -87,6 +97,8 @@ export interface ResetConfig {
 }
 
 export interface AppConfig {
+  /** False: no token limit is used anywhere; see DEFAULT_USE_TOKEN_LIMITS. */
+  useTokenLimits: boolean;
   /** Fallback token budget for a provider that has not been saved yet. */
   limit: number;
   /** Saved token budgets by provider/account id. */
@@ -173,6 +185,7 @@ export function getConfig(
   }
 
   return {
+    useTokenLimits: DEFAULT_USE_TOKEN_LIMITS,
     limit,
     providerLimits: {},
     reset,

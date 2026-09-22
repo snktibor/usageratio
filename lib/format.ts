@@ -37,6 +37,11 @@ export function formatPercent(fraction: number): string {
   }).format(fraction);
 }
 
+/** A share of the limit, as formatPercent; "–" when there is no limit to take a share of. */
+export function formatLimitShare(fraction: number | null): string {
+  return fraction === null ? "–" : formatPercent(fraction);
+}
+
 /** Same as formatPercent, but always with one decimal for the hero figure below 100%. */
 export function formatHeroPercent(fraction: number): string {
   return new Intl.NumberFormat(LOCALE, {

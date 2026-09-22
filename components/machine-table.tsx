@@ -1,7 +1,7 @@
 import { CalibratedNote, Swatch } from "@/components/group-breakdown";
 import { CheckCircleIcon, ClockIcon, MoonIcon } from "@/components/icons";
 import type { DashboardModel, MachineHealth } from "@/lib/dashboard";
-import { formatAgo, formatDateTime, formatPercent, formatTokens } from "@/lib/format";
+import { formatAgo, formatDateTime, formatLimitShare, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
 
 type Machine = DashboardModel["machines"][number];
@@ -38,11 +38,14 @@ function LastReport({ machine, model }: { machine: Machine; model: DashboardMode
 }
 
 export function MachineTable({ model, view }: { model: DashboardModel; view: DashboardView }) {
+  // No token limit and no official figure: there is no limit to take a share of.
+  const hasLimitShare = view.quota !== null;
+
   return (
     <section aria-labelledby="machines-heading">
       <h2 id="machines-heading" className="flex flex-wrap items-baseline gap-x-3 text-xl font-medium">
         Gépek
-        {view.calibrated && model.total > 0 && <CalibratedNote />}
+        {view.calibrated && model.total > 0 && <CalibratedNote view={view} />}
       </h2>
 
       {/* Narrow screens: one stacked entry per machine instead of six squeezed columns. */}
@@ -59,7 +62,8 @@ export function MachineTable({ model, view }: { model: DashboardModel; view: Das
                 <span className="wrap-anywhere">{machine.groupId}</span>
               </span>
               <span className="shrink-0 tabular-nums">
-                {formatPercent(machine.share)} · a keret {formatPercent(machine.limitShare)}-a
+                {formatPercent(machine.share)}
+                {hasLimitShare && <> · a keret {formatLimitShare(machine.limitShare)}-a</>}
               </span>
             </div>
             <div className="mt-2">
@@ -84,9 +88,11 @@ export function MachineTable({ model, view }: { model: DashboardModel; view: Das
             <th scope="col" className="py-2 pl-4 text-right font-normal">
               Részesedés
             </th>
-            <th scope="col" className="whitespace-nowrap py-2 pl-4 text-right font-normal">
-              A keretből
-            </th>
+            {hasLimitShare && (
+              <th scope="col" className="whitespace-nowrap py-2 pl-4 text-right font-normal">
+                A keretből
+              </th>
+            )}
             <th scope="col" className="py-2 pl-8 font-normal">
               Utolsó jelentés
             </th>
@@ -116,7 +122,9 @@ export function MachineTable({ model, view }: { model: DashboardModel; view: Das
                   <span className="w-12">{formatPercent(machine.share)}</span>
                 </span>
               </td>
-              <td className="py-3 pl-4 text-right tabular-nums">{formatPercent(machine.limitShare)}</td>
+              {hasLimitShare && (
+                <td className="py-3 pl-4 text-right tabular-nums">{formatLimitShare(machine.limitShare)}</td>
+              )}
               <td className="py-3 pl-8">
                 <LastReport machine={machine} model={model} />
               </td>

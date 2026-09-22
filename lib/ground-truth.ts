@@ -9,6 +9,10 @@ import { assessQuota, type QuotaAssessment } from "@/lib/quota";
  *
  *   share of the limit = (its measured tokens / all measured tokens) × official %
  *
+ * With the token limits on, the official figure is restated in tokens too.
+ * Without them there is no limit to convert by: the token counts stay as
+ * measured, and the official percentage is the only measure of the budget.
+ *
  * Runs in the browser, on every keystroke; pure.
  */
 
@@ -24,10 +28,18 @@ export interface OfficialReading {
 export interface DashboardView {
   /** True when an official reading drives the figures. */
   calibrated: boolean;
-  quota: QuotaAssessment;
-  /** What the machines measured, whichever figure is in the lead. */
-  measured: { total: number; usedFraction: number };
-  /** Official tokens per measured token; null when not calibrated or nothing was measured. */
+  /**
+   * How much of the budget is gone, and the pace. With the token limits on it
+   * counts tokens against the limit. Without them it counts fractions of the
+   * budget (`limit` is 1, `total` the official fraction), and is null until an
+   * official reading is given: nothing else can tell.
+   */
+  quota: QuotaAssessment | null;
+  /** True: `quota` counts tokens, against the provider's token limit. */
+  inTokens: boolean;
+  /** What the machines measured, whichever figure is in the lead. `usedFraction` needs a token limit. */
+  measured: { total: number; usedFraction: number | null };
+  /** Official tokens per measured token; null when not calibrated, nothing was measured, or without a token limit. */
   scale: number | null;
   groups: DashboardModel["groups"];
   machines: DashboardModel["machines"];
@@ -50,13 +62,14 @@ export function applyGroundTruth(
   model: DashboardModel,
   reading: OfficialReading | null,
 ): DashboardView {
-  const measured = { total: model.total, usedFraction: model.usedFraction };
+  const inTokens = model.quota !== null;
+  const measured = { total: model.total, usedFraction: model.quota?.usedFraction ?? null };
 
   if (!reading) {
-    const { limit, total, usedFraction, remaining, overage, status, pace } = model;
     return {
       calibrated: false,
-      quota: { limit, total, usedFraction, remaining, overage, status, pace },
+      quota: model.quota,
+      inTokens,
       measured,
       scale: null,
       groups: model.groups,
@@ -65,7 +78,9 @@ export function applyGroundTruth(
   }
 
   const officialFraction = reading.percent / 100;
-  const officialTotal = officialFraction * model.limit;
+  // Without a token limit the budget is 1 and every amount a fraction of it; the pace reads the same.
+  const limit = model.quota?.limit ?? 1;
+  const officialTotal = officialFraction * limit;
   // A reading taken hours ago says how fast the budget went until then, not until now.
   const asOfMs = Math.min(
     model.generatedAt,
@@ -73,21 +88,22 @@ export function applyGroundTruth(
   );
 
   // `share` is measured tokens over all measured tokens: exactly the proportion to keep.
-  const restate = <T extends { share: number }>(row: T): T => ({
+  const restate = <T extends { share: number; tokens: number }>(row: T): T => ({
     ...row,
     limitShare: row.share * officialFraction,
-    tokens: row.share * officialTotal,
+    tokens: inTokens ? row.share * officialTotal : row.tokens,
   });
 
   return {
     calibrated: true,
-    quota: assessQuota(officialTotal, model.limit, {
+    quota: assessQuota(officialTotal, limit, {
       startMs: model.cycle.startMs,
       endMs: model.cycle.endMs,
       nowMs: asOfMs,
     }),
+    inTokens,
     measured,
-    scale: model.total > 0 ? officialTotal / model.total : null,
+    scale: inTokens && model.total > 0 ? officialTotal / model.total : null,
     groups: model.groups.map(restate),
     machines: model.machines.map(restate),
   };

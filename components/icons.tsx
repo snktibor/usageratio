@@ -54,6 +54,16 @@ export function StopCircleIcon({ className }: IconProps) {
   );
 }
 
+export function InfoCircleIcon({ className }: IconProps) {
+  return (
+    <Glyph className={className}>
+      <circle cx="8" cy="8" r="6.2" />
+      <path d="M8 7.4v3.6" />
+      <path d="M8 5v.1" />
+    </Glyph>
+  );
+}
+
 export function ClockIcon({ className }: IconProps) {
   return (
     <Glyph className={className}>

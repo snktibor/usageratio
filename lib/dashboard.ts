@@ -23,16 +23,25 @@ export interface StoreSnapshot {
 export type MachineHealth = "active" | "late" | "inactive";
 
 /**
- * What the machines measured, against the configured limit. The browser may
- * lay an official usage figure over it: see lib/ground-truth.ts.
+ * What the machines measured, and, with the token limits on, how that stands
+ * against the limit. The browser may lay an official usage figure over it:
+ * see lib/ground-truth.ts.
  */
-export interface DashboardModel extends QuotaAssessment {
+export interface DashboardModel {
   generatedAt: number;
   tokenMode: TokenMode;
   timeZone: string;
   period: BudgetPeriod;
   /** False: nothing on the page may state the tokens left, nor the overage. */
   showRemaining: boolean;
+  /** Tokens the machines measured this cycle. */
+  total: number;
+  /**
+   * `total` against the provider's token limit. Null while the token limits
+   * are switched off: then only an official reading tells how much of the
+   * budget is gone.
+   */
+  quota: QuotaAssessment | null;
   previousTotal: number;
   cycle: {
     startMs: number;
@@ -45,8 +54,8 @@ export interface DashboardModel extends QuotaAssessment {
     tokens: number;
     /** Fraction of this cycle's usage. */
     share: number;
-    /** Fraction of the limit. */
-    limitShare: number;
+    /** Fraction of the limit; null without one. */
+    limitShare: number | null;
     machines: number;
     /** "#rrggbb": as set on the settings panel, or drawn when the group first reported. */
     color: string;
@@ -59,8 +68,8 @@ export interface DashboardModel extends QuotaAssessment {
     tokens: number;
     /** Fraction of this cycle's usage. */
     share: number;
-    /** Fraction of the limit. */
-    limitShare: number;
+    /** Fraction of the limit; null without one. */
+    limitShare: number | null;
     reports: number;
     lastSeenAt: number;
     health: MachineHealth;
@@ -106,7 +115,8 @@ export function buildDashboard(
     config.tokenMode,
   );
 
-  const limit = config.limit;
+  const limit = config.useTokenLimits ? config.limit : null;
+  const limitShareOf = (tokens: number) => (limit === null ? null : tokens / limit);
   const colorOf = resolveGroupColors(
     snapshot.groups,
     current.groups.map((g) => g.groupId),
@@ -121,7 +131,7 @@ export function buildDashboard(
       color: colorOf.get(s.groupId) ?? NEUTRAL_COLOR,
       tokens: s.tokens,
       share: s.share,
-      limitShare: s.tokens / limit,
+      limitShare: limitShareOf(s.tokens),
       reports: s.reports,
       lastSeenAt,
       health: healthOf(nowMs - lastSeenAt, config.reportIntervalMinutes),
@@ -141,7 +151,7 @@ export function buildDashboard(
       color: colorOf.get(m.groupId) ?? NEUTRAL_COLOR,
       tokens: 0,
       share: 0,
-      limitShare: 0,
+      limitShare: limitShareOf(0),
       reports: 0,
       lastSeenAt: m.lastSeenAt,
       health: healthOf(nowMs - m.lastSeenAt, config.reportIntervalMinutes),
@@ -149,12 +159,13 @@ export function buildDashboard(
   }
 
   return {
-    ...assessQuota(current.total, limit, { startMs, endMs, nowMs }),
     generatedAt: nowMs,
     tokenMode: config.tokenMode,
     timeZone: config.reset.timeZone,
     period: config.reset.period,
     showRemaining: config.showRemaining,
+    total: current.total,
+    quota: limit === null ? null : assessQuota(current.total, limit, { startMs, endMs, nowMs }),
     previousTotal: previous.total,
     cycle: {
       startMs,
@@ -171,7 +182,7 @@ export function buildDashboard(
       groupId: g.groupId,
       tokens: g.tokens,
       share: g.share,
-      limitShare: g.tokens / limit,
+      limitShare: limitShareOf(g.tokens),
       machines: g.machines,
       color: colorOf.get(g.groupId) ?? NEUTRAL_COLOR,
     })),
