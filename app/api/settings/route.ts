@@ -1,7 +1,13 @@
 import { isAuthenticated } from "@/lib/auth";
 import { getConfig } from "@/lib/config";
+import { mergeProviderIds } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
-import { buildSettingsView, parseSettingsUpdate, resolveConfig } from "@/lib/settings";
+import {
+  buildSettingsView,
+  parseSettingsUpdate,
+  resolveConfig,
+  storedProviderIds,
+} from "@/lib/settings";
 import { loadGroupActivity, loadIndexes, saveSettings } from "@/lib/usage-store";
 
 /**
@@ -9,12 +15,13 @@ import { loadGroupActivity, loadIndexes, saveSettings } from "@/lib/usage-store"
  * Authenticated by the dashboard's session cookie: without a valid PIN session
  * both methods answer 401 and touch no data.
  *
- *   GET  → { "settings": { "period", "limit", "reset": { "weekday", "monthDay", "hour", "minute" },
+ *   GET  → { "settings": { "period", "limits": { "claude": 500000 },
+ *                          "reset": { "weekday", "monthDay", "hour", "minute" },
  *                          "showRemaining" },
  *            "timeZone": "Europe/Budapest",
  *            "groups": [{ "id", "color", "hasReports" }] }
  *
- *   PUT    { "period": "weekly" | "monthly", "limit": 500000,
+ *   PUT    { "period": "weekly" | "monthly", "limits": { "claude": 500000 },
  *            "reset": { "weekday": 1, "monthDay": 1, "hour": 0, "minute": 0 },
  *            "showRemaining": true,                              false hides the tokens left
  *            "groups": [{ "id": "Work", "color": "#3987e5" }],   create or recolour; others stay
@@ -62,8 +69,21 @@ export async function GET(): Promise<Response> {
     if (!(await isAuthenticated())) return json({ error: "unauthorized" }, 401);
 
     const indexes = await loadIndexes();
-    const config = resolveConfig(getConfig(), indexes.settings);
-    return json({ ...buildSettingsView(config, await loadGroupActivity(indexes.groups)) }, 200);
+    const providerIds = mergeProviderIds(
+      indexes.providers.map((provider) => provider.providerId),
+      storedProviderIds(indexes.settings),
+    );
+    const config = resolveConfig(getConfig(), indexes.settings, providerIds);
+    return json(
+      {
+        ...buildSettingsView(
+          config,
+          await loadGroupActivity(indexes.groups, providerIds),
+          providerIds,
+        ),
+      },
+      200,
+    );
   } catch (error) {
     return storageFailure(error);
   }
@@ -103,7 +123,13 @@ export async function PUT(request: Request): Promise<Response> {
   if (!parsed.ok) return json({ error: "invalid_payload", details: parsed.errors }, 400);
 
   try {
-    const saved = await saveSettings(parsed.update, new Date());
+    const indexes = await loadIndexes();
+    const providerIds = mergeProviderIds(
+      indexes.providers.map((provider) => provider.providerId),
+      storedProviderIds(indexes.settings),
+      Object.keys(parsed.update.settings.limits),
+    );
+    const saved = await saveSettings(parsed.update, new Date(), providerIds);
     if (!saved.ok) {
       return json({ error: "groups_have_reports", groups: saved.groupsWithReports }, 409);
     }

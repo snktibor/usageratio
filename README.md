@@ -1,9 +1,9 @@
 # usageratio
 
-Pehelysúlyú, saját hosztolású használatkövető a Deepseek heti vagy havi tokenkeretéhez. A gépek óránként
-beküldik a fogyasztásukat, a dashboard pedig megmutatja, hol tart a keret, csoportok és gépek
-szerint bontva, egy 5 jegyű PIN mögött. A keret, a reset és a csoportok a dashboardon állíthatók; a
-hivatalos Deepseek-százalék beírásával a bontás a valós fogyasztáshoz igazítható.
+Pehelysúlyú, saját hosztolású használatkövető több AI-szolgáltató vagy fiók (például Claude,
+DeepSeek és OpenAI) heti vagy havi tokenkeretéhez. A gépek óránként egy közös, providerenkénti
+snapshotot küldenek. A PIN-nel védett dashboardon fiókot lehet váltani; a keret, a csoport- és
+gépbontás, valamint a hivatalos százalékkal kalibrált érték együtt vált át.
 
 ```
  Mac (bash + cron) ──┐
@@ -20,16 +20,17 @@ hivatalos Deepseek-százalék beírásával a bontás a valós fogyasztáshoz ig
 | Fájl | Szerep |
 | --- | --- |
 | `lib/config.ts` | Telepítési beállítások (időzóna, token-értelmezés, megőrzés) és a keret **kezdőértékei** |
-| `lib/settings.ts` | A dashboardon szerkeszthető beállítások: keret, reset, csoportok és színeik (validáció, tiszta logika) |
+| `lib/settings.ts` | Providerenkénti keretek, közös reset, csoportok és színek (validáció, migráció) |
+| `lib/providers.ts` | Providerazonosítók normalizálása és megjelenítési nevei |
 | `app/api/settings/route.ts` | GET/PUT végpont a Beállítások panelhez, a PIN-session mögött |
-| `app/api/usage/route.ts` | POST végpont: Bearer token, validáció, mentés, ismeretlen csoport felvétele |
+| `app/api/usage/route.ts` | GET ciklus-metaadat és POST ingest: Bearer token, validáció, mentés |
 | `lib/usage-store.ts` | Redis adatmodell (írás, olvasás) |
 | `lib/cycle.ts` | Heti és havi ciklus számítása időzónával, nyári időszámítással |
 | `lib/aggregate.ts`, `lib/dashboard.ts`, `lib/quota.ts` | Összesítés csoportra és gépre, tempóbecslés |
-| `lib/ground-truth.ts` | „Valós százalék": a bontás átszámítása a hivatalos Deepseek-értékre (a böngészőben fut) |
+| `lib/ground-truth.ts` | „Valós százalék": a kiválasztott provider bontásának átszámítása (a böngészőben fut) |
 | `lib/auth.ts`, `app/actions.ts` | PIN-ellenőrzés, session, próbálkozáskorlát |
 | `app/page.tsx`, `components/` | PIN-képernyő és dashboard (Tailwind, sötét téma) |
-| `clients/` | `report-usage.sh` (Mac), `report-usage.ps1` + `install-task.ps1` (Windows) |
+| `clients/` | Mac/Windows jelentők és a közös `ccusage-providers.cjs` JSON-parser |
 | `tests/` | Egységtesztek a tiszta logikára (`npm test`) |
 
 ## 1. Telepítés Vercelre
@@ -65,12 +66,12 @@ hivatalos Deepseek-százalék beírásával a bontás a valós fogyasztáshoz ig
    ```bash
    curl -i -X POST https://usageratio.snktibor.hu/api/usage \
      -H "Authorization: Bearer $USAGE_API_TOKEN" -H "Content-Type: application/json" \
-     -d "{\"machineId\":\"probe\",\"groupId\":\"Test\",\"tokens\":1,\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
+     -d "{\"machineId\":\"probe\",\"groupId\":\"Test\",\"providers\":{\"deepseek\":1,\"claude\":2},\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
    ```
 
-   `201` a jó válasz. A `Test` csoport külön kulcsba kerül (és felkerül a Beállítások csoportlistájára
-   is), így nyom nélkül törölhető az Upstash konzol Data Browserében vagy CLI-jében:
-   `DEL usage:events:Test`, `HDEL usage:groups Test`, `HDEL usage:machines probe`.
+   `201` a jó válasz. A próba provider/csoport kulcsai az Upstash Data Browserben:
+   `usage:events:deepseek:Test` és `usage:events:claude:Test`. A hozzájuk tartozó indexbejegyzések a
+   `usage:groups`, `usage:providers` és `usage:machines` hash-ekben vannak.
 
 **Deployment Protection:** az alapbeállítás (*Standard Protection*) a generált címeket
 (`usageratio-…-snktibors-projects.vercel.app`) Vercel-bejelentkezés mögé teszi: ezeken a kliensek
@@ -80,21 +81,32 @@ terjeszd ki az éles domainre; ott a Bearer token és a PIN véd.
 
 ## 2. Kliensek
 
-Mindkét szkript ugyanúgy működik: beolvassa a beállításait egy külön fájlból (így a szkript
-cserélhető, a titok pedig nem kerül a repóba), előállítja a tokenszámot, elküldi, és naplóz.
+Mindkét szkript ugyanúgy működik: beolvassa a beállításait egy külön fájlból, Bearer tokennel lekéri
+a szervertől az aktuális ciklus kezdőnapját és időzónáját, majd futtatja a `ccusage daily --json
+--by-agent --breakdown --no-cost --since … --timezone …` parancsot. A közös parser modellnév alapján választja
+szét a szolgáltatókat (`deepseek-*`, `claude-*`, `gpt-*` stb.), és csak ennek hiányában használja a
+`ccusage` agent/forrás nevét.
 
-| | `--dry-run` / `-DryRun` | `--tokens N` / `-Tokens N` |
-| --- | --- | --- |
-| Mire jó | kiírja a JSON-t, nem küld semmit | a megadott számot küldi az olvasó helyett: így a teljes lánc tesztelhető, mielőtt a token-olvasó elkészül |
+| Kapcsoló | Mire jó |
+| --- | --- |
+| `--dry-run` / `-DryRun` | kiírja a JSON payloadot, nem küldi el |
+| `--providers '{"claude":22000}'` / `-Providers '{"claude":22000}'` | kézi több-provideres snapshot teszteléshez |
+| `--tokens N` / `-Tokens N` | kompatibilitási rövidítés: `{"deepseek":N}` |
 
-Kilépési kódok: `0` elküldve · `1` a küldés nem sikerült · `2` hibás beállítás · `3` a token-olvasó hibázott
-(amíg a TODO nincs kitöltve, a szkript ezzel áll meg, és **nem küld semmit**).
+Kilépési kódok: `0` elküldve · `1` a küldés nem sikerült · `2` hibás beállítás · `3` a `ccusage`
+vagy a JSON feldolgozása hibázott.
+
+**Függőségek:** Node.js és [`ccusage`](https://github.com/ccusage/ccusage) szükséges. Windowson a szkript mindig `npx --yes
+ccusage@latest` formában futtatja; Macen először a PATH-on lévő `ccusage` parancsot keresi, majd
+visszaesik ugyanerre az `npx` formára. Külön `jq` telepítése nem kell: a JSON-t a Node-alapú
+`ccusage-providers.cjs` dolgozza fel, PowerShellben a payloadot a beépített `ConvertTo-Json` készíti.
 
 ### Mac: Bash + cron
 
 ```bash
 mkdir -p ~/.usageratio ~/.config/usageratio
-cp clients/report-usage.sh ~/.usageratio/ && chmod 700 ~/.usageratio/report-usage.sh
+cp clients/report-usage.sh clients/ccusage-providers.cjs ~/.usageratio/
+chmod 700 ~/.usageratio/report-usage.sh ~/.usageratio/ccusage-providers.cjs
 
 cat > ~/.config/usageratio/config <<'EOF'
 API_URL="https://usageratio.snktibor.hu/api/usage"
@@ -104,8 +116,8 @@ GROUP_ID="Personal"
 EOF
 chmod 600 ~/.config/usageratio/config
 
-~/.usageratio/report-usage.sh --dry-run --tokens 0   # mit küldene
-~/.usageratio/report-usage.sh --tokens 0             # éles próba: 0 tokenes "életjel"
+~/.usageratio/report-usage.sh --dry-run --providers '{"claude":22000,"deepseek":15000}'
+~/.usageratio/report-usage.sh                         # éles ccusage-lekérés és beküldés
 ```
 
 Ütemezés: `crontab -e`, és ez az egy sor (minden óra 0. percében):
@@ -120,7 +132,8 @@ Alvó Macen a cron nem fut, és nem is pótol: az ébredés utáni következő e
 
 ### Windows: PowerShell + Task Scheduler
 
-1. Másold a `clients\report-usage.ps1` és a `clients\install-task.ps1` fájlt ide:
+1. Másold a `clients\report-usage.ps1`, `clients\install-task.ps1` és
+   `clients\ccusage-providers.cjs` fájlt ide:
    `%USERPROFILE%\.usageratio\` (ha letöltötted őket: `Unblock-File .\*.ps1`).
 2. Ugyanide hozd létre a `config.json` fájlt:
 
@@ -137,7 +150,8 @@ Alvó Macen a cron nem fut, és nem is pótol: az ébredés utáni következő e
 
    ```powershell
    cd $env:USERPROFILE\.usageratio
-   powershell -ExecutionPolicy Bypass -File .\report-usage.ps1 -Tokens 0
+   powershell -ExecutionPolicy Bypass -File .\report-usage.ps1 -DryRun -Providers '{"claude":22000,"deepseek":15000}'
+   powershell -ExecutionPolicy Bypass -File .\report-usage.ps1
    powershell -ExecutionPolicy Bypass -File .\install-task.ps1
    ```
 
@@ -151,29 +165,22 @@ Rendszergazdai jog nélkül: `install-task.ps1 -Interactive`. Ekkor csak bejelen
 `-WindowStyle Hidden` ellenére egy pillanatra felvillanhat egy ablak. Eltávolítás:
 `install-task.ps1 -Uninstall`. Napló: `%USERPROFILE%\.usageratio\usageratio.log`.
 
-## 3. A token-olvasó bekötése
+## 3. Snapshotok és provider-felismerés
 
-A tényleges Deepseek-kiolvasás szándékosan nincs megírva. Mindkét szkript tetején ott a blokk:
-
-```
-[TODO: INSERT Deepseek TOKEN READ LOGIC HERE]
-```
-
-Bashben a `read_Deepseek_tokens` függvény törzsét kell kicserélni (a számot a `TOKENS` változóba
-teszi, siker esetén `return 0`), PowerShellben a `Read-DeepseekTokens` függvényét (a számot adja
-vissza, hiba esetén `throw`). Hogy a szám **mit jelent**, azt a szerveren a `TOKEN_MODE` dönti el:
+A kliens az aktuális ciklus napjaira szűrt `ccusage daily` eredményt összegzi providerenként. Ez a
+ciklus kezdete óta futó összeg, ezért a szerver alapból `snapshot` módban a gép/provider sorozat
+legutolsó beküldését veszi. A nyers események megmaradnak, így a mód szükség esetén átállítható:
 
 | `TOKEN_MODE` | A kliens ezt küldi | A dashboard így számol |
 | --- | --- | --- |
-| `delta` (alap) | az előző **sikeres** beküldés óta elhasznált tokeneket | a ciklus beküldéseit összeadja |
-| `snapshot` | a gép futó összegét az aktuális heti ciklusra | gépenként a ciklus legutolsó értékét veszi |
+| `delta` | az előző beküldés óta elhasznált tokeneket | a ciklus beküldéseit összeadja |
+| `snapshot` (alap) | a gép/provider futó összegét az aktuális ciklusra | sorozatonként a ciklus legutolsó értékét veszi |
 | `counter` | egy folyamatosan növő számlálót („kilométeróra") | a beküldések közti növekményeket adja össze; a visszaesést újraindulásnak veszi |
 
-A `delta` az, amit a specifikáció leír (a beérkezett tokenek összeadása). Cserébe az olvasónak
-emlékeznie kell arra, meddig jelentett már: erre való a `commit_reader_state` / `Save-ReaderState`
-függvény, amely **csak a szerver visszaigazolása után** fut le, így egy sikertelen küldés nem vész
-el, hanem benne lesz a következő órai számban. Ha az olvasó egyszerűbben tud futó összeget adni,
-állítsd át a módot: a szerver a nyers jelentéseket tárolja, ezért a váltás visszamenőleg is érvényes.
+A provider kulcs kisbetűs azonosító (`a-z`, szám, pont, kötőjel, aláhúzás). Ismert nevekhez a UI
+szép címkét ad (`openai` → OpenAI, `deepseek` → DeepSeek); ismeretlen azonosító is használható.
+Mivel a `ccusage daily` naptári napokra bont, a ciklus első napját napfelbontással lehet szűrni; a
+teljes pontossághoz a reset időpontját tartsd éjfélen (ez az alapbeállítás).
 
 ## 4. Beállítások
 
@@ -185,12 +192,14 @@ telepítés nélkül, azonnali hatállyal:
 | Beállítás | Értékek |
 | --- | --- |
 | Keret típusa | **Heti** vagy **Havi** ciklus |
-| Keret összege | a ciklus tokenkerete, ehhez mér a fő sáv |
+| Keret összege | minden felismert providerhez/fiókhoz külön tokenkeret |
 | Reset | heti keretnél a hét napja, havinál a hónap napja (1–31), és az időpont (`ÓÓ:PP`) |
 | Maradék tokenek mutatása | kikapcsolva a dashboard sehol nem írja ki, mennyi token maradt, és a túllépés mértékét sem |
 | Csoportok | név (amit a gép `groupId`-ként küld) és szín (`#rrggbb`: színválasztó vagy beírt HEX kód) |
 
 - Ha a hónapban nincs olyan nap (31., vagy februárban a 30.), a reset a **hónap utolsó napjára** esik.
+- Az **AI-fiók** választó azonnal, új kérés nélkül váltja a teljes dashboardot. Az utoljára választott
+  fiók és a providerenként megadott hivatalos százalék a böngészőben külön-külön megmarad.
 - A szín HEX kód, nem Tailwind-osztály: a Tailwind fordításkor állítja elő a CSS-t, egy Redisből
   érkező osztálynévhez nem lenne stílus. A színt a komponensek inline stílusként alkalmazzák.
 - **Ismeretlen csoport:** ha egy gép olyan `groupId`-t küld, amely nincs a listán, a rendszer
@@ -205,11 +214,11 @@ A dashboard **kizárólag a legutóbbi reset óta** érkezett jelentéseket öss
 kell időzített feladat, és nem töröl semmit: a ciklus kezdete egyszerűen a lekérdezés alsó határa.
 Ha átírod a resetet vagy a keret típusát, a meglévő adatok az új határok szerint jelennek meg.
 
-### „Valós százalék": a hivatalos Deepseek-érték
+### „Valós százalék": a kiválasztott provider hivatalos értéke
 
-A gépek saját mérése sosem egyezik pontosan a Deepseek hivatalos számával (egy gép offline volt, egy
-beküldés elveszett), az arányaik viszont megbízhatók. A dashboard tetején lévő **„Aktuális hivatalos
-Deepseek fogyasztás (%)"** mezőbe (vagy csúszkával) beírt érték szerint a böngésző azonnal átszámol:
+A gépek saját mérése nem mindig egyezik pontosan a provider hivatalos számával, az arányaik viszont
+megbízhatók. A dashboard tetején a kiválasztott fiók **valós százaléka** mezőbe (vagy csúszkával)
+beírt érték szerint a böngésző azonnal átszámol:
 
 ```
 egy gép része a keretből = (a gép mért tokenjei / az összes mért token) × hivatalos százalék
@@ -219,8 +228,8 @@ Példa: a gépek összesen 40 000 tokent mértek, ebből a Mac 10 000-et. Ha a h
 teljes keret 5%-át használta el. Ilyenkor a fő sáv, a tempóbecslés, a csoportok és a gépek tokenszámai
 is a hivatalos értékhez igazodnak; a panel kiírja a mért értéket és a szorzót is. **Üres mezővel** minden
 a gépek saját mérése és a beállított keret szerint számol. Az érték csak a böngészőben él
-(`localStorage`), a szerverre nem kerül fel, és a ciklus végén magától törlődik. A tempót a dashboard
-a beírás időpontjára vetíti, ezért a panel azt is mutatja, mikor adtad meg.
+(`localStorage`), providerenként külön kulcson; a szerverre nem kerül fel, és a ciklus végén magától
+törlődik. A tempót a dashboard a beírás időpontjára vetíti.
 
 ### A kódban: `lib/config.ts`
 
@@ -229,11 +238,11 @@ Ami nem a panelen van, az a `lib/config.ts` elején; a környezeti változó fel
 
 | Konstans | Env | Alapérték | Jelentés |
 | --- | --- | --- | --- |
-| `DEFAULT_LIMIT` | `WEEKLY_LIMIT` | `500000` | a keret **kezdőértéke** |
+| `DEFAULT_LIMIT` | `WEEKLY_LIMIT` | `500000` | minden új provider keretének **kezdőértéke** |
 | `DEFAULT_RESET.weekday` | `RESET_WEEKDAY` | `1` | a reset napjának **kezdőértéke**: 0 = vasárnap … 6 = szombat |
 | `DEFAULT_RESET.hour/minute` | `RESET_TIME` | `00:00` | a reset időpontjának **kezdőértéke** (`ÓÓ:PP`) |
 | `DEFAULT_RESET.timeZone` | `RESET_TIMEZONE` | `Europe/Budapest` | a reset ebben az időzónában értendő, óraátállítással együtt |
-| `TOKEN_MODE` | `TOKEN_MODE` | `delta` | lásd a 3. pontot |
+| `TOKEN_MODE` | `TOKEN_MODE` | `snapshot` | lásd a 3. pontot |
 | `REPORT_INTERVAL_MINUTES` | – | `60` | ebből számol az „Aktív / Késik / Inaktív" jelzés |
 | `RETENTION_DAYS` | – | `70` | ennél régebbi nyers jelentések törlődnek (két havi ciklust kell lefednie) |
 | `INACTIVE_MACHINE_DAYS` | – | `35` | az ennél régebb óta néma gép lekerül a dashboardról |
@@ -243,16 +252,25 @@ A **kezdőérték** addig érvényes, amíg a Beállítások panelen nem mentesz
 
 ## 5. API
 
+`GET /api/usage` ugyanazzal a Bearer tokennel visszaadja a szerver aktuális ciklusát, benne a
+`sinceDate`, `timeZone` és az ismert `providers` listával. A kliensek az első kettőt átadják a
+`ccusage daily` parancsnak; üres új ciklusban a providerlistából nullaértékű életjelet készítenek.
+
 `POST /api/usage`, `Authorization: Bearer <USAGE_API_TOKEN>`, törzs:
 
 ```json
-{ "machineId": "string", "groupId": "string", "tokens": 1234, "timestamp": "2026-09-21T10:00:00Z" }
+{
+  "machineId": "mac-home",
+  "groupId": "Personal",
+  "timestamp": "2026-09-21T10:00:00Z",
+  "providers": { "deepseek": 15000, "claude": 22000, "openai": 9000 }
+}
 ```
 
-A `machineId` és a `groupId` 1–64 karakter: betű (ékezetes is), szám, szóköz, `.`, `_`, `-`. A
-`tokens` nemnegatív egész. A `timestamp` ISO 8601, zónajelöléssel; legfeljebb 10 perccel járhat a
-szerver órája előtt, és nem lehet régebbi 70 napnál. A válasz `groupRegistered` mezője jelzi, ha a
-`groupId` új volt, és most került fel a csoportlistára.
+A `machineId` és a `groupId` 1–64 karakter: betű (ékezetes is), szám, szóköz, `.`, `_`, `-`.
+A `providers` 1–20 bejegyzésből áll; minden érték nemnegatív, biztonságos egész JSON-szám. A
+`timestamp` ISO 8601, zónajelöléssel. A válasz `groupRegistered` és `providersRegistered` mezője
+jelzi az új indexbejegyzéseket.
 
 | Kód | Jelentés |
 | --- | --- |
@@ -274,7 +292,7 @@ metódus `401`-et ad, és semmilyen adathoz nem nyúl.
 ```json
 {
   "period": "weekly",
-  "limit": 500000,
+  "limits": { "claude": 500000, "deepseek": 750000, "openai": 1000000 },
   "reset": { "weekday": 1, "monthDay": 1, "hour": 0, "minute": 0 },
   "showRemaining": true,
   "groups": [{ "id": "Work", "color": "#3987e5" }],
@@ -282,7 +300,8 @@ metódus `401`-et ad, és semmilyen adathoz nem nyúl.
 }
 ```
 
-A `groups` létrehoz vagy átszínez; **a fel nem sorolt csoportok érintetlenek maradnak** (így egy
+A `limits` minden ismert provider külön kerete. A `groups` létrehoz vagy átszínez; **a fel nem
+sorolt csoportok érintetlenek maradnak** (így egy
 közben magától felkerült csoportot a mentés nem töröl ki). A `weekday` és a `monthDay` mindig
 tárolódik, hogy a keret típusának visszaváltásakor megmaradjon a korábbi választás. A keret mezői
 mind kötelezők, a `showRemaining` is: a `PUT` a teljes beállítást írja felül, semmit nem pótol
@@ -302,21 +321,18 @@ ott a hiányzó mező bekapcsoltat jelent.)
 ## 6. Redis adatmodell
 
 ```
-usage:settings           STRING {"v": 1, "period", "limit", "reset": {…}, "showRemaining", "updatedAt": ms}
-                               a keret, ahogy a Beállítások panel elmentette
-usage:events:{groupId}   ZSET  score = a jelentés ideje (epoch ms)
-                               member = {"m": machineId, "t": tokens, "ts": ms}
-usage:groups             HASH  groupId   → {"color": "#rrggbb", "ts": első megjelenés (ms)}
-usage:machines           HASH  machineId → {"g": groupId, "ts": ms, "t": tokens}  (utolsó jelentés)
+usage:settings                    STRING {"v":2,"period","limits":{…},"reset":{…},…}
+usage:providers                   HASH providerId → első megjelenés (ms)
+usage:events:{provider}:{group}   ZSET score = jelentés ideje; member = {"m","t","ts"}
+usage:groups                      HASH groupId → {"color":"#rrggbb","ts": első megjelenés}
+usage:machines                    HASH providerId:machineId → {"g","ts","t"}
 usage:session:{hash}     STRING, 30 napos lejárattal
 usage:auth:*             próbálkozás-számlálók lejárattal
 ```
 
-Csoportonként egy időrendezett halmaz: így mindkét szűrés egy-egy natív Redis-művelet. A csoport
-maga a kulcs, az időszak pedig pontszám-tartomány (`ZRANGE … BYSCORE ciklusKezdet +inf`). A tagok
-(gép, token, idő) szerint egyediek, ezért a megismételt POST hatástalan. Íráskor a 70 napnál régebbi
-elemek törlődnek (`ZREMRANGEBYSCORE`). Egy dashboard-betöltés két körút a Redishez: az első hozza a
-beállításokat és az indexeket, mert a beállítás dönti el, meddig kell visszaolvasni a jelentéseket.
+Provider/csoport páronként külön időrendezett halmaz van. A fiók és a csoport a kulcsban, az időszak
+a pontszámtartományban szerepel (`ZRANGE … BYSCORE ciklusKezdet +inf`). Egy dashboard-betöltés az
+összes provider modelljét elkészíti és szerializálja, ezért a választó kliensoldalon azonnal vált.
 
 A csoportlista szándékosan **külön hash**, nem a `usage:settings` JSON része. A gépek mind az óra
 0. percében jelentenek, ezért az ismeretlen csoport felvételének atominak kell lennie: a `HSETNX` a
@@ -324,9 +340,9 @@ jelentés tranzakcióján belül ezt adja, és a már definiált csoporthoz hozz
 dokumentum „kiolvas–módosít–visszaír" köre mellett az egyszerre érkező jelentések (vagy egy mentés a
 panelen) felülírnák egymást.
 
-**Visszafelé kompatibilis:** a csoportszínek előtti `usage:groups` bejegyzés értéke egy csupasz
-időbélyeg volt. Az ilyet a kód ma is olvassa (a csoport az első megjelenés sorrendjében kap egy
-alapszínt), és az első mentés a panelen az új formátumra írja át. Migrációs lépés nem kell.
+**Visszafelé kompatibilis:** a v1 `usage:settings.limit` értéke betöltéskor az ismert providerekre
+vetül. A régi `usage:events:{groupId}` kulcsokat és a provider nélküli gépbejegyzéseket a rendszer
+DeepSeek-adatként olvassa. A korábbi csoportszín-formátum is megmaradt; kézi migráció nem kell.
 
 ## 7. Biztonság
 
@@ -358,4 +374,5 @@ npm run redis:down
 ```
 
 A kliensek helyben is kipróbálhatók:
-`USAGERATIO_API_URL=http://localhost:3000/api/usage clients/report-usage.sh --tokens 1234`.
+`USAGERATIO_API_URL=http://localhost:3000/api/usage clients/report-usage.sh --providers
+'{"claude":1234,"deepseek":5678}'`.

@@ -1,20 +1,24 @@
 import { getConfig } from "@/lib/config";
 import { getCycle } from "@/lib/cycle";
+import { mergeProviderIds } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { safeEqual } from "@/lib/security";
-import { resolveConfig } from "@/lib/settings";
-import { loadRawSettings, storeReport } from "@/lib/usage-store";
+import { resolveConfig, storedProviderIds } from "@/lib/settings";
+import { loadRawSettings, loadReportContext, storeReport } from "@/lib/usage-store";
 import { parseUsageReport } from "@/lib/validation";
 
 /**
  * POST /api/usage — ingest endpoint for the client scripts.
  *
  *   Authorization: Bearer <USAGE_API_TOKEN>
- *   { "machineId": "mac-studio", "groupId": "Personal", "tokens": 1234,
+ *   { "machineId": "mac-studio", "groupId": "Personal",
+ *     "providers": { "deepseek": 15000, "claude": 22000 },
  *     "timestamp": "2026-09-21T10:00:00Z" }
  *
  * A `groupId` that is not on the settings panel's list is added to it with a
  * random colour (`"groupRegistered": true` in the response).
+ * GET with the same Bearer token returns the current cycle and its ccusage
+ * `sinceDate`, so clients can build a true cycle-to-date snapshot.
  *
  * 201 stored · 200 identical report already stored · 400 bad JSON/payload ·
  * 401 bad token · 413 body too large · 500 server misconfigured · 503 Redis down
@@ -27,7 +31,7 @@ function json(body: Record<string, unknown>, status: number, headers?: Record<st
   return Response.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } });
 }
 
-export async function POST(request: Request): Promise<Response> {
+function authorize(request: Request): Response | null {
   const expectedToken = process.env.USAGE_API_TOKEN?.trim();
   if (!expectedToken || expectedToken.length < MIN_TOKEN_LENGTH) {
     console.error(
@@ -40,6 +44,58 @@ export async function POST(request: Request): Promise<Response> {
   if (!bearer?.[1] || !safeEqual(bearer[1], expectedToken)) {
     return json({ error: "unauthorized" }, 401, { "WWW-Authenticate": 'Bearer realm="usage"' });
   }
+  return null;
+}
+
+function dateInTimeZone(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((candidate) => candidate.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+/** Current server-side cycle, used by clients to filter ccusage daily output. */
+export async function GET(request: Request): Promise<Response> {
+  const unauthorized = authorize(request);
+  if (unauthorized) return unauthorized;
+
+  try {
+    const config = getConfig();
+    const context = await loadReportContext();
+    const providerIds = mergeProviderIds(context.providerIds, storedProviderIds(context.settings));
+    const effective = resolveConfig(config, context.settings, providerIds);
+    const cycle = getCycle(new Date(), effective.reset);
+    return json(
+      {
+        tokenMode: effective.tokenMode,
+        providers: providerIds,
+        cycle: {
+          start: cycle.start.toISOString(),
+          end: cycle.end.toISOString(),
+          sinceDate: dateInTimeZone(cycle.start, effective.reset.timeZone),
+          timeZone: effective.reset.timeZone,
+        },
+      },
+      200,
+    );
+  } catch (error) {
+    if (error instanceof StorageNotConfiguredError) {
+      console.error(`[usageratio] ${error.message}`);
+      return json({ error: "storage_not_configured" }, 503);
+    }
+    console.error("[usageratio] Reading the current usage cycle failed:", error);
+    return json({ error: "storage_unavailable" }, 503, { "Retry-After": "60" });
+  }
+}
+
+export async function POST(request: Request): Promise<Response> {
+  const unauthorized = authorize(request);
+  if (unauthorized) return unauthorized;
 
   let raw: string;
   try {
@@ -94,6 +150,7 @@ export async function POST(request: Request): Promise<Response> {
       ok: true,
       duplicate: stored.duplicate,
       groupRegistered: stored.newGroup,
+      providersRegistered: stored.newProviders,
       report: parsed.report,
       tokenMode: config.tokenMode,
       cycle: cycle && { start: cycle.start.toISOString(), end: cycle.end.toISOString() },

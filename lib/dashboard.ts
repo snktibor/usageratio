@@ -67,6 +67,13 @@ export interface DashboardModel extends QuotaAssessment {
   }[];
 }
 
+/** One provider/account and the complete dashboard calculated for it. */
+export interface ProviderDashboardModel {
+  id: string;
+  label: string;
+  dashboard: DashboardModel;
+}
+
 const HOUR = 3_600_000;
 
 function healthOf(ageMs: number, reportIntervalMinutes: number): MachineHealth {

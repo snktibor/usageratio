@@ -1,11 +1,12 @@
 #!/bin/bash
 #
-# usageratio — reports this machine's Deepseek token usage to the dashboard.
-# macOS / Linux. Needs only bash (3.2+) and curl. Run hourly by cron; it never
+# usageratio — reports this machine's AI-provider usage to the dashboard.
+# macOS / Linux. Needs bash (3.2+), curl, Node.js and ccusage (or npx). Run hourly by cron; it never
 # opens a window and prints nothing unless started from a terminal.
 #
-#   report-usage.sh                  read the token count and send it
-#   report-usage.sh --tokens 1234    send this number instead (tests the pipeline)
+#   report-usage.sh                  read every provider snapshot and send it
+#   report-usage.sh --providers '{"claude":22000,"deepseek":15000}'
+#   report-usage.sh --tokens 1234    compatibility shortcut: {"deepseek":1234}
 #   report-usage.sh --dry-run        print the JSON payload, send nothing
 #
 # Settings live outside the script, so it can be replaced without losing them:
@@ -23,36 +24,60 @@ set -u
 set -o pipefail
 umask 077
 
-# cron starts jobs with a bare PATH; make Homebrew and /usr/local tools
-# (jq, node, …) visible to the token reader below.
-PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+# cron starts jobs with a bare PATH; make common Homebrew/npm locations visible.
+PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 export PATH
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  [TODO: INSERT Deepseek TOKEN READ LOGIC HERE]
-# ══════════════════════════════════════════════════════════════════════════════
-#  Replace the body of read_Deepseek_tokens. It must put a non-negative whole
-#  number into TOKENS and return 0. On failure return non-zero: nothing is sent.
-#
-#  What the number means is set on the server (TOKEN_MODE in lib/config.ts):
-#    delta     (default) tokens used since the previous SUCCESSFUL report
-#    snapshot  this machine's running total for the current budget cycle
-#    counter   an ever-growing total; the server works out the increase
-#
-#  A delta reader has to remember what it already reported. Do that in
-#  commit_reader_state: it runs only after the server has stored the report,
-#  so a failed upload is simply included in the next hour's number.
-# ──────────────────────────────────────────────────────────────────────────────
-read_Deepseek_tokens() {
-  TOKENS=""
-  return 1
-}
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+CCUSAGE_PARSER="$SCRIPT_DIR/ccusage-providers.cjs"
 
-commit_reader_state() {
-  # $1 = the token count the server just accepted
-  :
+# Runs ccusage's unified daily report and converts every model/source to a
+# provider snapshot. No jq is needed; the shared parser uses Node.js.
+read_provider_tokens() {
+  local output_file="$WORK_DIR/ccusage.json"
+  local error_file="$WORK_DIR/ccusage-error"
+  local cycle_file="$WORK_DIR/cycle.json"
+  local cycle_code
+  local cycle_since
+  local cycle_timezone
+  local cycle_providers
+  local -a ccusage_args
+
+  cycle_code="$(curl --silent --show-error \
+    --config "$WORK_DIR/curl.conf" \
+    --request GET \
+    --connect-timeout 10 --max-time 30 \
+    --retry 3 --retry-delay 5 --retry-connrefused \
+    --output "$cycle_file" \
+    --write-out '%{http_code}' \
+    "$API_URL" 2>"$error_file")" || return 1
+  if [ "$cycle_code" != "200" ]; then
+    printf 'Cycle endpoint answered HTTP %s: ' "$cycle_code" >>"$error_file"
+    head -c 300 "$cycle_file" >>"$error_file" 2>/dev/null
+    return 1
+  fi
+  cycle_since="$(node "$CCUSAGE_PARSER" cycle-since <"$cycle_file" 2>>"$error_file")" || return 1
+  cycle_timezone="$(node "$CCUSAGE_PARSER" cycle-timezone <"$cycle_file" 2>>"$error_file")" || return 1
+  cycle_providers="$(node "$CCUSAGE_PARSER" cycle-providers <"$cycle_file" 2>>"$error_file")" || return 1
+  ccusage_args=(daily --json --by-agent --breakdown --no-cost --since "$cycle_since" --timezone "$cycle_timezone")
+
+  if command -v ccusage >/dev/null 2>&1; then
+    if ! ccusage "${ccusage_args[@]}" >"$output_file" 2>>"$error_file"; then
+      # An older global ccusage may not understand unified reports yet. Try the
+      # current package before treating the read as failed.
+      command -v npx >/dev/null 2>&1 || return 1
+      npx --yes ccusage@latest "${ccusage_args[@]}" >"$output_file" 2>>"$error_file" || return 1
+    fi
+  elif command -v npx >/dev/null 2>&1; then
+    npx --yes ccusage@latest "${ccusage_args[@]}" >"$output_file" 2>>"$error_file" || return 1
+  else
+    printf '%s\n' "Neither ccusage nor npx was found in PATH." >"$error_file"
+    return 1
+  fi
+
+  PROVIDERS_JSON="$(node "$CCUSAGE_PARSER" parse "$cycle_providers" <"$output_file" 2>>"$error_file")" || return 1
+  [ -n "$PROVIDERS_JSON" ]
 }
-# ═══════════════════════════ END OF TOKEN READ LOGIC ══════════════════════════
 
 # ─── Settings ─────────────────────────────────────────────────────────────────
 
@@ -110,15 +135,24 @@ escape() {
 }
 
 usage() {
-  sed -n '3,9p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '3,10p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # ─── Arguments ────────────────────────────────────────────────────────────────
 
 TOKENS_OVERRIDE=""
+PROVIDERS_OVERRIDE=""
 DRY_RUN=0
 while [ $# -gt 0 ]; do
   case "$1" in
+    --providers)
+      PROVIDERS_OVERRIDE="${2:-}"
+      shift 2 || { echo "--providers needs a JSON object" >&2; exit 2; }
+      ;;
+    --providers=*)
+      PROVIDERS_OVERRIDE="${1#--providers=}"
+      shift
+      ;;
     --tokens)
       TOKENS_OVERRIDE="${2:-}"
       shift 2 || { echo "--tokens needs a number" >&2; exit 2; }
@@ -157,39 +191,14 @@ if ! command -v curl >/dev/null 2>&1; then
   log "ERROR: curl was not found"
   exit 2
 fi
-
-# ─── Token count ──────────────────────────────────────────────────────────────
-
-TOKENS=""
-if [ -n "$TOKENS_OVERRIDE" ]; then
-  TOKENS="$TOKENS_OVERRIDE"
-elif ! read_Deepseek_tokens; then
-  log "ERROR: the Deepseek token reader failed or is not implemented yet (see the TODO at the top of $0)"
-  exit 3
+if ! command -v node >/dev/null 2>&1; then
+  log "ERROR: Node.js was not found (it is required by ccusage and the JSON parser)"
+  exit 2
 fi
-
-case "$TOKENS" in
-  "" | *[!0-9]*)
-    log "ERROR: the token count must be a non-negative whole number, got: '$TOKENS'"
-    exit 3
-    ;;
-esac
-# Drop leading zeros: "0042" is not a valid JSON number.
-TOKENS="$(printf '%s' "$TOKENS" | sed -e 's/^0*//')"
-TOKENS="${TOKENS:-0}"
-
-# ─── Payload ──────────────────────────────────────────────────────────────────
-
-TIMESTAMP="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-PAYLOAD="$(printf '{"machineId":"%s","groupId":"%s","tokens":%s,"timestamp":"%s"}' \
-  "$(escape "$MACHINE_ID")" "$(escape "$GROUP_ID")" "$TOKENS" "$TIMESTAMP")"
-
-if [ "$DRY_RUN" -eq 1 ]; then
-  printf '%s\n' "$PAYLOAD"
-  exit 0
+if [ ! -f "$CCUSAGE_PARSER" ]; then
+  log "ERROR: $CCUSAGE_PARSER is missing; install it next to $0"
+  exit 2
 fi
-
-# ─── Send ─────────────────────────────────────────────────────────────────────
 
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/usageratio.XXXXXX")" || {
   log "ERROR: could not create a temporary directory"
@@ -197,9 +206,51 @@ WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/usageratio.XXXXXX")" || {
 }
 trap 'rm -rf "$WORK_DIR"' EXIT
 
-# The token goes through a private config file, not the command line,
-# so it never shows up in the process list.
-printf 'header = "Authorization: Bearer %s"\n' "$(escape "$API_TOKEN")" >"$WORK_DIR/curl.conf"
+# curl reads this private file both for the cycle lookup and for the report.
+if [ -n "$API_TOKEN" ]; then
+  printf 'header = "Authorization: Bearer %s"\n' "$(escape "$API_TOKEN")" >"$WORK_DIR/curl.conf"
+fi
+
+# ─── Provider snapshots ───────────────────────────────────────────────────────
+
+PROVIDERS_JSON=""
+if [ -n "$PROVIDERS_OVERRIDE" ]; then
+  PROVIDERS_JSON="$(printf '%s' "$PROVIDERS_OVERRIDE" | node "$CCUSAGE_PARSER" validate 2>"$WORK_DIR/ccusage-error")" || {
+    log "ERROR: invalid --providers value: $(tr '\n' ' ' <"$WORK_DIR/ccusage-error")"
+    exit 3
+  }
+elif [ -n "$TOKENS_OVERRIDE" ]; then
+  case "$TOKENS_OVERRIDE" in
+    "" | *[!0-9]*)
+      log "ERROR: --tokens must be a non-negative whole number, got: '$TOKENS_OVERRIDE'"
+      exit 3
+      ;;
+  esac
+  TOKENS_OVERRIDE="$(printf '%s' "$TOKENS_OVERRIDE" | sed -e 's/^0*//')"
+  TOKENS_OVERRIDE="${TOKENS_OVERRIDE:-0}"
+  PROVIDERS_JSON="$(printf '{"deepseek":%s}' "$TOKENS_OVERRIDE" | node "$CCUSAGE_PARSER" validate)" || exit 3
+elif [ -z "$API_TOKEN" ]; then
+  log "ERROR: API_TOKEN is required to read the current cycle before running ccusage"
+  exit 2
+elif ! read_provider_tokens; then
+  log "ERROR: ccusage could not be read: $(tr '\n' ' ' <"$WORK_DIR/ccusage-error" 2>/dev/null)"
+  exit 3
+fi
+
+# ─── Payload ──────────────────────────────────────────────────────────────────
+
+TIMESTAMP="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+PAYLOAD="$(printf '%s' "$PROVIDERS_JSON" | node "$CCUSAGE_PARSER" payload "$MACHINE_ID" "$GROUP_ID" "$TIMESTAMP")" || {
+  log "ERROR: could not create the JSON payload"
+  exit 3
+}
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  printf '%s\n' "$PAYLOAD"
+  exit 0
+fi
+
+# ─── Send ─────────────────────────────────────────────────────────────────────
 
 HTTP_CODE="$(curl --silent --show-error \
   --config "$WORK_DIR/curl.conf" \
@@ -222,9 +273,8 @@ fi
 
 case "$HTTP_CODE" in
   200 | 201)
-    commit_reader_state "$TOKENS"
     if [ "$HTTP_CODE" = "200" ]; then NOTE=" (already stored)"; else NOTE=""; fi
-    log "OK: $TOKENS tokens as $MACHINE_ID/$GROUP_ID$NOTE"
+    log "OK: $PROVIDERS_JSON as $MACHINE_ID/$GROUP_ID$NOTE"
     exit 0
     ;;
   *)

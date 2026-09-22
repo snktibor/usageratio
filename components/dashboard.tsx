@@ -2,17 +2,18 @@ import { logout } from "@/app/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { DashboardView } from "@/components/dashboard-view";
 import { SettingsDialog } from "@/components/settings-dialog";
-import type { DashboardModel } from "@/lib/dashboard";
-import { formatClock, formatDateTime, formatTokens } from "@/lib/format";
+import type { ProviderDashboardModel } from "@/lib/dashboard";
+import { formatClock } from "@/lib/format";
 import type { SettingsView } from "@/lib/settings";
 
-const MODE_NOTE = {
-  delta: "A beküldött tokenszámok összeadódnak (delta mód).",
-  snapshot: "Gépenként a ciklus legutolsó beküldött állása számít (snapshot mód).",
-  counter: "Gépenként a számláló ciklusbeli növekménye számít (counter mód).",
-} as const;
-
-export function Dashboard({ model, settings }: { model: DashboardModel; settings: SettingsView }) {
+export function Dashboard({
+  providers,
+  settings,
+}: {
+  providers: ProviderDashboardModel[];
+  settings: SettingsView;
+}) {
+  const model = providers[0]!.dashboard;
   const refreshedAt = formatClock(model.generatedAt, model.timeZone);
 
   return (
@@ -38,16 +39,7 @@ export function Dashboard({ model, settings }: { model: DashboardModel; settings
         </div>
       </header>
 
-      <DashboardView model={model} />
-
-      <footer className="mt-16 max-w-2xl border-t border-hairline pt-6 text-sm leading-relaxed text-ink-3">
-        <p>
-          A mostani ciklus: {formatDateTime(model.cycle.startMs, model.timeZone)} –{" "}
-          {formatDateTime(model.cycle.endMs, model.timeZone)} ({model.timeZone}). Az előző ciklusban a gépek{" "}
-          {formatTokens(model.previousTotal)} tokent mértek.
-        </p>
-        <p className="mt-1">{MODE_NOTE[model.tokenMode]}</p>
-      </footer>
+      <DashboardView providers={providers} />
     </div>
   );
 }

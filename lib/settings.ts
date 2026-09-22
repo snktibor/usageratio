@@ -1,4 +1,11 @@
 import type { AppConfig, BudgetPeriod } from "@/lib/config";
+import {
+  DEFAULT_PROVIDER_ID,
+  MAX_PROVIDERS,
+  mergeProviderIds,
+  normalizeProviderId,
+  providerLabel,
+} from "@/lib/providers";
 import { parseId } from "@/lib/validation";
 
 /**
@@ -9,8 +16,8 @@ import { parseId } from "@/lib/validation";
 /** The budget, as stored under `usage:settings`. */
 export interface UsageSettings {
   period: BudgetPeriod;
-  /** Token budget of one cycle. */
-  limit: number;
+  /** Token budget of one cycle, independently for every provider/account. */
+  limits: Record<string, number>;
   /**
    * Both days are always kept, so switching the period back restores the
    * earlier choice. The time zone is deploy-time configuration (lib/config.ts).
@@ -58,6 +65,7 @@ export interface SettingsUpdate {
 export interface SettingsView {
   settings: UsageSettings;
   timeZone: string;
+  providers: { id: string; label: string }[];
   /** In order of first appearance. */
   groups: (GroupDefinition & { hasReports: boolean })[];
 }
@@ -105,11 +113,17 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 // ── Budget ───────────────────────────────────────────────────────────────────
 
 /** The budget part of a configuration: the defaults while nothing is saved. */
-export function settingsFromConfig(config: AppConfig): UsageSettings {
+export function settingsFromConfig(
+  config: AppConfig,
+  providerIds: string[] = [DEFAULT_PROVIDER_ID],
+): UsageSettings {
   const { period, weekday, monthDay, hour, minute } = config.reset;
+  const providers = mergeProviderIds(providerIds, Object.keys(config.providerLimits));
   return {
     period,
-    limit: config.limit,
+    limits: Object.fromEntries(
+      providers.map((providerId) => [providerId, config.providerLimits[providerId] ?? config.limit]),
+    ),
     reset: { weekday, monthDay, hour, minute },
     showRemaining: config.showRemaining,
   };
@@ -118,7 +132,7 @@ export function settingsFromConfig(config: AppConfig): UsageSettings {
 export function applySettings(config: AppConfig, settings: UsageSettings): AppConfig {
   return {
     ...config,
-    limit: settings.limit,
+    providerLimits: { ...settings.limits },
     reset: { ...config.reset, period: settings.period, ...settings.reset },
     showRemaining: settings.showRemaining,
   };
@@ -139,10 +153,22 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
   const doc = asRecord(parsed);
   if (!doc) return defaults;
   const reset = asRecord(doc.reset) ?? {};
+  const limits = { ...defaults.limits };
+  const storedLimits = asRecord(doc.limits);
+  if (storedLimits) {
+    for (const [rawProvider, rawLimit] of Object.entries(storedLimits).slice(0, MAX_PROVIDERS)) {
+      const providerId = normalizeProviderId(rawProvider);
+      if (providerId && isIntegerIn(rawLimit, 1, MAX_LIMIT)) limits[providerId] = rawLimit;
+    }
+  } else if (isIntegerIn(doc.limit, 1, MAX_LIMIT)) {
+    // v1 had one global limit. Apply it to every provider currently known;
+    // with no index yet the legacy provider is DeepSeek.
+    for (const providerId of mergeProviderIds(Object.keys(limits))) limits[providerId] = doc.limit;
+  }
 
   return {
     period: isPeriod(doc.period) ? doc.period : defaults.period,
-    limit: isIntegerIn(doc.limit, 1, MAX_LIMIT) ? doc.limit : defaults.limit,
+    limits,
     reset: {
       weekday: isIntegerIn(reset.weekday, 0, 6) ? reset.weekday : defaults.reset.weekday,
       monthDay: isIntegerIn(reset.monthDay, 1, 31) ? reset.monthDay : defaults.reset.monthDay,
@@ -155,12 +181,42 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
 }
 
 export function serializeSettings(settings: UsageSettings, now: Date): string {
-  return JSON.stringify({ v: 1, ...settings, updatedAt: now.getTime() });
+  return JSON.stringify({ v: 2, ...settings, updatedAt: now.getTime() });
 }
 
 /** The effective configuration: deploy-time `config` under the stored settings document. */
-export function resolveConfig(config: AppConfig, rawSettings: string | null): AppConfig {
-  return applySettings(config, parseStoredSettings(rawSettings, settingsFromConfig(config)));
+export function resolveConfig(
+  config: AppConfig,
+  rawSettings: string | null,
+  providerIds: string[] = [DEFAULT_PROVIDER_ID],
+): AppConfig {
+  return applySettings(
+    config,
+    parseStoredSettings(rawSettings, settingsFromConfig(config, providerIds)),
+  );
+}
+
+/** Provider ids retained in a v2 settings document, even while they have no stored reports. */
+export function storedProviderIds(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const document = asRecord(JSON.parse(raw));
+    const limits = asRecord(document?.limits);
+    if (limits) {
+      return Object.keys(limits).slice(0, MAX_PROVIDERS).flatMap((key) => {
+        const id = normalizeProviderId(key);
+        return id ? [id] : [];
+      });
+    }
+    return isIntegerIn(document?.limit, 1, MAX_LIMIT) ? [DEFAULT_PROVIDER_ID] : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Effective configuration for one selected provider. */
+export function configForProvider(config: AppConfig, providerId: string): AppConfig {
+  return { ...config, limit: config.providerLimits[providerId] ?? config.limit };
 }
 
 /** Validates the JSON body of PUT /api/settings. Unlike stored settings, nothing is defaulted. */
@@ -170,8 +226,27 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
   const errors: string[] = [];
 
   if (!isPeriod(body.period)) errors.push('period must be "weekly" or "monthly"');
-  if (!isIntegerIn(body.limit, 1, MAX_LIMIT)) {
-    errors.push(`limit must be an integer between 1 and ${MAX_LIMIT}`);
+  const limits: Record<string, number> = {};
+  const rawLimits = asRecord(body.limits);
+  if (!rawLimits) {
+    errors.push("limits must be a JSON object");
+  } else {
+    const entries = Object.entries(rawLimits);
+    if (entries.length < 1 || entries.length > MAX_PROVIDERS) {
+      errors.push(`limits must contain between 1 and ${MAX_PROVIDERS} providers`);
+    }
+    for (const [rawProvider, rawLimit] of entries) {
+      const providerId = normalizeProviderId(rawProvider);
+      if (!providerId) {
+        errors.push(`limits.${rawProvider} has an invalid provider id`);
+      } else if (Object.hasOwn(limits, providerId)) {
+        errors.push(`limits.${rawProvider} is listed twice after normalization`);
+      } else if (!isIntegerIn(rawLimit, 1, MAX_LIMIT)) {
+        errors.push(`limits.${rawProvider} must be an integer between 1 and ${MAX_LIMIT}`);
+      } else {
+        limits[providerId] = rawLimit;
+      }
+    }
   }
 
   const reset = asRecord(body.reset) ?? {};
@@ -216,7 +291,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
     update: {
       settings: {
         period: body.period as BudgetPeriod,
-        limit: body.limit as number,
+        limits,
         reset: {
           weekday: reset.weekday as number,
           monthDay: reset.monthDay as number,
@@ -320,11 +395,17 @@ export function suggestGroupColor(usedColors: string[], random: () => number = M
   return PRESET_COLORS.find((color) => !usedColors.includes(color)) ?? randomGroupColor(random);
 }
 
-export function buildSettingsView(config: AppConfig, groups: KnownGroup[]): SettingsView {
+export function buildSettingsView(
+  config: AppConfig,
+  groups: KnownGroup[],
+  providerIds: string[] = Object.keys(config.providerLimits),
+): SettingsView {
   const colors = resolveGroupColors(groups);
+  const providers = mergeProviderIds(providerIds, Object.keys(config.providerLimits));
   return {
-    settings: settingsFromConfig(config),
+    settings: settingsFromConfig(config, providers),
     timeZone: config.reset.timeZone,
+    providers: providers.map((id) => ({ id, label: providerLabel(id) })),
     groups: [...groups].sort(byFirstAppearance).map((group) => ({
       id: group.groupId,
       color: colors.get(group.groupId) ?? NEUTRAL_COLOR,

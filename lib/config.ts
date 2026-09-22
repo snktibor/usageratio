@@ -38,7 +38,7 @@ export const DEFAULT_RESET: ResetConfig = {
 export const DEFAULT_SHOW_REMAINING = true;
 
 /**
- * How the `tokens` field of a report is interpreted. Reports are stored raw,
+ * How each value in a report's `providers` snapshot is interpreted. Reports are stored raw,
  * so this can be changed at any time and the dashboard re-reads history
  * under the new rule.
  *
@@ -51,7 +51,7 @@ export const DEFAULT_SHOW_REMAINING = true;
  *
  * Optional env override: TOKEN_MODE
  */
-export const TOKEN_MODE: TokenMode = "delta";
+export const TOKEN_MODE: TokenMode = "snapshot";
 
 /** How often the client scripts report; drives the "late"/"inactive" badges. */
 export const REPORT_INTERVAL_MINUTES = 60;
@@ -87,8 +87,10 @@ export interface ResetConfig {
 }
 
 export interface AppConfig {
-  /** Token budget of one cycle. */
+  /** Fallback token budget for a provider that has not been saved yet. */
   limit: number;
+  /** Saved token budgets by provider/account id. */
+  providerLimits: Record<string, number>;
   reset: ResetConfig;
   /** False: the dashboard never states the tokens left, nor the overage. */
   showRemaining: boolean;
@@ -172,6 +174,7 @@ export function getConfig(
 
   return {
     limit,
+    providerLimits: {},
     reset,
     showRemaining: DEFAULT_SHOW_REMAINING,
     tokenMode,

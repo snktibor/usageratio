@@ -1,9 +1,10 @@
 <#
 .SYNOPSIS
-  usageratio - reports this machine's Deepseek token usage to the dashboard (Windows).
+  usageratio - reports this machine's AI-provider usage to the dashboard (Windows).
 
 .DESCRIPTION
-  Works on Windows PowerShell 5.1 and PowerShell 7+, needs nothing else.
+  Works on Windows PowerShell 5.1 and PowerShell 7+. Requires Node.js/npx;
+  npx downloads or reuses ccusage. No jq or other JSON utility is needed.
   Run hourly and invisibly by Task Scheduler: see install-task.ps1.
 
   Settings live outside the script, so it can be replaced without losing them:
@@ -20,8 +21,11 @@
   Log: %USERPROFILE%\.usageratio\usageratio.log
   Exit codes: 0 sent, 1 sending failed, 2 bad usage/config, 3 token reader failed
 
+.PARAMETER Providers
+  Send this provider JSON instead of reading ccusage (tests the pipeline).
+
 .PARAMETER Tokens
-  Send this number instead of reading it (tests the pipeline).
+  Compatibility shortcut for -Providers '{"deepseek":N}'.
 
 .PARAMETER DryRun
   Print the JSON payload, send nothing.
@@ -32,6 +36,7 @@
 [CmdletBinding()]
 param(
   [long]$Tokens = -1,
+  [string]$Providers,
   [switch]$DryRun,
   [string]$ConfigPath
 )
@@ -39,30 +44,37 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-# ==============================================================================
-#  [TODO: INSERT Deepseek TOKEN READ LOGIC HERE]
-# ==============================================================================
-#  Replace the body of Read-DeepseekTokens. It must return a non-negative whole
-#  number. On failure throw: nothing is sent then.
-#
-#  What the number means is set on the server (TOKEN_MODE in lib/config.ts):
-#    delta     (default) tokens used since the previous SUCCESSFUL report
-#    snapshot  this machine's running total for the current budget cycle
-#    counter   an ever-growing total; the server works out the increase
-#
-#  A delta reader has to remember what it already reported. Do that in
-#  Save-ReaderState: it runs only after the server has stored the report,
-#  so a failed upload is simply included in the next hour's number.
-# ------------------------------------------------------------------------------
-function Read-DeepseekTokens {
-  throw 'The Deepseek token reader is not implemented yet (see the TODO at the top of this script).'
-}
+$parserPath = Join-Path $PSScriptRoot 'ccusage-providers.cjs'
 
-function Save-ReaderState {
-  param([long]$ReportedTokens)
-  # $ReportedTokens = the token count the server just accepted
+function Read-ProviderTokens {
+  param([string]$SinceDate, [string]$TimeZone, [string]$FallbackProviders)
+  if (-not (Test-Path -LiteralPath $parserPath)) {
+    throw "$parserPath is missing; install it next to this script."
+  }
+
+  $node = Get-Command node -ErrorAction SilentlyContinue
+  $npx = Get-Command npx.cmd -ErrorAction SilentlyContinue
+  if (-not $npx) { $npx = Get-Command npx -ErrorAction SilentlyContinue }
+  if (-not $node -or -not $npx) { throw 'Node.js/npx was not found in PATH.' }
+
+  $errorFile = Join-Path ([IO.Path]::GetTempPath()) ("usageratio-ccusage-{0}.log" -f [Guid]::NewGuid())
+  try {
+    $ccusageArgs = @('--yes', 'ccusage@latest', 'daily', '--json', '--by-agent', '--breakdown', '--no-cost', '--since', $SinceDate, '--timezone', $TimeZone)
+    $raw = & $npx.Source @ccusageArgs 2> $errorFile | Out-String
+    if ($LASTEXITCODE -ne 0) {
+      $details = if (Test-Path -LiteralPath $errorFile) { Get-Content -LiteralPath $errorFile -Raw } else { '' }
+      throw "ccusage exited with code $LASTEXITCODE. $details"
+    }
+    $providersJson = $raw | & $node.Source $parserPath parse $FallbackProviders 2>> $errorFile
+    if ($LASTEXITCODE -ne 0 -or -not $providersJson) {
+      $details = if (Test-Path -LiteralPath $errorFile) { Get-Content -LiteralPath $errorFile -Raw } else { '' }
+      throw "The ccusage JSON could not be converted. $details"
+    }
+    return [string]$providersJson
+  } finally {
+    Remove-Item -LiteralPath $errorFile -Force -ErrorAction SilentlyContinue
+  }
 }
-# =========================== END OF TOKEN READ LOGIC ==========================
 
 # --- Settings -----------------------------------------------------------------
 
@@ -108,6 +120,12 @@ $apiUrl = Get-Setting $config 'apiUrl' 'USAGERATIO_API_URL' 'https://usageratio.
 $apiToken = Get-Setting $config 'apiToken' 'USAGERATIO_API_TOKEN'
 $machineId = Get-Setting $config 'machineId' 'USAGERATIO_MACHINE_ID' ([Environment]::MachineName)
 $groupId = Get-Setting $config 'groupId' 'USAGERATIO_GROUP_ID'
+$headers = @{ Authorization = "Bearer $apiToken" }
+
+# Windows PowerShell 5.1 on older systems does not offer TLS 1.2 by default.
+try {
+  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+} catch { }
 
 if (-not $groupId -or -not $machineId) {
   Write-Log "ERROR: machineId and groupId must be set in $ConfigPath"
@@ -117,33 +135,57 @@ if (-not $DryRun -and -not $apiToken) {
   Write-Log "ERROR: apiToken is not set in $ConfigPath"
   exit 2
 }
+if (-not (Test-Path -LiteralPath $parserPath)) {
+  Write-Log "ERROR: $parserPath is missing; install it next to this script"
+  exit 2
+}
+$nodeCommand = Get-Command node -ErrorAction SilentlyContinue
+if (-not $nodeCommand) {
+  Write-Log 'ERROR: Node.js was not found (it is required by ccusage and the JSON parser)'
+  exit 2
+}
 
-# --- Token count --------------------------------------------------------------
+# --- Provider snapshots -------------------------------------------------------
 
-[long]$tokenCount = -1
-if ($Tokens -ge 0) {
-  $tokenCount = $Tokens
-} else {
+$providersJson = $null
+if ($Providers) {
   try {
-    $tokenCount = [long](Read-DeepseekTokens)
+    $providersJson = $Providers | & $nodeCommand.Source $parserPath validate
+    if ($LASTEXITCODE -ne 0) { throw 'Invalid provider JSON.' }
   } catch {
-    Write-Log "ERROR: the Deepseek token reader failed: $($_.Exception.Message)"
+    Write-Log "ERROR: -Providers is invalid: $($_.Exception.Message)"
     exit 3
   }
-}
-if ($tokenCount -lt 0) {
-  Write-Log "ERROR: the token count must be a non-negative whole number, got: $tokenCount"
-  exit 3
+} elseif ($Tokens -ge 0) {
+  if ($Tokens -gt 9007199254740991) {
+    Write-Log "ERROR: -Tokens exceeds JSON's safe integer range: $Tokens"
+    exit 3
+  }
+  $providersJson = @{ deepseek = $Tokens } | ConvertTo-Json -Compress
+} else {
+  try {
+    if (-not $apiToken) { throw 'apiToken is required to read the current cycle before running ccusage.' }
+    $cycleResponse = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -TimeoutSec 30 -UseBasicParsing
+    $sinceDate = [string]$cycleResponse.cycle.sinceDate
+    $timeZone = [string]$cycleResponse.cycle.timeZone
+    $fallbackProviders = @($cycleResponse.providers) -join ','
+    if (-not $sinceDate -or -not $timeZone) { throw 'The server did not return a complete cycle.' }
+    $providersJson = Read-ProviderTokens -SinceDate $sinceDate -TimeZone $timeZone -FallbackProviders $fallbackProviders
+  } catch {
+    Write-Log "ERROR: ccusage could not be read: $($_.Exception.Message)"
+    exit 3
+  }
 }
 
 # --- Payload ------------------------------------------------------------------
 
 $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+$providerMap = $providersJson | ConvertFrom-Json
 $payload = [ordered]@{
   machineId = $machineId
   groupId   = $groupId
-  tokens    = $tokenCount
   timestamp = $timestamp
+  providers = $providerMap
 } | ConvertTo-Json -Compress
 
 if ($DryRun) {
@@ -153,15 +195,8 @@ if ($DryRun) {
 
 # --- Send ---------------------------------------------------------------------
 
-# Windows PowerShell 5.1 on older systems does not offer TLS 1.2 by default.
-try {
-  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-} catch { }
-
 # Sent as bytes: 5.1 would otherwise encode the body as Latin-1 and break accented names.
 $body = [Text.Encoding]::UTF8.GetBytes($payload)
-$headers = @{ Authorization = "Bearer $apiToken" }
-
 function Send-Report {
   try {
     $response = Invoke-WebRequest -Uri $apiUrl -Method Post -Headers $headers -Body $body `
@@ -190,10 +225,9 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
 }
 
 if ($result.Status -eq 200 -or $result.Status -eq 201) {
-  Save-ReaderState -ReportedTokens $tokenCount
   $note = ''
   if ($result.Status -eq 200) { $note = ' (already stored)' }
-  Write-Log "OK: $tokenCount tokens as $machineId/$groupId$note"
+  Write-Log "OK: $providersJson as $machineId/$groupId$note"
   exit 0
 }
 

@@ -3,6 +3,7 @@ import { getConfig } from "@/lib/config";
 import { getCycle } from "@/lib/cycle";
 import {
   buildSettingsView,
+  configForProvider,
   MAX_GROUPS,
   NEUTRAL_COLOR,
   normalizeHexColor,
@@ -26,7 +27,7 @@ const DEFAULTS = settingsFromConfig(config);
 // Every field differs from its default, so a round trip proves each one is carried.
 const MONTHLY: UsageSettings = {
   period: "monthly",
-  limit: 2_000_000,
+  limits: { claude: 2_000_000, deepseek: 1_250_000 },
   reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30 },
   showRemaining: false,
 };
@@ -35,19 +36,22 @@ describe("stored settings", () => {
   it("fall back to the configured defaults while nothing is saved", () => {
     expect(DEFAULTS).toEqual({
       period: "weekly",
-      limit: 500_000,
+      limits: { deepseek: 500_000 },
       reset: { weekday: 1, monthDay: 1, hour: 0, minute: 0 },
       showRemaining: true,
     });
     expect(parseStoredSettings(null, DEFAULTS)).toEqual(DEFAULTS);
-    expect(resolveConfig(config, null)).toEqual(config);
+    expect(resolveConfig(config, null)).toEqual({
+      ...config,
+      providerLimits: { deepseek: 500_000 },
+    });
   });
 
   it("seed the defaults from the env vars", () => {
     const seeded = settingsFromConfig(getConfig({ WEEKLY_LIMIT: "750_000", RESET_WEEKDAY: "3", RESET_TIME: "06:15" }));
     expect(seeded).toEqual({
       period: "weekly",
-      limit: 750_000,
+      limits: { deepseek: 750_000 },
       reset: { weekday: 3, monthDay: 1, hour: 6, minute: 15 },
       showRemaining: true,
     });
@@ -55,13 +59,14 @@ describe("stored settings", () => {
 
   it("survive a round trip through Redis", () => {
     const raw = serializeSettings(MONTHLY, new Date("2026-09-21T10:00:00Z"));
-    expect(JSON.parse(raw)).toMatchObject({ v: 1, period: "monthly", updatedAt: 1789984800000 });
+    expect(JSON.parse(raw)).toMatchObject({ v: 2, period: "monthly", updatedAt: 1789984800000 });
     expect(parseStoredSettings(raw, DEFAULTS)).toEqual(MONTHLY);
   });
 
   it("override the defaults, but never the time zone or the other configuration", () => {
-    const effective = resolveConfig(config, serializeSettings(MONTHLY, new Date()));
-    expect(effective.limit).toBe(2_000_000);
+    const effective = resolveConfig(config, serializeSettings(MONTHLY, new Date()), ["claude", "deepseek"]);
+    expect(configForProvider(effective, "claude").limit).toBe(2_000_000);
+    expect(configForProvider(effective, "deepseek").limit).toBe(1_250_000);
     expect(effective.reset).toEqual({
       period: "monthly",
       weekday: 4,
@@ -86,7 +91,7 @@ describe("stored settings", () => {
     });
     expect(parseStoredSettings(raw, DEFAULTS)).toEqual({
       period: "weekly",
-      limit: 1_234_567,
+      limits: { deepseek: 1_234_567 },
       reset: { weekday: 1, monthDay: 31, hour: 0, minute: 45 },
       showRemaining: true,
     });
@@ -96,7 +101,11 @@ describe("stored settings", () => {
     // Exactly what the first deployed version of the panel wrote: no `showRemaining` at all.
     const raw =
       '{"v":1,"period":"monthly","limit":2000000,"reset":{"weekday":4,"monthDay":15,"hour":9,"minute":30},"updatedAt":1789997466594}';
-    expect(parseStoredSettings(raw, DEFAULTS)).toEqual({ ...MONTHLY, showRemaining: true });
+    expect(parseStoredSettings(raw, DEFAULTS)).toEqual({
+      ...MONTHLY,
+      limits: { deepseek: 2_000_000 },
+      showRemaining: true,
+    });
     expect(resolveConfig(config, raw).showRemaining).toBe(true);
   });
 
@@ -118,7 +127,7 @@ describe("stored settings", () => {
 describe("parseSettingsUpdate", () => {
   const valid = {
     period: "monthly",
-    limit: 2_000_000,
+    limits: { claude: 2_000_000, deepseek: 1_250_000 },
     reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30 },
     showRemaining: false,
     groups: [
@@ -159,10 +168,12 @@ describe("parseSettingsUpdate", () => {
   it.each([
     ["a non-object body", [valid]],
     ["an unknown period", { ...valid, period: "daily" }],
-    ["a zero limit", { ...valid, limit: 0 }],
-    ["a fractional limit", { ...valid, limit: 1000.5 }],
-    ["a limit given as text", { ...valid, limit: "500000" }],
-    ["an absurd limit", { ...valid, limit: 1e15 }],
+    ["an empty limits map", { ...valid, limits: {} }],
+    ["a zero limit", { ...valid, limits: { claude: 0 } }],
+    ["a fractional limit", { ...valid, limits: { claude: 1000.5 } }],
+    ["a limit given as text", { ...valid, limits: { claude: "500000" } }],
+    ["an absurd limit", { ...valid, limits: { claude: 1e15 } }],
+    ["an invalid provider", { ...valid, limits: { "bad/provider": 10 } }],
     ["weekday 7", { ...valid, reset: { ...valid.reset, weekday: 7 } }],
     ["month day 0", { ...valid, reset: { ...valid.reset, monthDay: 0 } }],
     ["month day 32", { ...valid, reset: { ...valid.reset, monthDay: 32 } }],
@@ -281,13 +292,21 @@ describe("the usage:groups hash", () => {
 
 describe("buildSettingsView", () => {
   it("lists the groups in order of first appearance, each with a colour", () => {
-    const view = buildSettingsView(resolveConfig(config, serializeSettings(MONTHLY, new Date())), [
-      { groupId: "Personal", color: null, firstSeenAt: 200, hasReports: true },
-      { groupId: "Work", color: "#ff00aa", firstSeenAt: 100, hasReports: false },
-    ]);
+    const view = buildSettingsView(
+      resolveConfig(config, serializeSettings(MONTHLY, new Date()), ["claude", "deepseek"]),
+      [
+        { groupId: "Personal", color: null, firstSeenAt: 200, hasReports: true },
+        { groupId: "Work", color: "#ff00aa", firstSeenAt: 100, hasReports: false },
+      ],
+      ["claude", "deepseek"],
+    );
     expect(view).toEqual({
       settings: MONTHLY,
       timeZone: "Europe/Budapest",
+      providers: [
+        { id: "claude", label: "Claude" },
+        { id: "deepseek", label: "DeepSeek" },
+      ],
       groups: [
         { id: "Work", color: "#ff00aa", hasReports: false },
         { id: "Personal", color: PRESET_COLORS[0], hasReports: true },

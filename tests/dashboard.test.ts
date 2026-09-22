@@ -4,7 +4,7 @@ import { buildDashboard, type StoreSnapshot } from "@/lib/dashboard";
 import { NEUTRAL_COLOR, PRESET_COLORS, type KnownGroup } from "@/lib/settings";
 
 const HOUR = 3_600_000;
-const config = { ...getConfig({}), limit: 500_000 };
+const config = { ...getConfig({}), limit: 500_000, tokenMode: "delta" as const };
 
 // Wednesday 12:00 Budapest time; the cycle started Monday 00:00 (= Sunday 22:00 UTC), 60 h ago.
 const NOW = new Date("2026-09-23T10:00:00Z");

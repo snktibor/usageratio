@@ -4,7 +4,7 @@ import { buildDashboard } from "@/lib/dashboard";
 import { applyGroundTruth, parseOfficialPercent } from "@/lib/ground-truth";
 
 const HOUR = 3_600_000;
-const config = { ...getConfig({}), limit: 500_000 };
+const config = { ...getConfig({}), limit: 500_000, tokenMode: "delta" as const };
 
 // Wednesday 12:00 Budapest time; the weekly cycle started Monday 00:00, 60 h ago.
 const NOW = new Date("2026-09-23T10:00:00Z");

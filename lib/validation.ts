@@ -1,8 +1,10 @@
-/** A validated usage report, as sent by the client scripts. */
+import { MAX_PROVIDERS, normalizeProviderId } from "@/lib/providers";
+
+/** A validated multi-provider snapshot, as sent by the client scripts. */
 export interface UsageReport {
   machineId: string;
   groupId: string;
-  tokens: number;
+  providers: Record<string, number>;
   /** Event time in epoch milliseconds. */
   timestampMs: number;
   /** Event time normalized to UTC ISO 8601. */
@@ -80,9 +82,29 @@ export function parseUsageReport(input: unknown, options: ParseOptions): ParseRe
   const machineId = parseId(body.machineId, "machineId", errors);
   const groupId = parseId(body.groupId, "groupId", errors);
 
-  const tokens = body.tokens;
-  if (typeof tokens !== "number" || !Number.isSafeInteger(tokens) || tokens < 0) {
-    errors.push("tokens must be a non-negative integer (a JSON number)");
+  const providers: Record<string, number> = {};
+  const rawProviders = body.providers;
+  if (typeof rawProviders !== "object" || rawProviders === null || Array.isArray(rawProviders)) {
+    errors.push("providers must be a JSON object");
+  } else {
+    const entries = Object.entries(rawProviders as Record<string, unknown>);
+    if (entries.length < 1 || entries.length > MAX_PROVIDERS) {
+      errors.push(`providers must contain between 1 and ${MAX_PROVIDERS} entries`);
+    }
+    for (const [rawProvider, tokens] of entries) {
+      const provider = normalizeProviderId(rawProvider);
+      if (!provider) {
+        errors.push(
+          `provider ${JSON.stringify(rawProvider)} must be 1-64 letters, digits, dots, dashes or underscores`,
+        );
+      } else if (Object.hasOwn(providers, provider)) {
+        errors.push(`provider ${JSON.stringify(rawProvider)} is listed twice after normalization`);
+      } else if (typeof tokens !== "number" || !Number.isSafeInteger(tokens) || tokens < 0) {
+        errors.push(`providers.${rawProvider} must be a non-negative integer (a JSON number)`);
+      } else {
+        providers[provider] = tokens;
+      }
+    }
   }
 
   let timestampMs: number | null = null;
@@ -106,7 +128,7 @@ export function parseUsageReport(input: unknown, options: ParseOptions): ParseRe
     report: {
       machineId,
       groupId,
-      tokens: tokens as number,
+      providers,
       timestampMs,
       timestamp: new Date(timestampMs).toISOString(),
     },

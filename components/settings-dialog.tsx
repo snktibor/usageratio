@@ -24,10 +24,16 @@ interface DraftGroup {
   hasReports: boolean;
 }
 
+interface DraftLimit {
+  id: string;
+  label: string;
+  value: string;
+}
+
 /** The form's state: strings as typed, validated only when saving. */
 interface Draft {
   period: BudgetPeriod;
-  limit: string;
+  limits: DraftLimit[];
   weekday: number;
   monthDay: number;
   time: string;
@@ -40,7 +46,7 @@ interface Draft {
 
 interface SettingsRequest {
   period: BudgetPeriod;
-  limit: number;
+  limits: Record<string, number>;
   reset: { weekday: number; monthDay: number; hour: number; minute: number };
   showRemaining: boolean;
   groups: { id: string; color: string }[];
@@ -57,11 +63,14 @@ const QUIET_BUTTON =
   "rounded-md border border-rule px-3 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink disabled:pointer-events-none disabled:opacity-40";
 
 function draftFrom(view: SettingsView): Draft {
-  const { period, limit, reset, showRemaining } = view.settings;
+  const { period, limits, reset, showRemaining } = view.settings;
   const twoDigits = (value: number) => String(value).padStart(2, "0");
   return {
     period,
-    limit: String(limit),
+    limits: view.providers.map((provider) => ({
+      ...provider,
+      value: String(limits[provider.id]),
+    })),
     weekday: reset.weekday,
     monthDay: reset.monthDay,
     time: `${twoDigits(reset.hour)}:${twoDigits(reset.minute)}`,
@@ -112,8 +121,13 @@ function withNewGroup(draft: Draft): Draft {
 }
 
 function toRequest(draft: Draft): { request: SettingsRequest } | { problem: string } {
-  const limit = parseLimit(draft.limit);
-  if (limit === null) return { problem: "A keret összege pozitív egész szám legyen, például 500 000." };
+  const parsedLimits = draft.limits.map((limit) => ({ ...limit, parsed: parseLimit(limit.value) }));
+  const badLimit = parsedLimits.find((limit) => limit.parsed === null);
+  if (badLimit) {
+    return {
+      problem: `A(z) ${badLimit.label} kerete pozitív egész szám legyen, például 500 000.`,
+    };
+  }
 
   const time = /^([01]\d|2[0-3]):([0-5]\d)/.exec(draft.time);
   if (!time) return { problem: "Add meg a reset időpontját óra:perc formában, például 00:00." };
@@ -126,7 +140,7 @@ function toRequest(draft: Draft): { request: SettingsRequest } | { problem: stri
   return {
     request: {
       period: draft.period,
-      limit,
+      limits: Object.fromEntries(parsedLimits.map((limit) => [limit.id, limit.parsed as number])),
       reset: {
         weekday: draft.weekday,
         monthDay: draft.monthDay,
@@ -146,7 +160,6 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
   const [problem, setProblem] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const presetsId = useId();
-  const limitHintId = useId();
 
   const patch = (changes: Partial<Draft>) => setDraft((current) => ({ ...current, ...changes }));
   const patchGroup = (id: string, changes: Partial<DraftGroup>) =>
@@ -154,8 +167,11 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
       ...current,
       groups: current.groups.map((group) => (group.id === id ? { ...group, ...changes } : group)),
     }));
-
-  const limit = parseLimit(draft.limit);
+  const patchLimit = (id: string, value: string) =>
+    setDraft((current) => ({
+      ...current,
+      limits: current.limits.map((limit) => (limit.id === id ? { ...limit, value } : limit)),
+    }));
 
   function addGroup() {
     const nameProblem = groupNameProblem(draft.newGroupName, draft.groups);
@@ -283,24 +299,36 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
             </div>
           </fieldset>
 
-          <label className="block">
-            <span className="text-sm text-ink-3">Összeg (token)</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              autoComplete="off"
-              value={draft.limit}
-              onChange={(event) => patch({ limit: event.target.value })}
-              aria-describedby={limitHintId}
-              aria-invalid={limit === null || undefined}
-              className={`mt-1.5 block w-48 tabular-nums ${FIELD}`}
-            />
-            <span id={limitHintId} className="mt-1.5 block text-sm text-ink-3">
-              {limit === null
-                ? "Pozitív egész szám."
-                : `${formatTokens(limit)} token ${draft.period === "weekly" ? "hetente" : "havonta"}.`}
-            </span>
-          </label>
+          <fieldset>
+            <legend className="text-sm text-ink-3">Szolgáltatónkénti keret (token)</legend>
+            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+              {draft.limits.map((provider) => {
+                const limit = parseLimit(provider.value);
+                return (
+                  <label key={provider.id} className="rounded-lg border border-hairline bg-page/40 p-3">
+                    <span className="font-medium text-ink">{provider.label}</span>
+                    <span className="mt-2 flex items-center gap-2">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        value={provider.value}
+                        onChange={(event) => patchLimit(provider.id, event.target.value)}
+                        aria-invalid={limit === null || undefined}
+                        aria-label={`${provider.label} tokenkerete`}
+                        className={`min-w-0 grow tabular-nums ${FIELD}`}
+                      />
+                    </span>
+                    <span className="mt-1.5 block text-sm text-ink-3">
+                      {limit === null
+                        ? "Pozitív egész szám."
+                        : `${formatTokens(limit)} token ${draft.period === "weekly" ? "hetente" : "havonta"}.`}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
         </section>
 
         <section aria-labelledby={`${titleId}-reset`} className="space-y-4">

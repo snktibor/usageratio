@@ -4,16 +4,23 @@ import { StorageProblem } from "@/components/storage-problem";
 import { isAuthenticated } from "@/lib/auth";
 import { getConfig } from "@/lib/config";
 import { getCycle, getPreviousCycle } from "@/lib/cycle";
-import { buildDashboard, type DashboardModel } from "@/lib/dashboard";
+import { buildDashboard, type ProviderDashboardModel } from "@/lib/dashboard";
+import { mergeProviderIds, providerLabel } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
-import { buildSettingsView, resolveConfig, type SettingsView } from "@/lib/settings";
+import {
+  buildSettingsView,
+  configForProvider,
+  resolveConfig,
+  storedProviderIds,
+  type SettingsView,
+} from "@/lib/settings";
 import { loadEvents, loadIndexes } from "@/lib/usage-store";
 
 // Rendered per request: the page depends on the session cookie and on live data.
 export const dynamic = "force-dynamic";
 
 interface DashboardData {
-  model: DashboardModel;
+  providers: ProviderDashboardModel[];
   settings: SettingsView;
 }
 
@@ -21,16 +28,28 @@ interface DashboardData {
 async function loadDashboard(): Promise<DashboardData> {
   const now = new Date();
   const indexes = await loadIndexes();
-  const config = resolveConfig(getConfig(), indexes.settings);
+  const providerIds = mergeProviderIds(
+    indexes.providers.map((provider) => provider.providerId),
+    storedProviderIds(indexes.settings),
+  );
+  const config = resolveConfig(getConfig(), indexes.settings, providerIds);
 
   const cycle = getCycle(now, config.reset);
   // The previous cycle rides along: it is the footer's comparison and counter mode's baseline.
   const since = getPreviousCycle(cycle, config.reset).start.getTime();
-  const { events, groups } = await loadEvents(indexes.groups, since);
+  const { eventsByProvider, groups } = await loadEvents(providerIds, indexes.groups, since);
 
   return {
-    model: buildDashboard(now, config, { events, groups, machines: indexes.machines }),
-    settings: buildSettingsView(config, groups),
+    providers: providerIds.map((providerId) => ({
+      id: providerId,
+      label: providerLabel(providerId),
+      dashboard: buildDashboard(now, configForProvider(config, providerId), {
+        events: eventsByProvider[providerId] ?? [],
+        groups,
+        machines: indexes.machines.filter((machine) => machine.providerId === providerId),
+      }),
+    })),
+    settings: buildSettingsView(config, groups, providerIds),
   };
 }
 
@@ -49,5 +68,5 @@ export default async function Page() {
   if (storageError) {
     return <StorageProblem notConfigured={storageError instanceof StorageNotConfiguredError} />;
   }
-  return data ? <Dashboard model={data.model} settings={data.settings} /> : <PinGate />;
+  return data ? <Dashboard providers={data.providers} settings={data.settings} /> : <PinGate />;
 }

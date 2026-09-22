@@ -1,7 +1,9 @@
-# Projekt Célok: Deepseek Usage Tracker (goals.md)
+# Projekt Célok: Multi-provider Usage Tracker
 
 ## 1. Fő Célkitűzés
-Egy pehelysúlyú (lightweight), saját hosztolású statisztikai rendszer felépítése, amely 3 különböző számítógépről (1 Mac, 2 Windows) gyűjti, aggregálja és vizualizálja a "Deepseek" AI heti tokenhasználatát. A rendszer célja a heti keret (Max limit) nyomon követése, csoportokba (pl. Work, Personal) rendezve, egy központi Dashboardon.
+Egy pehelysúlyú, saját hosztolású statisztikai rendszer, amely több számítógépről egyszerre gyűjti,
+aggregálja és vizualizálja több AI-szolgáltató vagy fiók (például Claude, DeepSeek és OpenAI)
+tokenhasználatát. A provider külön dimenzió a gép és a Work/Personal jellegű csoport mellett.
 
 ## 2. Infrastruktúra és Architektúra Célok
 *   **Környezet:** Next.js (App Router) alkalmazás Vercel-en hosztolva, Vercel MCP támogatással.
@@ -11,9 +13,9 @@ Egy pehelysúlyú (lightweight), saját hosztolású statisztikai rendszer felé
 ## 3. Kliensoldali Célok (Adatgyűjtés)
 *   **Erőforráskímélő működés:** A klienseken futó szkriptek (Bash a Mac-en, PowerShell a Windows-on) minimális CPU és RAM használattal, teljesen láthatatlanul (rejtett ablakkal) fussanak a háttérben.
 *   **Ütemezés:** Beépített OS eszközökkel (Cron, Task Scheduler) automatizált, óránkénti futás.
-*   **Modularitás:** A tényleges Deepseek token kiolvasó logika NEM része ennek a fázisnak. A szkriptekben egyértelmű placeholder (`[TODO: INSERT Deepseek TOKEN READ LOGIC HERE]`) biztosítja, hogy a kiolvasó blokk később cserélhető/injektálható legyen.
+*   **Adatforrás:** A Bash és PowerShell kliens a `ccusage daily` gépi JSON-kimenetét dolgozza fel, és minden felismert providert továbbít.
 *   **Szabványosított Payload:** A kliensek a következő JSON struktúrát küldik a szervernek:
-    `{ "machineId": "string", "groupId": "string", "tokens": number, "timestamp": "ISO 8601 string" }`
+    `{ "machineId": "string", "groupId": "string", "providers": { "claude": 0, "deepseek": 0 }, "timestamp": "ISO 8601 string" }`
 
 ## 4. Backend Célok (API)
 *   **Megbízható Adatfogadás:** Dedikált API végpont (`/api/usage/route.ts`) létrehozása, amely fogadja, validálja és a Vercel KV-ba menti a kliensek POST kéréseit.
@@ -22,7 +24,8 @@ Egy pehelysúlyú (lightweight), saját hosztolású statisztikai rendszer felé
 ## 5. Frontend és Üzleti Logika Célok (Dashboard)
 *   **Heti Reset Ciklus:** A rendszer automatikusan számolja az aktuális periódust (pl. minden hétfő 00:00-tól). A Dashboard **kizárólag** a legutóbbi reset óta eltelt időszak beérkezett adatait aggregálja.
 *   **Csoportosított Nézet:** A beérkező tokenek automatikus összegzése `groupId` alapján.
-*   **Kapacitáskövetés:** Egy globális Progress Bar, amely vizuálisan megmutatja az összesített használatot egy fix (környezeti változóból jövő vagy hardkódolt) heti limithez viszonyítva.
+*   **Kapacitáskövetés:** Providerenként külön beállítható keret és az ahhoz tartozó Progress Bar.
+*   **Fiókváltás:** A provider választása kliensoldalon, új hálózati kérés nélkül frissíti a teljes dashboardot.
 *   **Arányok Vizualizációja:** A Dashboard mutassa meg a csoportok (pl. Work vs. Personal) százalékos arányát a teljes heti fogyasztáson belül, illetve a gépek egyedi hozzájárulását.
 *   **Design:** Modern, letisztult, sötét témájú felhasználói felület Tailwind CSS használatával.
 

@@ -7,7 +7,7 @@ const OPTIONS = { now: NOW, maxClockSkewMinutes: 10, retentionDays: 35 };
 const VALID = {
   machineId: "mac-studio",
   groupId: "Personal",
-  tokens: 1234,
+  providers: { deepseek: 1234, claude: 5678 },
   timestamp: "2026-09-21T10:00:00Z",
 };
 
@@ -25,7 +25,7 @@ describe("parseUsageReport", () => {
       report: {
         machineId: "mac-studio",
         groupId: "Personal",
-        tokens: 1234,
+        providers: { deepseek: 1234, claude: 5678 },
         timestampMs: Date.parse("2026-09-21T10:00:00Z"),
         timestamp: "2026-09-21T10:00:00.000Z",
       },
@@ -40,8 +40,8 @@ describe("parseUsageReport", () => {
     expect(result.ok && result.report.machineId).toBe("Tibor gépe_2.0-win");
   });
 
-  it("accepts zero tokens (idle heartbeat)", () => {
-    expect(parseUsageReport({ ...VALID, tokens: 0 }, OPTIONS).ok).toBe(true);
+  it("accepts a zero-token provider snapshot (idle heartbeat)", () => {
+    expect(parseUsageReport({ ...VALID, providers: { claude: 0 } }, OPTIONS).ok).toBe(true);
   });
 
   it("accepts timestamps with an offset or with .NET's 7 fractional digits", () => {
@@ -57,7 +57,7 @@ describe("parseUsageReport", () => {
   });
 
   it("reports every invalid field at once", () => {
-    const errors = errorsOf({ machineId: "", groupId: 7, tokens: "12", timestamp: "yesterday" });
+    const errors = errorsOf({ machineId: "", groupId: 7, providers: "12", timestamp: "yesterday" });
     expect(errors).toHaveLength(4);
   });
 
@@ -70,11 +70,19 @@ describe("parseUsageReport", () => {
   );
 
   it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53, "100", null])(
-    "rejects tokens = %j",
+    "rejects a provider token count = %j",
     (tokens) => {
-      expect(errorsOf({ ...VALID, tokens })).toHaveLength(1);
+      expect(errorsOf({ ...VALID, providers: { claude: tokens } })).toHaveLength(1);
     },
   );
+
+  it("normalizes provider ids and rejects invalid, empty or duplicate provider maps", () => {
+    const normalized = parseUsageReport({ ...VALID, providers: { Claude: 12, OpenAI: 8 } }, OPTIONS);
+    expect(normalized.ok && normalized.report.providers).toEqual({ claude: 12, openai: 8 });
+    expect(errorsOf({ ...VALID, providers: {} })).toHaveLength(1);
+    expect(errorsOf({ ...VALID, providers: { "bad/provider": 1 } })).toHaveLength(1);
+    expect(errorsOf({ ...VALID, providers: { Claude: 1, claude: 2 } })).toHaveLength(1);
+  });
 
   it.each([
     "2026-09-21 10:00:00",

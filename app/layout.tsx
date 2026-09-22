@@ -12,7 +12,7 @@ const instrumentSans = Instrument_Sans({
 
 export const metadata: Metadata = {
   title: "usageratio",
-  description: "Deepseek-tokenkeret gépek és csoportok szerint.",
+  description: "AI-tokenkeretek szolgáltatók, gépek és csoportok szerint.",
   robots: { index: false, follow: false, nocache: true },
 };
 
