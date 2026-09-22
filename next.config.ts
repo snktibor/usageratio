@@ -2,6 +2,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // The setup page and its ZIP download read the client scripts from disk at request time.
+  outputFileTracingIncludes: {
+    "/setup": ["./clients/**/*"],
+    "/api/setup": ["./clients/**/*"],
+  },
   async headers() {
     return [
       {

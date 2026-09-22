@@ -45,6 +45,11 @@
     outline-offset: 3px;
     border-radius: 2px;
   }
+
+  /* Graphite instead of the platform's blue; the text keeps its own colour. */
+  ::selection {
+    background-color: color-mix(in srgb, var(--color-ink) 22%, transparent);
+  }
 }
 
 @layer components {
@@ -75,6 +80,12 @@
       animation: none;
       transition: none;
     }
+  }
+
+  /* Code wells on the setup page scroll: a thin bar in the palette, not the platform's. */
+  .code-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-rule) transparent;
   }
 
   /* The native colour input, cut down to a plain swatch. */

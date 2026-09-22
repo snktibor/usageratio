@@ -1,6 +1,8 @@
+import Link from "next/link";
 import { logout } from "@/app/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { DashboardView } from "@/components/dashboard-view";
+import { DownloadIcon } from "@/components/icons";
 import { SettingsDialog } from "@/components/settings-dialog";
 import type { ProviderDashboardModel } from "@/lib/dashboard";
 import { formatClock } from "@/lib/format";
@@ -27,6 +29,13 @@ export function Dashboard({
             <span className="sr-only sm:not-sr-only">Frissítve </span>
             {refreshedAt}
           </span>
+          <Link
+            href="/setup"
+            className="flex items-center gap-2 rounded-md border border-rule px-2.5 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink sm:px-3"
+          >
+            <DownloadIcon />
+            <span className="sr-only sm:not-sr-only">Telepítés</span>
+          </Link>
           <SettingsDialog view={settings} />
           <form action={logout}>
             <button

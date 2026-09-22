@@ -17,6 +17,9 @@
 #     MACHINE_ID="mac-studio"
 #     GROUP_ID="Personal"
 #
+#   The file is plain shell, read after PATH is set up below: the setup package's
+#   install.sh writes it and adds a PATH line when node lives elsewhere (nvm, volta).
+#
 # Exit codes: 0 sent · 1 sending failed · 2 bad usage/config · 3 token reader failed
 
 set -u

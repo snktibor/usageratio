@@ -8,7 +8,10 @@ export interface LoginState {
   error: string | null;
 }
 
-/** Form action of the PIN screen. Returns an error to display, or redirects into the dashboard. */
+/** Where a successful login may continue: the pages that show the PIN form. Anything else goes home. */
+const AFTER_LOGIN = new Set(["/", "/setup"]);
+
+/** Form action of the PIN screen. Returns an error to display, or redirects to the page that asked (`next`). */
 export async function login(_previous: LoginState, formData: FormData): Promise<LoginState> {
   const pin = String(formData.get("pin") ?? "").trim();
 
@@ -47,7 +50,8 @@ export async function login(_previous: LoginState, formData: FormData): Promise<
     }
   }
 
-  redirect("/");
+  const next = String(formData.get("next") ?? "/");
+  redirect(AFTER_LOGIN.has(next) ? next : "/");
 }
 
 export async function logout(): Promise<void> {

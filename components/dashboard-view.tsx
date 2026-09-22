@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { GroundTruthInput } from "@/components/ground-truth-input";
 import { GroupBreakdown } from "@/components/group-breakdown";
@@ -129,8 +130,12 @@ function ProviderView({
               Még egy gép sem jelentett ehhez a fiókhoz
             </h2>
             <p className="mt-3 text-ink-2">
-              Telepítsd a kliens szkriptet a gépeidre a repó <code className="text-ink">clients/</code>{" "}
-              mappájából. Az első sikeres beküldés után itt jelenik meg a csoportok és a gépek bontása.
+              Telepítsd a klienst a gépeidre a{" "}
+              <Link href="/setup" className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink-3">
+                Telepítés
+              </Link>{" "}
+              oldalon: macOS-re és Windowsra is van kész csomag. Az első sikeres beküldés után itt jelenik meg a
+              csoportok és a gépek bontása.
             </p>
           </section>
         )}
