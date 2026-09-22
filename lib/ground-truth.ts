@@ -178,3 +178,15 @@ export function applySubLimitReading(
   }
   return { sub, source: null, quota: null, ofProvider: null };
 }
+
+/**
+ * A sub-limit's figure over the cycle, for the usage chart. Its measured
+ * tokens all count at one rate, its figure over all of them, so the line ends
+ * on the figure its own field shows, as the provider's total line does. Null
+ * while its figure is unknown, or nothing was measured to draw.
+ */
+export function subLimitTimeline({ sub, quota }: SubLimitView): number[] | null {
+  if (!quota || sub.total <= 0) return null;
+  const perToken = quota.usedFraction / sub.total;
+  return sub.values.map((tokens) => tokens * perToken);
+}

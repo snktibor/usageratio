@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { UsageEvent } from "@/lib/aggregate";
 import { getConfig } from "@/lib/config";
 import { buildDashboard, type StoreSnapshot } from "@/lib/dashboard";
-import { applyGroundTruth, applySubLimitReading } from "@/lib/ground-truth";
+import { applyGroundTruth, applySubLimitReading, subLimitTimeline } from "@/lib/ground-truth";
 import {
   measureSubLimits,
   normalizeModelPart,
@@ -12,6 +12,7 @@ import {
   subLimitOf,
   type SubLimit,
 } from "@/lib/sub-limits";
+import { sampleTimes } from "@/lib/timeline";
 
 const HOUR = 3_600_000;
 // Wednesday 12:00 Budapest time; the weekly cycle started Monday 00:00 (= Sunday 22:00 UTC), 60 h ago.
@@ -93,6 +94,7 @@ describe("splitBySubLimits", () => {
 
 describe("measureSubLimits", () => {
   const window = { startMs: CYCLE_START, endMs: CYCLE_END, nowMs: NOW.getTime() };
+  const times = sampleTimes(CYCLE_START, CYCLE_END, NOW.getTime());
 
   it("measures the cycle's tokens in the token mode, and names the models", () => {
     const events = [
@@ -101,16 +103,31 @@ describe("measureSubLimits", () => {
       report("mac", "Home", 20, { "claude-fable-5-1-20260901": 250, "claude-opus-5": 50 }),
       report("win", "Work", 30, { "claude-fable-5-1": 40 }),
     ];
-    const [fable] = measureSubLimits([FABLE], splitBySubLimits(events, [FABLE]).bySubLimit, window, "snapshot", null);
+    const [fable] = measureSubLimits([FABLE], splitBySubLimits(events, [FABLE]).bySubLimit, window, times, "snapshot", null);
     expect(fable).toMatchObject({ id: "fable", name: "Fable", mode: "separate", shareCap: null, total: 290, hasSplit: true });
     expect(fable!.models).toEqual(["Claude Fable 5.1"]);
     expect(fable!.quota).toBeNull();
   });
 
+  it("follows the cycle on the dashboard's timeline, ending on its total", () => {
+    const events = [
+      report("mac", "Home", 10, { "claude-fable-5-1": 100 }),
+      report("mac", "Home", 20, { "claude-fable-5-1": 250 }),
+      report("win", "Work", 30, { "claude-fable-5-1": 40 }),
+    ];
+    const [fable] = measureSubLimits([FABLE], splitBySubLimits(events, [FABLE]).bySubLimit, window, times, "snapshot", null);
+    const at = (hours: number) => fable!.values[times.indexOf(CYCLE_START + hours * HOUR)];
+    expect(fable!.values).toHaveLength(times.length);
+    expect(at(0)).toBe(0);
+    expect(at(10)).toBe(100);
+    expect(at(25)).toBe(250);
+    expect(fable!.values[times.length - 1]).toBe(290);
+  });
+
   it("measures a separate one against its own token limit, a part against its share of the provider's", () => {
     const events = [report("mac", "Home", 10, { "claude-fable-5-1": 50_000, "claude-opus-5": 120_000 })];
     const split = splitBySubLimits(events, [FABLE, OPUS]).bySubLimit;
-    const [fable, opus] = measureSubLimits([FABLE, OPUS], split, window, "snapshot", 1_000_000);
+    const [fable, opus] = measureSubLimits([FABLE, OPUS], split, window, times, "snapshot", 1_000_000);
     expect(fable!.quota).toMatchObject({ limit: 200_000, usedFraction: 0.25 });
     expect(opus!.shareCap).toBe(0.4);
     expect(opus!.quota).toMatchObject({ limit: 400_000, usedFraction: 0.3 });
@@ -121,10 +138,12 @@ describe("measureSubLimits", () => {
       [FABLE],
       splitBySubLimits([report("old-pc", "Home", 10, undefined, 500)], [FABLE]).bySubLimit,
       window,
+      times,
       "snapshot",
       null,
     );
     expect(fable).toMatchObject({ total: 0, hasSplit: false, models: [] });
+    expect(fable!.values.every((value) => value === 0)).toBe(true);
   });
 });
 
@@ -216,6 +235,28 @@ describe("applySubLimitReading", () => {
     const unlimited = buildDashboard(NOW, config, snapshot(events), [FABLE]);
     const unknown = applySubLimitReading(unlimited, applyGroundTruth(unlimited, reading(50)), unlimited.subLimits[0]!, null);
     expect(unknown).toMatchObject({ source: null, quota: null });
+  });
+
+  it("gives the chart a line ending on its figure, and none while the figure is unknown", () => {
+    const twoReports = [
+      report("mac", "Home", 10, { "claude-fable-5-1": 100, "claude-opus-5": 100 }),
+      report("mac", "Home", 30, { "claude-fable-5-1": 200, "claude-opus-5": 800 }),
+    ];
+    const model = buildDashboard(NOW, config, snapshot(twoReports), [FABLE]);
+    const view = applyGroundTruth(model, reading(50));
+    const line = subLimitTimeline(applySubLimitReading(model, view, model.subLimits[0]!, reading(80)))!;
+    const times = model.timeline.times;
+    expect(line[line.length - 1]).toBeCloseTo(0.8);
+    // Half of its tokens were there at hour 10: half of its figure.
+    expect(line[times.indexOf(CYCLE_START + 10 * HOUR)]).toBeCloseTo(0.4);
+    expect(subLimitTimeline(applySubLimitReading(model, view, model.subLimits[0]!, null))).toBeNull();
+  });
+
+  it("draws no line for a figure with no measured tokens to shape it", () => {
+    const model = buildDashboard(NOW, config, snapshot([report("mac", "Home", 30, { "claude-opus-5": 800 })]), [FABLE]);
+    const sub = applySubLimitReading(model, applyGroundTruth(model, null), model.subLimits[0]!, reading(20));
+    expect(sub.quota).not.toBeNull();
+    expect(subLimitTimeline(sub)).toBeNull();
   });
 
   it("does not claim 0% for a part while no report came with a split by model", () => {

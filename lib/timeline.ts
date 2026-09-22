@@ -48,11 +48,33 @@ export function sampleTimes(startMs: number, endMs: number, nowMs: number): numb
 }
 
 /**
- * Every group's cumulative usage at each of `times`. A sample includes the
- * reports made at its very moment; the last one includes all reports up to
- * the end of the cycle (a machine's clock may run a little ahead), so it
- * equals the totals of lib/aggregate.ts.
+ * Where each sample's usage ends: a sample includes the reports made at its
+ * very moment; the last one includes all reports up to the end of the cycle
+ * (a machine's clock may run a little ahead), so it equals the totals of
+ * lib/aggregate.ts.
  */
+function sampleEnds(times: number[], window: { endMs: number }): number[] {
+  return times.map((t, index) => (index === times.length - 1 ? window.endMs : t + 1));
+}
+
+/** All of `events` together, cumulated at each of `times` exactly as the groups are. */
+export function totalTimeline(
+  events: UsageEvent[],
+  times: number[],
+  window: { startMs: number; endMs: number },
+  mode: TokenMode,
+): number[] {
+  const endsMs = sampleEnds(times, window);
+  const values = times.map(() => 0);
+  for (const series of groupIntoSeries(events)) {
+    usageOfSeriesUntil(series, window.startMs, endsMs, mode).forEach((usage, index) => {
+      values[index]! += usage;
+    });
+  }
+  return values;
+}
+
+/** Every group's cumulative usage at each of `times`; see `sampleEnds`. */
 function groupTimelines(
   events: UsageEvent[],
   groupIds: string[],
@@ -60,7 +82,7 @@ function groupTimelines(
   window: { startMs: number; endMs: number },
   mode: TokenMode,
 ): GroupSeries[] {
-  const endsMs = times.map((t, index) => (index === times.length - 1 ? window.endMs : t + 1));
+  const endsMs = sampleEnds(times, window);
   const byGroup = new Map(groupIds.map((groupId) => [groupId, times.map(() => 0)]));
 
   for (const series of groupIntoSeries(events)) {
