@@ -57,7 +57,8 @@ export const DEFAULT_SHOW_REMAINING = true;
  * - "delta":    tokens used since the previous report. The dashboard adds
  *               the reports of the cycle up.
  * - "snapshot": the machine's running total for the current cycle. The
- *               dashboard takes the latest report of the cycle.
+ *               dashboard takes the largest report of the cycle, so a later,
+ *               lower one (logs deleted on the machine) cannot pull it back.
  * - "counter":  an ever-growing odometer. The dashboard adds up the increases
  *               between consecutive reports (a drop counts as a restart).
  *
