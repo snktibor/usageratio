@@ -37,7 +37,7 @@ function ProviderView({
   onProviderChange: (providerId: string) => void;
 }) {
   const model = selected.dashboard;
-  const [entry, setEntry] = useOfficialEntry(selected.id, model.cycle.startMs);
+  const [entry, setEntry] = useOfficialEntry(selected.id, model.cycle.startMs, selected.officialEntry);
   const { percent, invalid } = parseOfficialPercent(entry.raw);
 
   const view = useMemo(
@@ -50,6 +50,7 @@ function ProviderView({
     selected.id,
     model.cycle.startMs,
     model.subLimits.map((sub) => sub.id),
+    selected.subLimitEntries,
   );
   const subLimits = useMemo<SubLimitState[]>(
     () =>

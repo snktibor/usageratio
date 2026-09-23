@@ -1,6 +1,7 @@
 import { summarizeUsage, type UsageEvent } from "@/lib/aggregate";
 import type { AppConfig, BudgetPeriod, TokenMode } from "@/lib/config";
 import { getCycle, getDaySegments, getPreviousCycle } from "@/lib/cycle";
+import { officialUsageField, type OfficialEntryView } from "@/lib/official-usage";
 import { assessQuota, type QuotaAssessment } from "@/lib/quota";
 import { providerLabel } from "@/lib/providers";
 import {
@@ -96,6 +97,10 @@ export interface ProviderDashboardModel {
   id: string;
   label: string;
   dashboard: DashboardModel;
+  /** The provider's own ground-truth figure, typed on some browser; null while none is stored for this cycle. */
+  officialEntry: OfficialEntryView | null;
+  /** Its sub-limits' own figures, by sub-limit id; entries outside the current cycle are already gone. */
+  subLimitEntries: Record<string, OfficialEntryView>;
 }
 
 const HOUR = 3_600_000;
@@ -244,9 +249,11 @@ export function buildProviderDashboards(
   config: AppConfig,
   providerIds: string[],
   store: ProviderStoreSnapshot,
+  officialUsage: Map<string, OfficialEntryView> = new Map(),
 ): ProviderDashboardModel[] {
   return visibleProviderIds(config, providerIds).map((providerId) => {
     const counts = (groupId: string) => countsForProvider(config.excludedProviders, groupId, providerId);
+    const subLimits = subLimitsOf(config, providerId);
     return {
       id: providerId,
       label: providerLabel(providerId),
@@ -261,7 +268,14 @@ export function buildProviderDashboards(
             (machine) => machine.providerId === providerId && counts(machine.groupId),
           ),
         },
-        subLimitsOf(config, providerId),
+        subLimits,
+      ),
+      officialEntry: officialUsage.get(officialUsageField(providerId, null)) ?? null,
+      subLimitEntries: Object.fromEntries(
+        subLimits.flatMap((sub) => {
+          const entry = officialUsage.get(officialUsageField(providerId, sub.id));
+          return entry ? [[sub.id, entry]] : [];
+        }),
       ),
     };
   });

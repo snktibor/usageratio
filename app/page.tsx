@@ -6,6 +6,7 @@ import { getConfig } from "@/lib/config";
 import { getCycle, getPreviousCycle } from "@/lib/cycle";
 import { buildProviderDashboards, type ProviderDashboardModel } from "@/lib/dashboard";
 import { modelKeysIn } from "@/lib/models";
+import { currentOfficialEntries } from "@/lib/official-usage";
 import { mergeProviderIds } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { buildSettingsView, resolveConfig, storedProviderIds, type SettingsView } from "@/lib/settings";
@@ -33,13 +34,17 @@ async function loadDashboard(): Promise<DashboardData> {
   // The previous cycle rides along: it is the footer's comparison and counter mode's baseline.
   const since = getPreviousCycle(cycle, config.reset).start.getTime();
   const { eventsByProvider, groups } = await loadEvents(providerIds, indexes.groups, since);
+  // The reset is shared by every provider, so one cycle start also tells which stored ground-truth figures still apply.
+  const officialUsage = currentOfficialEntries(indexes.officialUsage, cycle.start.getTime());
 
   return {
-    providers: buildProviderDashboards(now, config, providerIds, {
-      eventsByProvider,
-      groups,
-      machines: indexes.machines,
-    }),
+    providers: buildProviderDashboards(
+      now,
+      config,
+      providerIds,
+      { eventsByProvider, groups, machines: indexes.machines },
+      officialUsage,
+    ),
     // The models seen lately, for picking a sub-limit's on the settings panel.
     settings: buildSettingsView(
       config,

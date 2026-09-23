@@ -1,6 +1,7 @@
 import type { UsageEvent } from "@/lib/aggregate";
 import type { KnownMachine } from "@/lib/dashboard";
 import { reportCheckpoints } from "@/lib/days";
+import { officialUsageField, storedEntryFor, type OfficialUsageUpdate } from "@/lib/official-usage";
 import { DEFAULT_PROVIDER_ID, mergeProviderIds, normalizeProviderId } from "@/lib/providers";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import {
@@ -27,6 +28,9 @@ import type { UsageReport } from "@/lib/validation";
  *   usage:groups            HASH  groupId   → {"color": "#rrggbb", "ts": first-seen ms}
  *                                 (a bare ms number in entries older than group colours)
  *   usage:machines          HASH  providerId:machineId → {"g": groupId, "ts": ms, "t": tokens}
+ *   usage:official           HASH  providerId, or providerId:subLimitId →
+ *                                  {"raw": "45.5", "enteredAt": ms, "cycleStartMs": ms}
+ *                                  (the ground-truth field on the dashboard; see lib/official-usage.ts)
  *
  * One time-ordered set per provider/group makes all filters native commands:
  * provider and group are in the key, a period is a score range. The reset
@@ -55,6 +59,7 @@ const KEYS = {
   providers: "usage:providers",
   groups: "usage:groups",
   machines: "usage:machines",
+  officialUsage: "usage:official",
   events: (providerId: string, groupId: string) => `usage:events:${providerId}:${groupId}`,
   legacyEvents: (groupId: string) => `usage:events:${groupId}`,
 };
@@ -207,11 +212,14 @@ export interface StoreIndexes {
   groups: IndexedGroup[];
   providers: { providerId: string; firstSeenAt: number }[];
   machines: ProviderMachine[];
+  /** The official-usage fields, unparsed; see lib/official-usage.ts. */
+  officialUsage: Record<string, string>;
 }
 
 /**
- * The settings and the group and machine indexes, in one round trip. The
- * settings come first because they decide how far back `loadEvents` must reach.
+ * The settings and the group, machine and official-usage indexes, in one
+ * round trip. The settings come first because they decide how far back
+ * `loadEvents` must reach.
  */
 export async function loadIndexes(): Promise<StoreIndexes> {
   const indexes = getRedis().pipeline();
@@ -219,7 +227,8 @@ export async function loadIndexes(): Promise<StoreIndexes> {
   indexes.hgetall(KEYS.groups);
   indexes.hgetall(KEYS.providers);
   indexes.hgetall(KEYS.machines);
-  const [rawSettings, rawGroups, rawProviders, rawMachines]: unknown[] = await indexes.exec();
+  indexes.hgetall(KEYS.officialUsage);
+  const [rawSettings, rawGroups, rawProviders, rawMachines, rawOfficialUsage]: unknown[] = await indexes.exec();
 
   const groups: IndexedGroup[] = Object.entries(toStringRecord(rawGroups)).map(([groupId, raw]) =>
     parseGroupEntry(groupId, raw),
@@ -248,7 +257,13 @@ export async function loadIndexes(): Promise<StoreIndexes> {
   const providers = [...providerTimes].map(([providerId, firstSeenAt]) => ({ providerId, firstSeenAt }));
   providers.sort((a, b) => a.firstSeenAt - b.firstSeenAt || a.providerId.localeCompare(b.providerId));
 
-  return { settings: toRawDocument(rawSettings), groups, providers, machines };
+  return {
+    settings: toRawDocument(rawSettings),
+    groups,
+    providers,
+    machines,
+    officialUsage: toStringRecord(rawOfficialUsage),
+  };
 }
 
 /** The stored settings document alone. */
@@ -399,4 +414,16 @@ export async function saveSettings(
   await tx.exec();
 
   return { ok: true };
+}
+
+/**
+ * One ground-truth field, typed on the dashboard: the provider's own figure,
+ * or one of its sub-limits'. An empty `raw` clears it, so switching browsers
+ * (or the next auto-refresh) shows nothing rather than a stale percentage.
+ */
+export async function saveOfficialUsage(update: OfficialUsageUpdate, now: Date): Promise<void> {
+  const field = officialUsageField(update.providerId, update.subLimitId);
+  const stored = storedEntryFor(update, now.getTime());
+  if (stored === null) await getRedis().hdel(KEYS.officialUsage, field);
+  else await getRedis().hset(KEYS.officialUsage, { [field]: stored });
 }

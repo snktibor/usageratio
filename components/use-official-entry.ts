@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { OfficialEntryView } from "@/lib/official-usage";
 
 /** An official-usage field: its text as typed, and when that was. */
 export interface Entry {
@@ -9,63 +10,66 @@ export interface Entry {
 }
 
 export const EMPTY_ENTRY: Entry = { raw: "", enteredAt: null };
-const STORAGE_KEY = "usageratio:official-usage";
 
-/** The stored entry, if it was typed in this cycle; null otherwise. */
-function readEntry(stored: string | null, cycleStartMs: number): Entry | null {
-  const value: unknown = JSON.parse(stored ?? "null");
-  if (typeof value !== "object" || value === null) return null;
-  const { raw, enteredAt, cycleStartMs: cycle } = value as Record<string, unknown>;
-  return cycle === cycleStartMs && typeof raw === "string" && typeof enteredAt === "number" ? { raw, enteredAt } : null;
+// Long enough that dragging the slider is not one request per tick; short
+// enough that a typed figure reaches the store well before anyone reloads.
+const DEBOUNCE_MS = 600;
+
+function toEntry(server: OfficialEntryView | undefined | null): Entry {
+  return server ?? EMPTY_ENTRY;
 }
 
-function writeEntry(storageKey: string, entry: Entry, cycleStartMs: number): void {
+async function putOfficialUsage(body: {
+  providerId: string;
+  subLimitId: string | null;
+  raw: string;
+  cycleStartMs: number;
+}): Promise<void> {
   try {
-    if (entry === EMPTY_ENTRY) window.localStorage.removeItem(storageKey);
-    else window.localStorage.setItem(storageKey, JSON.stringify({ ...entry, cycleStartMs }));
+    await fetch("/api/official-usage", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      keepalive: true,
+    });
   } catch {
-    // Not persisted; the entry still works until the page is closed.
+    // Offline, or the store is down: the figure still works here until the next refresh retries it.
   }
 }
 
 /**
- * The official figure of a provider. The entry survives reloads in
- * localStorage, tagged with the cycle it was read in: an official percentage
- * means nothing once the budget has reset.
+ * The official figure of a provider. `server` is what the dashboard's last
+ * render read from the store (see lib/official-usage.ts); typing updates the
+ * field at once and, after a short pause, writes it back so every browser on
+ * the account picks it up on its next refresh. A field mid-edit here is left
+ * alone by a `server` change until that edit itself has been sent.
  */
-export function useOfficialEntry(providerId: string, cycleStartMs: number): [Entry, (raw: string) => void] {
-  const [entry, setEntry] = useState<Entry>(EMPTY_ENTRY);
-  const storageKey = `${STORAGE_KEY}:${providerId}`;
-  // The single key from before there were providers holds DeepSeek's figure.
-  const hasLegacy = providerId === "deepseek";
+export function useOfficialEntry(
+  providerId: string,
+  cycleStartMs: number,
+  server: OfficialEntryView | null,
+): [Entry, (raw: string) => void] {
+  const [entry, setEntry] = useState<Entry>(() => toEntry(server));
+  const pending = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // Restored after hydration: the server render cannot know the browser's stored entry.
   useEffect(() => {
-    let restored = EMPTY_ENTRY;
-    try {
-      const current = window.localStorage.getItem(storageKey);
-      const legacy = hasLegacy ? window.localStorage.getItem(STORAGE_KEY) : null;
-      restored = readEntry(current ?? legacy, cycleStartMs) ?? EMPTY_ENTRY;
-      if (restored === EMPTY_ENTRY) {
-        window.localStorage.removeItem(storageKey);
-        if (legacy !== null) window.localStorage.removeItem(STORAGE_KEY);
-      } else if (current === null && legacy !== null) {
-        window.localStorage.setItem(storageKey, legacy);
-        window.localStorage.removeItem(STORAGE_KEY);
-      }
-    } catch {
-      // Storage is blocked or holds junk: the field simply starts empty.
-    }
-    setEntry(restored);
-  }, [cycleStartMs, hasLegacy, storageKey]);
+    if (!pending.current) setEntry(toEntry(server));
+  }, [server?.raw, server?.enteredAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const update = useCallback(
     (raw: string) => {
       const next: Entry = raw.trim() === "" ? EMPTY_ENTRY : { raw, enteredAt: Date.now() };
       setEntry(next);
-      writeEntry(storageKey, next, cycleStartMs);
+      pending.current = true;
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => {
+        void putOfficialUsage({ providerId, subLimitId: null, raw: next.raw, cycleStartMs }).finally(() => {
+          pending.current = false;
+        });
+      }, DEBOUNCE_MS);
     },
-    [cycleStartMs, storageKey],
+    [providerId, cycleStartMs],
   );
 
   return [entry, update];
@@ -79,35 +83,56 @@ export function useSubLimitEntries(
   providerId: string,
   cycleStartMs: number,
   subLimitIds: string[],
+  server: Record<string, OfficialEntryView>,
 ): [Map<string, Entry>, (subLimitId: string, raw: string) => void] {
   // A Map: a sub-limit id such as "constructor" must not find an object's prototype.
-  const [entries, setEntries] = useState<Map<string, Entry>>(() => new Map());
-  const keyOf = useCallback((subLimitId: string) => `${STORAGE_KEY}:${providerId}:${subLimitId}`, [providerId]);
-  // A stable dependency for the effect: the ids themselves are a new array on every render.
+  const [entries, setEntries] = useState<Map<string, Entry>>(
+    () => new Map(subLimitIds.flatMap((id) => (server[id] ? [[id, server[id]] as const] : []))),
+  );
+  const pending = useRef<Set<string>>(new Set());
+  const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // A stable dependency for the effect: the ids, and the server figures they carry, are new every render.
   const ids = subLimitIds.join("\n");
+  const serverKey = subLimitIds.map((id) => `${id}=${server[id]?.raw ?? ""}@${server[id]?.enteredAt ?? ""}`).join("\n");
 
-  // Restored after hydration: the server render cannot know the browser's stored entries.
   useEffect(() => {
-    const restored = new Map<string, Entry>();
-    for (const subLimitId of ids === "" ? [] : ids.split("\n")) {
-      try {
-        const entry = readEntry(window.localStorage.getItem(keyOf(subLimitId)), cycleStartMs);
-        if (entry) restored.set(subLimitId, entry);
-        else window.localStorage.removeItem(keyOf(subLimitId));
-      } catch {
-        // Storage is blocked or holds junk: the field simply starts empty.
+    setEntries((current) => {
+      const next = new Map(current);
+      let changed = false;
+      for (const id of ids === "" ? [] : ids.split("\n")) {
+        if (pending.current.has(id)) continue;
+        const value = server[id];
+        if (value) {
+          if (current.get(id) !== value) {
+            next.set(id, value);
+            changed = true;
+          }
+        } else if (current.has(id)) {
+          next.delete(id);
+          changed = true;
+        }
       }
-    }
-    setEntries(restored);
-  }, [cycleStartMs, ids, keyOf]);
+      return changed ? next : current;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ids, serverKey]);
 
   const update = useCallback(
     (subLimitId: string, raw: string) => {
       const next: Entry = raw.trim() === "" ? EMPTY_ENTRY : { raw, enteredAt: Date.now() };
       setEntries((current) => new Map(current).set(subLimitId, next));
-      writeEntry(keyOf(subLimitId), next, cycleStartMs);
+      pending.current.add(subLimitId);
+      clearTimeout(timers.current.get(subLimitId));
+      timers.current.set(
+        subLimitId,
+        setTimeout(() => {
+          void putOfficialUsage({ providerId, subLimitId, raw: next.raw, cycleStartMs }).finally(() => {
+            pending.current.delete(subLimitId);
+          });
+        }, DEBOUNCE_MS),
+      );
     },
-    [cycleStartMs, keyOf],
+    [providerId, cycleStartMs],
   );
 
   return [entries, update];

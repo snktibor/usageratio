@@ -435,4 +435,27 @@ describe("buildProviderDashboards — which provider counts where", () => {
     const [, openai] = buildProviderDashboards(NOW, scoped, providerIds, store);
     expect(openai!.dashboard.groups.map((g) => [g.groupId, g.color])).toEqual([["Work", "#d95926"]]);
   });
+
+  it("carries each provider's own ground-truth figure, and its sub-limits', by field", () => {
+    const withSubLimit = {
+      ...config,
+      subLimits: {
+        claude: [
+          { id: "fable", name: "Fable", models: ["fable"], mode: "share" as const, sharePercent: 20, limit: 100_000 },
+        ],
+      },
+    };
+    const officialUsage = new Map([
+      ["claude", { raw: "80", enteredAt: 1 }],
+      ["claude:fable", { raw: "20", enteredAt: 2 }],
+      ["openai", { raw: "50", enteredAt: 3 }],
+    ]);
+    const [claude, openai, deepseek] = buildProviderDashboards(NOW, withSubLimit, providerIds, store, officialUsage);
+
+    expect(claude!.officialEntry).toEqual({ raw: "80", enteredAt: 1 });
+    expect(claude!.subLimitEntries).toEqual({ fable: { raw: "20", enteredAt: 2 } });
+    expect(openai!.officialEntry).toEqual({ raw: "50", enteredAt: 3 });
+    expect(openai!.subLimitEntries).toEqual({});
+    expect(deepseek!.officialEntry).toBeNull();
+  });
 });
