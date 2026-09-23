@@ -79,7 +79,7 @@ export function buildSetupZip(
     ...packageFiles(os, mode).map((file) => ({
       name: file.name,
       data: forPlatform(os, file.source ? sources[file.source] : renderConfig(os, settings)),
-      executable: os === "macos" && file.executable,
+      executable: os !== "windows" && file.executable,
     })),
   ];
   return { fileName: `${packageName(os, mode)}.zip`, bytes: createZip(entries, now) };

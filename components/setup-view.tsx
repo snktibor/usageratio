@@ -169,7 +169,7 @@ export function SetupView({
     ? `/api/setup?${new URLSearchParams({ os, mode, group: settings.groupId, machine: settings.machineId })}`
     : null;
   const selectedGroup = group.trim();
-  const macos = os === "macos";
+  const unix = os !== "windows";
 
   return (
     <main className="mx-auto w-full max-w-4xl px-5 pb-24 pt-6 sm:px-8 sm:pt-8">
@@ -306,7 +306,7 @@ export function SetupView({
         {!zipHref && <p className="mt-3 text-sm text-ink-3">Előbb javítsd a csoportot vagy a gép azonosítóját.</p>}
 
         <ol role="list" className="mt-8 max-w-2xl space-y-6">
-          {macos ? (
+          {unix ? (
             <>
               <Step number={1}>
                 <p>
@@ -315,11 +315,11 @@ export function SetupView({
                 </p>
               </Step>
               <Step number={2}>
-                <p>Indítsd el a telepítőt a Terminálban:</p>
+                <p>Indítsd el a telepítőt a terminálban:</p>
                 <CommandBlock command={zipInstallCommand(os, mode)} label="A telepítő parancsa" />
                 <p className="text-sm text-ink-3">
                   Ha máshol van a mappa: írd be, hogy <Code>bash</Code> és egy szóköz, húzd az install.sh fájlt a
-                  Terminál ablakába, majd nyomj Entert.
+                  terminál ablakába, majd nyomj Entert.
                 </p>
               </Step>
             </>
@@ -359,17 +359,27 @@ export function SetupView({
         <ol role="list" className="mt-8 space-y-10">
           <Step number={1}>
             <p className="max-w-2xl">
-              {macos
-                ? "Nyiss egy Terminált, hozz létre egy mappát, és lépj bele. A példa a saját mappádba teszi, de bármelyik jó:"
+              {unix
+                ? "Nyiss egy terminált, hozz létre egy mappát, és lépj bele. A példa a saját mappádba teszi, de bármelyik jó:"
                 : "Nyiss egy PowerShellt, és futtasd ezt. Létrehoz egy mappát (bármelyik jó), belép, és felvesz egy paste parancsot, amely a vágólap tartalmát fájlba menti:"}
             </p>
             <CommandBlock command={folderCommand(os)} label="A mappa parancsa" />
           </Step>
           <Step number={2}>
             <p className="max-w-2xl">
-              Hozd létre a fájlokat. Mindegyiknél: <strong className="font-medium text-ink">Másolás</strong>, majd{" "}
-              {macos ? "a Terminálban" : "a PowerShellben"} a Mentés sorában álló parancs. Szövegszerkesztővel is
-              mentheted, csak a név egyezzen.
+              {os === "linux" ? (
+                <>
+                  Hozd létre a fájlokat. Mindegyiknél: futtasd a terminálban a Mentés sorában álló parancsot, illeszd
+                  be a másolt tartalmat, majd zárd <Code>Ctrl+D</Code>-vel. Szövegszerkesztővel is mentheted, csak a
+                  név egyezzen.
+                </>
+              ) : (
+                <>
+                  Hozd létre a fájlokat. Mindegyiknél: <strong className="font-medium text-ink">Másolás</strong>,
+                  majd {os === "macos" ? "a Terminálban" : "a PowerShellben"} a Mentés sorában álló parancs.
+                  Szövegszerkesztővel is mentheted, csak a név egyezzen.
+                </>
+              )}
             </p>
             <div className="space-y-4 pt-1">
               {files.map((file) => (
@@ -406,7 +416,7 @@ export function SetupView({
           <dt className="text-ink-3">Token</dt>
           <dd className="text-ink-2">
             A szerver <Code>USAGE_API_TOKEN</Code> értéke, minden gépen ugyanaz. Egy már beállított kliensnél itt
-            találod: <Code>{INSTALLED_CONFIG.macos}</Code> (macOS) vagy{" "}
+            találod: <Code>{INSTALLED_CONFIG.macos}</Code> (macOS/Linux) vagy{" "}
             <Code>
               <BreakablePath path={INSTALLED_CONFIG.windows} />
             </Code>{" "}
@@ -427,12 +437,13 @@ export function SetupView({
           <dt className="text-ink-3">Eltávolítás</dt>
           <dd className="space-y-2 text-ink-2">
             <CommandBlock command={uninstallCommand(os, mode)} label="Az eltávolítás parancsa" />
-            {macos && mode === "manual" && (
+            {unix && mode === "manual" && (
               <p>
-                Utána töröld a <Code>~/.zshrc</Code> fájlból az <Code>alias sync-tokens=</Code> kezdetű sort.
+                Utána töröld a shell indítófájljából (pl. <Code>~/.zshrc</Code> vagy <Code>~/.bashrc</Code>) az{" "}
+                <Code>alias sync-tokens=</Code> kezdetű sort.
               </p>
             )}
-            {!macos && mode === "auto" && <p>Rendszergazdaként indított PowerShellben futtasd.</p>}
+            {os === "windows" && mode === "auto" && <p>Rendszergazdaként indított PowerShellben futtasd.</p>}
           </dd>
         </dl>
       </section>
