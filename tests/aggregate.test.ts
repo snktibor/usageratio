@@ -55,6 +55,35 @@ describe("summarizeUsage — snapshot mode", () => {
       ["win-1", 80],
     ]);
   });
+
+  it("keeps the highest running total when a later report of the cycle sees less", () => {
+    // The machine's session logs of the first days were deleted before the last report.
+    const summary = summarizeUsage(
+      [
+        { ...ev("mac", "Personal", 300, 1400), checkpoint: true },
+        ev("mac", "Personal", 500, 1500),
+        ev("mac", "Personal", 120, 1800),
+      ],
+      WINDOW,
+      "snapshot",
+    );
+    expect(summary.series[0]).toMatchObject({ tokens: 500, reports: 2, lastReportAt: 1800 });
+  });
+
+  it("keeps a higher checkpoint over a later, lower report", () => {
+    const summary = summarizeUsage(
+      [{ ...ev("mac", "Personal", 300, 1400), checkpoint: true }, ev("mac", "Personal", 200, 1500)],
+      WINDOW,
+      "snapshot",
+    );
+    expect(summary.total).toBe(300);
+  });
+
+  it("starts over in a new cycle, however high the previous one ended", () => {
+    const events = [ev("mac", "Personal", 900, 1900), ev("mac", "Personal", 40, 2100)];
+    expect(summarizeUsage(events, WINDOW, "snapshot").total).toBe(900);
+    expect(summarizeUsage(events, { startMs: 2000, endMs: 3000 }, "snapshot").total).toBe(40);
+  });
 });
 
 describe("summarizeUsage — day checkpoints", () => {

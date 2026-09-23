@@ -75,7 +75,9 @@ export function usageOfSeriesUntil(
     if (mode === "delta") {
       if (inWindow) usage += event.tokens;
     } else if (mode === "snapshot") {
-      if (inWindow) usage = event.tokens;
+      // A running total never falls within a cycle: a lower reading only means
+      // the client lost logs it once counted (e.g. deleted session files).
+      if (inWindow) usage = Math.max(usage, event.tokens);
     } else {
       if (inWindow && previous !== null) {
         // A reading below the previous one means the counter restarted from zero.
