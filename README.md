@@ -286,8 +286,10 @@ csoportok és a gépek „A keretből" oszlopa pedig a fenti képlet szerint osz
 - **Tokenkerettel** a tokenszámok is a hivatalos értékhez igazodnak; a panel kiírja a mért értéket és a
   szorzót is. **Üres mezővel** minden a gépek saját mérése és a beállított keret szerint számol.
 
-Az érték csak a böngészőben él (`localStorage`), providerenként külön kulcson; a szerverre nem kerül
-fel, és a ciklus végén magától törlődik. A tempót a dashboard a beírás időpontjára vetíti.
+Az érték a szerveren (Redis) tárolódik, providerenként külön mezőn, így bármelyik böngészőből
+elérhető ugyanaz az adat; a dashboard automatikus frissítése (5 percenként, illetve amikor a fül
+újra láthatóvá válik) hozza át a legfrissebb beírást a többi böngészőbe. A ciklus végén magától
+törlődik. A tempót a dashboard a beírás időpontjára vetíti.
 
 **Alkeretek:** a fiók alkeretei a fő mező alatt kisebb mezőt és csúszkát kapnak, az állapotukkal (ikon,
 elfogyott rész, tempó) együtt. A százalék mindig az **alkeret saját keretének** százaléka, ahogy a
