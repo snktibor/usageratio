@@ -13,6 +13,7 @@ import {
   CCUSAGE_RUNNERS,
   checkMachineSettings,
   folderCommand,
+  INSTALL_ROUTES,
   INSTALLED_CONFIG,
   installerCommand,
   LOG_FILE,
@@ -21,8 +22,10 @@ import {
   OS_LABEL,
   packageFiles,
   packageName,
+  parseRoute,
   renderConfig,
   renderOneShot,
+  ROUTE_LABEL,
   RUNNER_LABEL,
   RUNNER_SUMMARY,
   saveCommand,
@@ -32,6 +35,7 @@ import {
   zipInstallCommand,
   type CcusageRunner,
   type ClientSources,
+  type InstallRoute,
   type MachineSettings,
   type OneShotBlobs,
   type SetupMode,
@@ -52,6 +56,7 @@ const SETUP_PREFS_COOKIE = "usageratio-setup";
 
 interface SetupPrefs {
   os?: string;
+  route?: string;
   group?: string;
   machine?: string;
 }
@@ -65,7 +70,7 @@ function readSetupPrefs(): SetupPrefs | null {
   }
 }
 
-function writeSetupPrefs(prefs: { os: SetupOs; group: string; machine: string }) {
+function writeSetupPrefs(prefs: { os: SetupOs; route: InstallRoute; group: string; machine: string }) {
   try {
     const oneYear = 60 * 60 * 24 * 365;
     document.cookie = `${SETUP_PREFS_COOKIE}=${encodeURIComponent(JSON.stringify(prefs))}; path=/setup; max-age=${oneYear}; samesite=lax`;
@@ -115,6 +120,67 @@ function Segmented<T extends string>({
         ))}
       </div>
     </fieldset>
+  );
+}
+
+function tabId(tabsId: string, route: InstallRoute): string {
+  return `${tabsId}-tab-${route}`;
+}
+
+function panelId(tabsId: string, route: InstallRoute): string {
+  return `${tabsId}-panel-${route}`;
+}
+
+/** The three install routes as an ARIA tablist; arrow keys move the selection like a native tab strip. */
+function RouteTabs({
+  tabsId,
+  value,
+  onChange,
+}: {
+  tabsId: string;
+  value: InstallRoute;
+  onChange: (route: InstallRoute) => void;
+}) {
+  const move = (delta: 1 | -1) => {
+    const index = INSTALL_ROUTES.indexOf(value);
+    const next = INSTALL_ROUTES[(index + delta + INSTALL_ROUTES.length) % INSTALL_ROUTES.length]!;
+    onChange(next);
+    document.getElementById(tabId(tabsId, next))?.focus();
+  };
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Telepítés módja"
+      className="flex flex-wrap gap-1 border-b border-rule"
+      onKeyDown={(event) => {
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          move(1);
+        } else if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          move(-1);
+        }
+      }}
+    >
+      {INSTALL_ROUTES.map((route) => (
+        <button
+          key={route}
+          type="button"
+          role="tab"
+          id={tabId(tabsId, route)}
+          aria-selected={value === route}
+          aria-controls={panelId(tabsId, route)}
+          tabIndex={value === route ? 0 : -1}
+          onClick={() => onChange(route)}
+          className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink ${
+            value === route ? "border-ink text-ink" : "border-transparent text-ink-2 hover:text-ink"
+          }`}
+        >
+          {ROUTE_LABEL[route]}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -203,7 +269,7 @@ function OneShotSection({
   };
 
   return (
-    <section aria-labelledby={headingId} className="mt-20">
+    <section aria-labelledby={headingId}>
       <div className="relative flex items-center gap-1.5">
         <h2 id={headingId} className="text-2xl font-semibold tracking-tight">
           Egyszeri feltöltés
@@ -281,6 +347,7 @@ function OneShotSection({
 export function SetupView({
   initialOs,
   initialMode,
+  initialRoute,
   apiUrl,
   groups,
   sources,
@@ -289,6 +356,7 @@ export function SetupView({
 }: {
   initialOs: SetupOs;
   initialMode: SetupMode;
+  initialRoute: InstallRoute;
   apiUrl: string;
   groups: SetupGroup[];
   sources: ClientSources;
@@ -297,6 +365,7 @@ export function SetupView({
 }) {
   const [os, setOs] = useState(initialOs);
   const [mode, setMode] = useState(initialMode);
+  const [route, setRoute] = useState(initialRoute);
   const [group, setGroup] = useState(groups[0]?.id ?? "Personal");
   const [machine, setMachine] = useState("");
   const skipPrefsWrite = useRef(true);
@@ -305,38 +374,43 @@ export function SetupView({
     groupNote: useId(),
     machine: useId(),
     machineNote: useId(),
+    tabs: useId(),
     zip: useId(),
     manual: useId(),
     oneShot: useId(),
     notes: useId(),
   };
 
-  // Restores the client's last group/machine, and its last os when the URL didn't ask for one explicitly.
+  // Restores the client's last group/machine/tab, and its last os when the URL didn't ask for one explicitly.
   // Runs before the effect below rewrites the address, so it still sees the address the page was opened with.
   useEffect(() => {
     const saved = readSetupPrefs();
     if (saved) {
-      const osFromQuery = new URLSearchParams(window.location.search).has("os");
-      if (!osFromQuery && saved.os && (SETUP_OSES as readonly string[]).includes(saved.os)) {
+      const query = new URLSearchParams(window.location.search);
+      if (!query.has("os") && saved.os && (SETUP_OSES as readonly string[]).includes(saved.os)) {
         setOs(saved.os as SetupOs);
+      }
+      if (!query.has("route")) {
+        const savedRoute = parseRoute(saved.route);
+        if (savedRoute) setRoute(savedRoute);
       }
       if (saved.group) setGroup(saved.group);
       if (saved.machine) setMachine(saved.machine);
     }
   }, []);
 
-  // The choice stays in the address, so a reload or a saved link opens the same package.
+  // The choice stays in the address, so a reload or a saved link opens the same package and tab.
   useEffect(() => {
-    window.history.replaceState(null, "", `?os=${os}&mode=${mode}`);
-  }, [os, mode]);
+    window.history.replaceState(null, "", `?os=${os}&mode=${mode}&route=${route}`);
+  }, [os, mode, route]);
 
   useEffect(() => {
     if (skipPrefsWrite.current) {
       skipPrefsWrite.current = false;
       return;
     }
-    writeSetupPrefs({ os, group, machine });
-  }, [os, group, machine]);
+    writeSetupPrefs({ os, route, group, machine });
+  }, [os, route, group, machine]);
 
   const check = checkMachineSettings(group, machine);
   const settings = check.ok ? { apiUrl, groupId: check.groupId, machineId: check.machineId } : null;
@@ -452,143 +526,175 @@ export function SetupView({
         </div>
       </section>
 
-      <section aria-labelledby={ids.zip} className="mt-16">
-        <h2 id={ids.zip} className="text-2xl font-semibold tracking-tight">
-          Letöltés ZIP-ben
-        </h2>
-        <p className="mt-2 max-w-2xl text-ink-2">
-          Kész csomag a fenti beállításokkal, telepítővel együtt. Tokent nem tartalmaz: azt a telepítő kéri be.
-        </p>
+      <div className="mt-14">
+        <RouteTabs tabsId={ids.tabs} value={route} onChange={setRoute} />
 
-        <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2">
-          {zipHref ? (
-            <a
-              href={zipHref}
-              className="inline-flex items-center gap-2.5 rounded-md bg-ink px-5 py-2.5 font-medium text-page transition-opacity hover:opacity-90"
-            >
-              <DownloadIcon />
-              Csomag letöltése
-            </a>
-          ) : (
-            <button
-              type="button"
-              disabled
-              className="inline-flex items-center gap-2.5 rounded-md bg-ink px-5 py-2.5 font-medium text-page opacity-40"
-            >
-              <DownloadIcon />
-              Csomag letöltése
-            </button>
-          )}
-          <span className="font-mono text-sm text-ink-3 wrap-anywhere">{name}.zip</span>
-        </div>
-        {!zipHref && <p className="mt-3 text-sm text-ink-3">Előbb javítsd a csoportot vagy a gép azonosítóját.</p>}
-
-        <ol role="list" className="mt-8 max-w-2xl space-y-6">
-          {unix ? (
-            <>
-              <Step number={1}>
-                <p>
-                  Nyisd meg a letöltött ZIP-et: a Letöltések mappában létrejön a <Code>{name}</Code> mappa. Máshová is
-                  áthelyezheted.
-                </p>
-              </Step>
-              <Step number={2}>
-                <p>Indítsd el a telepítőt a terminálban:</p>
-                <CommandBlock command={zipInstallCommand(os, mode)} label="A telepítő parancsa" />
-                <p className="text-sm text-ink-3">
-                  Ha máshol van a mappa: írd be, hogy <Code>bash</Code> és egy szóköz, húzd az install.sh fájlt a
-                  terminál ablakába, majd nyomj Entert.
-                </p>
-              </Step>
-            </>
-          ) : (
-            <>
-              <Step number={1}>
-                <p>
-                  Kattints a ZIP-re jobb gombbal, és válaszd az <strong className="font-medium text-ink">Összes kibontása…</strong>{" "}
-                  lehetőséget. Bárhová kibonthatod.
-                </p>
-              </Step>
-              <Step number={2}>
-                <p>
-                  A kibontott mappában kattints duplán az <Code>install.cmd</Code> fájlra. Ha a Windows rákérdez,
-                  engedélyezd a futtatást{mode === "auto" ? ", majd a rendszergazdai jogot is" : ""}.
-                </p>
-                <p className="text-sm text-ink-3">PowerShellből is indíthatod:</p>
-                <CommandBlock command={zipInstallCommand(os, mode)} label="A telepítő parancsa" />
-              </Step>
-            </>
-          )}
-          <Step number={3}>
-            <TokenNote os={os} mode={mode} tokenStatus={tokenStatus} />
-          </Step>
-        </ol>
-      </section>
-
-      <section aria-labelledby={ids.manual} className="mt-20">
-        <h2 id={ids.manual} className="text-2xl font-semibold tracking-tight">
-          Másold és hozd létre
-        </h2>
-        <p className="mt-2 max-w-2xl text-ink-2">
-          Hova? Bárhova. Egy feltétel van: mind a(z) {files.length} fájl ugyanabba a mappába kerüljön, pontosan
-          ezekkel a nevekkel. A telepítő innen másolja őket a végleges helyükre, utána a mappa törölhető.
-        </p>
-
-        <ol role="list" className="mt-8 space-y-10">
-          <Step number={1}>
-            <p className="max-w-2xl">
-              {unix
-                ? "Nyiss egy terminált, hozz létre egy mappát, és lépj bele. A példa a saját mappádba teszi, de bármelyik jó:"
-                : "Nyiss egy PowerShellt, és futtasd ezt. Létrehoz egy mappát (bármelyik jó), belép, és felvesz egy paste parancsot, amely a vágólap tartalmát fájlba menti:"}
+        <div
+          role="tabpanel"
+          id={panelId(ids.tabs, "zip")}
+          aria-labelledby={tabId(ids.tabs, "zip")}
+          hidden={route !== "zip"}
+          tabIndex={0}
+          className="mt-8"
+        >
+          <section aria-labelledby={ids.zip}>
+            <h2 id={ids.zip} className="text-2xl font-semibold tracking-tight">
+              Letöltés ZIP-ben
+            </h2>
+            <p className="mt-2 max-w-2xl text-ink-2">
+              Kész csomag a fenti beállításokkal, telepítővel együtt. Tokent nem tartalmaz: azt a telepítő kéri be.
             </p>
-            <CommandBlock command={folderCommand(os)} label="A mappa parancsa" />
-          </Step>
-          <Step number={2}>
-            <p className="max-w-2xl">
-              {os === "linux" ? (
+
+            <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2">
+              {zipHref ? (
+                <a
+                  href={zipHref}
+                  className="inline-flex items-center gap-2.5 rounded-md bg-ink px-5 py-2.5 font-medium text-page transition-opacity hover:opacity-90"
+                >
+                  <DownloadIcon />
+                  Csomag letöltése
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="inline-flex items-center gap-2.5 rounded-md bg-ink px-5 py-2.5 font-medium text-page opacity-40"
+                >
+                  <DownloadIcon />
+                  Csomag letöltése
+                </button>
+              )}
+              <span className="font-mono text-sm text-ink-3 wrap-anywhere">{name}.zip</span>
+            </div>
+            {!zipHref && <p className="mt-3 text-sm text-ink-3">Előbb javítsd a csoportot vagy a gép azonosítóját.</p>}
+
+            <ol role="list" className="mt-8 max-w-2xl space-y-6">
+              {unix ? (
                 <>
-                  Hozd létre a fájlokat. Mindegyiknél: futtasd a terminálban a Mentés sorában álló parancsot, illeszd
-                  be a másolt tartalmat, majd zárd <Code>Ctrl+D</Code>-vel. Szövegszerkesztővel is mentheted, csak a
-                  név egyezzen.
+                  <Step number={1}>
+                    <p>
+                      Nyisd meg a letöltött ZIP-et: a Letöltések mappában létrejön a <Code>{name}</Code> mappa.
+                      Máshová is áthelyezheted.
+                    </p>
+                  </Step>
+                  <Step number={2}>
+                    <p>Indítsd el a telepítőt a terminálban:</p>
+                    <CommandBlock command={zipInstallCommand(os, mode)} label="A telepítő parancsa" />
+                    <p className="text-sm text-ink-3">
+                      Ha máshol van a mappa: írd be, hogy <Code>bash</Code> és egy szóköz, húzd az install.sh fájlt a
+                      terminál ablakába, majd nyomj Entert.
+                    </p>
+                  </Step>
                 </>
               ) : (
                 <>
-                  Hozd létre a fájlokat. Mindegyiknél: <strong className="font-medium text-ink">Másolás</strong>,
-                  majd {os === "macos" ? "a Terminálban" : "a PowerShellben"} a Mentés sorában álló parancs.
-                  Szövegszerkesztővel is mentheted, csak a név egyezzen.
+                  <Step number={1}>
+                    <p>
+                      Kattints a ZIP-re jobb gombbal, és válaszd az{" "}
+                      <strong className="font-medium text-ink">Összes kibontása…</strong> lehetőséget. Bárhová
+                      kibonthatod.
+                    </p>
+                  </Step>
+                  <Step number={2}>
+                    <p>
+                      A kibontott mappában kattints duplán az <Code>install.cmd</Code> fájlra. Ha a Windows rákérdez,
+                      engedélyezd a futtatást{mode === "auto" ? ", majd a rendszergazdai jogot is" : ""}.
+                    </p>
+                    <p className="text-sm text-ink-3">PowerShellből is indíthatod:</p>
+                    <CommandBlock command={zipInstallCommand(os, mode)} label="A telepítő parancsa" />
+                  </Step>
                 </>
               )}
-            </p>
-            <div className="space-y-4 pt-1">
-              {files.map((file) => (
-                <FileBlock
-                  key={file.name}
-                  name={file.name}
-                  role={file.role}
-                  saveCommand={saveCommand(os, file.name)}
-                  installedAs={file.installedAs}
-                  content={file.source ? sources[file.source] : settings && renderConfig(os, settings)}
-                  unavailable="Előbb javítsd a fenti csoportot vagy a gép azonosítóját."
-                />
-              ))}
-            </div>
-          </Step>
-          <Step number={3}>
-            <p>Futtasd a telepítőt ugyanebben a mappában:</p>
-            <CommandBlock command={installerCommand(os)} label="A telepítő parancsa" />
-            <TokenNote os={os} mode={mode} tokenStatus={tokenStatus} />
-          </Step>
-        </ol>
-      </section>
+              <Step number={3}>
+                <TokenNote os={os} mode={mode} tokenStatus={tokenStatus} />
+              </Step>
+            </ol>
+          </section>
+        </div>
 
-      <OneShotSection
-        headingId={ids.oneShot}
-        os={os}
-        settings={settings}
-        draft={{ apiUrl, groupId: group.trim(), machineId: machine.trim() }}
-        tokenStatus={tokenStatus}
-        blobs={oneShot}
-      />
+        <div
+          role="tabpanel"
+          id={panelId(ids.tabs, "manual")}
+          aria-labelledby={tabId(ids.tabs, "manual")}
+          hidden={route !== "manual"}
+          tabIndex={0}
+          className="mt-8"
+        >
+          <section aria-labelledby={ids.manual}>
+            <h2 id={ids.manual} className="text-2xl font-semibold tracking-tight">
+              Másold és hozd létre
+            </h2>
+            <p className="mt-2 max-w-2xl text-ink-2">
+              Hova? Bárhova. Egy feltétel van: mind a(z) {files.length} fájl ugyanabba a mappába kerüljön, pontosan
+              ezekkel a nevekkel. A telepítő innen másolja őket a végleges helyükre, utána a mappa törölhető.
+            </p>
+
+            <ol role="list" className="mt-8 space-y-10">
+              <Step number={1}>
+                <p className="max-w-2xl">
+                  {unix
+                    ? "Nyiss egy terminált, hozz létre egy mappát, és lépj bele. A példa a saját mappádba teszi, de bármelyik jó:"
+                    : "Nyiss egy PowerShellt, és futtasd ezt. Létrehoz egy mappát (bármelyik jó), belép, és felvesz egy paste parancsot, amely a vágólap tartalmát fájlba menti:"}
+                </p>
+                <CommandBlock command={folderCommand(os)} label="A mappa parancsa" />
+              </Step>
+              <Step number={2}>
+                <p className="max-w-2xl">
+                  {os === "linux" ? (
+                    <>
+                      Hozd létre a fájlokat. Mindegyiknél: futtasd a terminálban a Mentés sorában álló parancsot,
+                      illeszd be a másolt tartalmat, majd zárd <Code>Ctrl+D</Code>-vel. Szövegszerkesztővel is
+                      mentheted, csak a név egyezzen.
+                    </>
+                  ) : (
+                    <>
+                      Hozd létre a fájlokat. Mindegyiknél: <strong className="font-medium text-ink">Másolás</strong>,
+                      majd {os === "macos" ? "a Terminálban" : "a PowerShellben"} a Mentés sorában álló parancs.
+                      Szövegszerkesztővel is mentheted, csak a név egyezzen.
+                    </>
+                  )}
+                </p>
+                <div className="space-y-4 pt-1">
+                  {files.map((file) => (
+                    <FileBlock
+                      key={file.name}
+                      name={file.name}
+                      role={file.role}
+                      saveCommand={saveCommand(os, file.name)}
+                      installedAs={file.installedAs}
+                      content={file.source ? sources[file.source] : settings && renderConfig(os, settings)}
+                      unavailable="Előbb javítsd a fenti csoportot vagy a gép azonosítóját."
+                    />
+                  ))}
+                </div>
+              </Step>
+              <Step number={3}>
+                <p>Futtasd a telepítőt ugyanebben a mappában:</p>
+                <CommandBlock command={installerCommand(os)} label="A telepítő parancsa" />
+                <TokenNote os={os} mode={mode} tokenStatus={tokenStatus} />
+              </Step>
+            </ol>
+          </section>
+        </div>
+
+        <div
+          role="tabpanel"
+          id={panelId(ids.tabs, "oneShot")}
+          aria-labelledby={tabId(ids.tabs, "oneShot")}
+          hidden={route !== "oneShot"}
+          tabIndex={0}
+          className="mt-8"
+        >
+          <OneShotSection
+            headingId={ids.oneShot}
+            os={os}
+            settings={settings}
+            draft={{ apiUrl, groupId: group.trim(), machineId: machine.trim() }}
+            tokenStatus={tokenStatus}
+            blobs={oneShot}
+          />
+        </div>
+      </div>
 
       <section aria-labelledby={ids.notes} className="mt-20 border-t border-hairline pt-8">
         <h2 id={ids.notes} className="text-lg font-medium">

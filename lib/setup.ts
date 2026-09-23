@@ -10,9 +10,18 @@ import { parseId } from "@/lib/validation";
 
 export type SetupOs = "macos" | "linux" | "windows";
 export type SetupMode = "auto" | "manual";
+/** The three ways the page can hand over the package: which tab is open. */
+export type InstallRoute = "zip" | "manual" | "oneShot";
 
 export const SETUP_OSES: readonly SetupOs[] = ["macos", "linux", "windows"];
 export const SETUP_MODES: readonly SetupMode[] = ["auto", "manual"];
+export const INSTALL_ROUTES: readonly InstallRoute[] = ["zip", "manual", "oneShot"];
+
+export const ROUTE_LABEL: Record<InstallRoute, string> = {
+  zip: "ZIP telepítő",
+  manual: "Bemásolós telepítő",
+  oneShot: "Egyszeri parancs",
+};
 
 /** The address the reporters fall back to, too. */
 export const DEFAULT_API_URL = "https://usageratio.snktibor.hu/api/usage";
@@ -291,6 +300,10 @@ export function parseOs(value: unknown): SetupOs | null {
 
 export function parseMode(value: unknown): SetupMode | null {
   return (SETUP_MODES as readonly unknown[]).includes(value) ? (value as SetupMode) : null;
+}
+
+export function parseRoute(value: unknown): InstallRoute | null {
+  return (INSTALL_ROUTES as readonly unknown[]).includes(value) ? (value as InstallRoute) : null;
 }
 
 /** The visitor's own system, from the Sec-CH-UA-Platform hint or the user agent. */

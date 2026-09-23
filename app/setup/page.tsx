@@ -7,7 +7,7 @@ import type { ApiTokenStatus } from "@/lib/api-token";
 import { isAuthenticated } from "@/lib/auth";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { NEUTRAL_COLOR, resolveGroupColors } from "@/lib/settings";
-import { detectOs, parseMode, parseOs } from "@/lib/setup";
+import { detectOs, parseMode, parseOs, parseRoute } from "@/lib/setup";
 import { loadClientSources, oneShotBlobs, usageEndpoint } from "@/lib/setup-package";
 import { loadApiTokenStatus } from "@/lib/token-vault";
 import { loadIndexes } from "@/lib/usage-store";
@@ -56,6 +56,7 @@ export default async function SetupPage({
         detectOs(requestHeaders.get("user-agent"), requestHeaders.get("sec-ch-ua-platform"))
       }
       initialMode={parseMode(params.mode) ?? "auto"}
+      initialRoute={parseRoute(params.route) ?? "zip"}
       apiUrl={usageEndpoint(requestHeaders)}
       groups={groups}
       sources={sources}
