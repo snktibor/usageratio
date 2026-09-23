@@ -696,10 +696,10 @@ export function SetupView({
         </div>
       </div>
 
-      <section aria-labelledby={ids.notes} className="mt-20 border-t border-hairline pt-8">
-        <h2 id={ids.notes} className="text-lg font-medium">
+      <details className="mt-20 border-t border-hairline pt-8">
+        <summary id={ids.notes} className="w-fit cursor-pointer text-sm text-ink-3 transition-colors hover:text-ink">
           Tudnivalók
-        </h2>
+        </summary>
         <dl className="mt-5 grid max-w-3xl grid-cols-[minmax(0,1fr)] gap-x-8 gap-y-5 text-sm leading-relaxed sm:grid-cols-[8rem_minmax(0,1fr)]">
           <dt className="text-ink-3">Előfeltétel</dt>
           <dd className="text-ink-2">
@@ -739,7 +739,7 @@ export function SetupView({
             {os === "windows" && mode === "auto" && <p>Rendszergazdaként indított PowerShellben futtasd.</p>}
           </dd>
         </dl>
-      </section>
+      </details>
     </main>
   );
 }
