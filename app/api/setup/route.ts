@@ -4,7 +4,7 @@ import { checkMachineSettings, parseMode, parseOs } from "@/lib/setup";
 import { buildSetupZip, loadClientSources, usageEndpoint } from "@/lib/setup-package";
 
 /**
- * GET /api/setup?os=macos|windows&mode=auto|manual&group=Work&machine=win-desktop
+ * GET /api/setup?os=macos|linux|windows&mode=auto|manual&group=Work&machine=win-desktop
  *
  * The setup page's ZIP download. It sits behind the dashboard's PIN session like
  * the page itself: without a session the browser is sent to /setup, which asks

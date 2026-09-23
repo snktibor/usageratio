@@ -8,10 +8,10 @@ import { parseId } from "@/lib/validation";
  * package: the installer asks for it and checks it against the server.
  */
 
-export type SetupOs = "macos" | "windows";
+export type SetupOs = "macos" | "linux" | "windows";
 export type SetupMode = "auto" | "manual";
 
-export const SETUP_OSES: readonly SetupOs[] = ["macos", "windows"];
+export const SETUP_OSES: readonly SetupOs[] = ["macos", "linux", "windows"];
 export const SETUP_MODES: readonly SetupMode[] = ["auto", "manual"];
 
 /** The address the reporters fall back to, too. */
@@ -20,6 +20,7 @@ export const DEFAULT_API_URL = "https://usageratio.snktibor.hu/api/usage";
 /** Every file a package ships from the repository, as is. */
 export const CLIENT_SOURCES = [
   "clients/setup/install.sh",
+  "clients/setup/install-linux.sh",
   "clients/setup/install.ps1",
   "clients/setup/install.cmd",
   "clients/auto/report-usage.sh",
@@ -57,13 +58,17 @@ export interface PackageFile {
   zipOnly: boolean;
 }
 
-export const OS_LABEL: Record<SetupOs, string> = { macos: "macOS", windows: "Windows" };
+export const OS_LABEL: Record<SetupOs, string> = { macos: "macOS", linux: "Linux", windows: "Windows" };
 export const MODE_LABEL: Record<SetupMode, string> = { auto: "Automatikus", manual: "Manuális" };
 
 export const MODE_SUMMARY: Record<SetupOs, Record<SetupMode, string>> = {
   macos: {
     auto: "Óránként magától küld, a cron ütemezésével, csendben. Telepítés után nincs vele teendő.",
     manual: "Akkor küld, amikor a Terminálban beírod: sync-tokens. Az eredményt ki is írja.",
+  },
+  linux: {
+    auto: "Óránként magától küld, a cron ütemezésével, csendben. Telepítés után nincs vele teendő.",
+    manual: "Akkor küld, amikor a terminálban beírod: sync-tokens. Az eredményt ki is írja.",
   },
   windows: {
     auto:
@@ -75,17 +80,20 @@ export const MODE_SUMMARY: Record<SetupOs, Record<SetupMode, string>> = {
 
 const INSTALL_ROOT: Record<SetupOs, string> = {
   macos: "~/.usageratio",
+  linux: "~/.usageratio",
   windows: "%USERPROFILE%\\.usageratio",
 };
 
 export const LOG_FILE: Record<SetupOs, string> = {
   macos: "~/Library/Logs/usageratio.log",
+  linux: "~/.usageratio.log",
   windows: "%USERPROFILE%\\.usageratio\\usageratio.log",
 };
 
 /** Where an installed client keeps the token: the place to look it up for the next machine. */
 export const INSTALLED_CONFIG: Record<SetupOs, string> = {
   macos: "~/.config/usageratio/config",
+  linux: "~/.config/usageratio/config",
   windows: "%USERPROFILE%\\.usageratio\\config.json",
 };
 
@@ -97,14 +105,16 @@ const CONFIG_ROLE =
   "A gép beállításai: a szerver címe, a csoport és a gép azonosítója. A telepítő kiegészíti a tokennel, " +
   "és a helyére írja.";
 
-function macFiles(mode: SetupMode): PackageFile[] {
-  const root = INSTALL_ROOT.macos;
+/** macOS and Linux ship the same reporter and wrapper scripts; only the installer differs. */
+function unixFiles(os: "macos" | "linux", mode: SetupMode): PackageFile[] {
+  const root = INSTALL_ROOT[os];
+  const installerSource = os === "macos" ? "clients/setup/install.sh" : "clients/setup/install-linux.sh";
   return [
     {
       name: "config",
       source: null,
       role: CONFIG_ROLE,
-      installedAs: INSTALLED_CONFIG.macos,
+      installedAs: INSTALLED_CONFIG[os],
       executable: false,
       zipOnly: false,
     },
@@ -137,7 +147,7 @@ function macFiles(mode: SetupMode): PackageFile[] {
     },
     {
       name: "install.sh",
-      source: "clients/setup/install.sh",
+      source: installerSource,
       role:
         "A telepítő: bekéri és ellenőrzi a tokent, a helyükre másolja a fájlokat, " +
         (mode === "auto" ? "beállítja az óránkénti cron-feladatot" : "felveszi a sync-tokens parancsot") +
@@ -223,7 +233,7 @@ function windowsFiles(mode: SetupMode): PackageFile[] {
 }
 
 export function packageFiles(os: SetupOs, mode: SetupMode): PackageFile[] {
-  return os === "macos" ? macFiles(mode) : windowsFiles(mode);
+  return os === "windows" ? windowsFiles(mode) : unixFiles(os, mode);
 }
 
 /** The ZIP's name without extension; also the folder it unpacks into. */
@@ -233,7 +243,7 @@ export function packageName(os: SetupOs, mode: SetupMode): string {
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-// The macOS config is sourced by bash: nothing in a value may end its double quotes.
+// The macOS/Linux config is sourced by bash: nothing in a value may end its double quotes.
 const SHELL_UNSAFE = /["$`\\\r\n]/;
 
 /** The package's config file. The installer adds the token and writes the real one. */
@@ -285,7 +295,11 @@ export function parseMode(value: unknown): SetupMode | null {
 
 /** The visitor's own system, from the Sec-CH-UA-Platform hint or the user agent. */
 export function detectOs(userAgent: string | null, platformHint: string | null): SetupOs {
-  return /windows/i.test(`${platformHint ?? ""} ${userAgent ?? ""}`) ? "windows" : "macos";
+  const probe = `${platformHint ?? ""} ${userAgent ?? ""}`;
+  if (/windows/i.test(probe)) return "windows";
+  // Android's user agent also says "Linux"; it is never the desktop.
+  if (/linux/i.test(probe) && !/android/i.test(probe)) return "linux";
+  return "macos";
 }
 
 // ── Commands ─────────────────────────────────────────────────────────────────
@@ -295,33 +309,39 @@ const WINDOWS_RUNNER = "powershell -NoProfile -ExecutionPolicy Bypass -File";
 /** Starts the installer of a ZIP unpacked in the Downloads folder. */
 export function zipInstallCommand(os: SetupOs, mode: SetupMode): string {
   const folder = packageName(os, mode);
-  return os === "macos"
+  return os !== "windows"
     ? `bash ~/Downloads/${folder}/install.sh`
     : `${WINDOWS_RUNNER} "$HOME\\Downloads\\${folder}\\install.ps1"`;
 }
 
 /** Creates a working folder and steps into it (on Windows it also defines `paste`). */
 export function folderCommand(os: SetupOs): string {
-  return os === "macos"
+  return os !== "windows"
     ? "mkdir -p ~/usageratio-setup && cd ~/usageratio-setup"
     : 'New-Item -ItemType Directory -Force "$HOME\\usageratio-setup" | Out-Null; Set-Location "$HOME\\usageratio-setup"\n' +
         // UTF-8 without a byte order mark: Node refuses one in front of the parser's first line.
         "function paste($name) { [IO.File]::WriteAllText((Join-Path $PWD $name), (Get-Clipboard -Raw)) }";
 }
 
-/** Saves the clipboard as `name` in the working folder. */
+/**
+ * Saves the clipboard as `name` in the working folder. Linux has no universal
+ * clipboard command (and none at all over SSH into a headless machine), so
+ * `cat` reads whatever the terminal's own paste shortcut feeds it instead.
+ */
 export function saveCommand(os: SetupOs, name: string): string {
-  return os === "macos" ? `pbpaste > ${name}` : `paste ${name}`;
+  if (os === "macos") return `pbpaste > ${name}`;
+  if (os === "linux") return `cat > ${name}`;
+  return `paste ${name}`;
 }
 
 /** Starts the installer from inside its folder. */
 export function installerCommand(os: SetupOs): string {
-  return os === "macos" ? "bash install.sh" : `${WINDOWS_RUNNER} .\\install.ps1`;
+  return os !== "windows" ? "bash install.sh" : `${WINDOWS_RUNNER} .\\install.ps1`;
 }
 
 /** Removes everything the installer set up. */
 export function uninstallCommand(os: SetupOs, mode: SetupMode): string {
-  if (os === "macos") {
+  if (os !== "windows") {
     return mode === "auto"
       ? "crontab -l | grep -v '/\\.usageratio/auto/report-usage\\.sh' | crontab -\nrm -rf ~/.usageratio ~/.config/usageratio"
       : "rm -rf ~/.usageratio ~/.config/usageratio";
@@ -340,14 +360,14 @@ export function renderReadme(os: SetupOs, mode: SetupMode, settings: MachineSett
   const folder = packageName(os, mode);
   const indent = (text: string) => text.replace(/^/gm, "     ");
   const steps =
-    os === "macos"
+    os !== "windows"
       ? [
-          "1. Nyisd meg a Terminált, és indítsd el a telepítőt:",
+          "1. Nyisd meg a terminált, és indítsd el a telepítőt:",
           "",
           indent(zipInstallCommand(os, mode)),
           "",
           '   Ha máshova bontottad ki: írd be, hogy "bash " (szóközzel), húzd az',
-          "   install.sh fájlt a Terminál ablakába, és nyomj Entert.",
+          "   install.sh fájlt a terminál ablakába, és nyomj Entert.",
         ]
       : [
           "1. Kattints duplán az install.cmd fájlra ebben a mappában.",
@@ -386,8 +406,8 @@ export function renderReadme(os: SetupOs, mode: SetupMode, settings: MachineSett
     "Eltávolítás",
     "",
     indent(uninstallCommand(os, mode)),
-    ...(os === "macos" && mode === "manual"
-      ? ["", "   és töröld a ~/.zshrc fájlból az alias sync-tokens=... sort."]
+    ...(os !== "windows" && mode === "manual"
+      ? ["", "   és töröld a shell indítófájljából (pl. ~/.zshrc vagy ~/.bashrc) az alias sync-tokens=... sort."]
       : []),
     ...(os === "windows" && mode === "auto" ? ["", "   (rendszergazdaként indított PowerShellben)"] : []),
     "",

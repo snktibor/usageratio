@@ -30,7 +30,7 @@ describe("setup package contents", () => {
   it.each(COMBINATIONS)("ships exactly the $mode reporter in the $os package", ({ os, mode }) => {
     const names = packageFiles(os, mode).map((file) => file.name);
     const reporters = names.filter((name) => name.startsWith("report-usage-") && !name.includes("core"));
-    expect(reporters).toEqual([`report-usage-${mode}.${os === "macos" ? "sh" : "ps1"}`]);
+    expect(reporters).toEqual([`report-usage-${mode}.${os === "windows" ? "ps1" : "sh"}`]);
     expect(new Set(names).size).toBe(names.length);
   });
 
@@ -151,6 +151,12 @@ describe("detectOs", () => {
     expect(detectOs("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", '"macOS"')).toBe("macos");
     expect(detectOs(null, null)).toBe("macos");
   });
+
+  it("recognises desktop Linux from the platform hint or the user agent, but not Android", () => {
+    expect(detectOs(null, '"Linux"')).toBe("linux");
+    expect(detectOs("Mozilla/5.0 (X11; Linux x86_64)", null)).toBe("linux");
+    expect(detectOs("Mozilla/5.0 (Linux; Android 14; Pixel 8)", '"Android"')).toBe("macos");
+  });
 });
 
 describe("buildSetupZip", () => {
@@ -172,6 +178,19 @@ describe("buildSetupZip", () => {
     for (const entry of entries) expect(entry.data.includes("\r\n"), entry.name).toBe(false);
     // The installer asks for the token; the package never carries one.
     expect(byName.get("config")!.data.toString("utf8")).not.toMatch(/TOKEN/i);
+  });
+
+  it("packs executable Linux scripts with the Linux installer, sharing the macOS reporter", async () => {
+    const sources = await loadClientSources();
+    const { fileName, bytes } = buildSetupZip("linux", "auto", SETTINGS, sources);
+    const entries = readZip(bytes);
+
+    expect(fileName).toBe("usageratio-linux-auto.zip");
+    const byName = new Map(entries.map((entry) => [entry.name, entry]));
+    expect(byName.get("install.sh")!.mode).toBe(0o755);
+    expect(byName.get("install.sh")!.data.toString("utf8")).toBe(sources["clients/setup/install-linux.sh"]);
+    expect(byName.get("report-usage-auto.sh")!.data.toString("utf8")).toBe(sources["clients/auto/report-usage.sh"]);
+    for (const entry of entries) expect(entry.data.includes("\r\n"), entry.name).toBe(false);
   });
 
   it("packs the Windows package with CRLF line ends and a README Notepad reads", async () => {
