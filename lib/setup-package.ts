@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { gzipSync } from "node:zlib";
 import {
   CLIENT_SOURCES,
   DEFAULT_API_URL,
@@ -9,6 +10,7 @@ import {
   renderReadme,
   type ClientSources,
   type MachineSettings,
+  type OneShotBlobs,
   type SetupMode,
   type SetupOs,
 } from "@/lib/setup";
@@ -31,7 +33,23 @@ export async function loadClientSources(): Promise<ClientSources> {
   return Object.fromEntries(entries) as ClientSources;
 }
 
-const HOST_PATTERN = /^[a-z0-9.-]+(:\d{1,5})?$/i;
+/** Gzipped and in base64, 76 characters a line: what a here-document or here-string carries safely. */
+function pack(text: string): string {
+  return gzipSync(text, { level: 9 })
+    .toString("base64")
+    .replace(/.{76}(?=.)/g, "$&\n");
+}
+
+/** The scripts the one-off report unpacks (lib/setup.ts renderOneShot). */
+export function oneShotBlobs(sources: ClientSources): OneShotBlobs {
+  return {
+    parser: pack(sources["clients/shared/ccusage-providers.cjs"]),
+    unixCore: pack(sources["clients/shared/report-usage-core.sh"]),
+    windowsCore: pack(sources["clients/shared/report-usage-core.ps1"]),
+  };
+}
+
+const HOST_PATTERN =/^[a-z0-9.-]+(:\d{1,5})?$/i;
 
 function firstValue(header: string | null): string {
   return header?.split(",")[0]?.trim() ?? "";

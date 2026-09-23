@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import {
   CLIENT_SOURCES,
@@ -7,11 +8,12 @@ import {
   detectOs,
   packageFiles,
   renderConfig,
+  renderOneShot,
   SETUP_MODES,
   SETUP_OSES,
   type MachineSettings,
 } from "@/lib/setup";
-import { buildSetupZip, loadClientSources, usageEndpoint } from "@/lib/setup-package";
+import { buildSetupZip, loadClientSources, oneShotBlobs, usageEndpoint } from "@/lib/setup-package";
 import { readZip } from "./read-zip";
 
 const SETTINGS: MachineSettings = {
@@ -211,5 +213,57 @@ describe("buildSetupZip", () => {
       machineId: "",
       groupId: "Otthoni gép",
     });
+  });
+});
+
+describe("renderOneShot", () => {
+  const BLOBS = { parser: "UEFSU0VS\nUEFSU0VS", unixCore: "VU5JWA==", windowsCore: "V0lORE9XUw==" };
+  const TOKEN = `abc'def$!\`0123456789`;
+
+  it("quotes every value for the shell and passes the settings in the environment", () => {
+    const text = renderOneShot("macos", "npx", { ...SETTINGS, machineId: "mac-studio" }, TOKEN, BLOBS);
+    expect(text).toContain(`USAGERATIO_API_TOKEN='abc'\\''def$!\`0123456789' \\\n`);
+    expect(text).toContain("USAGERATIO_GROUP_ID='Otthoni gép' \\\n");
+    expect(text).toContain("USAGERATIO_MACHINE_ID='mac-studio' \\\n");
+    expect(text).toContain("USAGERATIO_CCUSAGE=npx \\\n");
+    expect(text).toContain("\nUEFSU0VS\nUEFSU0VS\nUSAGERATIO_PARSER\n");
+    expect(text).toContain("\nVU5JWA==\nUSAGERATIO_CORE\n");
+    expect(text).not.toContain("V0lORE9XUw==");
+    // One subshell from the first line to the last: nothing stays set in the terminal.
+    expect(text.startsWith(" (\n")).toBe(true);
+    expect(text.endsWith('\nbash "$d/report-usage-core.sh"\n)')).toBe(true);
+  });
+
+  it("is the same command on macOS and Linux", () => {
+    expect(renderOneShot("linux", "global", SETTINGS, TOKEN, BLOBS)).toBe(
+      renderOneShot("macos", "global", SETTINGS, TOKEN, BLOBS),
+    );
+  });
+
+  it("builds a PowerShell block that cleans up after itself", () => {
+    const text = renderOneShot("windows", "global", SETTINGS, "abc'def\u2019ghi0123456789", BLOBS);
+    expect(text).toContain("    USAGERATIO_API_TOKEN = 'abc''def\u2019\u2019ghi0123456789'\n");
+    expect(text).toContain("    USAGERATIO_CCUSAGE = 'global'\n");
+    expect(text).toContain("@'\nV0lORE9XUw==\n'@\n");
+    expect(text).not.toContain("VU5JWA==");
+    expect(text).toMatch(/\} finally \{\n.*SetEnvironmentVariable\(\$name, \$null\).*\n.*Remove-Item -LiteralPath \$dir -Recurse/);
+    expect(text.startsWith("& {\n")).toBe(true);
+  });
+
+  it("packs the scripts so they unpack to the repository files, in short lines of plain base64", async () => {
+    const sources = await loadClientSources();
+    const blobs = oneShotBlobs(sources);
+    const files = {
+      parser: "clients/shared/ccusage-providers.cjs",
+      unixCore: "clients/shared/report-usage-core.sh",
+      windowsCore: "clients/shared/report-usage-core.ps1",
+    } as const;
+    for (const [key, source] of Object.entries(files) as [keyof typeof files, (typeof files)[keyof typeof files]][]) {
+      const blob = blobs[key];
+      // Nothing a shell could expand, and never a line that ends the here-document early.
+      expect(blob).toMatch(/^[A-Za-z0-9+/=\n]+$/);
+      expect(Math.max(...blob.split("\n").map((line) => line.length))).toBeLessThanOrEqual(76);
+      expect(gunzipSync(Buffer.from(blob, "base64")).toString("utf8")).toBe(sources[source]);
+    }
   });
 });

@@ -8,7 +8,7 @@ import { isAuthenticated } from "@/lib/auth";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { NEUTRAL_COLOR, resolveGroupColors } from "@/lib/settings";
 import { detectOs, parseMode, parseOs } from "@/lib/setup";
-import { loadClientSources, usageEndpoint } from "@/lib/setup-package";
+import { loadClientSources, oneShotBlobs, usageEndpoint } from "@/lib/setup-package";
 import { loadApiTokenStatus } from "@/lib/token-vault";
 import { loadIndexes } from "@/lib/usage-store";
 
@@ -59,6 +59,7 @@ export default async function SetupPage({
       apiUrl={usageEndpoint(requestHeaders)}
       groups={groups}
       sources={sources}
+      oneShot={oneShotBlobs(sources)}
       tokenStatus={tokenStatus}
     />
   );

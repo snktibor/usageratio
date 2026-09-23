@@ -1,7 +1,9 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState, type RefObject } from "react";
+import { copyText, CopyError } from "@/components/clipboard";
 import { CheckCircleIcon, CopyIcon } from "@/components/icons";
+import { StatusLine } from "@/components/status-line";
 
 /** A file path that wraps after its separators rather than in the middle of a name. */
 export function BreakablePath({ path }: { path: string }) {
@@ -17,24 +19,28 @@ export function BreakablePath({ path }: { path: string }) {
   );
 }
 
-type CopyState = "idle" | "copied" | "selected";
+type CopyState = "idle" | "busy" | "copied" | "selected";
 
 /**
  * Copies `text` to the clipboard. Where the browser refuses (an insecure
  * origin, a denied permission), it selects the shown code instead, so the
- * keyboard shortcut finishes the job.
+ * keyboard shortcut finishes the job. A `text` built at the click (one that
+ * fetches a secret) is never stood in for by the shown code: its problem goes
+ * to `onProblem` instead.
  */
 function CopyButton({
   text,
   target,
   label,
   disabled = false,
+  onProblem,
 }: {
-  text: string;
+  text: string | (() => Promise<string>);
   target: RefObject<HTMLElement | null>;
   /** What is copied, for screen readers: "install.sh tartalma". */
   label: string;
   disabled?: boolean;
+  onProblem?: (message: string | null) => void;
 }) {
   const [state, setState] = useState<CopyState>("idle");
   const timer = useRef<number | null>(null);
@@ -48,17 +54,30 @@ function CopyButton({
 
   async function copy() {
     let next: CopyState = "copied";
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      next = "selected";
-      const code = target.current;
-      const selection = window.getSelection();
-      if (code && selection) {
-        const range = document.createRange();
-        range.selectNodeContents(code);
-        selection.removeAllRanges();
-        selection.addRange(range);
+    if (typeof text === "function") {
+      if (timer.current !== null) window.clearTimeout(timer.current);
+      setState("busy");
+      onProblem?.(null);
+      try {
+        await copyText(text());
+      } catch (error) {
+        setState("idle");
+        onProblem?.(error instanceof CopyError ? error.message : "A másolás nem sikerült. Próbáld újra.");
+        return;
+      }
+    } else {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        next = "selected";
+        const code = target.current;
+        const selection = window.getSelection();
+        if (code && selection) {
+          const range = document.createRange();
+          range.selectNodeContents(code);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
       }
     }
     setState(next);
@@ -71,7 +90,7 @@ function CopyButton({
       <button
         type="button"
         onClick={() => void copy()}
-        disabled={disabled}
+        disabled={disabled || state === "busy"}
         aria-label={`${label} másolása`}
         className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-rule px-2.5 py-1 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink disabled:pointer-events-none disabled:opacity-40"
       >
@@ -85,7 +104,7 @@ function CopyButton({
         ) : (
           <>
             <CopyIcon />
-            Másolás
+            {state === "busy" ? "Másolás…" : "Másolás"}
           </>
         )}
       </button>
@@ -99,17 +118,43 @@ function CopyButton({
 /**
  * A command to paste into a terminal, with its copy button. Long commands wrap
  * instead of scrolling: a command cut off at the edge looks complete when it is not.
+ *
+ * With `resolve`, the shown command is only a preview: the button copies what
+ * `resolve` builds at the click (a command with a secret in it), and a failed
+ * build is told under the block.
  */
-export function CommandBlock({ command, label }: { command: string; label: string }) {
+export function CommandBlock({
+  command,
+  label,
+  resolve,
+  disabled = false,
+}: {
+  command: string;
+  label: string;
+  resolve?: () => Promise<string>;
+  disabled?: boolean;
+}) {
   const code = useRef<HTMLElement>(null);
-  return (
+  const [problem, setProblem] = useState<string | null>(null);
+  const block = (
     <div className="flex flex-col gap-2 rounded-md border border-rule bg-raised py-1.5 pl-4 pr-1.5 sm:flex-row sm:items-start sm:gap-3">
-      <pre className="min-w-0 grow py-1 pr-2.5 font-mono text-[13px] leading-relaxed whitespace-pre-wrap text-ink wrap-anywhere sm:pr-0">
+      <pre
+        className={`min-w-0 grow py-1 pr-2.5 font-mono text-[13px] leading-relaxed whitespace-pre-wrap text-ink wrap-anywhere sm:pr-0 ${resolve ? "code-scroll max-h-80 overflow-y-auto" : ""}`}
+        tabIndex={resolve ? 0 : undefined}
+        aria-label={resolve ? `${label} előnézete` : undefined}
+      >
         <code ref={code}>{command}</code>
       </pre>
       <div className="self-end sm:self-auto">
-        <CopyButton text={command} target={code} label={label} />
+        <CopyButton text={resolve ?? command} target={code} label={label} disabled={disabled} onProblem={setProblem} />
       </div>
+    </div>
+  );
+  if (!resolve) return block;
+  return (
+    <div className="space-y-2.5">
+      {block}
+      <div aria-live="polite">{problem && <StatusLine tone="problem">{problem}</StatusLine>}</div>
     </div>
   );
 }
