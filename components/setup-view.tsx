@@ -216,10 +216,9 @@ function TokenNote({ os, mode, tokenStatus }: { os: SetupOs; mode: SetupMode; to
   return (
     <>
       <p>
-        Amikor kéri, add meg a <Code>USAGE_API_TOKEN</Code>-t; gépelés közben nem látszik. A telepítő ellenőrzi a
-        szerveren, a helyükre másolja a fájlokat
-        {os === "windows" && mode === "auto" ? ", regisztrálja az ütemezett feladatot" : ""}, és elküld egy
-        próbajelentést.
+        Add meg a <Code>USAGE_API_TOKEN</Code>-t, amikor kéri (gépeléskor nem látszik). A telepítő a helyükre
+        másolja a fájlokat{os === "windows" && mode === "auto" ? ", regisztrálja az ütemezett feladatot" : ""}, és
+        küld egy próbajelentést.
       </p>
       <TokenCopyButton status={tokenStatus} />
     </>
@@ -275,25 +274,19 @@ function OneShotSection({
           Egyszeri feltöltés
         </h2>
         <InfoTip label="Mire jó az egyszeri feltöltés?">
+          <span className="block">Egyszeri adatküldés olyan gépről, amit nem kötnél be tartósan – például egy vendéggépről.</span>
           <span className="block">
-            Egyszeri adatfeltöltés egy olyan gépről, amelyet nem kötnél be tartósan: például csak megnéznéd, mennyi
-            fogyott eddig, vagy egy vendéggépről küldenéd el egyszer az állást.
-          </span>
-          <span className="block">
-            Utána semmi nem marad a gépen, és magától nem is frissül: ha újra kell, másold be újra. A Másolás gomb
-            mindig friss tokent és az aktuális beállításokat teszi bele.
+            Utána semmi nem marad a gépen, és nem frissül magától: ha újra kell, másold be újra.
           </span>
           <span className="block text-ink">
-            Vigyázz: a bemásolt szöveg a valódi, olvasható tokent tartalmazza. Ott marad a terminál előzményeiben és
-            görgetési pufferében, meg a vágólapkezelőkben, amíg nem törlöd. Ne oszd meg, és használat után érdemes
-            törölni.
+            Vigyázz: a parancs a valódi tokent tartalmazza, és ott marad a terminál előzményeiben, amíg nem törlöd.
+            Ne oszd meg.
           </span>
         </InfoTip>
       </div>
       <p className="mt-2 max-w-2xl text-ink-2">
-        Egyetlen parancs, amely a fenti csoporttal és gépazonosítóval egyszer elküldi a gép állását, és nem hagy nyomot:
-        nem telepít, nem ütemez, nem ment beállítást, és a végén törli az átmeneti fájljait. A Futtatás választása itt
-        nem számít.
+        Egyetlen parancs, ami a fenti csoporttal és gépazonosítóval egyszer elküldi a gép állását, és nem hagy
+        nyomot. A Futtatás választása itt nem számít.
       </p>
 
       <div className="mt-6">
@@ -311,8 +304,8 @@ function OneShotSection({
       <div className="mt-6 max-w-2xl space-y-3 leading-relaxed">
         <p>
           {os === "windows"
-            ? "Másold ki, illeszd be egy PowerShell-ablakba, és nyomj Entert. A végén kiírja, sikerült-e a küldés."
-            : "Másold ki, illeszd be egy terminálba (zsh vagy bash), és nyomj Entert. A végén kiírja, sikerült-e a küldés."}
+            ? "Másold ki, illeszd be egy PowerShellbe, és nyomj Entert."
+            : "Másold ki, illeszd be egy terminálba, és nyomj Entert."}
         </p>
         <CommandBlock
           command={preview}
@@ -323,9 +316,7 @@ function OneShotSection({
         {!settings ? (
           <p className="text-sm text-ink-3">Előbb javítsd a fenti csoportot vagy a gép azonosítóját.</p>
         ) : available ? (
-          <p className="text-sm text-ink-3">
-            A Másolás a tokent is lekéri a szerverről, és beleírja a parancsba: a lekérés az auditnaplóba kerül.
-          </p>
+          <p className="text-sm text-ink-3">A Másolás lekéri a tokent, és beleírja a parancsba (bekerül az auditnaplóba).</p>
         ) : null}
         {!available || note.tone === "warning" ? (
           <StatusLine tone={note.tone}>
@@ -440,9 +431,8 @@ export function SetupView({
       <div className="mt-12 max-w-2xl sm:mt-16">
         <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">Kliens telepítése</h1>
         <p className="mt-4 text-ink-2">
-          Válaszd ki a gép rendszerét és a futtatás módját. Utána töltsd le a kész csomagot, vagy hozd létre a
-          fájlokat kézzel: a két út ugyanoda vezet. Ha csak egyszer küldenél adatot, lent egy semmit nem telepítő
-          parancs is van.
+          Válaszd ki a rendszert és a futtatás módját, majd töltsd le a csomagot, vagy hozd létre a fájlokat kézzel.
+          Egyszeri adatküldéshez lent van egy telepítés nélküli parancs is.
         </p>
       </div>
 
@@ -496,7 +486,7 @@ export function SetupView({
             <FieldNote
               id={ids.groupNote}
               problem={check.ok ? null : check.group}
-              hint="A dashboard ezen a néven csoportosítja a gépet. Új név is lehet: az első jelentéskor magától felkerül a listára."
+              hint="A dashboard ezen a néven csoportosítja a gépet. Új név is lehet."
             />
           </div>
 
@@ -520,7 +510,7 @@ export function SetupView({
             <FieldNote
               id={ids.machineNote}
               problem={check.ok ? null : check.machine}
-              hint="Üresen hagyva a számítógép neve lesz; ha a gépen már fut a kliens, a meglévő azonosítója marad. Minden gépnek egyedi kell."
+              hint="Üresen hagyva a gép neve lesz. Egyedinek kell lennie."
             />
           </div>
         </div>
@@ -542,7 +532,7 @@ export function SetupView({
               Letöltés ZIP-ben
             </h2>
             <p className="mt-2 max-w-2xl text-ink-2">
-              Kész csomag a fenti beállításokkal, telepítővel együtt. Tokent nem tartalmaz: azt a telepítő kéri be.
+              Kész csomag telepítővel, a fenti beállításokkal. Tokent nem tartalmaz, azt a telepítő kéri be.
             </p>
 
             <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -573,16 +563,14 @@ export function SetupView({
                 <>
                   <Step number={1}>
                     <p>
-                      Nyisd meg a letöltött ZIP-et: a Letöltések mappában létrejön a <Code>{name}</Code> mappa.
-                      Máshová is áthelyezheted.
+                      Nyisd meg a letöltött ZIP-et: létrejön a <Code>{name}</Code> mappa a Letöltésekben.
                     </p>
                   </Step>
                   <Step number={2}>
                     <p>Indítsd el a telepítőt a terminálban:</p>
                     <CommandBlock command={zipInstallCommand(os, mode)} label="A telepítő parancsa" />
                     <p className="text-sm text-ink-3">
-                      Ha máshol van a mappa: írd be, hogy <Code>bash</Code> és egy szóköz, húzd az install.sh fájlt a
-                      terminál ablakába, majd nyomj Entert.
+                      Ha máshol van a mappa: írd be <Code>bash </Code>, húzd rá az install.sh fájlt, majd Enter.
                     </p>
                   </Step>
                 </>
@@ -590,9 +578,8 @@ export function SetupView({
                 <>
                   <Step number={1}>
                     <p>
-                      Kattints a ZIP-re jobb gombbal, és válaszd az{" "}
-                      <strong className="font-medium text-ink">Összes kibontása…</strong> lehetőséget. Bárhová
-                      kibonthatod.
+                      Kattints jobb gombbal a ZIP-re, és válaszd az{" "}
+                      <strong className="font-medium text-ink">Összes kibontása…</strong> lehetőséget.
                     </p>
                   </Step>
                   <Step number={2}>
@@ -625,16 +612,15 @@ export function SetupView({
               Másold és hozd létre
             </h2>
             <p className="mt-2 max-w-2xl text-ink-2">
-              Hova? Bárhova. Egy feltétel van: mind a(z) {files.length} fájl ugyanabba a mappába kerüljön, pontosan
-              ezekkel a nevekkel. A telepítő innen másolja őket a végleges helyükre, utána a mappa törölhető.
+              Bárhova, csak mind a(z) {files.length} fájl ugyanabba a mappába kerüljön, pontosan ezekkel a nevekkel.
             </p>
 
             <ol role="list" className="mt-8 space-y-10">
               <Step number={1}>
                 <p className="max-w-2xl">
                   {unix
-                    ? "Nyiss egy terminált, hozz létre egy mappát, és lépj bele. A példa a saját mappádba teszi, de bármelyik jó:"
-                    : "Nyiss egy PowerShellt, és futtasd ezt. Létrehoz egy mappát (bármelyik jó), belép, és felvesz egy paste parancsot, amely a vágólap tartalmát fájlba menti:"}
+                    ? "Nyiss egy terminált, és hozz létre egy mappát:"
+                    : "Nyiss egy PowerShellt, és futtasd ezt: létrehoz egy mappát, és felvesz egy paste parancsot a vágólap fájlba mentéséhez."}
                 </p>
                 <CommandBlock command={folderCommand(os)} label="A mappa parancsa" />
               </Step>
@@ -642,15 +628,14 @@ export function SetupView({
                 <p className="max-w-2xl">
                   {os === "linux" ? (
                     <>
-                      Hozd létre a fájlokat. Mindegyiknél: futtasd a terminálban a Mentés sorában álló parancsot,
-                      illeszd be a másolt tartalmat, majd zárd <Code>Ctrl+D</Code>-vel. Szövegszerkesztővel is
-                      mentheted, csak a név egyezzen.
+                      Hozd létre a fájlokat: futtasd a Mentés parancsát, illeszd be a tartalmat, majd zárd{" "}
+                      <Code>Ctrl+D</Code>-vel. Szövegszerkesztővel is mentheted, csak a név egyezzen.
                     </>
                   ) : (
                     <>
-                      Hozd létre a fájlokat. Mindegyiknél: <strong className="font-medium text-ink">Másolás</strong>,
-                      majd {os === "macos" ? "a Terminálban" : "a PowerShellben"} a Mentés sorában álló parancs.
-                      Szövegszerkesztővel is mentheted, csak a név egyezzen.
+                      Hozd létre a fájlokat: <strong className="font-medium text-ink">Másolás</strong>, majd a Mentés
+                      parancsa {os === "macos" ? "a Terminálban" : "a PowerShellben"}. Szövegszerkesztővel is
+                      mentheted, csak a név egyezzen.
                     </>
                   )}
                 </p>
@@ -708,13 +693,13 @@ export function SetupView({
 
           <dt className="text-ink-3">Token</dt>
           <dd className="text-ink-2">
-            A szerver <Code>USAGE_API_TOKEN</Code> értéke, minden gépen ugyanaz. Egy már beállított kliensnél itt
-            találod: <Code>{INSTALLED_CONFIG.macos}</Code> (macOS/Linux) vagy{" "}
+            A szerver <Code>USAGE_API_TOKEN</Code> értéke, minden gépen ugyanaz. Beállított gépen itt találod:{" "}
+            <Code>{INSTALLED_CONFIG.macos}</Code> (macOS/Linux) vagy{" "}
             <Code>
               <BreakablePath path={INSTALLED_CONFIG.windows} />
             </Code>{" "}
-            (Windows). Újratelepítéskor Enterrel megtarthatod a mentettet. A <strong className="font-medium text-ink">Token
-            másolása</strong> gomb a Beállítások panelen megadott, titkosítva tárolt másolatot teszi a vágólapra.
+            (Windows). Újratelepítéskor Enterrel megtartható. A <strong className="font-medium text-ink">Token
+            másolása</strong> gomb a Beállításokban tárolt, titkosított másolatot adja.
           </dd>
 
           <dt className="text-ink-3">Frissítés</dt>
@@ -732,8 +717,8 @@ export function SetupView({
             <CommandBlock command={uninstallCommand(os, mode)} label="Az eltávolítás parancsa" />
             {unix && mode === "manual" && (
               <p>
-                Utána töröld a shell indítófájljából (pl. <Code>~/.zshrc</Code> vagy <Code>~/.bashrc</Code>) az{" "}
-                <Code>alias sync-tokens=</Code> kezdetű sort.
+                Utána töröld az <Code>alias sync-tokens=</Code> sort a shell indítófájlból (pl.{" "}
+                <Code>~/.zshrc</Code>).
               </p>
             )}
             {os === "windows" && mode === "auto" && <p>Rendszergazdaként indított PowerShellben futtasd.</p>}
