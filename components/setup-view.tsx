@@ -286,7 +286,7 @@ function OneShotSection({
       </div>
       <p className="mt-2 max-w-2xl text-ink-2">
         Egyetlen parancs, ami a fenti csoporttal és gépazonosítóval egyszer elküldi a gép állását, és nem hagy
-        nyomot. A Futtatás választása itt nem számít.
+        nyomot.
       </p>
 
       <div className="mt-6">
@@ -430,10 +430,10 @@ export function SetupView({
 
       <div className="mt-12 max-w-2xl sm:mt-16">
         <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">Kliens telepítése</h1>
-        <p className="mt-4 text-ink-2">
+        {/* <p className="mt-4 text-ink-2">
           Válaszd ki a rendszert és a futtatás módját, majd töltsd le a csomagot, vagy hozd létre a fájlokat kézzel.
           Egyszeri adatküldéshez lent van egy telepítés nélküli parancs is.
-        </p>
+        </p> */}
       </div>
 
       <section aria-label="A csomag beállításai" className="mt-10 rounded-lg border border-rule px-5 py-6 sm:px-6">
@@ -486,7 +486,7 @@ export function SetupView({
             <FieldNote
               id={ids.groupNote}
               problem={check.ok ? null : check.group}
-              hint="A dashboard ezen a néven csoportosítja a gépet. Új név is lehet."
+              hint="A dashboard ezen a néven csoportosítja a gépet."
             />
           </div>
 
@@ -510,7 +510,7 @@ export function SetupView({
             <FieldNote
               id={ids.machineNote}
               problem={check.ok ? null : check.machine}
-              hint="Üresen hagyva a gép neve lesz. Egyedinek kell lennie."
+              hint="Üresen hagyva a gép neve lesz."
             />
           </div>
         </div>
