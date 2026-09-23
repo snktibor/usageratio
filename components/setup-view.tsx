@@ -2,11 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useId, useState } from "react";
+import { fetchApiToken } from "@/components/clipboard";
 import { BreakablePath, CommandBlock, FileBlock } from "@/components/code-block";
 import { ArrowLeftIcon, DownloadIcon, StopCircleIcon } from "@/components/icons";
+import { InfoTip } from "@/components/info-tip";
+import { StatusLine } from "@/components/status-line";
 import { TokenCopyButton } from "@/components/token-copy-button";
-import type { ApiTokenStatus } from "@/lib/api-token";
+import { apiTokenStatusNote, type ApiTokenStatus } from "@/lib/api-token";
 import {
+  CCUSAGE_RUNNERS,
   checkMachineSettings,
   folderCommand,
   INSTALLED_CONFIG,
@@ -18,12 +22,18 @@ import {
   packageFiles,
   packageName,
   renderConfig,
+  renderOneShot,
+  RUNNER_LABEL,
+  RUNNER_SUMMARY,
   saveCommand,
   SETUP_MODES,
   SETUP_OSES,
   uninstallCommand,
   zipInstallCommand,
+  type CcusageRunner,
   type ClientSources,
+  type MachineSettings,
+  type OneShotBlobs,
   type SetupMode,
   type SetupOs,
 } from "@/lib/setup";
@@ -123,6 +133,120 @@ function TokenNote({ os, mode, tokenStatus }: { os: SetupOs; mode: SetupMode; to
   );
 }
 
+const TOKEN_PLACEHOLDER = "‹token: a Másolás gomb illeszti be›";
+
+/** What the preview shows in place of a packed script. */
+function packedNote(name: string, blob: string): string {
+  return `‹${name}, tömörítve: ${blob.split("\n").length} sor base64›`;
+}
+
+/**
+ * The one-off report: a single command that sends one report and leaves
+ * nothing behind. The page only shows a preview; the command with the real
+ * token is built in the click that copies it, like the Token másolása button.
+ */
+function OneShotSection({
+  headingId,
+  os,
+  settings,
+  draft,
+  tokenStatus,
+  blobs,
+}: {
+  headingId: string;
+  os: SetupOs;
+  /** Null while the group or machine field is invalid. */
+  settings: MachineSettings | null;
+  /** The fields as typed, for the preview while they are invalid. */
+  draft: MachineSettings;
+  tokenStatus: ApiTokenStatus;
+  blobs: OneShotBlobs;
+}) {
+  const [runner, setRunner] = useState<CcusageRunner>("global");
+  const available = tokenStatus.state === "stored";
+  const note = apiTokenStatusNote(tokenStatus);
+  const preview = renderOneShot(os, runner, settings ?? draft, TOKEN_PLACEHOLDER, {
+    parser: packedNote("ccusage-providers.cjs", blobs.parser),
+    unixCore: packedNote("report-usage-core.sh", blobs.unixCore),
+    windowsCore: packedNote("report-usage-core.ps1", blobs.windowsCore),
+  });
+  const build = async () => {
+    if (!settings) throw new Error("invalid settings");
+    return renderOneShot(os, runner, settings, await fetchApiToken(), blobs);
+  };
+
+  return (
+    <section aria-labelledby={headingId} className="mt-20">
+      <div className="relative flex items-center gap-1.5">
+        <h2 id={headingId} className="text-2xl font-semibold tracking-tight">
+          Egyszeri feltöltés
+        </h2>
+        <InfoTip label="Mire jó az egyszeri feltöltés?">
+          <span className="block">
+            Egyszeri adatfeltöltés egy olyan gépről, amelyet nem kötnél be tartósan: például csak megnéznéd, mennyi
+            fogyott eddig, vagy egy vendéggépről küldenéd el egyszer az állást.
+          </span>
+          <span className="block">
+            Utána semmi nem marad a gépen, és magától nem is frissül: ha újra kell, másold be újra. A Másolás gomb
+            mindig friss tokent és az aktuális beállításokat teszi bele.
+          </span>
+          <span className="block text-ink">
+            Vigyázz: a bemásolt szöveg a valódi, olvasható tokent tartalmazza. Ott marad a terminál előzményeiben és
+            görgetési pufferében, meg a vágólapkezelőkben, amíg nem törlöd. Ne oszd meg, és használat után érdemes
+            törölni.
+          </span>
+        </InfoTip>
+      </div>
+      <p className="mt-2 max-w-2xl text-ink-2">
+        Egyetlen parancs, amely a fenti csoporttal és gépazonosítóval egyszer elküldi a gép állását, és nem hagy nyomot:
+        nem telepít, nem ütemez, nem ment beállítást, és a végén törli az átmeneti fájljait. A Futtatás választása itt
+        nem számít.
+      </p>
+
+      <div className="mt-6">
+        <Segmented
+          legend="ccusage ezen a gépen"
+          name="runner"
+          value={runner}
+          options={CCUSAGE_RUNNERS}
+          labels={RUNNER_LABEL}
+          onChange={setRunner}
+        />
+        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-ink-2">{RUNNER_SUMMARY[runner]}</p>
+      </div>
+
+      <div className="mt-6 max-w-2xl space-y-3 leading-relaxed">
+        <p>
+          {os === "windows"
+            ? "Másold ki, illeszd be egy PowerShell-ablakba, és nyomj Entert. A végén kiírja, sikerült-e a küldés."
+            : "Másold ki, illeszd be egy terminálba (zsh vagy bash), és nyomj Entert. A végén kiírja, sikerült-e a küldés."}
+        </p>
+        <CommandBlock
+          command={preview}
+          label="Az egyszeri parancs"
+          resolve={build}
+          disabled={!settings || !available}
+        />
+        {!settings ? (
+          <p className="text-sm text-ink-3">Előbb javítsd a fenti csoportot vagy a gép azonosítóját.</p>
+        ) : available ? (
+          <p className="text-sm text-ink-3">
+            A Másolás a tokent is lekéri a szerverről, és beleírja a parancsba: a lekérés az auditnaplóba kerül.
+          </p>
+        ) : null}
+        {!available || note.tone === "warning" ? (
+          <StatusLine tone={note.tone}>
+            {note.text}
+            {tokenStatus.state === "empty" || tokenStatus.state === "unreadable"
+              ? " A dashboard Beállítások paneljén adhatod meg."
+              : ""}
+          </StatusLine>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 /**
  * The setup page: one choice of system and mode drives both routes, the ZIP
  * download and the files to copy, so the two always install the same thing.
@@ -133,6 +257,7 @@ export function SetupView({
   apiUrl,
   groups,
   sources,
+  oneShot,
   tokenStatus,
 }: {
   initialOs: SetupOs;
@@ -140,6 +265,7 @@ export function SetupView({
   apiUrl: string;
   groups: SetupGroup[];
   sources: ClientSources;
+  oneShot: OneShotBlobs;
   tokenStatus: ApiTokenStatus;
 }) {
   const [os, setOs] = useState(initialOs);
@@ -153,6 +279,7 @@ export function SetupView({
     machineNote: useId(),
     zip: useId(),
     manual: useId(),
+    oneShot: useId(),
     notes: useId(),
   };
 
@@ -190,7 +317,8 @@ export function SetupView({
         <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">Kliens telepítése</h1>
         <p className="mt-4 text-ink-2">
           Válaszd ki a gép rendszerét és a futtatás módját. Utána töltsd le a kész csomagot, vagy hozd létre a
-          fájlokat kézzel: a két út ugyanoda vezet.
+          fájlokat kézzel: a két út ugyanoda vezet. Ha csak egyszer küldenél adatot, lent egy semmit nem telepítő
+          parancs is van.
         </p>
       </div>
 
@@ -402,6 +530,15 @@ export function SetupView({
           </Step>
         </ol>
       </section>
+
+      <OneShotSection
+        headingId={ids.oneShot}
+        os={os}
+        settings={settings}
+        draft={{ apiUrl, groupId: group.trim(), machineId: machine.trim() }}
+        tokenStatus={tokenStatus}
+        blobs={oneShot}
+      />
 
       <section aria-labelledby={ids.notes} className="mt-20 border-t border-hairline pt-8">
         <h2 id={ids.notes} className="text-lg font-medium">

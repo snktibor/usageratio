@@ -33,6 +33,9 @@ export PATH
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 CCUSAGE_PARSER="$SCRIPT_DIR/ccusage-providers.cjs"
 OUTPUT_MODE="${USAGERATIO_OUTPUT_MODE:-silent}"
+# Which ccusage runs: "global" only the installed command, "npx" only the current
+# package through npx, anything else the installed one with npx as its fallback.
+CCUSAGE_RUNNER="${USAGERATIO_CCUSAGE:-auto}"
 
 case "$OUTPUT_MODE" in
   silent | manual) ;;
@@ -41,10 +44,20 @@ esac
 
 # Runs ccusage with the given arguments into the file $1: the global ccusage
 # first, and when that fails (an older version may not know unified reports
-# yet), the current package through npx.
+# yet), the current package through npx. USAGERATIO_CCUSAGE picks just one.
 run_ccusage() {
   local output="$1"
   shift
+  case "$CCUSAGE_RUNNER" in
+    global)
+      ccusage "$@" >"$output"
+      return
+      ;;
+    npx)
+      npx --yes ccusage@latest "$@" >"$output"
+      return
+      ;;
+  esac
   if command -v ccusage >/dev/null 2>&1 && ccusage "$@" >"$output"; then
     return 0
   fi
@@ -92,10 +105,26 @@ read_provider_tokens() {
   ccusage_args=(daily --json --by-agent --breakdown --no-cost --since "$cycle_since" --timezone "$cycle_timezone")
   blocks_args=(blocks --json --offline --session-length 1 --since "${cycle_since//-/}" --timezone "$cycle_timezone")
 
-  if ! command -v ccusage >/dev/null 2>&1 && ! command -v npx >/dev/null 2>&1; then
-    printf '%s\n' "Neither ccusage nor npx was found in PATH." >"$error_file"
-    return 1
-  fi
+  case "$CCUSAGE_RUNNER" in
+    global)
+      if ! command -v ccusage >/dev/null 2>&1; then
+        printf '%s\n' "ccusage was not found in PATH." >"$error_file"
+        return 1
+      fi
+      ;;
+    npx)
+      if ! command -v npx >/dev/null 2>&1; then
+        printf '%s\n' "npx was not found in PATH." >"$error_file"
+        return 1
+      fi
+      ;;
+    *)
+      if ! command -v ccusage >/dev/null 2>&1 && ! command -v npx >/dev/null 2>&1; then
+        printf '%s\n' "Neither ccusage nor npx was found in PATH." >"$error_file"
+        return 1
+      fi
+      ;;
+  esac
   # Read before the daily report, so the hours never run ahead of the days.
   # Optional: a failed read only means the days are sent without hours.
   run_ccusage "$blocks_file" "${blocks_args[@]}" 2>/dev/null || rm -f "$blocks_file"

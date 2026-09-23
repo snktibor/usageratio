@@ -18,7 +18,7 @@
         "groupId":   "Work"
       }
 
-  Log: %USERPROFILE%\.usageratio\usageratio.log
+  Log: %USERPROFILE%\.usageratio\usageratio.log (USAGERATIO_LOG_FILE overrides it)
   Exit codes: 0 sent, 1 sending failed, 2 bad usage/config, 3 token reader failed
 
 .PARAMETER Providers
@@ -54,9 +54,18 @@ function Read-ProviderTokens {
   }
 
   $node = Get-Command node -ErrorAction SilentlyContinue
-  $npx = Get-Command npx.cmd -ErrorAction SilentlyContinue
-  if (-not $npx) { $npx = Get-Command npx -ErrorAction SilentlyContinue }
-  if (-not $node -or -not $npx) { throw 'Node.js/npx was not found in PATH.' }
+  # USAGERATIO_CCUSAGE=global runs the installed ccusage; anything else the current package through npx.
+  if ($env:USAGERATIO_CCUSAGE -eq 'global') {
+    $ccusage = Get-Command ccusage.cmd -ErrorAction SilentlyContinue
+    if (-not $ccusage) { $ccusage = Get-Command ccusage -ErrorAction SilentlyContinue }
+    if (-not $node -or -not $ccusage) { throw 'Node.js/ccusage was not found in PATH.' }
+    $ccusagePrefix = @()
+  } else {
+    $ccusage = Get-Command npx.cmd -ErrorAction SilentlyContinue
+    if (-not $ccusage) { $ccusage = Get-Command npx -ErrorAction SilentlyContinue }
+    if (-not $node -or -not $ccusage) { throw 'Node.js/npx was not found in PATH.' }
+    $ccusagePrefix = @('--yes', 'ccusage@latest')
+  }
 
   $errorFile = Join-Path ([IO.Path]::GetTempPath()) ("usageratio-ccusage-{0}.log" -f [Guid]::NewGuid())
   $blocksFile = Join-Path ([IO.Path]::GetTempPath()) ("usageratio-blocks-{0}.json" -f [Guid]::NewGuid())
@@ -67,9 +76,9 @@ function Read-ProviderTokens {
   try {
     # Claude Code's usage by clock hour, read before the daily report so the hours
     # never run ahead of the days. Optional: without it the days are sent whole.
-    $blocksArgs = @('--yes', 'ccusage@latest', 'blocks', '--json', '--offline', '--session-length', '1', '--since', ($SinceDate -replace '-', ''), '--timezone', $TimeZone)
+    $blocksArgs = $ccusagePrefix + @('blocks', '--json', '--offline', '--session-length', '1', '--since', ($SinceDate -replace '-', ''), '--timezone', $TimeZone)
     try {
-      $blocksRaw = & $npx.Source @blocksArgs 2> $null | Out-String
+      $blocksRaw = & $ccusage.Source @blocksArgs 2> $null | Out-String
       if ($LASTEXITCODE -eq 0 -and $blocksRaw) { [IO.File]::WriteAllText($blocksFile, $blocksRaw) }
     } catch { }
     $hourlyArgs = @()
@@ -77,8 +86,8 @@ function Read-ProviderTokens {
     # Windows PowerShell 5.1 drops an empty argument, which would shift the ones after it.
     if (-not $FallbackProviders) { $FallbackProviders = ',' }
 
-    $ccusageArgs = @('--yes', 'ccusage@latest', 'daily', '--json', '--by-agent', '--breakdown', '--no-cost', '--since', $SinceDate, '--timezone', $TimeZone)
-    $raw = & $npx.Source @ccusageArgs 2> $errorFile | Out-String
+    $ccusageArgs = $ccusagePrefix + @('daily', '--json', '--by-agent', '--breakdown', '--no-cost', '--since', $SinceDate, '--timezone', $TimeZone)
+    $raw = & $ccusage.Source @ccusageArgs 2> $errorFile | Out-String
     if ($LASTEXITCODE -ne 0) {
       $details = if (Test-Path -LiteralPath $errorFile) { Get-Content -LiteralPath $errorFile -Raw } else { '' }
       throw "ccusage exited with code $LASTEXITCODE. $details"
@@ -109,13 +118,15 @@ $homeDir = $env:USERPROFILE
 if (-not $homeDir) { $homeDir = [Environment]::GetFolderPath('UserProfile') }
 $dataDir = Join-Path $homeDir '.usageratio'
 if (-not $ConfigPath) { $ConfigPath = Join-Path $dataDir 'config.json' }
-$logFile = Join-Path $dataDir 'usageratio.log'
+$logFile = [Environment]::GetEnvironmentVariable('USAGERATIO_LOG_FILE')
+if (-not $logFile) { $logFile = Join-Path $dataDir 'usageratio.log' }
+$logDir = Split-Path -Parent $logFile
 
 function Write-Log {
   param([string]$Message)
   $line = '{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
   try {
-    if (-not (Test-Path -LiteralPath $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
+    if (-not (Test-Path -LiteralPath $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
     Add-Content -LiteralPath $logFile -Value $line -Encoding UTF8
     $lines = @(Get-Content -LiteralPath $logFile)
     if ($lines.Count -gt 1000) { Set-Content -LiteralPath $logFile -Value $lines[-500..-1] -Encoding UTF8 }

@@ -353,6 +353,127 @@ export function uninstallCommand(os: SetupOs, mode: SetupMode): string {
         'Remove-Item -Recurse -Force "$env:USERPROFILE\\.usageratio"';
 }
 
+// ── One-off report ───────────────────────────────────────────────────────────
+
+/** How the one-off report runs ccusage: the installed command, or the current package through npx. */
+export type CcusageRunner = "global" | "npx";
+
+export const CCUSAGE_RUNNERS: readonly CcusageRunner[] = ["global", "npx"];
+
+export const RUNNER_LABEL: Record<CcusageRunner, string> = { global: "Telepítve van", npx: "Nincs telepítve" };
+
+export const RUNNER_SUMMARY: Record<CcusageRunner, string> = {
+  global: "A gépen lévő ccusage parancsot hívja: gyorsabb, és nem tölt le semmit.",
+  npx:
+    "A ccusage legfrissebb változatát npx-szel futtatja, így nem kell előre telepíteni; " +
+    "futáskor ez is letölti a csomagot az npm gyorsítótárába.",
+};
+
+/**
+ * The scripts a one-off report unpacks into its temporary folder, gzipped and
+ * in base64 (lib/setup-package.ts makes them). An interactive shell applies
+ * history expansion even inside a quoted here-document, so the parser's `!`s
+ * would not survive a paste as plain text: base64 has nothing to expand.
+ */
+export interface OneShotBlobs {
+  parser: string;
+  unixCore: string;
+  windowsCore: string;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/** PowerShell also closes a single-quoted string on the typographic quotes. */
+function powershellQuote(value: string): string {
+  return `'${value.replace(/['‘’‚‛]/g, "$&$&")}'`;
+}
+
+/**
+ * A command that sends exactly one report and leaves nothing behind: it
+ * unpacks the parser and the reporter core into a temporary folder, runs the
+ * core once with the settings in its environment (the same code the installed
+ * manual client runs), and removes the folder, log included. An installed
+ * client's config is only read: for the machine id when none is given here.
+ *
+ * `token` is the real API token: only build this in the click that copies it.
+ */
+export function renderOneShot(
+  os: SetupOs,
+  runner: CcusageRunner,
+  settings: MachineSettings,
+  token: string,
+  blobs: OneShotBlobs,
+): string {
+  if (os === "windows") {
+    return [
+      "& {",
+      "  # usageratio: egyetlen jelentés; semmit nem telepít, és a végén minden átmeneti fájlját törli.",
+      "  $ErrorActionPreference = 'Stop'",
+      "  $dir = Join-Path ([IO.Path]::GetTempPath()) ('usageratio-once-' + [Guid]::NewGuid())",
+      "  $vars = [ordered]@{",
+      `    USAGERATIO_API_URL = ${powershellQuote(settings.apiUrl)}`,
+      `    USAGERATIO_GROUP_ID = ${powershellQuote(settings.groupId)}`,
+      `    USAGERATIO_MACHINE_ID = ${powershellQuote(settings.machineId)}`,
+      `    USAGERATIO_CCUSAGE = ${powershellQuote(runner)}`,
+      "    USAGERATIO_LOG_FILE = (Join-Path $dir 'usageratio.log')",
+      `    USAGERATIO_API_TOKEN = ${powershellQuote(token)}`,
+      "  }",
+      "  function Save-Gzip([string]$Name, [string]$Base64) {",
+      "    $packed = [IO.MemoryStream]::new([Convert]::FromBase64String($Base64))",
+      "    $gzip = [IO.Compression.GZipStream]::new($packed, [IO.Compression.CompressionMode]::Decompress)",
+      "    $file = [IO.File]::Create((Join-Path $dir $Name))",
+      "    try { $gzip.CopyTo($file) } finally { $file.Dispose(); $gzip.Dispose() }",
+      "  }",
+      "  try {",
+      "    New-Item -ItemType Directory -Path $dir | Out-Null",
+      "    Save-Gzip 'ccusage-providers.cjs' @'",
+      blobs.parser,
+      "'@",
+      "    Save-Gzip 'report-usage-core.ps1' @'",
+      blobs.windowsCore,
+      "'@",
+      "    foreach ($name in $vars.Keys) { [Environment]::SetEnvironmentVariable($name, $vars[$name]) }",
+      // A child process: the core ends with `exit`, and a .ps1 file needs the policy bypass.
+      "    $shell = (Get-Process -Id $PID).Path",
+      "    if ((Split-Path -Leaf $shell) -notmatch '^(powershell|pwsh)(\\.exe)?$') { $shell = 'powershell.exe' }",
+      "    & $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dir 'report-usage-core.ps1') -OutputMode Manual",
+      "  } finally {",
+      "    foreach ($name in $vars.Keys) { [Environment]::SetEnvironmentVariable($name, $null) }",
+      "    Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue",
+      "  }",
+      "}",
+    ].join("\n");
+  }
+
+  // One subshell, so nothing is left set in the terminal. The leading space keeps
+  // it out of the history where the shell ignores such lines (HISTCONTROL=ignorespace,
+  // zsh's HIST_IGNORE_SPACE). No comments: zsh does not allow them interactively.
+  return [
+    " (",
+    ": usageratio: egyetlen jelentés, semmit nem telepít, és a végén minden átmeneti fájlját törli",
+    'd="$(mktemp -d "${TMPDIR:-/tmp}/usageratio-once.XXXXXX")" || exit 1',
+    `trap 'rm -rf "$d"' EXIT`,
+    "trap 'exit 130' HUP INT TERM",
+    `base64 --decode <<'USAGERATIO_PARSER' | gunzip >"$d/ccusage-providers.cjs" || exit 1`,
+    blobs.parser,
+    "USAGERATIO_PARSER",
+    `base64 --decode <<'USAGERATIO_CORE' | gunzip >"$d/report-usage-core.sh" || exit 1`,
+    blobs.unixCore,
+    "USAGERATIO_CORE",
+    "USAGERATIO_OUTPUT_MODE=manual \\",
+    `USAGERATIO_CCUSAGE=${runner} \\`,
+    'USAGERATIO_LOG_FILE="$d/usageratio.log" \\',
+    `USAGERATIO_API_URL=${shellQuote(settings.apiUrl)} \\`,
+    `USAGERATIO_GROUP_ID=${shellQuote(settings.groupId)} \\`,
+    `USAGERATIO_MACHINE_ID=${shellQuote(settings.machineId)} \\`,
+    `USAGERATIO_API_TOKEN=${shellQuote(token)} \\`,
+    'bash "$d/report-usage-core.sh"',
+    ")",
+  ].join("\n");
+}
+
 // ── README.txt ───────────────────────────────────────────────────────────────
 
 /** The instructions that travel inside the ZIP, for whoever opens the folder later. */
