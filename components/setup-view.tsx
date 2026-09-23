@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { fetchApiToken } from "@/components/clipboard";
 import { BreakablePath, CommandBlock, FileBlock } from "@/components/code-block";
 import { ArrowLeftIcon, DownloadIcon, StopCircleIcon } from "@/components/icons";
@@ -46,6 +46,33 @@ export interface SetupGroup {
 
 const FIELD =
   "rounded-md border border-rule bg-raised px-3 py-2 text-ink placeholder:text-ink-3 aria-invalid:border-critical";
+
+/** The client's last choices, so returning to the page skips picking them again. */
+const SETUP_PREFS_COOKIE = "usageratio-setup";
+
+interface SetupPrefs {
+  os?: string;
+  group?: string;
+  machine?: string;
+}
+
+function readSetupPrefs(): SetupPrefs | null {
+  try {
+    const match = document.cookie.match(new RegExp(`(?:^|; )${SETUP_PREFS_COOKIE}=([^;]*)`));
+    return match?.[1] ? (JSON.parse(decodeURIComponent(match[1])) as SetupPrefs) : null;
+  } catch {
+    return null; // Cookies are optional; the defaults still work for this page view.
+  }
+}
+
+function writeSetupPrefs(prefs: { os: SetupOs; group: string; machine: string }) {
+  try {
+    const oneYear = 60 * 60 * 24 * 365;
+    document.cookie = `${SETUP_PREFS_COOKIE}=${encodeURIComponent(JSON.stringify(prefs))}; path=/setup; max-age=${oneYear}; samesite=lax`;
+  } catch {
+    // Cookies are optional; the selection still works for this page view.
+  }
+}
 
 function Code({ children }: { children: React.ReactNode }) {
   return <code className="font-mono text-[0.9em] text-ink wrap-anywhere">{children}</code>;
@@ -272,6 +299,7 @@ export function SetupView({
   const [mode, setMode] = useState(initialMode);
   const [group, setGroup] = useState(groups[0]?.id ?? "Personal");
   const [machine, setMachine] = useState("");
+  const skipPrefsWrite = useRef(true);
   const ids = {
     group: useId(),
     groupNote: useId(),
@@ -283,10 +311,32 @@ export function SetupView({
     notes: useId(),
   };
 
+  // Restores the client's last group/machine, and its last os when the URL didn't ask for one explicitly.
+  // Runs before the effect below rewrites the address, so it still sees the address the page was opened with.
+  useEffect(() => {
+    const saved = readSetupPrefs();
+    if (saved) {
+      const osFromQuery = new URLSearchParams(window.location.search).has("os");
+      if (!osFromQuery && saved.os && (SETUP_OSES as readonly string[]).includes(saved.os)) {
+        setOs(saved.os as SetupOs);
+      }
+      if (saved.group) setGroup(saved.group);
+      if (saved.machine) setMachine(saved.machine);
+    }
+  }, []);
+
   // The choice stays in the address, so a reload or a saved link opens the same package.
   useEffect(() => {
     window.history.replaceState(null, "", `?os=${os}&mode=${mode}`);
   }, [os, mode]);
+
+  useEffect(() => {
+    if (skipPrefsWrite.current) {
+      skipPrefsWrite.current = false;
+      return;
+    }
+    writeSetupPrefs({ os, group, machine });
+  }, [os, group, machine]);
 
   const check = checkMachineSettings(group, machine);
   const settings = check.ok ? { apiUrl, groupId: check.groupId, machineId: check.machineId } : null;
