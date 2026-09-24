@@ -3,5 +3,18 @@
     "hello": "Szia világ!",
     "language": "Nyelv",
     "switch_to_en": "Switch to English"
+  },
+  "HomePage": {
+    "dashboard_updated_prefix": "Frissítve ",
+    "dashboard_updated_title": "Frissítve {refreshedAt}",
+    "dashboard_setup": "Telepítés",
+    "dashboard_logout": "Kilépés",
+    "pin_heading": "Add meg a PIN-kódot",
+    "pin_description": "A tokenkeret adatai csak a helyes, 5 jegyű kód után töltődnek be.",
+    "storage_not_configured_title": "Az adattár nincs bekötve",
+    "storage_unavailable_title": "Az adattár most nem érhető el",
+    "storage_not_configured_desc": "Hiányzik a <code>KV_REST_API_URL</code> és a <code>KV_REST_API_TOKEN</code> környezeti változó. Kösd a Vercel-projekthez az Upstash Redis adatbázist (Storage fül), majd telepítsd újra az alkalmazást.",
+    "storage_unavailable_desc": "A Redis nem válaszolt. A kliensek beküldései ilyenkor sem vesznek el végleg, a következő órában újra jelentenek. Töltsd újra az oldalt egy perc múlva.",
+    "storage_reload": "Újratöltés"
   }
 }
