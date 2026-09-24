@@ -1,6 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/i18n/routing";
+import { useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
 import { ApiTokenSettings } from "@/components/api-token-settings";
 import { CheckIcon, PlusIcon, SlidersIcon, StopCircleIcon, XIcon } from "@/components/icons";
@@ -362,6 +363,7 @@ function SubLimitEditor({
   onChange: (changes: Partial<DraftSubLimit>) => void;
   onRemove: () => void;
 }) {
+  const t = useTranslations("Settings");
   const modeName = useId();
   const label = sub.name.trim() || "Új alkeret";
   const share = parseSharePercent(sub.shareText);
@@ -384,7 +386,7 @@ function SubLimitEditor({
           type="button"
           onClick={onRemove}
           aria-label={`„${label}” alkeret törlése`}
-          title="Törlés"
+          title={t("delete")}
           className="rounded-md p-2 text-ink-3 transition-colors hover:text-ink"
         >
           <XIcon />
@@ -472,6 +474,7 @@ function SubLimitEditor({
 }
 
 function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId: string; onClose: () => void }) {
+  const t = useTranslations("Settings");
   const router = useRouter();
   const [draft, setDraft] = useState<Draft>(() => draftFrom(view));
   const [problem, setProblem] = useState<string | null>(null);
@@ -623,9 +626,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
       }}
     >
       <header className="flex items-center justify-between gap-4 px-6 pt-5">
-        <h2 id={titleId} className="text-xl font-medium">
-          Beállítások
-        </h2>
+        <h2 id={titleId} className="text-xl font-medium">{t("settings_title")}</h2>
         <button
           type="button"
           onClick={onClose}
@@ -808,9 +809,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
         </section>
 
         <section aria-labelledby={`${titleId}-reset`} className="space-y-4">
-          <h3 id={`${titleId}-reset`} className="font-medium">
-            Reset
-          </h3>
+          <h3 id={`${titleId}-reset`} className="font-medium">{t("reset")}</h3>
 
           <div className="flex flex-wrap gap-x-5 gap-y-4">
             {draft.period === "weekly" ? (
@@ -867,9 +866,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
         </section>
 
         <section aria-labelledby={`${titleId}-groups`}>
-          <h3 id={`${titleId}-groups`} className="font-medium">
-            Csoportok
-          </h3>
+          <h3 id={`${titleId}-groups`} className="font-medium">{t("groups")}</h3>
 
           {draft.groups.length > 0 && (
             <ul className="mt-3 border-t border-hairline">
@@ -907,7 +904,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                       onClick={() => removeGroup(group)}
                       disabled={group.hasReports}
                       aria-label={`„${group.id}” törlése`}
-                      title={group.hasReports ? "Van tárolt jelentése, ezért nem törölhető" : "Törlés"}
+                      title={group.hasReports ? t("group_has_reports_cannot_delete") : t("delete")}
                       className="rounded-md p-2 text-ink-3 transition-colors hover:text-ink disabled:pointer-events-none disabled:opacity-30"
                     >
                       <XIcon />
@@ -919,9 +916,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                     aria-label={`AI-fiókok, amelyekbe a(z) „${group.id}” csoport beszámít`}
                     className="mt-2 flex flex-wrap items-center gap-1.5 pl-11"
                   >
-                    <span className="mr-1 text-sm text-ink-3" aria-hidden="true">
-                      Beszámít:
-                    </span>
+                    <span className="mr-1 text-sm text-ink-3" aria-hidden="true">{t("counts_towards")}</span>
                     {visibleProviders.map((provider) => (
                       <ToggleChip
                         key={provider.id}
@@ -932,7 +927,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                       </ToggleChip>
                     ))}
                     {visibleProviders.every((provider) => group.excluded.includes(provider.id)) && (
-                      <span className="ml-1 text-sm text-ink-3">egyik látható fiókba sem</span>
+                      <span className="ml-1 text-sm text-ink-3">{t("no_visible_account")}</span>
                     )}
                   </div>
                 </li>
@@ -950,7 +945,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
               type="text"
               autoComplete="off"
               maxLength={64}
-              placeholder="Új csoport neve, például Work"
+              placeholder={t("new_group_placeholder")}
               value={draft.newGroupName}
               onChange={(event) => patch({ newGroupName: event.target.value })}
               onKeyDown={(event) => {
@@ -963,9 +958,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
               className={`min-w-0 grow ${FIELD}`}
             />
             <button type="button" onClick={addGroup} className={`flex shrink-0 items-center gap-2 ${QUIET_BUTTON}`}>
-              <PlusIcon />
-              Hozzáadás
-            </button>
+              <PlusIcon />{t("add")}</button>
           </div>
 
           <p className="mt-4 text-sm text-ink-3">
@@ -992,15 +985,13 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
           </p>
         )}
         <div className="flex justify-end gap-3">
-          <button type="button" onClick={onClose} className={QUIET_BUTTON}>
-            Mégse
-          </button>
+          <button type="button" onClick={onClose} className={QUIET_BUTTON}>{t("cancel")}</button>
           <button
             type="submit"
             disabled={saving}
             className="rounded-md bg-ink px-5 py-1.5 font-medium text-page transition-opacity hover:opacity-90 disabled:opacity-60"
           >
-            {saving ? "Mentés…" : "Mentés"}
+            {saving ? t("saving") : t("save")}
           </button>
         </div>
       </footer>
@@ -1014,6 +1005,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
  * settings, and a background refresh never overwrites what is being typed.
  */
 export function SettingsDialog({ view }: { view: SettingsView }) {
+  const t = useTranslations("Settings");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
   const titleId = useId();
@@ -1033,7 +1025,7 @@ export function SettingsDialog({ view }: { view: SettingsView }) {
         className="flex items-center gap-2 rounded-md border border-rule px-2.5 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink sm:px-3"
       >
         <SlidersIcon />
-        <span className="sr-only sm:not-sr-only">Beállítások</span>
+        <span className="sr-only sm:not-sr-only">{t("settings_title")}</span>
       </button>
 
       <dialog
