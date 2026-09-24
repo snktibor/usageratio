@@ -4,6 +4,7 @@ import { useRouter } from "@/i18n/routing";
 import { useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
 import { ApiTokenSettings } from "@/components/api-token-settings";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { CheckIcon, PlusIcon, SlidersIcon, StopCircleIcon, XIcon } from "@/components/icons";
 import type { BudgetPeriod } from "@/lib/config";
 import { formatTokens, weekdayLong } from "@/lib/format";
@@ -627,14 +628,17 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
     >
       <header className="flex items-center justify-between gap-4 px-6 pt-5">
         <h2 id={titleId} className="text-xl font-medium">{t("settings_title")}</h2>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Bezárás"
-          className="-mr-2 rounded-md p-2 text-ink-3 transition-colors hover:text-ink"
-        >
-          <XIcon />
-        </button>
+        <div className="flex items-center gap-3">
+          <LanguageSwitcher />
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Bezárás"
+            className="-mr-2 rounded-md p-2 text-ink-3 transition-colors hover:text-ink"
+          >
+            <XIcon />
+          </button>
+        </div>
       </header>
 
       <div className="space-y-9 px-6 pb-7 pt-6">
