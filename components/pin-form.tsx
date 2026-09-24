@@ -4,10 +4,13 @@ import { useActionState, useRef } from "react";
 import { login, type LoginState } from "@/app/actions";
 import { StopCircleIcon } from "@/components/icons";
 
+import { useTranslations } from "next-intl";
+
 const INITIAL_STATE: LoginState = { error: null };
 
 /** `labelledBy`: id of the heading that names the field. `next`: where a successful login continues. */
 export function PinForm({ labelledBy, next }: { labelledBy: string; next: string }) {
+  const t = useTranslations("Settings");
   const [state, formAction, pending] = useActionState(login, INITIAL_STATE);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -46,7 +49,7 @@ export function PinForm({ labelledBy, next }: { labelledBy: string; next: string
         disabled={pending}
         className="mt-4 w-full rounded-md bg-ink px-4 py-3 text-base font-medium text-page transition-opacity hover:opacity-90 disabled:opacity-60"
       >
-        {pending ? "Ellenőrzés…" : "Belépés"}
+        {pending ? t("pin_checking") : t("pin_login")}
       </button>
 
       <p id="pin-error" role="alert" className="mt-4 flex min-h-12 items-start gap-2.5 text-sm text-ink">

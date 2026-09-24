@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
 import { HistoryIcon, XIcon } from "@/components/icons";
 import { StatusLine } from "@/components/status-line";
@@ -217,6 +218,7 @@ export function ApiTokenSettings({
   onChange: (value: string) => void;
   timeZone: string;
 }) {
+  const t = useTranslations("Settings");
   const [load, setLoad] = useState<Load>({ phase: "loading" });
   const [problem, setProblem] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -261,18 +263,18 @@ export function ApiTokenSettings({
       if (response.ok && payload) {
         setLoad({ phase: "ready", status: payload.status as ApiTokenStatus });
         onChange("");
-        setNotice(payload.action === "created" ? "A token elmentve." : "A token módosítva.");
+        setNotice(payload.action === "created" ? t("token_saved") : t("token_modified"));
       } else if (response.status === 401) {
-        setProblem("A munkamenet lejárt. Lépj be újra a PIN-kóddal, utána mentsd újra a tokent.");
+        setProblem(t("session_expired"));
       } else if (response.status === 500 && payload?.error === "encryption_key_missing") {
         setLoad({ phase: "ready", status: { state: "no_key" } });
       } else if (response.status === 400) {
-        setProblem("A szerver elutasította a tokent: 16–512 szóköz nélküli ASCII karakter lehet.");
+        setProblem(t("token_rejected"));
       } else {
-        setProblem("A mentés nem sikerült, az adattár most nem érhető el. Próbáld újra kicsit később.");
+        setProblem(t("store_unavailable"));
       }
     } catch {
-      setProblem("A mentés nem sikerült: a szerver nem válaszolt. Ellenőrizd a kapcsolatot, és próbáld újra.");
+      setProblem(t("server_did_not_respond"));
     } finally {
       setSaving(false);
     }
@@ -334,7 +336,7 @@ export function ApiTokenSettings({
           autoComplete="off"
           spellCheck={false}
           maxLength={600}
-          placeholder={hasStored ? "Új token a régi helyére" : "A szerver USAGE_API_TOKEN-je"}
+          placeholder={hasStored ? "Új token a régi helyére" : t("server_token_placeholder")}
           value={value}
           disabled={noKey}
           onChange={(event) => {
@@ -358,7 +360,7 @@ export function ApiTokenSettings({
           disabled={saving || noKey || load.phase === "loading"}
           className={`shrink-0 self-end sm:self-auto ${QUIET_BUTTON}`}
         >
-          {saving ? "Mentés…" : hasStored ? "Token módosítása" : "Token hozzáadása"}
+          {saving ? t("saving") : hasStored ? t("modify_token") : t("add_token")}
         </button>
       </div>
 
