@@ -3,5 +3,18 @@
     "hello": "Hello world!",
     "language": "Language",
     "switch_to_hu": "Váltás magyarra"
+  },
+  "HomePage": {
+    "dashboard_updated_prefix": "Updated ",
+    "dashboard_updated_title": "Updated {refreshedAt}",
+    "dashboard_setup": "Setup",
+    "dashboard_logout": "Log out",
+    "pin_heading": "Enter PIN",
+    "pin_description": "Token quota data will only load after the correct 5-digit code.",
+    "storage_not_configured_title": "Data store is not connected",
+    "storage_unavailable_title": "Data store is currently unavailable",
+    "storage_not_configured_desc": "Missing <code>KV_REST_API_URL</code> and <code>KV_REST_API_TOKEN</code> environment variables. Connect the Upstash Redis database to your Vercel project (Storage tab), then reinstall the application.",
+    "storage_unavailable_desc": "Redis did not respond. Client submissions are not permanently lost, they will report again in the next hour. Reload the page in a minute.",
+    "storage_reload": "Reload"
   }
 }

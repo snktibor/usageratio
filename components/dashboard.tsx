@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@/i18n/routing";
 import { logout } from "@/app/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { DashboardView } from "@/components/dashboard-view";
@@ -7,14 +7,16 @@ import { SettingsDialog } from "@/components/settings-dialog";
 import type { ProviderDashboardModel } from "@/lib/dashboard";
 import { formatClock } from "@/lib/format";
 import type { SettingsView } from "@/lib/settings";
+import { getTranslations } from "next-intl/server";
 
-export function Dashboard({
+export async function Dashboard({
   providers,
   settings,
 }: {
   providers: ProviderDashboardModel[];
   settings: SettingsView;
 }) {
+  const t = await getTranslations("HomePage");
   const model = providers[0]!.dashboard;
   const refreshedAt = formatClock(model.generatedAt, model.timeZone);
 
@@ -25,8 +27,8 @@ export function Dashboard({
       <header className="flex items-center justify-between gap-4">
         <p className="text-lg font-medium tracking-tight">usageratio</p>
         <div className="flex items-center gap-3 text-sm text-ink-3 sm:gap-4">
-          <span title={`Frissítve ${refreshedAt}`} className="mr-1">
-            <span className="sr-only sm:not-sr-only">Frissítve </span>
+          <span title={t("dashboard_updated_title", { refreshedAt })} className="mr-1">
+            <span className="sr-only sm:not-sr-only">{t("dashboard_updated_prefix")}</span>
             {refreshedAt}
           </span>
           <Link
@@ -34,7 +36,7 @@ export function Dashboard({
             className="flex items-center gap-2 rounded-md border border-rule px-2.5 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink sm:px-3"
           >
             <DownloadIcon />
-            <span className="sr-only sm:not-sr-only">Telepítés</span>
+            <span className="sr-only sm:not-sr-only">{t("dashboard_setup")}</span>
           </Link>
           <SettingsDialog view={settings} />
           <form action={logout}>
@@ -42,7 +44,7 @@ export function Dashboard({
               type="submit"
               className="rounded-md border border-rule px-3 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
             >
-              Kilépés
+              {t("dashboard_logout")}
             </button>
           </form>
         </div>
