@@ -12,7 +12,7 @@
 #
 #   ~/.config/usageratio/config      (chmod 600 — it holds the API token)
 #
-#     API_URL="https://usageratio.snktibor.hu/api/usage"
+#     API_URL="https://usageratio.example.com/api/usage"
 #     API_TOKEN="<the server's USAGE_API_TOKEN>"
 #     MACHINE_ID="mac-studio"
 #     GROUP_ID="Personal"
@@ -144,7 +144,7 @@ read_provider_tokens() {
 
 CONFIG_FILE="${USAGERATIO_CONFIG:-$HOME/.config/usageratio/config}"
 
-API_URL="https://usageratio.snktibor.hu/api/usage"
+API_URL=""
 API_TOKEN=""
 MACHINE_ID=""
 GROUP_ID=""

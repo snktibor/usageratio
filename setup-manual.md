@@ -1,12 +1,12 @@
-# Manuális beállítás
+# Manual setup
 
 ```text
-USAGE_API_TOKEN: ugyanaz minden kliensgépen
-MACHINE_ID / machineId: minden fizikai gépen különböző és később változatlan
-GROUP_ID / groupId: azonos csoportba tartozó gépeken lehet ugyanaz
+USAGE_API_TOKEN: the same on every client machine
+MACHINE_ID / machineId: different on every physical machine, and unchanged afterward
+GROUP_ID / groupId: can be the same across machines in the same group
 ```
 
-## macOS: Bash + terminál alias
+## macOS: Bash + terminal alias
 
 ```bash
 mkdir -p "$HOME/.usageratio/manual" "$HOME/.usageratio/shared" "$HOME/.config/usageratio"
@@ -18,7 +18,7 @@ printf 'USAGE_API_TOKEN: ' >&2
 IFS= read -r -s USAGE_API_TOKEN
 printf '\n' >&2
 cat > "$HOME/.config/usageratio/config" <<EOF
-API_URL="https://usageratio.snktibor.hu/api/usage"
+API_URL="https://usageratio.example.com/api/usage"
 API_TOKEN="$USAGE_API_TOKEN"
 MACHINE_ID="mac-studio"
 GROUP_ID="Personal"
@@ -30,7 +30,7 @@ source "$HOME/.zshrc"
 sync-tokens
 ```
 
-## Windows: PowerShell + asztali parancsikon
+## Windows: PowerShell + desktop shortcut
 
 PowerShell:
 
@@ -44,7 +44,7 @@ Get-ChildItem -LiteralPath "$root\manual", "$root\shared" -Filter '*.ps1' | Unbl
 $token = Read-Host 'USAGE_API_TOKEN'
 @"
 {
-  "apiUrl": "https://usageratio.snktibor.hu/api/usage",
+  "apiUrl": "https://usageratio.example.com/api/usage",
   "apiToken": "$token",
   "machineId": "win-desktop",
   "groupId": "Work"

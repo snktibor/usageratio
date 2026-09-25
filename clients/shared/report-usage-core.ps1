@@ -12,7 +12,7 @@
     %USERPROFILE%\.usageratio\config.json
 
       {
-        "apiUrl":    "https://usageratio.snktibor.hu/api/usage",
+        "apiUrl":    "https://usageratio.example.com/api/usage",
         "apiToken":  "<the server's USAGE_API_TOKEN>",
         "machineId": "win-desktop",
         "groupId":   "Work"
@@ -155,7 +155,7 @@ if (Test-Path -LiteralPath $ConfigPath) {
 }
 
 # Environment variables win over the config file (handy for one-off tests).
-$apiUrl = Get-Setting $config 'apiUrl' 'USAGERATIO_API_URL' 'https://usageratio.snktibor.hu/api/usage'
+$apiUrl = Get-Setting $config 'apiUrl' 'USAGERATIO_API_URL'
 $apiToken = Get-Setting $config 'apiToken' 'USAGERATIO_API_TOKEN'
 $machineId = Get-Setting $config 'machineId' 'USAGERATIO_MACHINE_ID' ([Environment]::MachineName)
 $groupId = Get-Setting $config 'groupId' 'USAGERATIO_GROUP_ID'

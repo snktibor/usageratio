@@ -17,7 +17,7 @@ import { buildSetupZip, loadClientSources, oneShotBlobs, usageEndpoint } from "@
 import { readZip } from "./read-zip";
 
 const SETTINGS: MachineSettings = {
-  apiUrl: "https://usageratio.snktibor.hu/api/usage",
+  apiUrl: "https://usageratio.example.com/api/usage",
   groupId: "Otthoni gép",
   machineId: "",
 };
@@ -79,14 +79,14 @@ describe("setup package contents", () => {
 describe("renderConfig", () => {
   it("writes the macOS config for bash to source", () => {
     expect(renderConfig("macos", { ...SETTINGS, machineId: "mac-studio" })).toBe(
-      'API_URL="https://usageratio.snktibor.hu/api/usage"\nMACHINE_ID="mac-studio"\nGROUP_ID="Otthoni gép"\n',
+      'API_URL="https://usageratio.example.com/api/usage"\nMACHINE_ID="mac-studio"\nGROUP_ID="Otthoni gép"\n',
     );
   });
 
   it("writes the Windows config as JSON, accents included, without a token", () => {
     const text = renderConfig("windows", SETTINGS);
     expect(JSON.parse(text)).toEqual({
-      apiUrl: "https://usageratio.snktibor.hu/api/usage",
+      apiUrl: "https://usageratio.example.com/api/usage",
       machineId: "",
       groupId: "Otthoni gép",
     });
@@ -127,9 +127,9 @@ describe("checkMachineSettings", () => {
 
 describe("usageEndpoint", () => {
   it("points production clients at the production domain, not the deployment URL", () => {
-    const env = { VERCEL_ENV: "production", VERCEL_PROJECT_PRODUCTION_URL: "usageratio.snktibor.hu" };
-    expect(usageEndpoint(headers({ host: "usageratio-abc123-snktibors-projects.vercel.app" }), env)).toBe(
-      "https://usageratio.snktibor.hu/api/usage",
+    const env = { VERCEL_ENV: "production", VERCEL_PROJECT_PRODUCTION_URL: "usageratio.example.com" };
+    expect(usageEndpoint(headers({ host: "usageratio-abc123-my-projects.vercel.app" }), env)).toBe(
+      "https://usageratio.example.com/api/usage",
     );
   });
 
