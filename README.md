@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/snktibor/usageratio/actions/workflows/ci.yml/badge.svg)](https://github.com/snktibor/usageratio/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/snktibor/usageratio)](LICENSE)
+[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?logo=vercel&logoColor=white)](https://vercel.com)
+[![Built with TypeScript](https://img.shields.io/badge/Built%20with-TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
 **Track your AI usage across every machine, in one dashboard.**
 
@@ -28,9 +30,14 @@ can read. Every machine reports once an hour; a PIN-protected dashboard aggregat
 
 ## Quick start
 
-1. **Deploy:** fork this repo, import it into [Vercel](https://vercel.com/new), connect an Upstash
-   Redis database, and set `USAGE_API_TOKEN` and `DASHBOARD_PIN`.
-   Full step-by-step guide: [docs/REFERENCE.md § Deploying to Vercel](docs/REFERENCE.md#deploying-to-vercel).
+1. **Deploy:**
+
+   [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fsnktibor%2Fusageratio&env=USAGE_API_TOKEN,DASHBOARD_PIN&envDescription=Required%20secrets%20%E2%80%94%20generate%20with%20openssl%2C%20see%20docs%2FREFERENCE.md&envLink=https%3A%2F%2Fgithub.com%2Fsnktibor%2Fusageratio%2Fblob%2Fmain%2Fdocs%2FREFERENCE.md%23deploying-to-vercel&project-name=usageratio&repository-name=usageratio)
+
+   This clones the repo into your own GitHub account and creates the Vercel project, prompting for
+   the two required secrets. You still need to connect an Upstash Redis database afterward (Vercel
+   can't do that part through the button) — full step-by-step guide, including that and adding a
+   custom domain: [docs/REFERENCE.md § Deploying to Vercel](docs/REFERENCE.md#deploying-to-vercel).
 2. **Install a client:** open your deployment, sign in with the PIN, and use the **Setup** page — it
    generates a ready-to-run package (ZIP, or copy-paste blocks) for macOS or Windows.
    Command-line install instead: [docs/setup-auto.md](docs/setup-auto.md) ·
