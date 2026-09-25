@@ -47,14 +47,6 @@ export function formatFactor(factor: number, locale: string): string {
   return `${new Intl.NumberFormat(locale, { maximumFractionDigits: digits }).format(factor)}×`;
 }
 
-/** "heti" / "havi", as in "a heti keret". */
-export function periodAdjective(period: BudgetPeriod, locale: string): string {
-  if (locale.startsWith("hu")) {
-    return period === "monthly" ? "havi" : "heti";
-  }
-  return period === "monthly" ? "monthly" : "weekly";
-}
-
 export function weekdayShort(weekday: number, locale: string): string {
   const date = new Date(Date.UTC(2023, 9, 1 + weekday));
   return new Intl.DateTimeFormat(locale, { timeZone: "UTC", weekday: "short" }).format(date);
@@ -118,13 +110,13 @@ export function formatDuration(ms: number, locale: string): string {
   return mf.format(Math.max(1, minutes));
 }
 
-/** Age of a report: "most", "12 perce", "3 órája", "2 napja". */
-export function formatAgo(ms: number, now: number, locale: string): string {
+/** Age of a report: "most", "12 perce", "3 órája", "2 napja". `nowLabel` is the caller's translated "now" string. */
+export function formatAgo(ms: number, now: number, locale: string, nowLabel: string): string {
   const age = Math.max(0, now - ms);
   const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "always", style: "long" });
 
   if (age < MINUTE) {
-    return locale.startsWith("hu") ? "most" : "just now";
+    return nowLabel;
   }
   if (age < HOUR) return rtf.format(-Math.floor(age / MINUTE), "minute");
   if (age < 2 * DAY) return rtf.format(-Math.floor(age / HOUR), "hour");

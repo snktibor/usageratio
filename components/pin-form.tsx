@@ -10,7 +10,7 @@ const INITIAL_STATE: LoginState = { error: null };
 
 /** `labelledBy`: id of the heading that names the field. `next`: where a successful login continues. */
 export function PinForm({ labelledBy, next }: { labelledBy: string; next: string }) {
-  const t = useTranslations("Settings");
+  const t = useTranslations("HomePage");
   const [state, formAction, pending] = useActionState(login, INITIAL_STATE);
   const formRef = useRef<HTMLFormElement>(null);
 

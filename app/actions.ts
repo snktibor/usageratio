@@ -1,6 +1,7 @@
 "use server";
 
-import { redirect } from "next/navigation";
+import { getLocale } from "next-intl/server";
+import { redirect } from "@/i18n/routing";
 import { attemptLogin, endSession } from "@/lib/auth";
 import { StorageNotConfiguredError } from "@/lib/redis";
 
@@ -51,7 +52,8 @@ export async function login(_previous: LoginState, formData: FormData): Promise<
   }
 
   const next = String(formData.get("next") ?? "/");
-  redirect(AFTER_LOGIN.has(next) ? next : "/");
+  const locale = await getLocale();
+  return redirect({ href: AFTER_LOGIN.has(next) ? next : "/", locale });
 }
 
 export async function logout(): Promise<void> {
@@ -61,5 +63,6 @@ export async function logout(): Promise<void> {
     // The cookie is already cleared; a stale Redis key simply expires.
     console.error("[usageratio] Logout could not reach the store:", error);
   }
-  redirect("/");
+  const locale = await getLocale();
+  return redirect({ href: "/", locale });
 }

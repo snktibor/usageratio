@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
+import { Link } from "@/i18n/routing";
 import { fetchApiToken } from "@/components/clipboard";
 import { BreakablePath, CommandBlock, FileBlock } from "@/components/code-block";
 import { ArrowLeftIcon, DownloadIcon, StopCircleIcon } from "@/components/icons";
@@ -273,7 +273,7 @@ function OneShotSection({
         <h2 id={headingId} className="text-2xl font-semibold tracking-tight">
           {t("one_shot_heading")}
         </h2>
-        <InfoTip label="Mire jó az egyszeri feltöltés?">
+        <InfoTip label={t("one_shot_tooltip_aria")}>
           <span className="block">{t("one_shot_tooltip_1")}</span>
           <span className="block">
             {t("one_shot_tooltip_2")}
@@ -423,7 +423,7 @@ export function SetupView({
           className="flex items-center gap-2 rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
         >
           <ArrowLeftIcon />
-          Dashboard
+          {t("back_to_dashboard")}
         </Link>
       </header>
 
@@ -435,7 +435,7 @@ export function SetupView({
         </p> */}
       </div>
 
-      <section aria-label="A csomag beállításai" className="mt-10 rounded-lg border border-rule px-5 py-6 sm:px-6">
+      <section aria-label={t("package_settings_aria")} className="mt-10 rounded-lg border border-rule px-5 py-6 sm:px-6">
         <div className="flex flex-wrap gap-x-10 gap-y-5">
           <Segmented legend={t("os_legend")} name="os" value={os} options={SETUP_OSES} labels={OS_LABEL} onChange={setOs} />
           <Segmented

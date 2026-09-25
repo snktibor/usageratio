@@ -34,7 +34,7 @@ type Load = { phase: "loading" } | { phase: "failed" } | { phase: "ready"; statu
  * Mounted only while it is open.
  */
 function ConfirmReplaceDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
-    const locale = useLocale();
+  const t = useTranslations("Settings");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const confirmed = useRef(false);
   const [secondsLeft, setSecondsLeft] = useState(CONFIRM_DELAY_SECONDS);
@@ -68,15 +68,14 @@ function ConfirmReplaceDialog({ onCancel, onConfirm }: { onCancel: () => void; o
       className={`w-[min(26rem,calc(100vw-2rem))] px-6 py-5 ${NESTED_DIALOG}`}
     >
       <h2 id={titleId} className="text-lg font-medium">
-        Biztosan módosítod az API-tokent?
+        {t("confirm_replace_title")}
       </h2>
       <p id={textId} className="mt-2 text-sm leading-relaxed text-ink-2">
-        A tárolt token felülíródik, és ezután a Telepítés oldal gombja az újat másolja. A módosítás az auditnaplóba
-        kerül. Az „Igen” gomb {CONFIRM_DELAY_SECONDS} másodperc múlva válik aktívvá.
+        {t("confirm_replace_body", { seconds: CONFIRM_DELAY_SECONDS })}
       </p>
       <div className="mt-6 flex justify-end gap-3">
         <button type="button" autoFocus onClick={() => dialogRef.current?.close()} className={QUIET_BUTTON}>
-          Mégse
+          {t("cancel")}
         </button>
         <button
           type="button"
@@ -87,7 +86,7 @@ function ConfirmReplaceDialog({ onCancel, onConfirm }: { onCancel: () => void; o
           }}
           className={`min-w-28 tabular-nums ${PRIMARY_BUTTON}`}
         >
-          {secondsLeft > 0 ? `Igen (${secondsLeft})` : "Igen"}
+          {secondsLeft > 0 ? t("confirm_yes_countdown", { seconds: secondsLeft }) : t("confirm_yes")}
         </button>
       </div>
     </dialog>
@@ -101,7 +100,8 @@ type AuditLoad =
 
 /** Who saved or fetched the token, newest first, in a scrolling list. Mounted only while it is open. */
 function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => void }) {
-    const locale = useLocale();
+  const locale = useLocale();
+  const t = useTranslations("Settings");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [load, setLoad] = useState<AuditLoad>({ phase: "loading" });
   const titleId = useId();
@@ -134,37 +134,34 @@ function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => v
     >
       <header className="flex items-center justify-between gap-4 px-6 pt-5">
         <h2 id={titleId} className="text-lg font-medium">
-          API-token auditnapló
+          {t("audit_dialog_title")}
         </h2>
         <button
           type="button"
           onClick={() => dialogRef.current?.close()}
-          aria-label="Bezárás"
+          aria-label={t("close")}
           className="-mr-2 rounded-md p-2 text-ink-3 transition-colors hover:text-ink"
         >
           <XIcon />
         </button>
       </header>
       <p className="px-6 pt-1.5 text-sm leading-relaxed text-ink-3">
-        Mikor és melyik böngészőből adták hozzá, módosították vagy kérték le a tokent. A legfrissebb elöl; az utolsó{" "}
-        {AUDIT_LIMIT} esemény marad meg. Időpontok {timeZone} idő szerint.
+        {t("audit_dialog_description", { limit: AUDIT_LIMIT, timeZone })}
       </p>
 
       <div
         tabIndex={0}
-        aria-label="Auditbejegyzések"
+        aria-label={t("audit_entries_aria")}
         className="code-scroll mx-6 mb-6 mt-4 min-h-24 grow overflow-y-auto overscroll-contain rounded-lg border border-hairline"
       >
         {load.phase === "loading" ? (
-          <p className="px-4 py-4 text-sm text-ink-3">Betöltés…</p>
+          <p className="px-4 py-4 text-sm text-ink-3">{t("loading_status")}</p>
         ) : load.phase === "failed" ? (
           <p className="px-4 py-4 text-sm text-ink-2">
-            {load.expired
-              ? "A munkamenet lejárt. Lépj be újra a PIN-kóddal."
-              : "A napló nem tölthető be: az adattár most nem érhető el."}
+            {load.expired ? t("audit_session_expired") : t("audit_store_unavailable")}
           </p>
         ) : load.entries.length === 0 ? (
-          <p className="px-4 py-4 text-sm text-ink-3">Még nincs bejegyzés.</p>
+          <p className="px-4 py-4 text-sm text-ink-3">{t("audit_no_entries")}</p>
         ) : (
           <ol role="list" className="divide-y divide-hairline">
             {load.entries.map((entry, index) => (
@@ -185,12 +182,12 @@ function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => v
                   {entry.browser}
                   {entry.os && ` · ${entry.os}`}
                   {entry.session !== null && entry.session === load.currentSession && (
-                    <span className="text-ink-3"> · ez a böngésző</span>
+                    <span className="text-ink-3"> · {t("audit_current_browser")}</span>
                   )}
                 </p>
                 <p className="mt-0.5 text-sm text-ink-3 wrap-anywhere">
                   IP {entry.ip}
-                  {entry.session && <> · munkamenet {entry.session}</>}
+                  {entry.session && <> · {t("audit_session_label", { session: entry.session })}</>}
                 </p>
                 {entry.userAgent && (
                   <p className="mt-1 font-mono text-xs leading-relaxed text-ink-3 wrap-anywhere">{entry.userAgent}</p>
@@ -301,7 +298,7 @@ export function ApiTokenSettings({
     <section aria-labelledby={headingId} className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <h3 id={headingId} className="font-medium">
-          API-token
+          {t("api_token_heading")}
         </h3>
         <button
           type="button"
@@ -310,20 +307,20 @@ export function ApiTokenSettings({
           className={`flex items-center gap-2 text-sm ${QUIET_BUTTON}`}
         >
           <HistoryIcon />
-          Audit
+          {t("audit_button")}
         </button>
       </div>
 
       <div id={noteId} className="space-y-1.5">
         {load.phase === "loading" ? (
-          <p className="text-sm text-ink-3">Állapot betöltése…</p>
+          <p className="text-sm text-ink-3">{t("loading_status")}</p>
         ) : load.phase === "failed" ? (
-          <StatusLine tone="problem">Az állapot nem tölthető be: az adattár most nem érhető el.</StatusLine>
+          <StatusLine tone="problem">{t("status_load_failed")}</StatusLine>
         ) : (
           statusNote && (
             <StatusLine tone={statusNote.tone}>
               {statusNote.text}
-              {updatedAt !== null && <> Utoljára mentve: {formatDateTime(updatedAt, timeZone, locale)}.</>}
+              {updatedAt !== null && <> {t("last_saved", { date: formatDateTime(updatedAt, timeZone, locale) })}</>}
             </StatusLine>
           )
         )}
@@ -331,7 +328,7 @@ export function ApiTokenSettings({
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <label htmlFor={inputId} className="sr-only">
-          {hasStored ? "Új API-token" : "API-token"}
+          {hasStored ? t("new_api_token_label") : t("api_token_heading")}
         </label>
         <input
           id={inputId}
@@ -339,7 +336,7 @@ export function ApiTokenSettings({
           autoComplete="off"
           spellCheck={false}
           maxLength={600}
-          placeholder={hasStored ? "Új token a régi helyére" : t("server_token_placeholder")}
+          placeholder={hasStored ? t("new_token_placeholder") : t("server_token_placeholder")}
           value={value}
           disabled={noKey}
           onChange={(event) => {
@@ -373,9 +370,9 @@ export function ApiTokenSettings({
       </div>
 
       <p className="text-sm text-ink-3">
-        A Telepítés oldal másológombja ezt adja vissza. AES-256-GCM-mel titkosítva kerül az adattárba, és soha
-        nem jelenik meg az oldalon; minden mentés és lekérés az auditnaplóba kerül. A kliensek továbbra is a
-        szerver <code className="text-ink-2">USAGE_API_TOKEN</code>-jével azonosítanak: ez csak a másolatuk.
+        {t.rich("api_token_explanation", {
+          code: (chunks) => <code className="text-ink-2">{chunks}</code>,
+        })}
       </p>
 
       {pending !== null && (

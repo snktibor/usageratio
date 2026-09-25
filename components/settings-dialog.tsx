@@ -123,7 +123,6 @@ function ToggleChip({
   title?: string;
   children: React.ReactNode;
 }) {
-    const locale = useLocale();
   return (
     <label title={title} className="relative">
       <input
@@ -1001,7 +1000,6 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
  * settings, and a background refresh never overwrites what is being typed.
  */
 export function SettingsDialog({ view }: { view: SettingsView }) {
-    const locale = useLocale();
   const t = useTranslations("Settings");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
