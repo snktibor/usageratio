@@ -1,50 +1,40 @@
 /**
- * Hungarian display formatting. Times are always given in the reset time zone,
+ * Display formatting. Times are always given in the reset time zone,
  * never the viewer's own, so the server and the browser render the same text.
  */
 
 import type { BudgetPeriod } from "@/lib/config";
 
-const LOCALE = "hu-HU";
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-const WEEKDAYS_SHORT = ["V", "H", "K", "Sze", "Cs", "P", "Szo"] as const;
-const WEEKDAYS_LONG = [
-  "vasárnap",
-  "hétfő",
-  "kedd",
-  "szerda",
-  "csütörtök",
-  "péntek",
-  "szombat",
-] as const;
-
-const integer = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
-
 /** 312480 → "312 480" */
-export function formatTokens(value: number): string {
+export function formatTokens(value: number, locale: string): string {
+  const integer = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
   return integer.format(Math.round(value));
 }
 
 /** 0.625 → "62,5%"; tiny non-zero values → "<0,1%" */
-export function formatPercent(fraction: number): string {
-  if (fraction > 0 && fraction < 0.001) return "<0,1%";
-  return new Intl.NumberFormat(LOCALE, {
+export function formatPercent(fraction: number, locale: string): string {
+  if (fraction > 0 && fraction < 0.001) {
+    const isHu = locale.startsWith("hu");
+    return isHu ? "<0,1%" : "<0.1%";
+  }
+  return new Intl.NumberFormat(locale, {
     style: "percent",
     maximumFractionDigits: fraction < 0.1 || (fraction > 0.995 && fraction < 1) ? 1 : 0,
   }).format(fraction);
 }
 
 /** A share of the limit, as formatPercent; "–" when there is no limit to take a share of. */
-export function formatLimitShare(fraction: number | null): string {
-  return fraction === null ? "–" : formatPercent(fraction);
+export function formatLimitShare(fraction: number | null, locale: string): string {
+  return fraction === null ? "–" : formatPercent(fraction, locale);
 }
 
 /** Same as formatPercent, but always with one decimal for the hero figure below 100%. */
-export function formatHeroPercent(fraction: number): string {
-  return new Intl.NumberFormat(LOCALE, {
+export function formatHeroPercent(fraction: number, locale: string): string {
+  return new Intl.NumberFormat(locale, {
     style: "percent",
     minimumFractionDigits: fraction < 1 ? 1 : 0,
     maximumFractionDigits: fraction < 1 ? 1 : 0,
@@ -52,51 +42,52 @@ export function formatHeroPercent(fraction: number): string {
 }
 
 /** 2.5 → "2,5×"; the ratio of the official figure to the measured one. */
-export function formatFactor(factor: number): string {
+export function formatFactor(factor: number, locale: string): string {
   const digits = factor < 10 ? 2 : factor < 100 ? 1 : 0;
-  return `${new Intl.NumberFormat(LOCALE, { maximumFractionDigits: digits }).format(factor)}×`;
+  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: digits }).format(factor)}×`;
 }
 
 /** "heti" / "havi", as in "a heti keret". */
-export function periodAdjective(period: BudgetPeriod): string {
-  return period === "monthly" ? "havi" : "heti";
+export function periodAdjective(period: BudgetPeriod, locale: string): string {
+  if (locale.startsWith("hu")) {
+    return period === "monthly" ? "havi" : "heti";
+  }
+  return period === "monthly" ? "monthly" : "weekly";
 }
 
-export function weekdayShort(weekday: number): string {
-  return WEEKDAYS_SHORT[weekday] ?? "";
+export function weekdayShort(weekday: number, locale: string): string {
+  const date = new Date(Date.UTC(2023, 9, 1 + weekday));
+  return new Intl.DateTimeFormat(locale, { timeZone: "UTC", weekday: "short" }).format(date);
 }
 
-export function weekdayLong(weekday: number): string {
-  return WEEKDAYS_LONG[weekday] ?? "";
+export function weekdayLong(weekday: number, locale: string): string {
+  const date = new Date(Date.UTC(2023, 9, 1 + weekday));
+  return new Intl.DateTimeFormat(locale, { timeZone: "UTC", weekday: "long" }).format(date);
 }
 
-function zoned(ms: number, timeZone: string, options: Intl.DateTimeFormatOptions): string {
-  return new Intl.DateTimeFormat(LOCALE, { timeZone, hourCycle: "h23", ...options }).format(ms);
-}
-
-function weekdayIndex(ms: number, timeZone: string): number {
-  const name = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(ms);
-  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(name);
+function zoned(ms: number, timeZone: string, locale: string, options: Intl.DateTimeFormatOptions): string {
+  return new Intl.DateTimeFormat(locale, { timeZone, hourCycle: "h23", ...options }).format(ms);
 }
 
 /** "14:05" */
-export function formatClock(ms: number, timeZone: string): string {
-  return zoned(ms, timeZone, { hour: "2-digit", minute: "2-digit" });
+export function formatClock(ms: number, timeZone: string, locale: string): string {
+  return zoned(ms, timeZone, locale, { hour: "2-digit", minute: "2-digit" });
 }
 
 /** "péntek 14:05" */
-export function formatWeekdayTime(ms: number, timeZone: string): string {
-  return `${WEEKDAYS_LONG[weekdayIndex(ms, timeZone)] ?? ""} ${formatClock(ms, timeZone)}`;
+export function formatWeekdayTime(ms: number, timeZone: string, locale: string): string {
+  // To format a weekday and time in a specific timezone correctly
+  return zoned(ms, timeZone, locale, { weekday: "long", hour: "2-digit", minute: "2-digit" });
 }
 
 /** "szept. 21. 00:00" */
-export function formatDateTime(ms: number, timeZone: string): string {
-  return zoned(ms, timeZone, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+export function formatDateTime(ms: number, timeZone: string, locale: string): string {
+  return zoned(ms, timeZone, locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 /** "2026. szept. 21. 14:05:09": a moment worth pinning down to the second, such as an audit entry. */
-export function formatTimestamp(ms: number, timeZone: string): string {
-  return zoned(ms, timeZone, {
+export function formatTimestamp(ms: number, timeZone: string, locale: string): string {
+  return zoned(ms, timeZone, locale, {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -107,26 +98,35 @@ export function formatTimestamp(ms: number, timeZone: string): string {
 }
 
 /** A moment inside a cycle: a weekday pins it down in a week, only a date does in a month. */
-export function formatCycleMoment(ms: number, period: BudgetPeriod, timeZone: string): string {
-  return period === "monthly" ? formatDateTime(ms, timeZone) : formatWeekdayTime(ms, timeZone);
+export function formatCycleMoment(ms: number, period: BudgetPeriod, timeZone: string, locale: string): string {
+  return period === "monthly" ? formatDateTime(ms, timeZone, locale) : formatWeekdayTime(ms, timeZone, locale);
 }
 
 /** Remaining time, two largest units: "4 nap 9 óra", "9 óra 12 perc", "12 perc". */
-export function formatDuration(ms: number): string {
+export function formatDuration(ms: number, locale: string): string {
   const total = Math.max(0, ms);
   const days = Math.floor(total / DAY);
   const hours = Math.floor((total % DAY) / HOUR);
   const minutes = Math.floor((total % HOUR) / MINUTE);
-  if (days > 0) return hours > 0 ? `${days} nap ${hours} óra` : `${days} nap`;
-  if (hours > 0) return minutes > 0 ? `${hours} óra ${minutes} perc` : `${hours} óra`;
-  return `${Math.max(1, minutes)} perc`;
+
+  const df = new Intl.NumberFormat(locale, { style: "unit", unit: "day", unitDisplay: "long", maximumFractionDigits: 0 });
+  const hf = new Intl.NumberFormat(locale, { style: "unit", unit: "hour", unitDisplay: "long", maximumFractionDigits: 0 });
+  const mf = new Intl.NumberFormat(locale, { style: "unit", unit: "minute", unitDisplay: "long", maximumFractionDigits: 0 });
+
+  if (days > 0) return hours > 0 ? `${df.format(days)} ${hf.format(hours)}` : df.format(days);
+  if (hours > 0) return minutes > 0 ? `${hf.format(hours)} ${mf.format(minutes)}` : hf.format(hours);
+  return mf.format(Math.max(1, minutes));
 }
 
 /** Age of a report: "most", "12 perce", "3 órája", "2 napja". */
-export function formatAgo(ms: number, now: number): string {
+export function formatAgo(ms: number, now: number, locale: string): string {
   const age = Math.max(0, now - ms);
-  if (age < MINUTE) return "most";
-  if (age < HOUR) return `${Math.floor(age / MINUTE)} perce`;
-  if (age < 2 * DAY) return `${Math.floor(age / HOUR)} órája`;
-  return `${Math.floor(age / DAY)} napja`;
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "always", style: "long" });
+
+  if (age < MINUTE) {
+    return locale.startsWith("hu") ? "most" : "just now";
+  }
+  if (age < HOUR) return rtf.format(-Math.floor(age / MINUTE), "minute");
+  if (age < 2 * DAY) return rtf.format(-Math.floor(age / HOUR), "hour");
+  return rtf.format(-Math.floor(age / DAY), "day");
 }

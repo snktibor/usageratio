@@ -15,7 +15,13 @@ import { loadIndexes } from "@/lib/usage-store";
 // Rendered per request: the page depends on the session cookie and on the stored groups.
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = { title: "Telepítés · usageratio" };
+import { getTranslations } from "next-intl/server";
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const locale = (await params).locale;
+  const t = await getTranslations({ locale, namespace: "Setup" });
+  return { title: `${t("title")} · usageratio` };
+}
 
 /** The known groups in order of first appearance, with the colours the dashboard shows them in. */
 async function loadGroups(): Promise<SetupGroup[]> {

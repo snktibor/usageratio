@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { fetchApiToken } from "@/components/clipboard";
 import { BreakablePath, CommandBlock, FileBlock } from "@/components/code-block";
 import { ArrowLeftIcon, DownloadIcon, StopCircleIcon } from "@/components/icons";
+import { useTranslations } from "next-intl";
 import { InfoTip } from "@/components/info-tip";
 import { StatusLine } from "@/components/status-line";
 import { TokenCopyButton } from "@/components/token-copy-button";
@@ -136,10 +137,12 @@ function RouteTabs({
   tabsId,
   value,
   onChange,
+  t,
 }: {
   tabsId: string;
   value: InstallRoute;
   onChange: (route: InstallRoute) => void;
+  t: any;
 }) {
   const move = (delta: 1 | -1) => {
     const index = INSTALL_ROUTES.indexOf(value);
@@ -177,7 +180,7 @@ function RouteTabs({
             value === route ? "border-ink text-ink" : "border-transparent text-ink-2 hover:text-ink"
           }`}
         >
-          {ROUTE_LABEL[route]}
+          {t(`route_${route}`)}
         </button>
       ))}
     </div>
@@ -212,14 +215,10 @@ function Step({ number, children }: { number: number; children: React.ReactNode 
   );
 }
 
-function TokenNote({ os, mode, tokenStatus }: { os: SetupOs; mode: SetupMode; tokenStatus: ApiTokenStatus }) {
+function TokenNote({ os, mode, tokenStatus, t }: { os: SetupOs; mode: SetupMode; tokenStatus: ApiTokenStatus; t: any }) {
   return (
     <>
-      <p>
-        Add meg a <Code>USAGE_API_TOKEN</Code>-t, amikor kéri (gépeléskor nem látszik). A telepítő a helyükre
-        másolja a fájlokat{os === "windows" && mode === "auto" ? ", regisztrálja az ütemezett feladatot" : ""}, és
-        küld egy próbajelentést.
-      </p>
+      <p>{t.rich("token_note", { auto: os === "windows" && mode === "auto" ? "true" : "false", Code: (chunks: any) => <Code>{chunks}</Code> })}</p>
       <TokenCopyButton status={tokenStatus} />
     </>
   );
@@ -254,6 +253,7 @@ function OneShotSection({
   tokenStatus: ApiTokenStatus;
   blobs: OneShotBlobs;
 }) {
+  const t = useTranslations("Setup");
   const [runner, setRunner] = useState<CcusageRunner>("global");
   const available = tokenStatus.state === "stored";
   const note = apiTokenStatusNote(tokenStatus);
@@ -271,58 +271,56 @@ function OneShotSection({
     <section aria-labelledby={headingId}>
       <div className="relative flex items-center gap-1.5">
         <h2 id={headingId} className="text-2xl font-semibold tracking-tight">
-          Egyszeri feltöltés
+          {t("one_shot_heading")}
         </h2>
         <InfoTip label="Mire jó az egyszeri feltöltés?">
-          <span className="block">Egyszeri adatküldés olyan gépről, amit nem kötnél be tartósan – például egy vendéggépről.</span>
+          <span className="block">{t("one_shot_tooltip_1")}</span>
           <span className="block">
-            Utána semmi nem marad a gépen, és nem frissül magától: ha újra kell, másold be újra.
+            {t("one_shot_tooltip_2")}
           </span>
           <span className="block text-ink">
-            Vigyázz: a parancs a valódi tokent tartalmazza, és ott marad a terminál előzményeiben, amíg nem törlöd.
-            Ne oszd meg.
+            {t("one_shot_tooltip_3")}
           </span>
         </InfoTip>
       </div>
       <p className="mt-2 max-w-2xl text-ink-2">
-        Egyetlen parancs, ami a fenti csoporttal és gépazonosítóval egyszer elküldi a gép állását, és nem hagy
-        nyomot.
+        {t("one_shot_desc")}
       </p>
 
       <div className="mt-6">
         <Segmented
-          legend="ccusage ezen a gépen"
+          legend={t("runner_legend")}
           name="runner"
           value={runner}
           options={CCUSAGE_RUNNERS}
-          labels={RUNNER_LABEL}
+          labels={{ global: t("runner_global"), npx: t("runner_npx") }}
           onChange={setRunner}
         />
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-ink-2">{RUNNER_SUMMARY[runner]}</p>
+        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-ink-2">{t(`runner_${runner}_desc`)}</p>
       </div>
 
       <div className="mt-6 max-w-2xl space-y-3 leading-relaxed">
         <p>
           {os === "windows"
-            ? "Másold ki, illeszd be egy PowerShellbe, és nyomj Entert."
-            : "Másold ki, illeszd be egy terminálba, és nyomj Entert."}
+            ? t("copy_powershell")
+            : t("copy_terminal")}
         </p>
         <CommandBlock
           command={preview}
-          label="Az egyszeri parancs"
+          label={t("one_shot_command")}
           resolve={build}
           disabled={!settings || !available}
         />
         {!settings ? (
-          <p className="text-sm text-ink-3">Előbb javítsd a fenti csoportot vagy a gép azonosítóját.</p>
+          <p className="text-sm text-ink-3">{t("fix_group_machine")}</p>
         ) : available ? (
-          <p className="text-sm text-ink-3">A Másolás lekéri a tokent, és beleírja a parancsba (bekerül az auditnaplóba).</p>
+          <p className="text-sm text-ink-3">{t("copy_fetches_token")}</p>
         ) : null}
         {!available || note.tone === "warning" ? (
           <StatusLine tone={note.tone}>
             {note.text}
             {tokenStatus.state === "empty" || tokenStatus.state === "unreadable"
-              ? " A dashboard Beállítások paneljén adhatod meg."
+              ? t("provide_in_settings")
               : ""}
           </StatusLine>
         ) : null}
@@ -354,6 +352,7 @@ export function SetupView({
   oneShot: OneShotBlobs;
   tokenStatus: ApiTokenStatus;
 }) {
+  const t = useTranslations("Setup");
   const [os, setOs] = useState(initialOs);
   const [mode, setMode] = useState(initialMode);
   const [route, setRoute] = useState(initialRoute);
@@ -429,7 +428,7 @@ export function SetupView({
       </header>
 
       <div className="mt-12 max-w-2xl sm:mt-16">
-        <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">Kliens telepítése</h1>
+        <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">{t("install_client")}</h1>
         {/* <p className="mt-4 text-ink-2">
           Válaszd ki a rendszert és a futtatás módját, majd töltsd le a csomagot, vagy hozd létre a fájlokat kézzel.
           Egyszeri adatküldéshez lent van egy telepítés nélküli parancs is.
@@ -438,22 +437,22 @@ export function SetupView({
 
       <section aria-label="A csomag beállításai" className="mt-10 rounded-lg border border-rule px-5 py-6 sm:px-6">
         <div className="flex flex-wrap gap-x-10 gap-y-5">
-          <Segmented legend="Rendszer" name="os" value={os} options={SETUP_OSES} labels={OS_LABEL} onChange={setOs} />
+          <Segmented legend={t("os_legend")} name="os" value={os} options={SETUP_OSES} labels={OS_LABEL} onChange={setOs} />
           <Segmented
-            legend="Futtatás"
+            legend={t("mode_legend")}
             name="mode"
             value={mode}
             options={SETUP_MODES}
-            labels={MODE_LABEL}
+            labels={{ auto: t("mode_auto"), manual: t("mode_manual") }}
             onChange={setMode}
           />
         </div>
-        <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-2">{MODE_SUMMARY[os][mode]}</p>
+        <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-2">{t(`mode_${mode}_${os}`)}</p>
 
         <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-x-8 gap-y-6 border-t border-hairline pt-6 sm:grid-cols-2">
           <div className="min-w-0">
             <label htmlFor={ids.group} className="text-sm text-ink-3">
-              Csoport
+              {t("group_label")}
             </label>
             <input
               id={ids.group}
@@ -468,7 +467,7 @@ export function SetupView({
               className={`mt-1.5 block w-full ${FIELD}`}
             />
             {groups.length > 0 && (
-              <div className="mt-2.5 flex flex-wrap gap-2" aria-label="Meglévő csoportok">
+              <div className="mt-2.5 flex flex-wrap gap-2" aria-label={t("existing_groups")}>
                 {groups.map((known) => (
                   <button
                     key={known.id}
@@ -486,13 +485,13 @@ export function SetupView({
             <FieldNote
               id={ids.groupNote}
               problem={check.ok ? null : check.group}
-              hint="A dashboard ezen a néven csoportosítja a gépet."
+              hint={t("group_hint")}
             />
           </div>
 
           <div className="min-w-0">
             <label htmlFor={ids.machine} className="text-sm text-ink-3">
-              Gép azonosítója (nem kötelező)
+              {t("machine_label")}
             </label>
             <input
               id={ids.machine}
@@ -500,7 +499,7 @@ export function SetupView({
               autoComplete="off"
               spellCheck={false}
               maxLength={64}
-              placeholder="a számítógép neve"
+              placeholder={t("machine_placeholder")}
               value={machine}
               onChange={(event) => setMachine(event.target.value)}
               aria-invalid={(!check.ok && check.machine !== null) || undefined}
@@ -510,14 +509,14 @@ export function SetupView({
             <FieldNote
               id={ids.machineNote}
               problem={check.ok ? null : check.machine}
-              hint="Üresen hagyva a gép neve lesz."
+              hint={t("machine_hint")}
             />
           </div>
         </div>
       </section>
 
       <div className="mt-14">
-        <RouteTabs tabsId={ids.tabs} value={route} onChange={setRoute} />
+        <RouteTabs tabsId={ids.tabs} value={route} onChange={setRoute} t={t} />
 
         <div
           role="tabpanel"
@@ -529,10 +528,10 @@ export function SetupView({
         >
           <section aria-labelledby={ids.zip}>
             <h2 id={ids.zip} className="text-2xl font-semibold tracking-tight">
-              Letöltés ZIP-ben
+              {t("download_zip")}
             </h2>
             <p className="mt-2 max-w-2xl text-ink-2">
-              Kész csomag telepítővel, a fenti beállításokkal. Tokent nem tartalmaz, azt a telepítő kéri be.
+              {t("zip_desc")}
             </p>
 
             <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -542,7 +541,7 @@ export function SetupView({
                   className="inline-flex items-center gap-2.5 rounded-md bg-ink px-5 py-2.5 font-medium text-page transition-opacity hover:opacity-90"
                 >
                   <DownloadIcon />
-                  Csomag letöltése
+                  {t("download_package")}
                 </a>
               ) : (
                 <button
@@ -551,7 +550,7 @@ export function SetupView({
                   className="inline-flex items-center gap-2.5 rounded-md bg-ink px-5 py-2.5 font-medium text-page opacity-40"
                 >
                   <DownloadIcon />
-                  Csomag letöltése
+                  {t("download_package")}
                 </button>
               )}
               <span className="font-mono text-sm text-ink-3 wrap-anywhere">{name}.zip</span>
@@ -563,14 +562,14 @@ export function SetupView({
                 <>
                   <Step number={1}>
                     <p>
-                      Nyisd meg a letöltött ZIP-et: létrejön a <Code>{name}</Code> mappa a Letöltésekben.
+                      {t.rich("zip_step_1_unix", { name, Code: (chunks: any) => <Code>{chunks}</Code> })}
                     </p>
                   </Step>
                   <Step number={2}>
-                    <p>Indítsd el a telepítőt a terminálban:</p>
-                    <CommandBlock command={zipInstallCommand(os, mode)} label="A telepítő parancsa" />
+                    <p>{t("zip_step_2_unix")}</p>
+                    <CommandBlock command={zipInstallCommand(os, mode)} label={t("installer_command")} />
                     <p className="text-sm text-ink-3">
-                      Ha máshol van a mappa: írd be <Code>bash </Code>, húzd rá az install.sh fájlt, majd Enter.
+                      {t.rich("zip_step_2_unix_alt", { Code: (chunks: any) => <Code>{chunks}</Code> })}
                     </p>
                   </Step>
                 </>
@@ -578,22 +577,20 @@ export function SetupView({
                 <>
                   <Step number={1}>
                     <p>
-                      Kattints jobb gombbal a ZIP-re, és válaszd az{" "}
-                      <strong className="font-medium text-ink">Összes kibontása…</strong> lehetőséget.
+                      {t.rich("zip_step_1_win", { strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong> })}
                     </p>
                   </Step>
                   <Step number={2}>
                     <p>
-                      A kibontott mappában kattints duplán az <Code>install.cmd</Code> fájlra. Ha a Windows rákérdez,
-                      engedélyezd a futtatást{mode === "auto" ? ", majd a rendszergazdai jogot is" : ""}.
+                      {t.rich("zip_step_2_win", { auto: mode === "auto" ? "true" : "false", Code: (chunks: any) => <Code>{chunks}</Code> })}
                     </p>
-                    <p className="text-sm text-ink-3">PowerShellből is indíthatod:</p>
-                    <CommandBlock command={zipInstallCommand(os, mode)} label="A telepítő parancsa" />
+                    <p className="text-sm text-ink-3">{t("start_from_powershell")}</p>
+                    <CommandBlock command={zipInstallCommand(os, mode)} label={t("installer_command")} />
                   </Step>
                 </>
               )}
               <Step number={3}>
-                <TokenNote os={os} mode={mode} tokenStatus={tokenStatus} />
+                <TokenNote os={os} mode={mode} tokenStatus={tokenStatus} t={t} />
               </Step>
             </ol>
           </section>
@@ -609,33 +606,30 @@ export function SetupView({
         >
           <section aria-labelledby={ids.manual}>
             <h2 id={ids.manual} className="text-2xl font-semibold tracking-tight">
-              Másold és hozd létre
+              {t("copy_and_create")}
             </h2>
             <p className="mt-2 max-w-2xl text-ink-2">
-              Bárhova, csak mind a(z) {files.length} fájl ugyanabba a mappába kerüljön, pontosan ezekkel a nevekkel.
+              {t("copy_desc", { count: files.length })}
             </p>
 
             <ol role="list" className="mt-8 space-y-10">
               <Step number={1}>
                 <p className="max-w-2xl">
                   {unix
-                    ? "Nyiss egy terminált, és hozz létre egy mappát:"
-                    : "Nyiss egy PowerShellt, és futtasd ezt: létrehoz egy mappát, és felvesz egy paste parancsot a vágólap fájlba mentéséhez."}
+                    ? t("manual_step_1_unix")
+                    : t("manual_step_1_win")}
                 </p>
-                <CommandBlock command={folderCommand(os)} label="A mappa parancsa" />
+                <CommandBlock command={folderCommand(os)} label={t("folder_command")} />
               </Step>
               <Step number={2}>
                 <p className="max-w-2xl">
                   {os === "linux" ? (
                     <>
-                      Hozd létre a fájlokat: futtasd a Mentés parancsát, illeszd be a tartalmat, majd zárd{" "}
-                      <Code>Ctrl+D</Code>-vel. Szövegszerkesztővel is mentheted, csak a név egyezzen.
+                      {t.rich("manual_step_2_linux", { Code: (chunks: any) => <Code>{chunks}</Code> })}
                     </>
                   ) : (
                     <>
-                      Hozd létre a fájlokat: <strong className="font-medium text-ink">Másolás</strong>, majd a Mentés
-                      parancsa {os === "macos" ? "a Terminálban" : "a PowerShellben"}. Szövegszerkesztővel is
-                      mentheted, csak a név egyezzen.
+                      {t.rich("manual_step_2_win_mac", { os, strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong> })}
                     </>
                   )}
                 </p>
@@ -654,9 +648,9 @@ export function SetupView({
                 </div>
               </Step>
               <Step number={3}>
-                <p>Futtasd a telepítőt ugyanebben a mappában:</p>
-                <CommandBlock command={installerCommand(os)} label="A telepítő parancsa" />
-                <TokenNote os={os} mode={mode} tokenStatus={tokenStatus} />
+                <p>{t("run_installer_same_folder")}</p>
+                <CommandBlock command={installerCommand(os)} label={t("installer_command")} />
+                <TokenNote os={os} mode={mode} tokenStatus={tokenStatus} t={t} />
               </Step>
             </ol>
           </section>
@@ -683,45 +677,38 @@ export function SetupView({
 
       <details className="mt-20 border-t border-hairline pt-8">
         <summary id={ids.notes} className="w-fit cursor-pointer text-sm text-ink-3 transition-colors hover:text-ink">
-          Tudnivalók
+          {t("info")}
         </summary>
         <dl className="mt-5 grid max-w-3xl grid-cols-[minmax(0,1fr)] gap-x-8 gap-y-5 text-sm leading-relaxed sm:grid-cols-[8rem_minmax(0,1fr)]">
-          <dt className="text-ink-3">Előfeltétel</dt>
+          <dt className="text-ink-3">{t("prerequisite")}</dt>
           <dd className="text-ink-2">
-            Node.js a gépen: a ccusage és a feldolgozó is ezzel fut. Ellenőrzés: <Code>node --version</Code>
+            {t.rich("prerequisite_desc", { Code: (chunks: any) => <Code>{chunks}</Code> })}
           </dd>
 
-          <dt className="text-ink-3">Token</dt>
+          <dt className="text-ink-3">{t("token")}</dt>
           <dd className="text-ink-2">
-            A szerver <Code>USAGE_API_TOKEN</Code> értéke, minden gépen ugyanaz. Beállított gépen itt találod:{" "}
-            <Code>{INSTALLED_CONFIG.macos}</Code> (macOS/Linux) vagy{" "}
-            <Code>
-              <BreakablePath path={INSTALLED_CONFIG.windows} />
-            </Code>{" "}
-            (Windows). Újratelepítéskor Enterrel megtartható. A <strong className="font-medium text-ink">Token
-            másolása</strong> gomb a Beállításokban tárolt, titkosított másolatot adja.
+            {t.rich("token_desc", { mac: INSTALLED_CONFIG.macos, win: INSTALLED_CONFIG.windows, Code: (chunks: any) => <Code>{chunks}</Code>, BreakablePath: (chunks: any) => <BreakablePath path={INSTALLED_CONFIG.windows} />, strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong> })}
           </dd>
 
-          <dt className="text-ink-3">Frissítés</dt>
-          <dd className="text-ink-2">Futtasd újra a telepítőt egy friss csomaggal: a gép azonosítója megmarad.</dd>
+          <dt className="text-ink-3">{t("update")}</dt>
+          <dd className="text-ink-2">{t("update_desc")}</dd>
 
-          <dt className="text-ink-3">Napló</dt>
+          <dt className="text-ink-3">{t("log")}</dt>
           <dd className="text-ink-2">
             <Code>
               <BreakablePath path={LOG_FILE[os]} />
             </Code>
           </dd>
 
-          <dt className="text-ink-3">Eltávolítás</dt>
+          <dt className="text-ink-3">{t("uninstall")}</dt>
           <dd className="space-y-2 text-ink-2">
-            <CommandBlock command={uninstallCommand(os, mode)} label="Az eltávolítás parancsa" />
+            <CommandBlock command={uninstallCommand(os, mode)} label={t("uninstall_command")} />
             {unix && mode === "manual" && (
               <p>
-                Utána töröld az <Code>alias sync-tokens=</Code> sort a shell indítófájlból (pl.{" "}
-                <Code>~/.zshrc</Code>).
+                {t.rich("uninstall_unix_manual", { Code: (chunks: any) => <Code>{chunks}</Code> })}
               </p>
             )}
-            {os === "windows" && mode === "auto" && <p>Rendszergazdaként indított PowerShellben futtasd.</p>}
+            {os === "windows" && mode === "auto" && <p>{t("uninstall_win_auto")}</p>}
           </dd>
         </dl>
       </details>

@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations, useLocale } from "next-intl";
+
 import { useId } from "react";
 import { AlertTriangleIcon, CheckCircleIcon, InfoCircleIcon, StopCircleIcon } from "@/components/icons";
 import { statusLabel } from "@/components/quota-meter";
@@ -31,57 +33,51 @@ interface RowProps {
   providerLabel: string;
 }
 
-function modeNote(sub: SubLimitModel): string {
-  return sub.shareCap === null ? "önálló keret" : `a keret legfeljebb ${formatPercent(sub.shareCap)}-a`;
+function modeNote(sub: SubLimitModel, t: ReturnType<typeof useTranslations>, locale: string): string {
+  return sub.shareCap === null ? t("separate_quota") : t("max_share_of_quota", { share: formatPercent(sub.shareCap, locale) });
 }
 
 /** Where the figure comes from, and what it means for the provider's whole budget. */
-function sourceNote(subView: SubLimitView, providerLabel: string): string {
+function sourceNote(subView: SubLimitView, providerLabel: string, t: ReturnType<typeof useTranslations>, locale: string): string {
   const { sub, source, ofProvider } = subView;
-  const measured = `A gépek ${formatTokens(sub.total)} tokent mértek rá.`;
+  const measured = t("machines_measured", { tokens: formatTokens(sub.total, locale) });
   const ofWhole =
     ofProvider !== null && sub.shareCap !== null
-      ? ` A teljes ${providerLabel}-keret ${formatPercent(ofProvider)}-a, a megengedett ${formatPercent(sub.shareCap)}-ból.`
+      ? t("of_provider_with_cap", { label: providerLabel, ofWhole: formatPercent(ofProvider, locale), cap: formatPercent(sub.shareCap, locale) })
       : "";
-  if (source === "official") return `Hivatalos érték.${ofWhole}`;
+  if (source === "official") return t("official_value_period", { ofWhole });
   if (source === "provider") {
-    return `A(z) ${providerLabel} hivatalos százalékából, a mért arány szerint.${ofWhole} ${measured}`;
+    return t("from_official_by_measured", { label: providerLabel, ofWhole, measured });
   }
   // Measured: against its own token limit, or (a part) against the provider's.
-  const limit = sub.quota ? ` a ${formatTokens(sub.quota.limit)} tokenes keretéből` : "";
+  const limit = sub.quota ? t("from_token_limit", { tokens: formatTokens(sub.quota.limit, locale) }) : "";
   return sub.shareCap === null
-    ? `A gépek mérése szerint${limit}. ${measured}`
-    : `A gépek mérése szerint.${ofWhole} ${measured}`;
+    ? t("by_machine_measurement_limit", { limit, measured })
+    : t("by_machine_measurement", { ofWhole, measured });
 }
 
-function paceNote(subView: SubLimitView, model: DashboardModel): string {
+function paceNote(subView: SubLimitView, model: DashboardModel, t: ReturnType<typeof useTranslations>, locale: string): string {
   const quota = subView.quota!;
   if (quota.total >= 1 || quota.total === 0 || quota.pace.earlyBurn) return "";
   if (quota.pace.runOutAt !== null) {
-    return ` Ilyen ütemben ${formatCycleMoment(quota.pace.runOutAt, model.period, model.timeZone)} körül fogy el.`;
+    return t("runs_out_around", { moment: formatCycleMoment(quota.pace.runOutAt, model.period, model.timeZone, locale) });
   }
   if (quota.pace.projectedTotal !== null) {
-    return ` Ilyen ütemben a resetig kb. ${formatPercent(quota.pace.projectedTotal)}-a fogy el.`;
+    return t("projected_reset", { projected: formatPercent(quota.pace.projectedTotal, locale) });
   }
   return "";
 }
 
 /** Nothing tells how far it is yet: what would. */
-function unknownNote(subView: SubLimitView, providerLabel: string): string {
+function unknownNote(subView: SubLimitView, providerLabel: string, t: ReturnType<typeof useTranslations>, locale: string): string {
   const { sub } = subView;
   if (!sub.hasSplit) {
-    return (
-      `A gépek ebben a ciklusban még nem küldtek modellenkénti bontást, így a(z) ${sub.name} mért része nem ` +
-      "ismert. Írd be a hivatalos százalékát."
-    );
+    return t("no_model_breakdown_sublimit", { name: sub.name });
   }
   if (sub.shareCap !== null) {
-    return (
-      `Írd be a(z) ${sub.name} hivatalos százalékát, vagy fent a(z) ${providerLabel} értékét: abból a mért ` +
-      "arány szerint kiszámolható."
-    );
+    return t("enter_sublimit_or_provider", { name: sub.name, label: providerLabel });
   }
-  return `Írd be, hány százalékon áll a(z) ${sub.name} kerete a(z) ${providerLabel} saját kijelzőjén.`;
+  return t("enter_sublimit_percentage", { name: sub.name, label: providerLabel });
 }
 
 /**
@@ -89,6 +85,8 @@ function unknownNote(subView: SubLimitView, providerLabel: string): string {
  * its own entry, and a line on how it stands.
  */
 function SubLimitRow({ model, state, onChange: setEntry, providerLabel }: RowProps) {
+    const locale = useLocale();
+  const t = useTranslations("Widgets");
   const { entry, invalid, view: subView } = state;
   const { sub } = subView;
   const fieldId = useId();
@@ -107,7 +105,7 @@ function SubLimitRow({ model, state, onChange: setEntry, providerLabel }: RowPro
           <label htmlFor={fieldId} className="font-medium">
             {sub.name}
           </label>
-          <span className="ml-2 text-sm text-ink-3 sm:ml-0 sm:block">{modeNote(sub)}</span>
+          <span className="ml-2 text-sm text-ink-3 sm:ml-0 sm:block">{modeNote(sub, t, locale)}</span>
         </div>
 
         <div className="flex min-w-56 grow flex-wrap items-center gap-3 sm:flex-nowrap">
@@ -137,7 +135,7 @@ function SubLimitRow({ model, state, onChange: setEntry, providerLabel }: RowPro
             step={1}
             value={sliderValue}
             onChange={(event) => setEntry(event.target.value)}
-            aria-label={`Hivatalos ${sub.name}-fogyasztás, csúszka`}
+            aria-label={t("sublimit_slider_aria", { name: sub.name })}
             aria-valuetext={`${sliderValue}%`}
             className={`order-3 h-5 w-full min-w-0 cursor-pointer transition-opacity sm:order-2 sm:w-auto sm:grow ${style.accent} ${
               subView.source === "official" ? "" : "opacity-50 hover:opacity-100 focus-visible:opacity-100"
@@ -150,7 +148,7 @@ function SubLimitRow({ model, state, onChange: setEntry, providerLabel }: RowPro
               onClick={() => setEntry("")}
               className="order-2 ml-auto shrink-0 rounded-md border border-rule px-2.5 py-1 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink sm:order-3 sm:ml-0"
             >
-              Törlés
+              {t("delete")}
             </button>
           )}
         </div>
@@ -159,16 +157,16 @@ function SubLimitRow({ model, state, onChange: setEntry, providerLabel }: RowPro
       <p id={hintId} className={`mt-2 flex max-w-3xl items-start gap-2 text-sm ${invalid ? "text-ink" : "text-ink-3"}`}>
         <StatusIcon className={`mt-0.5 shrink-0 ${invalid ? "text-critical" : style.iconColor}`} />
         {invalid ? (
-          <span>0 és 100 közötti számot adj meg, például 45 vagy 45,5.</span>
+          <span>{t("number_between_0_100")}</span>
         ) : quota ? (
           <span>
             <strong className="font-medium text-ink">
-              {formatHeroPercent(quota.usedFraction)} elfogyott. {statusLabel(quota)}
+              {formatHeroPercent(quota.usedFraction, locale)} {t("consumed")} {statusLabel(quota, t, locale)}
             </strong>
-            {paceNote(subView, model)} {sourceNote(subView, providerLabel)}
+            {paceNote(subView, model, t, locale)} {sourceNote(subView, providerLabel, t, locale)}
           </span>
         ) : (
-          <span>{unknownNote(subView, providerLabel)}</span>
+          <span>{unknownNote(subView, providerLabel, t, locale)}</span>
         )}
       </p>
     </li>
@@ -187,12 +185,14 @@ export function SubLimitMeters({
   onChange: (subLimitId: string, raw: string) => void;
   providerLabel: string;
 }) {
+    const locale = useLocale();
+  const t = useTranslations("Widgets");
   if (subLimits.length === 0) return null;
   const hasSeparate = model.subLimits.some((sub) => sub.shareCap === null);
 
   return (
     <div className="mt-5 border-t border-hairline pt-5">
-      <h3 className="text-sm text-ink-3">Alkeretek</h3>
+      <h3 className="text-sm text-ink-3">{t("sublimits_title")}</h3>
       <ul className="mt-3 space-y-5">
         {subLimits.map((state) => (
           <SubLimitRow
@@ -206,8 +206,8 @@ export function SubLimitMeters({
       </ul>
       {hasSeparate && (
         <p className="mt-4 max-w-3xl text-sm text-ink-3">
-          Az önálló keretek modelljei nem számítanak bele a(z) {providerLabel} keretébe: a fenti százalék, a
-          csoportok és a gépek tokenjei nélkülük értendők.
+          {t("separate_sublimits_explanation_1", { label: providerLabel })}
+          {t("separate_sublimits_explanation_2")}
         </p>
       )}
     </div>

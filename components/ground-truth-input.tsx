@@ -4,6 +4,7 @@ import { useId } from "react";
 import { StopCircleIcon } from "@/components/icons";
 import { formatDateTime, formatFactor, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
+import { useTranslations, useLocale } from "next-intl";
 
 interface GroundTruthInputProps {
   /** The field's text, exactly as typed. */
@@ -22,40 +23,33 @@ interface GroundTruthInputProps {
   children?: React.ReactNode;
 }
 
-function hint({ invalid, enteredAt, view, timeZone, providerLabel }: GroundTruthInputProps): string {
-  if (invalid) return "0 és 100 közötti számot adj meg, például 45 vagy 45,5.";
+function hint({ invalid, enteredAt, view, timeZone, providerLabel }: GroundTruthInputProps, t: any, locale: string): string {
+  if (invalid) return t("number_between_0_100");
   if (!view.calibrated) {
     if (!view.inTokens) {
       return (
-        `Írd be, hány százalékon áll a keret a(z) ${providerLabel} saját kijelzőjén: ebből számol a dashboard, ` +
-        "a gépek és a csoportok a mért tokenjeik arányában osztoznak rajta. Üresen hagyva csak a mért " +
-        "tokenek és arányaik látszanak."
+        t("enter_official_no_token", { label: providerLabel })
       );
     }
     return (
-      `Írd be, hány százalékon áll a keret a(z) ${providerLabel} saját kijelzőjén: a gépek és a csoportok ` +
-      "fogyasztása ehhez igazodik. Üresen hagyva a gépek saját mérése számít."
+      t("enter_official_with_token", { label: providerLabel })
     );
   }
 
-  const entered = enteredAt === null ? "" : ` Megadva: ${formatDateTime(enteredAt, timeZone)}.`;
+  const entered = enteredAt === null ? "" : t("entered_at", { time: formatDateTime(enteredAt, timeZone, locale) });
   if (view.measured.total === 0) {
     return (
-      "A gépek ebben a ciklusban még nem mértek fogyasztást, ezért a hivatalos érték nem osztható " +
-      `szét gépekre és csoportokra.${entered}`
+      t("no_consumption_yet", { entered })
     );
   }
   // Without a token limit there is neither a measured share of the limit nor a factor to state.
   if (view.scale === null || view.measured.usedFraction === null) {
     return (
-      `A gépek ${formatTokens(view.measured.total)} tokent mértek: a hivatalos érték ezek arányában ` +
-      `oszlik meg a csoportok és a gépek között.${entered}`
+      t("measured_ratio_only", { tokens: formatTokens(view.measured.total, locale), entered })
     );
   }
   return (
-    `A gépek ${formatTokens(view.measured.total)} tokent mértek, ami a keret ` +
-    `${formatPercent(view.measured.usedFraction)}-a. A bontás ${formatFactor(view.scale)} szorzóval ` +
-    `igazodik a hivatalos értékhez.${entered}`
+    t("measured_and_scaled", { tokens: formatTokens(view.measured.total, locale), fraction: formatPercent(view.measured.usedFraction, locale), factor: formatFactor(view.scale, locale), entered })
   );
 }
 
@@ -64,6 +58,8 @@ function hint({ invalid, enteredAt, view, timeZone, providerLabel }: GroundTruth
  * purpose: while it is filled in, every figure below is restated by it.
  */
 export function GroundTruthInput(props: GroundTruthInputProps) {
+    const locale = useLocale();
+  const t = useTranslations("Widgets");
   const { raw, onChange, invalid, view, providerId, providerLabel, providers, onProviderChange } = props;
   const fieldId = useId();
   const hintId = useId();
@@ -74,17 +70,17 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
 
   return (
     <section
-      aria-label={`Hivatalos ${providerLabel}-fogyasztás`}
+      aria-label={t("official_consumption_aria", { label: providerLabel })}
       className={`rounded-lg border bg-raised px-5 py-5 transition-colors sm:px-6 ${
         view.calibrated ? "border-ink-3" : "border-rule"
       }`}
     >
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-hairline pb-4">
         <label htmlFor={fieldId} className="text-base font-medium">
-          Aktuális hivatalos fogyasztás
+          {t("current_official_consumption")}
         </label>
         <label className="flex items-center gap-2 text-sm text-ink-3">
-          <span>AI-fiók</span>
+          <span>{t("ai_account")}</span>
           <select
             value={providerId}
             onChange={(event) => onProviderChange(event.target.value)}
@@ -100,7 +96,7 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
       </div>
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
-        <span className="text-sm text-ink-3">{providerLabel} valós százaléka</span>
+        <span className="text-sm text-ink-3">{t("real_percentage", { label: providerLabel })}</span>
 
         {/* One row from `sm` up. On a phone the slider gets a row of its own: it has to be draggable by thumb. */}
         <div className="flex min-w-64 grow flex-wrap items-center gap-4 sm:flex-nowrap">
@@ -130,7 +126,7 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
             step={1}
             value={Math.round(sliderValue)}
             onChange={(event) => onChange(event.target.value)}
-            aria-label={`Aktuális hivatalos ${providerLabel} fogyasztás, csúszka`}
+            aria-label={t("official_slider_aria", { label: providerLabel })}
             aria-valuetext={`${Math.round(sliderValue)}%`}
             className={`order-3 h-6 w-full min-w-0 cursor-pointer accent-ink transition-opacity sm:order-2 sm:w-auto sm:grow ${
               view.calibrated ? "" : "opacity-50 hover:opacity-100 focus-visible:opacity-100"
@@ -143,7 +139,7 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
               onClick={() => onChange("")}
               className="order-2 ml-auto shrink-0 rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink sm:order-3 sm:ml-0"
             >
-              Törlés
+              {t("delete")}
             </button>
           )}
         </div>
@@ -151,7 +147,7 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
 
       <p id={hintId} className={`mt-4 flex max-w-3xl items-start gap-2 text-sm ${invalid ? "text-ink" : "text-ink-3"}`}>
         {invalid && <StopCircleIcon className="mt-0.5 shrink-0 text-critical" />}
-        <span>{hint(props)}</span>
+        <span>{hint(props, t, locale)}</span>
       </p>
 
       {props.children}

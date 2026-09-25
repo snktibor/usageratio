@@ -7,7 +7,7 @@ import { SettingsDialog } from "@/components/settings-dialog";
 import type { ProviderDashboardModel } from "@/lib/dashboard";
 import { formatClock } from "@/lib/format";
 import type { SettingsView } from "@/lib/settings";
-import { getTranslations } from "next-intl/server";
+import { getTranslations, getLocale } from "next-intl/server";
 
 export async function Dashboard({
   providers,
@@ -16,9 +16,10 @@ export async function Dashboard({
   providers: ProviderDashboardModel[];
   settings: SettingsView;
 }) {
+    const locale = await getLocale();
   const t = await getTranslations("HomePage");
   const model = providers[0]!.dashboard;
-  const refreshedAt = formatClock(model.generatedAt, model.timeZone);
+  const refreshedAt = formatClock(model.generatedAt, model.timeZone, locale);
 
   return (
     <div className="mx-auto w-full max-w-4xl px-5 pb-16 pt-6 sm:px-8 sm:pt-8">

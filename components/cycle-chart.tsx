@@ -5,6 +5,7 @@ import { CycleRuler } from "@/components/cycle-ruler";
 import type { AxisScale } from "@/lib/chart";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatCycleMoment } from "@/lib/format";
+import { useLocale } from "next-intl";
 
 export interface ChartSeries {
   id: string;
@@ -42,6 +43,7 @@ const DASH = "6 5";
 
 /** A short stroke in the series' colour: the key in the legend, the tooltip and the table. */
 function LineKey({ series }: { series: ChartSeries }) {
+    const locale = useLocale();
   return (
     <span
       aria-hidden="true"
@@ -52,6 +54,7 @@ function LineKey({ series }: { series: ChartSeries }) {
 }
 
 export function ChartLegend({ series }: { series: ChartSeries[] }) {
+    const locale = useLocale();
   return (
     <ul className="flex flex-wrap gap-x-5 gap-y-1.5 text-sm text-ink-2">
       {series.map((s) => (
@@ -88,6 +91,7 @@ export function CycleChart({
   formatEndLabel = formatValue,
   label,
 }: CycleChartProps) {
+    const locale = useLocale();
   const plotRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [active, setActive] = useState<number | null>(null);
@@ -108,7 +112,7 @@ export function CycleChart({
   const { times } = model.timeline;
   const last = times.length - 1;
   const { startMs, endMs } = model.cycle;
-  const moment = (ms: number) => formatCycleMoment(ms, model.period, model.timeZone);
+  const moment = (ms: number) => formatCycleMoment(ms, model.period, model.timeZone, locale);
 
   const width = size?.width ?? 0;
   const height = size?.height ?? 0;

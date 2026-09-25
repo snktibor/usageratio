@@ -13,13 +13,14 @@ import { EMPTY_ENTRY, useOfficialEntry, useSubLimitEntries } from "@/components/
 import type { ProviderDashboardModel } from "@/lib/dashboard";
 import { formatDateTime, formatTokens } from "@/lib/format";
 import { applyGroundTruth, applySubLimitReading, parseOfficialPercent } from "@/lib/ground-truth";
+import { useTranslations, useLocale } from "next-intl";
 
 const PROVIDER_KEY = "usageratio:selected-provider";
 
 const MODE_NOTE = {
-  delta: "A beküldött tokenszámok összeadódnak (delta mód).",
-  snapshot: "Gépenként a ciklus legutolsó beküldött provider-állása számít (snapshot mód).",
-  counter: "Gépenként a provider-számláló ciklusbeli növekménye számít (counter mód).",
+  delta: "mode_note_delta",
+  snapshot: "mode_note_snapshot",
+  counter: "mode_note_counter",
 } as const;
 
 /**
@@ -36,6 +37,8 @@ function ProviderView({
   providers: ProviderDashboardModel[];
   onProviderChange: (providerId: string) => void;
 }) {
+    const locale = useLocale();
+  const t = useTranslations("Dashboard");
   const model = selected.dashboard;
   const [entry, setEntry] = useOfficialEntry(selected.id, model.cycle.startMs, selected.officialEntry);
   const { percent, invalid } = parseOfficialPercent(entry.raw);
@@ -101,26 +104,23 @@ function ProviderView({
         ) : (
           <section aria-labelledby="empty-heading" className="max-w-xl">
             <h2 id="empty-heading" className="text-xl font-medium">
-              Még egy gép sem jelentett ehhez a fiókhoz
+              {t("no_machines_yet")}
             </h2>
             <p className="mt-3 text-ink-2">
-              Telepítsd a klienst a gépeidre a{" "}
+              {t("setup_machines_1")}
               <Link href="/setup" className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink-3">
-                Telepítés
+                {t("setup_machines_2")}
               </Link>{" "}
-              oldalon: macOS-re és Windowsra is van kész csomag. Az első sikeres beküldés után itt jelenik meg a
-              csoportok és a gépek bontása.
+              {t("setup_machines_3")}
             </p>
           </section>
         )}
       </main>
       <footer className="mt-16 max-w-2xl border-t border-hairline pt-6 text-sm leading-relaxed text-ink-3">
         <p>
-          A(z) {selected.label} mostani ciklusa: {formatDateTime(model.cycle.startMs, model.timeZone)} –{" "}
-          {formatDateTime(model.cycle.endMs, model.timeZone)} ({model.timeZone}). Az előző ciklusban a gépek{" "}
-          {formatTokens(model.previousTotal)} tokent mértek.
+          {t("cycle_info", { label: selected.label, start: formatDateTime(model.cycle.startMs, model.timeZone, locale), end: formatDateTime(model.cycle.endMs, model.timeZone, locale), timeZone: model.timeZone, tokens: formatTokens(model.previousTotal, locale) })}
         </p>
-        <p className="mt-1">{MODE_NOTE[model.tokenMode]}</p>
+        <p className="mt-1">{t(MODE_NOTE[model.tokenMode] as any)}</p>
       </footer>
     </>
   );
@@ -128,6 +128,8 @@ function ProviderView({
 
 /** Provider switching stays entirely in the browser; every model arrived in the server payload. */
 export function DashboardView({ providers }: { providers: ProviderDashboardModel[] }) {
+    const locale = useLocale();
+  const t = useTranslations("Dashboard");
   const [selectedId, setSelectedId] = useState(providers[0]!.id);
 
   useEffect(() => {
