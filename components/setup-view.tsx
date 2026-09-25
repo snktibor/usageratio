@@ -74,7 +74,7 @@ function readSetupPrefs(): SetupPrefs | null {
 function writeSetupPrefs(prefs: { os: SetupOs; route: InstallRoute; group: string; machine: string }) {
   try {
     const oneYear = 60 * 60 * 24 * 365;
-    document.cookie = `${SETUP_PREFS_COOKIE}=${encodeURIComponent(JSON.stringify(prefs))}; path=/setup; max-age=${oneYear}; samesite=lax`;
+    document.cookie = `${SETUP_PREFS_COOKIE}=${encodeURIComponent(JSON.stringify(prefs))}; path=/; max-age=${oneYear}; samesite=lax`;
   } catch {
     // Cookies are optional; the selection still works for this page view.
   }
