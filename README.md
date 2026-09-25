@@ -583,3 +583,8 @@ npm run redis:down
 The manual client can also be tried locally:
 `USAGERATIO_API_URL=http://localhost:3000/api/usage clients/manual/report-usage.sh --providers
 '{"claude":1234,"deepseek":5678}'`.
+
+## License
+
+Licensed under the GNU General Public License, version 3 or (at your option) any later version —
+see [LICENSE](LICENSE) for the full text.
