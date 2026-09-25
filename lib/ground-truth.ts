@@ -126,6 +126,12 @@ export type SubLimitSource =
   /** The machines' measurement against a token limit. */
   | "measured";
 
+/**
+ * How far past `providerUsedFraction` an independently typed `ofProvider` may
+ * run before the pair is flagged as mistyped rather than as a rounding gap.
+ */
+export const SUB_LIMIT_MISMATCH_THRESHOLD = 0.05;
+
 export interface SubLimitView {
   sub: SubLimitModel;
   /** Null while nothing tells how much of it is gone. */
@@ -134,6 +140,14 @@ export interface SubLimitView {
   quota: QuotaAssessment | null;
   /** "share": how much of the provider's whole budget it used, 0–1; null otherwise, or while unknown. */
   ofProvider: number | null;
+  /** The provider's own figure at the same moment, whenever one is known; null otherwise. */
+  providerUsedFraction: number | null;
+  /**
+   * True when its own official reading claims more of the provider's whole
+   * budget than the provider's own reading admits, past `SUB_LIMIT_MISMATCH_THRESHOLD`:
+   * the two figures were typed inconsistently with each other.
+   */
+  mismatched: boolean;
 }
 
 /**
@@ -150,18 +164,26 @@ export function applySubLimitReading(
 ): SubLimitView {
   const assess = (fraction: number, nowMs: number) =>
     assessQuota(fraction, 1, { startMs: model.cycle.startMs, endMs: model.cycle.endMs, nowMs });
+  const providerUsedFraction = view.quota?.usedFraction ?? null;
 
   if (reading) {
     const fraction = reading.percent / 100;
+    const ofProvider = sub.shareCap === null ? null : fraction * sub.shareCap;
+    // A "share" sub-limit's tokens are among the provider's: its own reading can never
+    // honestly claim more of the whole than the provider's own reading admits.
+    const mismatched =
+      ofProvider !== null && providerUsedFraction !== null && ofProvider - providerUsedFraction > SUB_LIMIT_MISMATCH_THRESHOLD;
     return {
       sub,
       source: "official",
       quota: assess(fraction, readingTime(model, reading)),
-      ofProvider: sub.shareCap === null ? null : fraction * sub.shareCap,
+      ofProvider,
+      providerUsedFraction,
+      mismatched,
     };
   }
   // Without a split by model the machines cannot tell its part: better unknown than a false 0%.
-  if (!sub.hasSplit) return { sub, source: null, quota: null, ofProvider: null };
+  if (!sub.hasSplit) return { sub, source: null, quota: null, ofProvider: null, providerUsedFraction, mismatched: false };
 
   if (sub.shareCap !== null && view.quota) {
     // Its tokens are among the provider's (`model.total`): it takes their proportion of the provider's figure.
@@ -171,12 +193,21 @@ export function applySubLimitReading(
       source: view.calibrated ? "provider" : "measured",
       quota: assess(ofProvider / sub.shareCap, view.asOfMs),
       ofProvider,
+      providerUsedFraction,
+      mismatched: false,
     };
   }
   if (sub.quota) {
-    return { sub, source: "measured", quota: assess(sub.quota.usedFraction, model.generatedAt), ofProvider: null };
+    return {
+      sub,
+      source: "measured",
+      quota: assess(sub.quota.usedFraction, model.generatedAt),
+      ofProvider: null,
+      providerUsedFraction,
+      mismatched: false,
+    };
   }
-  return { sub, source: null, quota: null, ofProvider: null };
+  return { sub, source: null, quota: null, ofProvider: null, providerUsedFraction, mismatched: false };
 }
 
 /**

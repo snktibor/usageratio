@@ -220,6 +220,7 @@
     "no_model_breakdown_sublimit": "Machines have not sent a model breakdown in this cycle yet, so {name}'s measured share is unknown. Enter its official percentage.",
     "enter_sublimit_or_provider": "Enter {name}'s official percentage, or {label}'s value above: it can be calculated from that according to the measured proportion.",
     "enter_sublimit_percentage": "Enter what percentage {name}'s limit is at on {label}'s own dashboard.",
+    "sublimit_mismatch": "That does not add up: at {share} of the entire {label} limit, {name} alone would need at least that much of it gone, but the total above is only set to {total}. Check both figures.",
     "sublimit_slider_aria": "Official {name} consumption, slider",
     "delete": "Delete",
     "number_between_0_100": "Enter a number between 0 and 100, e.g. 45 or 45.5.",
