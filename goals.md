@@ -1,35 +1,45 @@
-# Projekt Célok: Multi-provider Usage Tracker
+# Project Goals: Multi-provider Usage Tracker
 
-## 1. Fő Célkitűzés
-Egy pehelysúlyú, saját hosztolású statisztikai rendszer, amely több számítógépről egyszerre gyűjti,
-aggregálja és vizualizálja több AI-szolgáltató vagy fiók (például Claude, DeepSeek és OpenAI)
-tokenhasználatát. A provider külön dimenzió a gép és a Work/Personal jellegű csoport mellett.
+## 1. Main Objective
+A lightweight, self-hosted statistics system that collects, aggregates, and visualizes the token
+usage of multiple AI providers or accounts (for example Claude, DeepSeek, and OpenAI) from several
+computers at once. The provider is a separate dimension alongside the machine and the Work/Personal
+type group.
 
-## 2. Infrastruktúra és Architektúra Célok
-*   **Környezet:** Next.js (App Router) alkalmazás Vercel-en hosztolva, Vercel MCP támogatással.
-*   **Domain:** A projekt éles URL-je: `usageratio.snktibor.hu`
-*   **Adattárolás:** Vercel KV (Redis) használata a gyors olvasáshoz/íráshoz és a heti ciklusok könnyű szűréséhez.
+## 2. Infrastructure and Architecture Goals
+*   **Environment:** A Next.js (App Router) app hosted on Vercel, with Vercel MCP support.
+*   **Domain:** The project's production URL is your own custom domain, e.g. `usageratio.example.com`.
+*   **Data storage:** Vercel KV (Redis) for fast read/write and easy filtering of weekly cycles.
 
-## 3. Kliensoldali Célok (Adatgyűjtés)
-*   **Két futtatási mód:** Az automatikus Bash/PowerShell kliensek teljesen csendben fussanak; a manuális kliensek adjanak egyértelmű konzolos eredményt.
-*   **Erőforráskímélő működés:** Az automatikus kliensek minimális CPU és RAM használattal, teljesen láthatatlanul (rejtett ablakkal) fussanak a háttérben.
-*   **Ütemezés:** Beépített OS eszközökkel (Cron, Task Scheduler) automatizált, óránkénti futás.
-*   **Adatforrás:** A Bash és PowerShell kliens a `ccusage daily` gépi JSON-kimenetét dolgozza fel, és minden felismert providert továbbít.
-*   **Szabványosított Payload:** A kliensek a következő JSON struktúrát küldik a szervernek:
+## 3. Client-side Goals (Data Collection)
+*   **Two run modes:** The automatic Bash/PowerShell clients run completely silently; the manual
+    clients give a clear console result.
+*   **Resource-friendly operation:** The automatic clients run with minimal CPU and RAM usage,
+    completely invisibly (hidden window) in the background.
+*   **Scheduling:** Automated, hourly runs using built-in OS tools (Cron, Task Scheduler).
+*   **Data source:** The Bash and PowerShell client processes the machine's `ccusage daily` JSON
+    output, and forwards every provider it recognizes.
+*   **Standardized payload:** The clients send the following JSON structure to the server:
     `{ "machineId": "string", "groupId": "string", "providers": { "claude": 0, "deepseek": 0 }, "timestamp": "ISO 8601 string" }`
 
-## 4. Backend Célok (API)
-*   **Megbízható Adatfogadás:** Dedikált API végpont (`/api/usage/route.ts`) létrehozása, amely fogadja, validálja és a Vercel KV-ba menti a kliensek POST kéréseit.
-*   **Biztonság:** Az API végpont szigorú Bearer token alapú autentikációt igényel, hogy jogosulatlan adatok ne kerüljenek az adatbázisba.
+## 4. Backend Goals (API)
+*   **Reliable data ingestion:** A dedicated API endpoint (`/api/usage/route.ts`) that receives,
+    validates, and saves the clients' POST requests to Vercel KV.
+*   **Security:** The API endpoint requires strict Bearer-token authentication, so unauthorized data
+    can't reach the database.
 
-## 5. Frontend és Üzleti Logika Célok (Dashboard)
-*   **Heti Reset Ciklus:** A rendszer automatikusan számolja az aktuális periódust (pl. minden hétfő 00:00-tól). A Dashboard **kizárólag** a legutóbbi reset óta eltelt időszak beérkezett adatait aggregálja.
-*   **Csoportosított Nézet:** A beérkező tokenek automatikus összegzése `groupId` alapján.
-*   **Kapacitáskövetés:** Providerenként külön beállítható keret és az ahhoz tartozó Progress Bar.
-*   **Fiókváltás:** A provider választása kliensoldalon, új hálózati kérés nélkül frissíti a teljes dashboardot.
-*   **Arányok Vizualizációja:** A Dashboard mutassa meg a csoportok (pl. Work vs. Personal) százalékos arányát a teljes heti fogyasztáson belül, illetve a gépek egyedi hozzájárulását.
-*   **Design:** Modern, letisztult, sötét témájú felhasználói felület Tailwind CSS használatával.
+## 5. Frontend and Business Logic Goals (Dashboard)
+*   **Weekly reset cycle:** The system automatically computes the current period (e.g. every Monday
+    from 00:00). The dashboard aggregates **only** the data received since the most recent reset.
+*   **Grouped view:** Automatic summing of incoming tokens by `groupId`.
+*   **Capacity tracking:** A separately configurable budget per provider, with a matching progress bar.
+*   **Account switching:** Choosing the provider client-side updates the whole dashboard without a new
+    network request.
+*   **Ratio visualization:** The dashboard shows the groups' (e.g. Work vs. Personal) percentage share
+    of total weekly consumption, as well as each machine's individual contribution.
+*   **Design:** A modern, clean, dark-themed UI using Tailwind CSS.
 
-## 6. Biztonsági Célok (UI)
-*   **PIN kódos védelem:** A teljes Dashboard egy egyszerű, 5 jegyű PIN kód mögé van rejtve.
-*   **Szerveroldali Validáció:** A PIN kódot a szerver ellenőrzi egy környezeti változó (`DASHBOARD_PIN`) alapján. Helytelen kód esetén az API és a felület semmilyen használati adatot nem szolgáltathat ki.
+## 6. Security Goals (UI)
+*   **PIN code protection:** The whole dashboard is hidden behind a simple, 5-digit PIN code.
+*   **Server-side validation:** The server checks the PIN code against an environment variable
+    (`DASHBOARD_PIN`). On a wrong code, neither the API nor the UI serves any usage data.

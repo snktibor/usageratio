@@ -1,35 +1,36 @@
-# Automatikus beállítás
+# Automatic setup
 
 ## Vercel
 
-### Upstash-változók: ne módosítsd
+### Upstash variables: don't touch these
 
-| Változó | Teendő |
+| Variable | What to do |
 | --- | --- |
-| `KV_REST_API_URL` | Hagyd változatlanul |
-| `KV_REST_API_TOKEN` | Hagyd változatlanul; ne másold a kliensbe |
-| `KV_REST_API_READ_ONLY_TOKEN` | Hagyd változatlanul |
-| `KV_URL` | Hagyd változatlanul |
-| `REDIS_URL` | Hagyd változatlanul |
+| `KV_REST_API_URL` | Leave unchanged |
+| `KV_REST_API_TOKEN` | Leave unchanged; don't copy it into a client |
+| `KV_REST_API_READ_ONLY_TOKEN` | Leave unchanged |
+| `KV_URL` | Leave unchanged |
+| `REDIS_URL` | Leave unchanged |
 
 ```text
 Vercel → Project → Storage → Create Database → Upstash Redis → Frankfurt (eu-central-1) → Connect → Production
 ```
 
-### Saját változók: ezt a kettőt hozd létre
+### Your own variables: create these two
 
-| Változó | Érték |
+| Variable | Value |
 | --- | --- |
-| `USAGE_API_TOKEN` | A következő blokk automatikusan generálja |
-| `DASHBOARD_PIN` | Az általad megadott 5 számjegy |
+| `USAGE_API_TOKEN` | Generated automatically by the block below |
+| `DASHBOARD_PIN` | The 5 digits you choose |
 
-Futtatás helye: **macOS → Terminal**, a projekt gyökérkönyvtárában.
+Run this in: **macOS → Terminal**, in the project's root directory.
 
 ```bash
-cd "/Users/snktibor/Documents/Projects/usageratio"
+cd "/path/to/usageratio"
 ```
 
-Az alábbi blokkot teljes egészében másold a Terminalba. Semmit nem kell átírni. A `DASHBOARD_PIN` értékét futás közben kell beírni.
+Copy the whole block below into the Terminal. Nothing needs editing. `DASHBOARD_PIN` is entered while
+it runs.
 
 ```bash
 npm install --global vercel
@@ -37,7 +38,7 @@ vercel login
 vercel link
 
 USAGE_API_TOKEN="$(openssl rand -hex 32)"
-printf 'DASHBOARD_PIN (5 számjegy): ' >&2
+printf 'DASHBOARD_PIN (5 digits): ' >&2
 IFS= read -r -s DASHBOARD_PIN
 printf '\n' >&2
 
@@ -49,9 +50,10 @@ vercel --prod
 printf 'USAGE_API_TOKEN=%s\n' "$USAGE_API_TOKEN"
 ```
 
-Az utolsó sorban kiírt `USAGE_API_TOKEN` értéket másold a kliens beállításakor az `API_TOKEN` / `apiToken` mezőbe.
+Copy the `USAGE_API_TOKEN` value printed on the last line into the `API_TOKEN` / `apiToken` field when
+setting up a client.
 
-Szerver–kliens megfeleltetés:
+Server–client mapping:
 
 ```text
 Vercel USAGE_API_TOKEN → macOS API_TOKEN
@@ -59,10 +61,10 @@ Vercel USAGE_API_TOKEN → Windows apiToken
 ```
 
 ```text
-Vercel-beállítás: egyszer, egy gépen
-USAGE_API_TOKEN: ugyanaz minden kliensgépen
-MACHINE_ID / machineId: minden fizikai gépen különböző és később változatlan
-GROUP_ID / groupId: azonos csoportba tartozó gépeken lehet ugyanaz
+Vercel setup: once, on one machine
+USAGE_API_TOKEN: the same on every client machine
+MACHINE_ID / machineId: different on every physical machine, and unchanged afterward
+GROUP_ID / groupId: can be the same across machines in the same group
 ```
 
 ## macOS: Bash + Cron
@@ -77,7 +79,7 @@ printf 'USAGE_API_TOKEN: ' >&2
 IFS= read -r -s USAGE_API_TOKEN
 printf '\n' >&2
 cat > "$HOME/.config/usageratio/config" <<EOF
-API_URL="https://usageratio.snktibor.hu/api/usage"
+API_URL="https://usageratio.example.com/api/usage"
 API_TOKEN="$USAGE_API_TOKEN"
 MACHINE_ID="mac-studio"
 GROUP_ID="Personal"
@@ -95,7 +97,7 @@ crontab -l
 
 ## Windows: PowerShell + Task Scheduler
 
-Rendszergazdaként indított PowerShell:
+PowerShell started as Administrator:
 
 ```powershell
 $root = Join-Path $env:USERPROFILE '.usageratio'
@@ -107,7 +109,7 @@ Get-ChildItem -LiteralPath "$root\auto", "$root\shared" -Filter '*.ps1' | Unbloc
 $token = Read-Host 'USAGE_API_TOKEN'
 @"
 {
-  "apiUrl": "https://usageratio.snktibor.hu/api/usage",
+  "apiUrl": "https://usageratio.example.com/api/usage",
   "apiToken": "$token",
   "machineId": "win-desktop",
   "groupId": "Work"
@@ -122,7 +124,7 @@ Start-ScheduledTask -TaskName 'usageratio-report'
 Get-ScheduledTask -TaskName 'usageratio-report'
 ```
 
-Eltávolítás:
+Uninstall:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.usageratio\auto\install-task.ps1" -Uninstall

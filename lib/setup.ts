@@ -23,8 +23,14 @@ export const ROUTE_LABEL: Record<InstallRoute, string> = {
   oneShot: "Egyszeri parancs",
 };
 
-/** The address the reporters fall back to, too. */
-export const DEFAULT_API_URL = "https://usageratio.snktibor.hu/api/usage";
+/**
+ * The address the reporters fall back to, too. Deliberately not a real
+ * endpoint: it is only ever returned when the request's host can't be
+ * trusted (see usageEndpoint in lib/setup-package.ts), and a client
+ * should fail loudly there rather than silently reporting to someone
+ * else's deployment.
+ */
+export const DEFAULT_API_URL = "https://your-domain.example/api/usage";
 
 /** Every file a package ships from the repository, as is. */
 export const CLIENT_SOURCES = [
