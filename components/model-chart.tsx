@@ -6,6 +6,7 @@ import { formatTokenTick, niceScale } from "@/lib/chart";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatTokens } from "@/lib/format";
 import { NEUTRAL_COLOR } from "@/lib/settings";
+import { useTranslations, useLocale } from "next-intl";
 
 /** The token axis never shrinks below this, so a handful of tokens does not fill the chart. */
 const MIN_AXIS_TOKENS = 1_000;
@@ -16,6 +17,8 @@ const MIN_AXIS_TOKENS = 1_000;
  * clients that send the split by model count here.
  */
 export function ModelChart({ model }: { model: DashboardModel }) {
+    const locale = useLocale();
+  const t = useTranslations("Widgets");
   const { models } = model.timeline;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = models.find((m) => m.modelId === selectedId) ?? models[0];
@@ -32,17 +35,17 @@ export function ModelChart({ model }: { model: DashboardModel }) {
   return (
     <section aria-labelledby="models-heading">
       <h2 id="models-heading" className="text-xl font-medium">
-        Modellek
+        {t("models")}
       </h2>
 
       {selected ? (
         <>
           <p className="mt-1 text-sm text-ink-3">
-            A kiválasztott modell mért tokenjei csoportonként, a ciklus eleje óta összesítve.
+            {t("measured_tokens_by_group")}
           </p>
 
           <fieldset className="mt-5">
-            <legend className="sr-only">Modell</legend>
+            <legend className="sr-only">{t("model")}</legend>
             <div className="flex flex-wrap gap-2">
               {models.map((m) => (
                 <label key={m.modelId} className="relative">
@@ -79,17 +82,15 @@ export function ModelChart({ model }: { model: DashboardModel }) {
               series={series}
               scale={niceScale(Math.max(...series.flatMap((s) => s.values)), MIN_AXIS_TOKENS)}
               formatTick={formatTokenTick}
-              formatValue={(tokens) => `${formatTokens(tokens)} token`}
+              formatValue={(tokens) => `${formatTokens(tokens, locale)} token`}
               formatEndLabel={formatTokenTick}
-              label={`A(z) ${selected.label} modell tokenhasználata csoportonként a ciklusban`}
+              label={t("model_chart_aria", { label: selected.label })}
             />
           </div>
         </>
       ) : (
         <p className="mt-3 max-w-xl text-ink-2">
-          Ebben a ciklusban még nem érkezett modellenkénti bontás. A bontást a frissített kliens szkriptek
-          küldik (<code className="text-ink">clients/</code>): az első ilyen beküldés után itt választhatsz
-          modellt.
+          {t("no_model_breakdown_1")}<code className="text-ink">clients/</code>{t("no_model_breakdown_2")}
         </p>
       )}
     </section>

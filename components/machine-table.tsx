@@ -3,24 +3,26 @@ import { CheckCircleIcon, ClockIcon, MoonIcon } from "@/components/icons";
 import type { DashboardModel, MachineHealth } from "@/lib/dashboard";
 import { formatAgo, formatDateTime, formatLimitShare, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
-
+import { useTranslations, useLocale } from "next-intl";
 type Machine = DashboardModel["machines"][number];
 
-const HEALTH: Record<
+const HEALTH = (t: any): Record<
   MachineHealth,
   { label: string; icon: typeof CheckCircleIcon; iconColor: string }
-> = {
-  active: { label: "Aktív", icon: CheckCircleIcon, iconColor: "text-good" },
-  late: { label: "Késik", icon: ClockIcon, iconColor: "text-warning" },
-  inactive: { label: "Inaktív", icon: MoonIcon, iconColor: "text-ink-3" },
-};
+> => ({
+  active: { label: t("status_active"), icon: CheckCircleIcon, iconColor: "text-good" },
+  late: { label: t("status_late"), icon: ClockIcon, iconColor: "text-warning" },
+  inactive: { label: t("status_inactive"), icon: MoonIcon, iconColor: "text-ink-3" },
+});
 
 function rowKey(machine: Machine): string {
   return JSON.stringify([machine.machineId, machine.groupId]);
 }
 
 function LastReport({ machine, model }: { machine: Machine; model: DashboardModel }) {
-  const health = HEALTH[machine.health];
+    const locale = useLocale();
+  const t = useTranslations("Widgets");
+  const health = HEALTH(t)[machine.health];
   const HealthIcon = health.icon;
   return (
     <span className="flex items-center gap-2 whitespace-nowrap">
@@ -28,23 +30,25 @@ function LastReport({ machine, model }: { machine: Machine; model: DashboardMode
       <span>{health.label}</span>
       <time
         dateTime={new Date(machine.lastSeenAt).toISOString()}
-        title={formatDateTime(machine.lastSeenAt, model.timeZone)}
+        title={formatDateTime(machine.lastSeenAt, model.timeZone, locale)}
         className="text-sm text-ink-3"
       >
-        {formatAgo(machine.lastSeenAt, model.generatedAt)}
+        {formatAgo(machine.lastSeenAt, model.generatedAt, locale)}
       </time>
     </span>
   );
 }
 
 export function MachineTable({ model, view }: { model: DashboardModel; view: DashboardView }) {
+    const locale = useLocale();
+  const t = useTranslations("Widgets");
   // No token limit and no official figure: there is no limit to take a share of.
   const hasLimitShare = view.quota !== null;
 
   return (
     <section aria-labelledby="machines-heading">
       <h2 id="machines-heading" className="flex flex-wrap items-baseline gap-x-3 text-xl font-medium">
-        Gépek
+        {t("machines")}
         {view.calibrated && model.total > 0 && <CalibratedNote view={view} />}
       </h2>
 
@@ -54,7 +58,7 @@ export function MachineTable({ model, view }: { model: DashboardModel; view: Das
           <li key={rowKey(machine)} className="border-t border-hairline py-3.5">
             <div className="flex items-baseline justify-between gap-4">
               <span className="min-w-0 wrap-anywhere">{machine.machineId}</span>
-              <span className="shrink-0 tabular-nums">{formatTokens(machine.tokens)}</span>
+              <span className="shrink-0 tabular-nums">{formatTokens(machine.tokens, locale)}</span>
             </div>
             <div className="mt-1 flex items-center justify-between gap-4 text-sm text-ink-3">
               <span className="flex min-w-0 items-center gap-2">
@@ -62,8 +66,8 @@ export function MachineTable({ model, view }: { model: DashboardModel; view: Das
                 <span className="wrap-anywhere">{machine.groupId}</span>
               </span>
               <span className="shrink-0 tabular-nums">
-                {formatPercent(machine.share)}
-                {hasLimitShare && <> · a keret {formatLimitShare(machine.limitShare)}-a</>}
+                {formatPercent(machine.share, locale)}
+                {hasLimitShare && t("limit_share_text", { share: formatLimitShare(machine.limitShare, locale) })}
               </span>
             </div>
             <div className="mt-2">
@@ -77,24 +81,24 @@ export function MachineTable({ model, view }: { model: DashboardModel; view: Das
         <thead>
           <tr className="text-sm text-ink-3">
             <th scope="col" className="py-2 pr-4 font-normal">
-              Gép
+              {t("machine")}
             </th>
             <th scope="col" className="py-2 pr-4 font-normal">
-              Csoport
+              {t("group")}
             </th>
             <th scope="col" className="py-2 pl-4 text-right font-normal">
-              Token
+              {t("token")}
             </th>
             <th scope="col" className="py-2 pl-4 text-right font-normal">
-              Részesedés
+              {t("share")}
             </th>
             {hasLimitShare && (
               <th scope="col" className="whitespace-nowrap py-2 pl-4 text-right font-normal">
-                A keretből
+                {t("of_quota")}
               </th>
             )}
             <th scope="col" className="py-2 pl-8 font-normal">
-              Utolsó jelentés
+              {t("last_report")}
             </th>
           </tr>
         </thead>
@@ -110,7 +114,7 @@ export function MachineTable({ model, view }: { model: DashboardModel; view: Das
                   <span className="wrap-anywhere">{machine.groupId}</span>
                 </span>
               </td>
-              <td className="py-3 pl-4 text-right tabular-nums">{formatTokens(machine.tokens)}</td>
+              <td className="py-3 pl-4 text-right tabular-nums">{formatTokens(machine.tokens, locale)}</td>
               <td className="py-3 pl-4 text-right tabular-nums text-ink-2">
                 <span className="flex items-center justify-end gap-3">
                   <span aria-hidden="true" className="hidden h-1.5 w-16 rounded-r-[3px] bg-hairline lg:block">
@@ -119,11 +123,11 @@ export function MachineTable({ model, view }: { model: DashboardModel; view: Das
                       style={{ width: `${machine.share * 100}%`, backgroundColor: machine.color }}
                     />
                   </span>
-                  <span className="w-12">{formatPercent(machine.share)}</span>
+                  <span className="w-12">{formatPercent(machine.share, locale)}</span>
                 </span>
               </td>
               {hasLimitShare && (
-                <td className="py-3 pl-4 text-right tabular-nums">{formatLimitShare(machine.limitShare)}</td>
+                <td className="py-3 pl-4 text-right tabular-nums">{formatLimitShare(machine.limitShare, locale)}</td>
               )}
               <td className="py-3 pl-8">
                 <LastReport machine={machine} model={model} />

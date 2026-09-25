@@ -1,5 +1,6 @@
 import type { DashboardModel } from "@/lib/dashboard";
 import { weekdayShort } from "@/lib/format";
+import { useLocale } from "next-intl";
 
 type Segment = DashboardModel["cycle"]["segments"][number];
 
@@ -8,9 +9,9 @@ type Segment = DashboardModel["cycle"]["segments"][number];
  * room. A month does not have it: today, the 1st and every fifth day are
  * named, minus the ones that would run into today's.
  */
-function rulerLabel(model: DashboardModel, segment: Segment, index: number, todayIndex: number): string | null {
+function rulerLabel(model: DashboardModel, segment: Segment, index: number, todayIndex: number, locale: string): string | null {
   const width = segment.endFraction - segment.startFraction;
-  if (model.period === "weekly") return width >= 0.07 ? weekdayShort(segment.weekday) : null;
+  if (model.period === "weekly") return width >= 0.07 ? weekdayShort(segment.weekday, locale) : null;
 
   if (width < 0.02) return null;
   const isLandmark = segment.monthDay === 1 || segment.monthDay % 5 === 0;
@@ -20,6 +21,7 @@ function rulerLabel(model: DashboardModel, segment: Segment, index: number, toda
 
 /** The days of the cycle, left to right across the full width: under the meter and under the charts. */
 export function CycleRuler({ model }: { model: DashboardModel }) {
+    const locale = useLocale();
   const nowFraction = model.cycle.elapsedFraction;
   const todayIndex = model.cycle.segments.findIndex(
     (segment) => nowFraction >= segment.startFraction && nowFraction < segment.endFraction,
@@ -28,7 +30,7 @@ export function CycleRuler({ model }: { model: DashboardModel }) {
   return (
     <div aria-hidden="true" className="relative mt-2 h-7">
       {model.cycle.segments.map((segment, index) => {
-        const label = rulerLabel(model, segment, index, todayIndex);
+        const label = rulerLabel(model, segment, index, todayIndex, locale);
         return (
           <div
             key={segment.startFraction}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
 import { HistoryIcon, XIcon } from "@/components/icons";
 import { StatusLine } from "@/components/status-line";
@@ -34,6 +34,7 @@ type Load = { phase: "loading" } | { phase: "failed" } | { phase: "ready"; statu
  * Mounted only while it is open.
  */
 function ConfirmReplaceDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+    const locale = useLocale();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const confirmed = useRef(false);
   const [secondsLeft, setSecondsLeft] = useState(CONFIRM_DELAY_SECONDS);
@@ -100,6 +101,7 @@ type AuditLoad =
 
 /** Who saved or fetched the token, newest first, in a scrolling list. Mounted only while it is open. */
 function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => void }) {
+    const locale = useLocale();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [load, setLoad] = useState<AuditLoad>({ phase: "loading" });
   const titleId = useId();
@@ -169,7 +171,7 @@ function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => v
               <li key={`${entry.at}-${index}`} className="px-3.5 py-3 sm:px-4">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                   <time dateTime={new Date(entry.at).toISOString()} className="text-sm tabular-nums text-ink sm:text-base">
-                    {formatTimestamp(entry.at, timeZone)}
+                    {formatTimestamp(entry.at, timeZone, locale)}
                   </time>
                   <span
                     className={`rounded-full border px-2.5 py-0.5 text-xs ${
@@ -218,6 +220,7 @@ export function ApiTokenSettings({
   onChange: (value: string) => void;
   timeZone: string;
 }) {
+    const locale = useLocale();
   const t = useTranslations("Settings");
   const [load, setLoad] = useState<Load>({ phase: "loading" });
   const [problem, setProblem] = useState<string | null>(null);
@@ -320,7 +323,7 @@ export function ApiTokenSettings({
           statusNote && (
             <StatusLine tone={statusNote.tone}>
               {statusNote.text}
-              {updatedAt !== null && <> Utoljára mentve: {formatDateTime(updatedAt, timeZone)}.</>}
+              {updatedAt !== null && <> Utoljára mentve: {formatDateTime(updatedAt, timeZone, locale)}.</>}
             </StatusLine>
           )
         )}

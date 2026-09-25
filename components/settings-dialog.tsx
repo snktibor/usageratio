@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "@/i18n/routing";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
 import { ApiTokenSettings } from "@/components/api-token-settings";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -123,6 +123,7 @@ function ToggleChip({
   title?: string;
   children: React.ReactNode;
 }) {
+    const locale = useLocale();
   return (
     <label title={title} className="relative">
       <input
@@ -208,32 +209,31 @@ function parseModelParts(text: string): string[] | null {
 }
 
 /** A provider's sub-limits as the PUT body wants them, or what is wrong with one. */
-function subLimitsRequest(provider: DraftProvider, useTokenLimits: boolean): { list: SubLimit[] } | { problem: string } {
+function subLimitsRequest(provider: DraftProvider, useTokenLimits: boolean, t: any): { list: SubLimit[] } | { problem: string } {
   const list: SubLimit[] = [];
   for (const draft of provider.subLimits) {
     const name = normalizeSubLimitName(draft.name);
     if (name === null) {
       return {
-        problem: `A(z) ${provider.label} egyik alkeretének adj nevet (legfeljebb ${MAX_SUB_LIMIT_NAME_LENGTH} karakter).`,
+        problem: t("missing_sublimit_name", { label: provider.label, maxLength: MAX_SUB_LIMIT_NAME_LENGTH }),
       };
     }
     if (list.some((other) => other.name.toLowerCase() === name.toLowerCase())) {
-      return { problem: `A(z) ${provider.label} két alkeretének ugyanaz a neve: „${name}”.` };
+      return { problem: t("duplicate_sublimit_name", { label: provider.label, name }) };
     }
     const models = parseModelParts(draft.modelsText);
     if (models === null) {
       return {
         problem:
-          `A(z) „${name}” alkeret modelljei: a modellazonosítók egy-egy része (betű, szám, pont, kötőjel), ` +
-          `vesszővel elválasztva, legfeljebb ${MAX_SUB_LIMIT_MODELS}, például fable.`,
+          t("invalid_sublimit_models", { name, maxModels: MAX_SUB_LIMIT_MODELS }),
       };
     }
     // Hidden fields must not block the save: they keep what was saved.
     const share = parseSharePercent(draft.shareText) ?? (draft.mode === "share" ? null : draft.savedShare);
-    if (share === null) return { problem: `A(z) „${name}” alkeret aránya 1 és 100 közötti egész szám legyen.` };
+    if (share === null) return { problem: t("invalid_sublimit_share", { name }) };
     const limit =
       parseLimit(draft.limitText) ?? (draft.mode === "separate" && useTokenLimits ? null : draft.savedLimit);
-    if (limit === null) return { problem: `A(z) „${name}” alkeret tokenkerete pozitív egész szám legyen.` };
+    if (limit === null) return { problem: t("invalid_sublimit_limit", { name }) };
 
     const taken = [...provider.subLimits.flatMap((other) => (other.id ? [other.id] : [])), ...list.map((sub) => sub.id)];
     list.push({ id: draft.id ?? subLimitIdFor(name, taken), name, models, mode: draft.mode, sharePercent: share, limit });
@@ -242,17 +242,16 @@ function subLimitsRequest(provider: DraftProvider, useTokenLimits: boolean): { l
 }
 
 /** Why `name` cannot be added as a group; null when it can. */
-function groupNameProblem(name: string, groups: DraftGroup[]): string | null {
+function groupNameProblem(name: string, groups: DraftGroup[], t: any): string | null {
   const errors: string[] = [];
   const id = parseId(name, "id", errors);
   if (errors.length > 0) {
     return (
-      "A csoportnév 1–64 karakter lehet: betű, szám, szóköz, pont, kötőjel és aláhúzás, " +
-      "az elején betűvel vagy számmal."
+      t("group_name_rules")
     );
   }
-  if (groups.some((group) => group.id === id)) return `Már van „${id}” nevű csoport.`;
-  if (groups.length >= MAX_GROUPS) return `Legfeljebb ${MAX_GROUPS} csoport vehető fel.`;
+  if (groups.some((group) => group.id === id)) return t("group_already_exists", { id });
+  if (groups.length >= MAX_GROUPS) return t("max_groups_reached", { maxGroups: MAX_GROUPS });
   return null;
 }
 
@@ -278,9 +277,9 @@ function withNewGroup(draft: Draft): Draft {
   };
 }
 
-function toRequest(draft: Draft): { request: SettingsRequest } | { problem: string } {
+function toRequest(draft: Draft, t: any): { request: SettingsRequest } | { problem: string } {
   if (!draft.providers.some((provider) => provider.visible)) {
-    return { problem: "Legalább egy AI-fióknak látszania kell a dashboardon." };
+    return { problem: t("at_least_one_visible_account") };
   }
 
   const parsedLimits = draft.providers.map((provider) => ({
@@ -291,21 +290,21 @@ function toRequest(draft: Draft): { request: SettingsRequest } | { problem: stri
   const badLimit = parsedLimits.find((limit) => limit.parsed === null);
   if (badLimit) {
     return {
-      problem: `A(z) ${badLimit.label} kerete pozitív egész szám legyen, például 500 000.`,
+      problem: t("invalid_provider_limit", { label: badLimit.label }),
     };
   }
 
   const time = /^([01]\d|2[0-3]):([0-5]\d)/.exec(draft.time);
-  if (!time) return { problem: "Add meg a reset időpontját óra:perc formában, például 00:00." };
+  if (!time) return { problem: t("reset_time_format_error") };
 
   const invalid = draft.groups.find((group) => normalizeHexColor(group.colorText) === null);
   if (invalid) {
-    return { problem: `A(z) „${invalid.id}” csoport színe nem érvényes HEX kód (ilyen például a #3987e5).` };
+    return { problem: t("invalid_group_color", { id: invalid.id }) };
   }
 
   const subLimits: Record<string, SubLimit[]> = {};
   for (const provider of draft.providers) {
-    const result = subLimitsRequest(provider, draft.useTokenLimits);
+    const result = subLimitsRequest(provider, draft.useTokenLimits, t);
     if ("problem" in result) return result;
     if (result.list.length > 0) subLimits[provider.id] = result.list;
   }
@@ -335,11 +334,11 @@ function toRequest(draft: Draft): { request: SettingsRequest } | { problem: stri
 }
 
 /** Which of the provider's models this cycle a sub-limit takes, as its parts are typed. */
-function matchNote(sub: DraftSubLimit, provider: DraftProvider): string {
+function matchNote(sub: DraftSubLimit, provider: DraftProvider, t: any): string {
   const parts = parseModelParts(sub.modelsText);
   if (parts === null) {
     const known = provider.models.slice(0, 6).join(", ");
-    return known === "" ? "A modellazonosító része, vesszővel több is." : `A modellazonosító része, például: ${known}.`;
+    return known === "" ? t("models_hint_multiple") : t("models_hint_example", { known });
   }
   // A model an earlier sub-limit takes stays there: the first match wins (lib/sub-limits.ts).
   const earlier = provider.subLimits
@@ -347,8 +346,8 @@ function matchNote(sub: DraftSubLimit, provider: DraftProvider): string {
     .flatMap((other) => parseModelParts(other.modelsText) ?? []);
   const takes = (model: string, list: string[]) => list.some((part) => model.includes(part));
   const matches = provider.models.filter((model) => takes(model, parts) && !takes(model, earlier));
-  if (matches.length === 0) return "Ebben a ciklusban még nem jelentett egyező modellt egy gép sem.";
-  return `Egyező modellek: ${matches.map(modelLabel).join(", ")}.`;
+  if (matches.length === 0) return t("no_matching_models");
+  return t("matching_models", { matches: matches.map(modelLabel).join(", ") });
 }
 
 function SubLimitEditor({
@@ -364,9 +363,10 @@ function SubLimitEditor({
   onChange: (changes: Partial<DraftSubLimit>) => void;
   onRemove: () => void;
 }) {
+    const locale = useLocale();
   const t = useTranslations("Settings");
   const modeName = useId();
-  const label = sub.name.trim() || "Új alkeret";
+  const label = sub.name.trim() || t("new_sublimit");
   const share = parseSharePercent(sub.shareText);
   const limit = parseLimit(sub.limitText);
 
@@ -377,16 +377,16 @@ function SubLimitEditor({
           type="text"
           autoComplete="off"
           maxLength={MAX_SUB_LIMIT_NAME_LENGTH}
-          placeholder="Neve, például Fable"
+          placeholder={t("sublimit_name_placeholder")}
           value={sub.name}
           onChange={(event) => onChange({ name: event.target.value })}
-          aria-label={`${provider.label} alkeretének neve`}
+          aria-label={t("sublimit_name_aria", { label: provider.label })}
           className={`min-w-0 grow font-medium ${FIELD}`}
         />
         <button
           type="button"
           onClick={onRemove}
-          aria-label={`„${label}” alkeret törlése`}
+          aria-label={t("sublimit_delete_aria", { label })}
           title={t("delete")}
           className="rounded-md p-2 text-ink-3 transition-colors hover:text-ink"
         >
@@ -395,7 +395,7 @@ function SubLimitEditor({
       </div>
 
       <label className="mt-3 block">
-        <span className="text-sm text-ink-3">Modellek</span>
+        <span className="text-sm text-ink-3">{t("models")}</span>
         <input
           type="text"
           autoComplete="off"
@@ -405,11 +405,11 @@ function SubLimitEditor({
           onChange={(event) => onChange({ modelsText: event.target.value })}
           className={`mt-1 block w-full font-mono text-sm ${FIELD}`}
         />
-        <span className="mt-1 block text-sm text-ink-3">{matchNote(sub, provider)}</span>
+        <span className="mt-1 block text-sm text-ink-3">{matchNote(sub, provider, t)}</span>
       </label>
 
       <fieldset className="mt-3">
-        <legend className="sr-only">„{label}” fajtája</legend>
+        <legend className="sr-only">{t("sublimit_type_legend", { label })}</legend>
         <div className="inline-flex flex-wrap rounded-md border border-rule p-0.5">
           {(["separate", "share"] as const).map((mode) => (
             <label
@@ -424,7 +424,7 @@ function SubLimitEditor({
                 onChange={() => onChange({ mode })}
                 className="sr-only"
               />
-              {mode === "separate" ? "Önálló keret" : "A keret része"}
+              {mode === "separate" ? t("separate_limit") : t("shared_limit")}
             </label>
           ))}
         </div>
@@ -432,7 +432,7 @@ function SubLimitEditor({
 
       {sub.mode === "share" ? (
         <label className="mt-3 flex flex-wrap items-center gap-2 text-sm text-ink-3">
-          Legfeljebb
+          {t("max_share")}
           <span className="relative">
             <input
               type="text"
@@ -448,13 +448,13 @@ function SubLimitEditor({
               %
             </span>
           </span>
-          a(z) {provider.label} keretéből
+          {t("of_provider_limit", { label: provider.label })}
         </label>
       ) : (
         <>
           {useTokenLimits && (
             <label className="mt-3 flex flex-wrap items-center gap-2 text-sm text-ink-3">
-              Tokenkeret
+              {t("token_limit")}
               <input
                 type="text"
                 inputMode="numeric"
@@ -464,10 +464,10 @@ function SubLimitEditor({
                 aria-invalid={limit === null || undefined}
                 className={`w-36 text-base tabular-nums ${FIELD}`}
               />
-              {limit !== null && <span>{formatTokens(limit)} token</span>}
+              {limit !== null && <span>{t("token_count", { count: formatTokens(limit, locale) })}</span>}
             </label>
           )}
-          <p className="mt-2 text-sm text-ink-3">A modelljei nem számítanak bele a(z) {provider.label} keretébe.</p>
+          <p className="mt-2 text-sm text-ink-3">{t("sublimit_models_dont_count", { label: provider.label })}</p>
         </>
       )}
     </li>
@@ -475,6 +475,7 @@ function SubLimitEditor({
 }
 
 function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId: string; onClose: () => void }) {
+    const locale = useLocale();
   const t = useTranslations("Settings");
   const router = useRouter();
   const [draft, setDraft] = useState<Draft>(() => draftFrom(view));
@@ -536,7 +537,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
     ]);
 
   function addGroup() {
-    const nameProblem = groupNameProblem(draft.newGroupName, draft.groups);
+    const nameProblem = groupNameProblem(draft.newGroupName, draft.groups, t);
     setProblem(nameProblem);
     if (!nameProblem) setDraft(withNewGroup);
   }
@@ -556,20 +557,20 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
     // The token has its own save, with its own confirmation: typed but not saved, it would be lost.
     if (draft.apiToken.trim() !== "") {
       return setProblem(
-        "Az API-token mezőjében mentetlen érték van: mentsd a mellette lévő gombbal, vagy ürítsd ki a mezőt.",
+        t("unsaved_api_token"),
       );
     }
 
     // A name left in the field was meant to be added: do not lose it silently.
     let pending = draft;
     if (draft.newGroupName.trim() !== "") {
-      const nameProblem = groupNameProblem(draft.newGroupName, draft.groups);
+      const nameProblem = groupNameProblem(draft.newGroupName, draft.groups, t);
       if (nameProblem) return setProblem(nameProblem);
       pending = withNewGroup(draft);
       setDraft(pending);
     }
 
-    const result = toRequest(pending);
+    const result = toRequest(pending, t);
     if ("problem" in result) return setProblem(result.problem);
 
     setSaving(true);
@@ -588,7 +589,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
 
       const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
       if (response.status === 401) {
-        setProblem("A munkamenet lejárt. Lépj be újra a PIN-kóddal, utána ments újra.");
+        setProblem(t("session_expired"));
         router.refresh();
       } else if (response.status === 409 && Array.isArray(payload?.groups)) {
         const refused = payload.groups.map(String);
@@ -603,16 +604,15 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
           removed: current.removed.filter((group) => !refused.includes(group.id)),
         }));
         setProblem(
-          `Időközben jelentés érkezett ide: ${refused.join(", ")}. Az ilyen csoport nem törölhető, ` +
-            "ezért visszakerült a listára. Semmi nem lett elmentve: ments újra.",
+          t("report_received_during_save", { refused: refused.join(", ") }),
         );
       } else if (response.status === 400 && Array.isArray(payload?.details)) {
-        setProblem(`A szerver elutasította a beállításokat: ${payload.details.join("; ")}.`);
+        setProblem(t("server_rejected_settings", { details: payload.details.join("; ") }));
       } else {
-        setProblem("A mentés nem sikerült, az adattár most nem érhető el. Próbáld újra kicsit később.");
+        setProblem(t("store_unavailable"));
       }
     } catch {
-      setProblem("A mentés nem sikerült: a szerver nem válaszolt. Ellenőrizd a kapcsolatot, és próbáld újra.");
+      setProblem(t("server_did_not_respond"));
     } finally {
       setSaving(false);
     }
@@ -633,7 +633,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
           <button
             type="button"
             onClick={onClose}
-            aria-label="Bezárás"
+            aria-label={t("close")}
             className="-mr-2 rounded-md p-2 text-ink-3 transition-colors hover:text-ink"
           >
             <XIcon />
@@ -644,9 +644,9 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
       <div className="space-y-9 px-6 pb-7 pt-6">
         <section aria-labelledby={`${titleId}-providers`}>
           <h3 id={`${titleId}-providers`} className="font-medium">
-            AI-fiókok
+            {t("ai_accounts")}
           </h3>
-          <div role="group" aria-label="Látható AI-fiókok" className="mt-3 flex flex-wrap gap-2">
+          <div role="group" aria-label={t("visible_ai_accounts")} className="mt-3 flex flex-wrap gap-2">
             {draft.providers.map((provider) => {
               const isLastVisible = provider.visible && visibleProviders.length === 1;
               return (
@@ -655,7 +655,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                   checked={provider.visible}
                   onChange={(visible) => patchProvider(provider.id, { visible })}
                   disabled={isLastVisible}
-                  title={isLastVisible ? "Legalább egy AI-fióknak látszania kell" : undefined}
+                  title={isLastVisible ? t("at_least_one_account_must_be_visible") : undefined}
                 >
                   {provider.label}
                 </ToggleChip>
@@ -663,18 +663,17 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
             })}
           </div>
           <p className="mt-3 text-sm text-ink-3">
-            A kikapcsolt fiók eltűnik a dashboardról és az AI-fiók választóból. A gépek jelentéseit a szerver
-            továbbra is tárolja: visszakapcsolva az előzményekkel együtt tér vissza.
+            {t("hidden_account_explanation")}
           </p>
         </section>
 
         <section aria-labelledby={`${titleId}-budget`} className="space-y-4">
           <h3 id={`${titleId}-budget`} className="font-medium">
-            Keret
+            {t("budget")}
           </h3>
 
           <fieldset>
-            <legend className="text-sm text-ink-3">Típus</legend>
+            <legend className="text-sm text-ink-3">{t("type")}</legend>
             <div className="mt-1.5 inline-flex rounded-md border border-rule p-0.5">
               {(["weekly", "monthly"] as const).map((period) => (
                 <label
@@ -689,7 +688,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                     onChange={() => patch({ period })}
                     className="sr-only"
                   />
-                  {period === "weekly" ? "Heti" : "Havi"}
+                  {period === "weekly" ? t("weekly") : t("monthly")}
                 </label>
               ))}
             </div>
@@ -703,11 +702,9 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
               className="mt-1 size-4 shrink-0 cursor-pointer accent-ink"
             />
             <span>
-              Tokenkeret használata
+              {t("use_token_limits")}
               <span className="mt-0.5 block text-sm text-ink-3">
-                Kikapcsolva a dashboard csak a gépek mért tokenjeiből és a beírt hivatalos százalékból számol: a
-                százalék a mért arányok szerint oszlik meg a csoportok és a gépek között. Bekapcsolva egy
-                szolgáltatónként megadott tokenkerethez is viszonyít, és kiírhatja a maradék tokeneket.
+                {t("use_token_limits_explanation")}
               </span>
             </span>
           </label>
@@ -716,7 +713,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
           {draft.useTokenLimits && (
             <div className="space-y-4 border-l border-hairline pl-4 sm:pl-7">
               <fieldset>
-                <legend className="text-sm text-ink-3">Szolgáltatónkénti keret (token)</legend>
+                <legend className="text-sm text-ink-3">{t("provider_limits_label")}</legend>
                 <div className="mt-2 grid gap-3 sm:grid-cols-2">
                   {visibleProviders.map((provider) => {
                     const limit = parseLimit(provider.limitText);
@@ -731,14 +728,14 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                             value={provider.limitText}
                             onChange={(event) => patchProvider(provider.id, { limitText: event.target.value })}
                             aria-invalid={limit === null || undefined}
-                            aria-label={`${provider.label} tokenkerete`}
+                            aria-label={t("provider_limit_aria", { label: provider.label })}
                             className={`min-w-0 grow tabular-nums ${FIELD}`}
                           />
                         </span>
                         <span className="mt-1.5 block text-sm text-ink-3">
                           {limit === null
-                            ? "Pozitív egész szám."
-                            : `${formatTokens(limit)} token ${draft.period === "weekly" ? "hetente" : "havonta"}.`}
+                            ? t("positive_integer")
+                            : draft.period === "weekly" ? t("weekly_limit", { tokens: formatTokens(limit, locale) }) : t("monthly_limit", { tokens: formatTokens(limit, locale) })}
                         </span>
                       </label>
                     );
@@ -754,10 +751,9 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                   className="mt-1 size-4 shrink-0 cursor-pointer accent-ink"
                 />
                 <span>
-                  Maradék tokenek mutatása
+                  {t("show_remaining_tokens")}
                   <span className="mt-0.5 block text-sm text-ink-3">
-                    Kikapcsolva a dashboard sehol nem írja ki, mennyi token maradt a keretből, és a túllépés
-                    mértékét sem. A százalék, az elfogyott mennyiség és a reset ideje megmarad.
+                    {t("show_remaining_tokens_explanation")}
                   </span>
                 </span>
               </label>
@@ -767,13 +763,12 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
 
         <section aria-labelledby={`${titleId}-sub-limits`}>
           <h3 id={`${titleId}-sub-limits`} className="font-medium">
-            Alkeretek
+            {t("sublimits")}
           </h3>
           <p className="mt-1.5 text-sm text-ink-3">
-            Egy fiókon belül külön mért keret, például a Claude-nál a Fable: a dashboardon a fő csúszka alatt
-            saját, kisebb csúszkát kap. Az <strong className="font-medium text-ink-2">önálló keret</strong>{" "}
-            modelljei nem számítanak bele a fiók keretébe; <strong className="font-medium text-ink-2">a keret
-            része</strong> a fiók keretéből legfeljebb a megadott arányt használhatja.
+            {t("sublimits_explanation_1")}<strong className="font-medium text-ink-2">{t("sublimits_explanation_2")}</strong>{" "}
+            {t("sublimits_explanation_3")}<strong className="font-medium text-ink-2">{t("sublimits_explanation_4")}</strong>
+            {t("sublimits_explanation_5")}
           </p>
 
           <div className="mt-4 space-y-4">
@@ -785,11 +780,11 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                     type="button"
                     onClick={() => addSubLimit(provider)}
                     disabled={provider.subLimits.length >= MAX_SUB_LIMITS}
-                    aria-label={`Alkeret hozzáadása: ${provider.label}`}
+                    aria-label={t("add_sublimit_aria", { label: provider.label })}
                     className={`flex shrink-0 items-center gap-2 text-sm ${QUIET_BUTTON}`}
                   >
                     <PlusIcon />
-                    Alkeret
+                    {t("sublimit")}
                   </button>
                 </div>
 
@@ -818,7 +813,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
           <div className="flex flex-wrap gap-x-5 gap-y-4">
             {draft.period === "weekly" ? (
               <label className="block">
-                <span className="text-sm text-ink-3">A hét napja</span>
+                <span className="text-sm text-ink-3">{t("weekday")}</span>
                 <select
                   value={draft.weekday}
                   onChange={(event) => patch({ weekday: Number(event.target.value) })}
@@ -826,14 +821,14 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                 >
                   {WEEKDAY_ORDER.map((weekday) => (
                     <option key={weekday} value={weekday}>
-                      {weekdayLong(weekday)}
+                      {weekdayLong(weekday, locale)}
                     </option>
                   ))}
                 </select>
               </label>
             ) : (
               <label className="block">
-                <span className="text-sm text-ink-3">A hónap napja</span>
+                <span className="text-sm text-ink-3">{t("monthday")}</span>
                 <select
                   value={draft.monthDay}
                   onChange={(event) => patch({ monthDay: Number(event.target.value) })}
@@ -849,7 +844,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
             )}
 
             <label className="block">
-              <span className="text-sm text-ink-3">Időpont</span>
+              <span className="text-sm text-ink-3">{t("time")}</span>
               <input
                 type="time"
                 step={60}
@@ -862,9 +857,9 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
           </div>
 
           <p className="text-sm text-ink-3">
-            Ekkor indul az új számlálási ciklus, {view.timeZone} idő szerint.
+            {t("cycle_start_explanation_1", { timeZone: view.timeZone })}
             {draft.period === "monthly" && draft.monthDay > 28 && (
-              <> Ha egy hónapban nincs {draft.monthDay}. nap, a hónap utolsó napja számít.</>
+              <>{t("cycle_start_explanation_2", { monthDay: draft.monthDay })}</>
             )}
           </p>
         </section>
@@ -884,7 +879,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                       onChange={(event) =>
                         patchGroup(group.id, { color: event.target.value, colorText: event.target.value })
                       }
-                      aria-label={`„${group.id}” színe`}
+                      aria-label={t("group_color_aria", { id: group.id })}
                       className="color-well"
                     />
                     <span className="min-w-0 grow wrap-anywhere">{group.id}</span>
@@ -899,7 +894,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                         patchGroup(group.id, { colorText: event.target.value, ...(color && { color }) });
                       }}
                       onBlur={() => patchGroup(group.id, { colorText: group.color })}
-                      aria-label={`„${group.id}” színének HEX kódja`}
+                      aria-label={t("group_color_hex_aria", { id: group.id })}
                       aria-invalid={normalizeHexColor(group.colorText) === null || undefined}
                       className={`w-[6.5rem] font-mono text-sm ${FIELD}`}
                     />
@@ -907,7 +902,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                       type="button"
                       onClick={() => removeGroup(group)}
                       disabled={group.hasReports}
-                      aria-label={`„${group.id}” törlése`}
+                      aria-label={t("group_delete_aria", { id: group.id })}
                       title={group.hasReports ? t("group_has_reports_cannot_delete") : t("delete")}
                       className="rounded-md p-2 text-ink-3 transition-colors hover:text-ink disabled:pointer-events-none disabled:opacity-30"
                     >
@@ -917,7 +912,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                   {/* Aligned with the name: the colour well is 2rem wide, the gap 0.75rem. */}
                   <div
                     role="group"
-                    aria-label={`AI-fiókok, amelyekbe a(z) „${group.id}” csoport beszámít`}
+                    aria-label={t("group_accounts_aria", { id: group.id })}
                     className="mt-2 flex flex-wrap items-center gap-1.5 pl-11"
                   >
                     <span className="mr-1 text-sm text-ink-3" aria-hidden="true">{t("counts_towards")}</span>
@@ -958,7 +953,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                 event.preventDefault();
                 addGroup();
               }}
-              aria-label="Új csoport neve"
+              aria-label={t("new_group_name")}
               className={`min-w-0 grow ${FIELD}`}
             />
             <button type="button" onClick={addGroup} className={`flex shrink-0 items-center gap-2 ${QUIET_BUTTON}`}>
@@ -966,10 +961,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
           </div>
 
           <p className="mt-4 text-sm text-ink-3">
-            A név az, amit a gép <code className="text-ink-2">groupId</code>-ként küld. Ha egy gép a listán nem
-            szereplő csoportot jelent, az magától felkerül ide, véletlen színnel, és minden fiókba beszámít.
-            Egy kikapcsolt fiók dashboardján a csoport tokenjei és gépei nem látszanak, a jelentéseik viszont
-            tárolva maradnak. Törölni csak olyan csoportot lehet, amelynek nincs tárolt jelentése.
+            {t("group_name_explanation_1")}<code className="text-ink-2">groupId</code>{t("group_name_explanation_2")}
           </p>
         </section>
 
@@ -1009,6 +1001,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
  * settings, and a background refresh never overwrites what is being typed.
  */
 export function SettingsDialog({ view }: { view: SettingsView }) {
+    const locale = useLocale();
   const t = useTranslations("Settings");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
