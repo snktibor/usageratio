@@ -32,6 +32,7 @@ export function LanguageSwitcher() {
       >
         <option value="hu">🇭🇺 HU</option>
         <option value="en">🇬🇧 EN</option>
+        <option value="de">🇩🇪 DE</option>
       </select>
     </div>
   );

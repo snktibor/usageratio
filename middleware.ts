@@ -6,5 +6,5 @@ export default createMiddleware(routing);
 export const config = {
   // Matches routes that need locale handling.
   // Excludes API endpoints, static files, etc.
-  matcher: ['/', '/(hu|en)/:path*', '/((?!api|_next|_vercel|.*\\..*).*)']
+  matcher: ['/', '/(hu|en|de)/:path*', '/((?!api|_next|_vercel|.*\\..*).*)']
 };
