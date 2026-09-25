@@ -13,6 +13,11 @@
     "node": ">=20.9.0"
   },
   "scripts": {
+    "prepare": "node scripts/generate-locales.mjs",
+    "predev": "node scripts/generate-locales.mjs",
+    "prebuild": "node scripts/generate-locales.mjs",
+    "pretypecheck": "node scripts/generate-locales.mjs",
+    "pretest": "node scripts/generate-locales.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

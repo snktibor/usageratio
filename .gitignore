@@ -7,6 +7,9 @@
 next-env.d.ts
 *.tsbuildinfo
 
+# generated from messages/*.json — see scripts/generate-locales.mjs
+i18n/locales.generated.ts
+
 # env files — never commit secrets (the example file is safe)
 .env*
 !.env.example
