@@ -220,6 +220,7 @@
     "no_model_breakdown_sublimit": "A gépek ebben a ciklusban még nem küldtek modellenkénti bontást, így a(z) {name} mért része nem ismert. Írd be a hivatalos százalékát.",
     "enter_sublimit_or_provider": "Írd be a(z) {name} hivatalos százalékát, vagy fent a(z) {label} értékét: abból a mért arány szerint kiszámolható.",
     "enter_sublimit_percentage": "Írd be, hány százalékon áll a(z) {name} kerete a(z) {label} saját kijelzőjén.",
+    "sublimit_mismatch": "Ez nem jön ki: a teljes {label}-keret {share}-ánál a(z) {name} önmagában ennyit már elhasználna, de a fenti összes csak {total}-on áll. Ellenőrizd mindkét értéket.",
     "sublimit_slider_aria": "Hivatalos {name}-fogyasztás, csúszka",
     "delete": "Törlés",
     "number_between_0_100": "0 és 100 közötti számot adj meg, például 45 vagy 45,5.",

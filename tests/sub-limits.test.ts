@@ -264,4 +264,30 @@ describe("applySubLimitReading", () => {
     const sub = applySubLimitReading(model, applyGroundTruth(model, reading(30)), model.subLimits[0]!, null);
     expect(sub).toMatchObject({ source: null, quota: null });
   });
+
+  it("flags a part's own reading as mismatched once it outruns the provider's by more than the tolerance", () => {
+    const model = buildDashboard(NOW, config, snapshot(events), [OPUS]);
+    // Opus may use at most 40% of the whole; at 100% of that, it alone accounts for 40% of the total.
+    const view = applyGroundTruth(model, reading(20));
+    const sub = applySubLimitReading(model, view, model.subLimits[0]!, reading(100));
+    expect(sub).toMatchObject({ ofProvider: 0.4, providerUsedFraction: 0.2, mismatched: true });
+  });
+
+  it("stays quiet inside the 5-point tolerance, and once the provider's figure covers it", () => {
+    const model = buildDashboard(NOW, config, snapshot(events), [OPUS]);
+    // 40% of the 40% share is 16% of the whole: 1 point over the provider's 15%, within tolerance.
+    const close = applySubLimitReading(model, applyGroundTruth(model, reading(15)), model.subLimits[0]!, reading(40));
+    expect(close.ofProvider).toBeCloseTo(0.16);
+    expect(close).toMatchObject({ providerUsedFraction: 0.15, mismatched: false });
+
+    const covered = applySubLimitReading(model, applyGroundTruth(model, reading(50)), model.subLimits[0]!, reading(40));
+    expect(covered.ofProvider).toBeCloseTo(0.16);
+    expect(covered).toMatchObject({ providerUsedFraction: 0.5, mismatched: false });
+  });
+
+  it("has nothing to mismatch without the provider's own figure", () => {
+    const model = buildDashboard(NOW, config, snapshot(events), [OPUS]);
+    const sub = applySubLimitReading(model, applyGroundTruth(model, null), model.subLimits[0]!, reading(100));
+    expect(sub).toMatchObject({ providerUsedFraction: null, mismatched: false });
+  });
 });

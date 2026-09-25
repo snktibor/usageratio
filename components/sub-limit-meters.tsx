@@ -68,6 +68,16 @@ function paceNote(subView: SubLimitView, model: DashboardModel, t: ReturnType<ty
   return "";
 }
 
+/** Its own reading and the provider's disagree past the tolerance: which is likely mistyped. */
+function mismatchNote(subView: SubLimitView, providerLabel: string, t: ReturnType<typeof useTranslations>, locale: string): string {
+  return t("sublimit_mismatch", {
+    name: subView.sub.name,
+    share: formatPercent(subView.ofProvider!, locale),
+    label: providerLabel,
+    total: formatPercent(subView.providerUsedFraction!, locale),
+  });
+}
+
 /** Nothing tells how far it is yet: what would. */
 function unknownNote(subView: SubLimitView, providerLabel: string, t: ReturnType<typeof useTranslations>, locale: string): string {
   const { sub } = subView;
@@ -169,6 +179,12 @@ function SubLimitRow({ model, state, onChange: setEntry, providerLabel }: RowPro
           <span>{unknownNote(subView, providerLabel, t, locale)}</span>
         )}
       </p>
+      {subView.mismatched && (
+        <p className="mt-2 flex max-w-3xl items-start gap-2 text-sm text-ink">
+          <StopCircleIcon className="mt-0.5 shrink-0 text-critical" />
+          <span>{mismatchNote(subView, providerLabel, t, locale)}</span>
+        </p>
+      )}
     </li>
   );
 }
