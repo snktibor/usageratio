@@ -6,7 +6,6 @@ type Group = DashboardModel["groups"][number];
 
 /** `color` is the group's "#rrggbb": it comes from the settings, so it cannot be a Tailwind class. */
 export function Swatch({ color }: { color: string }) {
-    const locale = useLocale();
   return (
     <span
       aria-hidden="true"
@@ -18,7 +17,6 @@ export function Swatch({ color }: { color: string }) {
 
 /** Next to a section heading while an official figure restates the figures below it. */
 export function CalibratedNote({ view }: { view: DashboardView }) {
-    const locale = useLocale();
   const t = useTranslations("Widgets");
   return (
     <span className="text-sm font-normal text-ink-3">

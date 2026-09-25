@@ -43,7 +43,6 @@ const DASH = "6 5";
 
 /** A short stroke in the series' colour: the key in the legend, the tooltip and the table. */
 function LineKey({ series }: { series: ChartSeries }) {
-    const locale = useLocale();
   return (
     <span
       aria-hidden="true"
@@ -54,7 +53,6 @@ function LineKey({ series }: { series: ChartSeries }) {
 }
 
 export function ChartLegend({ series }: { series: ChartSeries[] }) {
-    const locale = useLocale();
   return (
     <ul className="flex flex-wrap gap-x-5 gap-y-1.5 text-sm text-ink-2">
       {series.map((s) => (

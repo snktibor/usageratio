@@ -7,7 +7,6 @@ import {
   formatHeroPercent,
   formatPercent,
   formatTokens,
-  periodAdjective,
 } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
 import type { QuotaAssessment } from "@/lib/quota";
@@ -60,7 +59,10 @@ function paceSentence(model: DashboardModel, view: DashboardView, quota: QuotaAs
       ? t("overage_amount", { tokens: formatTokens(quota.overage, locale) })
       : t("no_tokens_left");
   }
-  if (total === 0) return t("full_quota_available", { period: periodAdjective(model.period, locale) });
+  if (total === 0) {
+    const period = model.period === "monthly" ? t("monthly_adjective") : t("weekly_adjective");
+    return t("full_quota_available", { period });
+  }
   if (pace.earlyBurn) {
     return (
       t("first_day_burn", { used: formatPercent(quota.usedFraction, locale), daily: formatPercent(pace.dailyShare, locale) })
@@ -117,7 +119,7 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
   const showRemaining = tokenQuota !== null && model.showRemaining;
   const style = quota ? STATUS_STYLE[quota.status] : UNKNOWN_STYLE;
   const StatusIcon = style.icon;
-  const period = periodAdjective(model.period, locale);
+  const period = model.period === "monthly" ? t("monthly_adjective") : t("weekly_adjective");
   const fillPercent = quota ? Math.min(1, quota.usedFraction) * 100 : 0;
   const nowFraction = model.cycle.elapsedFraction;
   const nowAlign =

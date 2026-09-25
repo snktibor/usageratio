@@ -1,7 +1,9 @@
+import { cookies } from "next/headers";
 import { isAuthenticated } from "@/lib/auth";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { checkMachineSettings, parseMode, parseOs } from "@/lib/setup";
 import { buildSetupZip, loadClientSources, usageEndpoint } from "@/lib/setup-package";
+import { routing } from "@/i18n/routing";
 
 /**
  * GET /api/setup?os=macos|linux|windows&mode=auto|manual&group=Work&machine=win-desktop
@@ -21,9 +23,26 @@ function text(body: string, status: number): Response {
   });
 }
 
+/**
+ * `/api/*` is excluded from the next-intl middleware matcher, so there is no
+ * request-scoped locale here. The middleware does leave its default
+ * `NEXT_LOCALE` cookie behind on every page visit (see i18n/routing.ts, which
+ * does not override it), so that's what tells us which prefix (`/hu/setup`
+ * or `/en/setup`) to bounce an unauthenticated request back to.
+ */
+async function localePrefixedSetupPath(): Promise<string> {
+  const cookieValue = (await cookies()).get("NEXT_LOCALE")?.value ?? "";
+  const locale = (routing.locales as readonly string[]).includes(cookieValue)
+    ? (cookieValue as (typeof routing.locales)[number])
+    : routing.defaultLocale;
+  return `/${locale}/setup`;
+}
+
 export async function GET(request: Request): Promise<Response> {
   try {
-    if (!(await isAuthenticated())) return Response.redirect(new URL("/setup", request.url), 303);
+    if (!(await isAuthenticated())) {
+      return Response.redirect(new URL(await localePrefixedSetupPath(), request.url), 303);
+    }
   } catch (error) {
     if (error instanceof StorageNotConfiguredError) console.error(`[usageratio] ${error.message}`);
     else console.error("[usageratio] The setup download could not check the session:", error);

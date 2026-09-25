@@ -6,5 +6,5 @@ export const routing = defineRouting({
   defaultLocale: 'hu',
 });
 
-// A next-intl ezeket a navigációs horgokat fogja biztosítani, amelyek tudnak az aktuális nyelvről
+// Locale-aware navigation APIs: mirrors next/link and next/navigation, but keeps the current locale.
 export const {Link, redirect, usePathname, useRouter} = createNavigation(routing);

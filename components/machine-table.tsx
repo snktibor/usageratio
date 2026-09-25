@@ -6,14 +6,17 @@ import type { DashboardView } from "@/lib/ground-truth";
 import { useTranslations, useLocale } from "next-intl";
 type Machine = DashboardModel["machines"][number];
 
-const HEALTH = (t: any): Record<
-  MachineHealth,
-  { label: string; icon: typeof CheckCircleIcon; iconColor: string }
-> => ({
-  active: { label: t("status_active"), icon: CheckCircleIcon, iconColor: "text-good" },
-  late: { label: t("status_late"), icon: ClockIcon, iconColor: "text-warning" },
-  inactive: { label: t("status_inactive"), icon: MoonIcon, iconColor: "text-ink-3" },
-});
+const HEALTH_ICON: Record<MachineHealth, { icon: typeof CheckCircleIcon; iconColor: string }> = {
+  active: { icon: CheckCircleIcon, iconColor: "text-good" },
+  late: { icon: ClockIcon, iconColor: "text-warning" },
+  inactive: { icon: MoonIcon, iconColor: "text-ink-3" },
+};
+
+const HEALTH_LABEL_KEY: Record<MachineHealth, string> = {
+  active: "status_active",
+  late: "status_late",
+  inactive: "status_inactive",
+};
 
 function rowKey(machine: Machine): string {
   return JSON.stringify([machine.machineId, machine.groupId]);
@@ -22,18 +25,17 @@ function rowKey(machine: Machine): string {
 function LastReport({ machine, model }: { machine: Machine; model: DashboardModel }) {
     const locale = useLocale();
   const t = useTranslations("Widgets");
-  const health = HEALTH(t)[machine.health];
-  const HealthIcon = health.icon;
+  const { icon: HealthIcon, iconColor } = HEALTH_ICON[machine.health];
   return (
     <span className="flex items-center gap-2 whitespace-nowrap">
-      <HealthIcon className={`shrink-0 ${health.iconColor}`} />
-      <span>{health.label}</span>
+      <HealthIcon className={`shrink-0 ${iconColor}`} />
+      <span>{t(HEALTH_LABEL_KEY[machine.health])}</span>
       <time
         dateTime={new Date(machine.lastSeenAt).toISOString()}
         title={formatDateTime(machine.lastSeenAt, model.timeZone, locale)}
         className="text-sm text-ink-3"
       >
-        {formatAgo(machine.lastSeenAt, model.generatedAt, locale)}
+        {formatAgo(machine.lastSeenAt, model.generatedAt, locale, t("now"))}
       </time>
     </span>
   );
