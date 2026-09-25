@@ -429,10 +429,7 @@ export function SetupView({
 
       <div className="mt-12 max-w-2xl sm:mt-16">
         <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">{t("install_client")}</h1>
-        {/* <p className="mt-4 text-ink-2">
-          Válaszd ki a rendszert és a futtatás módját, majd töltsd le a csomagot, vagy hozd létre a fájlokat kézzel.
-          Egyszeri adatküldéshez lent van egy telepítés nélküli parancs is.
-        </p> */}
+        <p className="mt-4 text-ink-2">{t("install_client_intro")}</p>
       </div>
 
       <section aria-label={t("package_settings_aria")} className="mt-10 rounded-lg border border-rule px-5 py-6 sm:px-6">

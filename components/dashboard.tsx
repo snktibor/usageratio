@@ -2,7 +2,7 @@ import { Link } from "@/i18n/routing";
 import { logout } from "@/app/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { DashboardView } from "@/components/dashboard-view";
-import { DownloadIcon } from "@/components/icons";
+import { DownloadIcon, GitHubIcon } from "@/components/icons";
 import { SettingsDialog } from "@/components/settings-dialog";
 import type { ProviderDashboardModel } from "@/lib/dashboard";
 import { formatClock } from "@/lib/format";
@@ -52,6 +52,19 @@ export async function Dashboard({
       </header>
 
       <DashboardView providers={providers} />
+
+      <footer className="mt-16 flex items-center gap-3 text-sm text-ink-3">
+        <span>{t("credit_made_by")}</span>
+        <a
+          href="https://github.com/snktibor"
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-2 rounded-md border border-rule px-2.5 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
+        >
+          <GitHubIcon />
+          snktibor
+        </a>
+      </footer>
     </div>
   );
 }
