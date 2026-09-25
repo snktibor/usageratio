@@ -2,11 +2,15 @@
   "name": "usageratio",
   "version": "0.1.0",
   "private": true,
+  "description": "A lightweight, self-hosted usage tracker for weekly or monthly token budgets across multiple AI providers or accounts.",
   "license": "GPL-3.0-or-later",
   "author": "snktibor",
   "repository": {
     "type": "git",
     "url": "https://github.com/snktibor/usageratio.git"
+  },
+  "engines": {
+    "node": ">=20.9.0"
   },
   "scripts": {
     "dev": "next dev",
