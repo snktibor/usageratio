@@ -157,7 +157,7 @@
     "mode_note_snapshot": "The last submitted provider state of the cycle counts per machine (snapshot mode).",
     "mode_note_counter": "The cycle increment of the provider counter counts per machine (counter mode).",
     "no_machines_yet": "No machine has reported to this account yet",
-    "setup_machines": "Install the client on your machines on the <link>Setup</link> page: there is a ready package for both macOS and Windows. After the first successful submission, the breakdown of groups and machines will appear here.",
+    "setup_machines": "Install the client on your machines on the <link>Setup</link> page: there is a ready package for macOS, Linux and Windows. After the first successful submission, the breakdown of groups and machines will appear here.",
     "cycle_info": "The current cycle of {label}: {start} – {end} ({timeZone}). In the previous cycle, the machines measured {tokens} tokens."
   },
   "Widgets": {

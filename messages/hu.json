@@ -157,7 +157,7 @@
     "mode_note_snapshot": "Gépenként a ciklus legutolsó beküldött provider-állása számít (snapshot mód).",
     "mode_note_counter": "Gépenként a provider-számláló ciklusbeli növekménye számít (counter mód).",
     "no_machines_yet": "Még egy gép sem jelentett ehhez a fiókhoz",
-    "setup_machines": "Telepítsd a klienst a gépeidre a <link>Telepítés</link> oldalon: macOS-re és Windowsra is van kész csomag. Az első sikeres beküldés után itt jelenik meg a csoportok és a gépek bontása.",
+    "setup_machines": "Telepítsd a klienst a gépeidre a <link>Telepítés</link> oldalon: macOS-re, Linuxra és Windowsra is van kész csomag. Az első sikeres beküldés után itt jelenik meg a csoportok és a gépek bontása.",
     "cycle_info": "A(z) {label} mostani ciklusa: {start} – {end} ({timeZone}). Az előző ciklusban a gépek {tokens} tokent mértek."
   },
   "Widgets": {

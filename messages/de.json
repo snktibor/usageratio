@@ -157,7 +157,7 @@
     "mode_note_snapshot": "Pro Maschine zählt der zuletzt im Zyklus eingereichte Provider-Stand (Snapshot-Modus).",
     "mode_note_counter": "Pro Maschine zählt der Zuwachs des Provider-Zählers im Zyklus (Zähler-Modus).",
     "no_machines_yet": "Für dieses Konto hat noch keine Maschine gemeldet",
-    "setup_machines": "Installiere den Client auf deinen Maschinen auf der <link>Einrichtung</link>-Seite: Es gibt fertige Pakete für macOS und Windows. Nach der ersten erfolgreichen Übermittlung erscheint hier die Aufschlüsselung nach Gruppen und Maschinen.",
+    "setup_machines": "Installiere den Client auf deinen Maschinen auf der <link>Einrichtung</link>-Seite: Es gibt fertige Pakete für macOS, Linux und Windows. Nach der ersten erfolgreichen Übermittlung erscheint hier die Aufschlüsselung nach Gruppen und Maschinen.",
     "cycle_info": "Aktueller Zyklus von {label}: {start} – {end} ({timeZone}). Im vorherigen Zyklus haben die Maschinen {tokens} Token gemessen."
   },
   "Widgets": {

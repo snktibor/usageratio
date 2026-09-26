@@ -159,6 +159,8 @@ function writeProviderCookie(providerId: string) {
  * Provider switching stays entirely in the browser; every model arrived in
  * the server payload. `providers` already has the cookie's provider first
  * (see app/[locale]/page.tsx), so the very first render picks it correctly.
+ * Never rendered without a provider: components/dashboard.tsx shows the
+ * empty state instead.
  */
 export function DashboardView({ providers }: { providers: ProviderDashboardModel[] }) {
   const [selectedId, setSelectedId] = useState(providers[0]!.id);
