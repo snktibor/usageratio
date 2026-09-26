@@ -31,7 +31,7 @@ just ask in the advisory.
 
 This section summarizes the assets usageratio protects, the controls in place, and their known
 limitations, so a report can focus on where those controls actually fall short rather than
-re-discovering the design. For the full design, see [`docs/REFERENCE.md` § Security](docs/REFERENCE.md#security).
+re-discovering the design. For the full design, see [`docs/security.md`](docs/security.md).
 
 ### Assets
 
