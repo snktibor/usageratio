@@ -1,0 +1,26 @@
+#!/bin/sh
+# Fake ccusage for CI/local Pester runs (macOS/Linux). PowerShell 7 cannot run
+# the .cmd shim next to this file, so report-usage-core.ps1's non-Windows
+# fallback (`Get-Command ccusage`) resolves to this instead. Prints fixture
+# JSON for the `daily` and `blocks` subcommands; USAGERATIO_CI_FIXTURES points
+# at clients/tests/fixtures so this file does not need to know where the
+# repository lives on disk.
+set -eu
+
+if [ -z "${USAGERATIO_CI_FIXTURES:-}" ]; then
+  echo "ccusage shim: USAGERATIO_CI_FIXTURES is not set" >&2
+  exit 1
+fi
+
+case "${1:-}" in
+  daily)
+    exec cat "$USAGERATIO_CI_FIXTURES/daily.json"
+    ;;
+  blocks)
+    exec cat "$USAGERATIO_CI_FIXTURES/blocks.json"
+    ;;
+  *)
+    echo "ccusage shim: unknown subcommand '${1:-}'" >&2
+    exit 1
+    ;;
+esac

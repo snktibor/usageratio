@@ -1,0 +1,173 @@
+<#
+.SYNOPSIS
+  Pester 5 tests for clients/shared/report-usage-core.ps1.
+
+.DESCRIPTION
+  Runs on Windows PowerShell 5.1 and PowerShell 7+, on Windows, macOS and
+  Linux. report-usage-core.ps1 is always invoked as a real child process via
+  -File (never dot-sourced, `&`-called or run through -Command/
+  -EncodedCommand): it ends with `exit N`, and -File is the one invocation
+  mode where that reliably becomes the child process's own exit code, which
+  is what the tests below assert on. Dot-sourcing or `&`-calling it would
+  instead tear down (or silently not propagate the exit code of) the Pester
+  host itself.
+
+  A temp "home" directory stands in for $env:USERPROFILE (so config/log
+  files never touch the real machine), and a temp "tools" directory is put
+  in front of PATH with a fake ccusage/npx: USAGERATIO_CCUSAGE=global makes
+  report-usage-core.ps1 call the fake ccusage directly, and the fake npx
+  always fails so that fallback path can never be silently used instead.
+  Windows gets the .cmd shims; PowerShell 7 on macOS/Linux cannot run those,
+  so it gets the extension-less shell script shims instead (report-usage-
+  core.ps1's own `Get-Command ccusage.cmd` / `Get-Command ccusage` fallback
+  already picks whichever exists).
+#>
+
+BeforeAll {
+    $script:OnWindows = $PSVersionTable.PSVersion.Major -le 5 -or $IsWindows
+    $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' '..')).Path
+    $script:CorePath = Join-Path $script:RepoRoot 'clients/shared/report-usage-core.ps1'
+    $script:FixturesPath = Join-Path $PSScriptRoot 'fixtures'
+    # The exact host (powershell.exe or pwsh) running this Pester suite, so the
+    # child process we spawn per test exercises the same PowerShell edition.
+    $script:HostExe = (Get-Process -Id $PID).Path
+
+    if (-not (Test-Path -LiteralPath $script:CorePath)) {
+        throw "report-usage-core.ps1 not found at $script:CorePath"
+    }
+
+    # --- A fake ccusage/npx on PATH ------------------------------------------
+    $script:ToolsDir = Join-Path ([IO.Path]::GetTempPath()) ("usageratio-ci-shim-" + [Guid]::NewGuid())
+    New-Item -ItemType Directory -Path $script:ToolsDir -Force | Out-Null
+    $shimSource = Join-Path $script:RepoRoot 'scripts/ci/shim'
+    if ($script:OnWindows) {
+        Copy-Item -LiteralPath (Join-Path $shimSource 'ccusage.cmd') -Destination $script:ToolsDir
+        Copy-Item -LiteralPath (Join-Path $shimSource 'npx.cmd') -Destination $script:ToolsDir
+        $script:CcusagePath = Join-Path $script:ToolsDir 'ccusage.cmd'
+        $script:NpxPath = Join-Path $script:ToolsDir 'npx.cmd'
+    } else {
+        Copy-Item -LiteralPath (Join-Path $shimSource 'ccusage') -Destination $script:ToolsDir
+        Copy-Item -LiteralPath (Join-Path $shimSource 'npx') -Destination $script:ToolsDir
+        $script:CcusagePath = Join-Path $script:ToolsDir 'ccusage'
+        $script:NpxPath = Join-Path $script:ToolsDir 'npx'
+        # A comma-separated list here would be misparsed as a single literal
+        # argument by the native-command tokenizer; pass them space-separated.
+        & chmod +x $script:CcusagePath $script:NpxPath
+    }
+
+    # --- Environment: a temp home, log file and PATH -------------------------
+    $script:OriginalPath = $env:Path
+    $script:OriginalUserProfile = $env:USERPROFILE
+    $script:OriginalLogFile = $env:USAGERATIO_LOG_FILE
+    $script:OriginalCcusageMode = $env:USAGERATIO_CCUSAGE
+    $script:OriginalFixturesEnv = $env:USAGERATIO_CI_FIXTURES
+
+    $script:HomeDir = Join-Path ([IO.Path]::GetTempPath()) ("usageratio-ci-home-" + [Guid]::NewGuid())
+    New-Item -ItemType Directory -Path $script:HomeDir -Force | Out-Null
+    $script:LogFile = Join-Path $script:HomeDir 'usageratio.log'
+
+    $env:Path = "$script:ToolsDir$([IO.Path]::PathSeparator)$env:Path"
+    $env:USERPROFILE = $script:HomeDir
+    $env:USAGERATIO_LOG_FILE = $script:LogFile
+    $env:USAGERATIO_CCUSAGE = 'global'
+    $env:USAGERATIO_CI_FIXTURES = $script:FixturesPath
+
+    # A config with just enough to pass validation for the -Providers/-Tokens
+    # tests, which never read apiUrl/apiToken.
+    $script:ConfigPath = Join-Path $script:HomeDir 'config.json'
+    @{ machineId = 'test-machine'; groupId = 'Test Group' } | ConvertTo-Json -Compress |
+        Set-Content -LiteralPath $script:ConfigPath -Encoding UTF8
+
+    # A config missing groupId, for the "bad config" case.
+    $script:BadConfigPath = Join-Path $script:HomeDir 'config-missing-group.json'
+    @{ machineId = 'test-machine' } | ConvertTo-Json -Compress |
+        Set-Content -LiteralPath $script:BadConfigPath -Encoding UTF8
+
+    # Runs report-usage-core.ps1 as a genuine child process, via -File, and
+    # returns its exit code and combined stdout/stderr.
+    #
+    # This has to be a real child process: report-usage-core.ps1 ends with
+    # `exit N`, and `exit` inside a script that is merely `&`-called (as
+    # opposed to being the process's own top-level -File script) only sets
+    # $LASTEXITCODE without terminating anything -- it would either kill this
+    # Pester host (if dot-sourced/run in-process) or silently fail to surface
+    # the real exit code (if run via -Command/-EncodedCommand). -File is the
+    # one invocation mode where `exit N` reliably becomes the process's own
+    # exit code, which is what $LASTEXITCODE below then captures.
+    function Invoke-Core {
+        param([string[]]$Arguments)
+        $exeArgs = @('-NoProfile', '-NoLogo', '-NonInteractive', '-File', $script:CorePath) + $Arguments
+        $output = & $script:HostExe @exeArgs 2>&1
+        [PSCustomObject]@{
+            ExitCode = $LASTEXITCODE
+            Output   = ($output | Out-String)
+        }
+    }
+}
+
+AfterAll {
+    $env:Path = $script:OriginalPath
+    $env:USERPROFILE = $script:OriginalUserProfile
+    $env:USAGERATIO_LOG_FILE = $script:OriginalLogFile
+    $env:USAGERATIO_CCUSAGE = $script:OriginalCcusageMode
+    $env:USAGERATIO_CI_FIXTURES = $script:OriginalFixturesEnv
+    Remove-Item -LiteralPath $script:ToolsDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $script:HomeDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+Describe 'report-usage-core.ps1 -DryRun' {
+    It 'sends the given -Providers JSON straight through and prints machineId/groupId/providers' {
+        $result = Invoke-Core -Arguments @('-DryRun', '-Providers', '{"claude":1234}', '-ConfigPath', $script:ConfigPath)
+
+        $result.ExitCode | Should -Be 0
+        $payload = $result.Output | ConvertFrom-Json
+        $payload.machineId | Should -Be 'test-machine'
+        $payload.groupId | Should -Be 'Test Group'
+        $payload.providers.claude | Should -Be 1234
+    }
+
+    It 'turns -Tokens provider=count into a one-provider payload' {
+        $result = Invoke-Core -Arguments @('-DryRun', '-Tokens', 'claude=5', '-ConfigPath', $script:ConfigPath)
+
+        $result.ExitCode | Should -Be 0
+        $payload = $result.Output | ConvertFrom-Json
+        $payload.machineId | Should -Be 'test-machine'
+        $payload.groupId | Should -Be 'Test Group'
+        $payload.providers.claude | Should -Be 5
+    }
+
+    It 'rejects a -Tokens value without provider=count with exit code 3' {
+        $result = Invoke-Core -Arguments @('-DryRun', '-Tokens', '5', '-ConfigPath', $script:ConfigPath)
+
+        $result.ExitCode | Should -Be 3
+    }
+
+    It 'rejects malformed -Providers JSON with exit code 3' {
+        $result = Invoke-Core -Arguments @('-DryRun', '-Providers', 'not-json', '-ConfigPath', $script:ConfigPath)
+
+        $result.ExitCode | Should -Be 3
+    }
+
+    It 'rejects a config missing groupId/machineId with exit code 2' {
+        $result = Invoke-Core -Arguments @('-DryRun', '-Providers', '{"claude":1}', '-ConfigPath', $script:BadConfigPath)
+
+        $result.ExitCode | Should -Be 2
+    }
+}
+
+Describe 'the fake ccusage/npx used above' {
+    It 'the ccusage shim prints the daily and blocks fixtures as valid JSON' {
+        $daily = & $script:CcusagePath 'daily' 2>&1 | Out-String
+        $blocks = & $script:CcusagePath 'blocks' 2>&1 | Out-String
+
+        { $daily | ConvertFrom-Json } | Should -Not -Throw
+        { $blocks | ConvertFrom-Json } | Should -Not -Throw
+        (($daily | ConvertFrom-Json).daily).Count | Should -BeGreaterThan 0
+    }
+
+    It 'the npx shim always fails, so the ccusage fallback path is never silently skipped' {
+        & $script:NpxPath '--yes' 'ccusage@latest' 'daily' 2>&1 | Out-Null
+
+        $LASTEXITCODE | Should -Be 1
+    }
+}
