@@ -86,7 +86,7 @@ export function UsageChart({
             model={model}
             series={series}
             scale={scale}
-            formatTick={(fraction) => formatPercentTick(fraction, scale.step)}
+            formatTick={(fraction) => formatPercentTick(fraction, scale.step, locale)}
             formatValue={(val) => formatHeroPercent(val, locale)}
             label={subLimitSeries.length > 0 ? t("chart_aria_with_sublimits") : t("chart_aria_no_sublimits")}
           />

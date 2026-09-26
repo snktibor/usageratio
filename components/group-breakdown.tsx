@@ -45,15 +45,15 @@ function ShareBar({ groups }: { groups: Group[] }) {
             role="img"
             // biome-ignore lint/a11y/noNoninteractiveTabindex: focusable so keyboard users reach each segment's tooltip
             tabIndex={0}
-            aria-label={`${group.groupId}: ${formatTokens(group.tokens, locale)} token, ${formatPercent(group.share, locale)}`}
+            aria-label={`${group.groupId}: ${t("token_amount", { count: group.tokens })}, ${formatPercent(group.share, locale)}`}
             className={`group/segment relative h-full min-w-1 transition-[filter] hover:brightness-125 focus-visible:brightness-125 ${isLast ? "rounded-r-[4px]" : ""}`}
             style={{ flex: `${group.share} 1 0%`, backgroundColor: group.color }}
           >
             <span
               role="tooltip"
-              className={`pointer-events-none absolute top-full z-10 mt-2.5 whitespace-nowrap rounded-md bg-raised px-3 py-2 text-sm opacity-0 shadow-lg ring-1 ring-white/10 transition-opacity group-hover/segment:opacity-100 group-focus-visible/segment:opacity-100 ${tipAlign}`}
+              className={`pointer-events-none absolute top-full z-10 mt-2.5 whitespace-nowrap rounded-md bg-raised px-3 py-2 text-sm opacity-0 shadow-lg ring-1 ring-ink/10 transition-opacity group-hover/segment:opacity-100 group-focus-visible/segment:opacity-100 ${tipAlign}`}
             >
-              <strong className="font-medium text-ink">{formatTokens(group.tokens, locale)} token</strong>
+              <strong className="font-medium text-ink">{t("token_amount", { count: group.tokens })}</strong>
               <span className="ml-2 text-ink-2">
                 {group.groupId}, {formatPercent(group.share, locale)}
               </span>
