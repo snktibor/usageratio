@@ -2,6 +2,7 @@ import type { Instrumentation } from "next";
 import { currentTime } from "@/lib/clock";
 import { isDemoMode } from "@/lib/demo/mode";
 import { ensureDemoData } from "@/lib/demo/seed";
+import { reportError } from "@/lib/error-reporter";
 import { log } from "@/lib/log";
 import { storageKind } from "@/lib/redis";
 import { version } from "@/package.json";
@@ -30,6 +31,7 @@ export const onRequestErrorNode: Instrumentation.onRequestError = async (error, 
     const value = request.headers[name];
     return Array.isArray(value) ? value[0] : value;
   };
+  const requestId = header("x-vercel-id") ?? header("x-request-id") ?? null;
   // Never the whole header map: it carries the session cookie and the bearer token.
   log.error("request.error", {
     path: request.path,
@@ -38,7 +40,8 @@ export const onRequestErrorNode: Instrumentation.onRequestError = async (error, 
     routeType: context.routeType,
     renderSource: context.renderSource,
     digest,
-    requestId: header("x-vercel-id") ?? header("x-request-id") ?? null,
+    requestId,
     err: error,
   });
+  await reportError(error, { path: request.path, requestId });
 };

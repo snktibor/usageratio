@@ -4,6 +4,7 @@ import { reportCheckpoints } from "@/lib/days";
 import { type OfficialUsageUpdate, officialUsageField, storedEntryFor } from "@/lib/official-usage";
 import { mergeProviderIds, normalizeProviderId } from "@/lib/providers";
 import { getRedis, toStringRecord } from "@/lib/redis";
+import { KEYS } from "@/lib/redis-keys";
 import { TxPlan } from "@/lib/redis-tx";
 import {
   type IndexedGroup,
@@ -58,14 +59,6 @@ import type { UsageReport } from "@/lib/validation";
  * read-modify-write of one JSON document would let concurrent reports (or a
  * save on the panel) overwrite each other.
  */
-const KEYS = {
-  settings: "usage:settings",
-  providers: "usage:providers",
-  groups: "usage:groups",
-  machines: "usage:machines",
-  officialUsage: "usage:official",
-  events: (providerId: string, groupId: string) => `usage:events:${providerId}:${groupId}`,
-};
 
 const DAY_MS = 86_400_000;
 
