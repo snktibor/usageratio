@@ -215,7 +215,31 @@
     "manage_machines_prune_button": "{count} néma gép eltávolítása",
     "manage_machines_prune_confirm_title": "Eltávolítod a néma gépeket?",
     "manage_machines_prune_confirm_body": "Ez törli minden {days} napnál régebb óta néma gép indexbejegyzését ({count} db most). A tárolt jelentéseiket nem érinti.",
-    "manage_machines_pruned_toast": "{count} néma gép eltávolítva."
+    "manage_machines_pruned_toast": "{count} néma gép eltávolítva.",
+    "alerts_heading": "Riasztások",
+    "alerts_explanation_measured": "Egy webhook üzenet akkor megy ki először, amikor a ciklus mért használata átlépi az alábbi küszöbök egyikét.",
+    "alerts_explanation_official": "Egy webhook üzenet akkor megy ki először, amikor a dashboardon beírt hivatalos százalék átlépi az alábbi küszöbök egyikét.",
+    "alerts_webhook_label": "Webhook URL",
+    "alerts_webhook_placeholder": "https://…",
+    "alerts_webhook_invalid": "Adj meg egy https URL-t, ami nem helyi vagy privát cím.",
+    "alerts_format_label": "Üzenet formátuma",
+    "alerts_format_generic": "Általános JSON",
+    "alerts_format_slack": "Slack",
+    "alerts_format_discord": "Discord",
+    "alerts_thresholds_label": "Küszöbök",
+    "alerts_threshold_chip": "{value}%",
+    "alerts_per_provider_label": "Minden szolgáltató önállóan riasszon",
+    "alerts_per_provider_explanation": "Be: egy elrejtett szolgáltató is küldhet riasztást. Ki: csak a dashboardon látható szolgáltatók.",
+    "alerts_locale_label": "Riasztás nyelve",
+    "alerts_test_button": "Teszt küldése",
+    "alerts_test_sending": "Küldés…",
+    "alerts_test_sent": "Teszt üzenet elküldve.",
+    "alerts_test_failed": "A teszt üzenetet nem sikerült elküldeni. Ellenőrizd az URL-t, és próbáld újra.",
+    "invalid_alert_webhook": "Adj meg egy https webhook URL-t, ami nem helyi vagy privát cím, vagy törld a mezőt a riasztások kikapcsolásához.",
+    "alerts_need_at_least_one_threshold": "Válassz ki legalább egy küszöböt."
+  },
+  "Alerts": {
+    "threshold_text": "A(z) {label} elhasználta a kerete {threshold}%-át (jelenleg {used}%-nál tart); a ciklus itt ér véget: {end}."
   },
   "Dashboard": {
     "mode_note_delta": "A beküldött tokenszámok összeadódnak (delta mód).",

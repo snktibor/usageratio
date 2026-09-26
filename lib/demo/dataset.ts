@@ -1,4 +1,4 @@
-import { DEFAULT_RESET, type ResetConfig } from "@/lib/config";
+import { DEFAULT_ALERTS, DEFAULT_RESET, type ResetConfig } from "@/lib/config";
 import { type Cycle, getCycle, getDayEnd, getDaySegments, getDayStart, getPreviousCycle } from "@/lib/cycle";
 import { type CycleSummary, HISTORY_TOP_MODELS } from "@/lib/history";
 import type { OfficialUsageUpdate } from "@/lib/official-usage";
@@ -594,6 +594,8 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
       subLimits: {
         claude: [{ id: "fable", name: "Fable", models: ["fable"], mode: "share", sharePercent: 40, limit: 200_000 }],
       },
+      // Demo mode is read-only and never sends real webhooks: alerts stay off.
+      alerts: { ...DEFAULT_ALERTS, thresholds: [...DEFAULT_ALERTS.thresholds] },
     },
     groups: DEMO_GROUPS.map((group) => ({ id: group.id, color: group.color })),
     removedGroups: [],

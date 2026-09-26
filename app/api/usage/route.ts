@@ -1,3 +1,4 @@
+import { checkIngestAlerts } from "@/lib/alerts";
 import { apiError, type BearerAuth, json, readJsonBody, requireBearer, withApiHandler } from "@/lib/api";
 import {
   CYCLE_RATE_LIMIT_PER_TOKEN,
@@ -11,7 +12,7 @@ import { demoReadOnly } from "@/lib/demo/mode";
 import { ingestReport } from "@/lib/ingest";
 import { mergeProviderIds } from "@/lib/providers";
 import { hit } from "@/lib/rate-limit";
-import { clientIp } from "@/lib/request-context";
+import { clientIp, defer } from "@/lib/request-context";
 import { sha256Hex } from "@/lib/security";
 import { resolveConfig, storedProviderIds } from "@/lib/settings";
 import { loadReportContext } from "@/lib/usage-store";
@@ -148,11 +149,15 @@ export const POST = withApiHandler("api/usage", async ({ request }) => {
   const globalHit = await hit(`usage:rl:ingest:global:${hourBucket(new Date())}`, INGEST_RATE_LIMIT_GLOBAL, 3600);
   if (!globalHit.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: globalHit.retryAfterSeconds });
 
-  const result = await ingestReport(body.value, new Date());
+  const now = new Date();
+  const result = await ingestReport(body.value, now);
   if (!result.ok) {
     if ("refused" in result) return apiError(result.refused, 422, { limit: result.limit });
     return apiError("invalid_payload", 400, { details: result.errors });
   }
+
+  // Threshold alerts (lib/alerts.ts): measured-token signal, only when the token limits are on.
+  if (!result.duplicate && !result.heartbeat) defer(() => checkIngestAlerts(result.report, now));
 
   const { cycle } = result;
   return json(

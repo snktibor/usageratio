@@ -1,4 +1,13 @@
-import { type AppConfig, type BudgetPeriod, isValidTimeZone } from "@/lib/config";
+import { hasLocale } from "next-intl";
+import { routing } from "@/i18n/routing";
+import {
+  type AlertsConfig,
+  type AlertsFormat,
+  type AppConfig,
+  type BudgetPeriod,
+  DEFAULT_ALERTS,
+  isValidTimeZone,
+} from "@/lib/config";
 import { MAX_PROVIDERS, mergeProviderIds, normalizeProviderId, providerLabel } from "@/lib/providers";
 import {
   isSubLimitId,
@@ -10,6 +19,7 @@ import {
   type SubLimitMode,
 } from "@/lib/sub-limits";
 import { parseId } from "@/lib/validation";
+import { isAllowedWebhookUrl, MAX_WEBHOOK_URL_LENGTH } from "@/lib/webhook";
 
 /**
  * Everything the settings panel edits: the budget, the providers shown and
@@ -67,6 +77,11 @@ export interface UsageSettings {
    * dashboard lists them. See lib/sub-limits.ts.
    */
   subLimits: Record<string, SubLimit[]>;
+  /**
+   * Threshold webhook alerts. `webhookUrl: null` is off; a document saved
+   * before this field existed parses to that. See lib/alerts.ts.
+   */
+  alerts: AlertsConfig;
 }
 
 export interface GroupDefinition {
@@ -161,6 +176,7 @@ export function settingsFromConfig(config: AppConfig, providerIds: string[] = []
     hiddenProviders: [...config.hiddenProviders],
     excludedProviders: copyExclusions(config.excludedProviders),
     subLimits: copySubLimits(config.subLimits),
+    alerts: copyAlerts(config.alerts),
   };
 }
 
@@ -174,6 +190,7 @@ export function applySettings(config: AppConfig, settings: UsageSettings): AppCo
     hiddenProviders: [...settings.hiddenProviders],
     excludedProviders: copyExclusions(settings.excludedProviders),
     subLimits: copySubLimits(settings.subLimits),
+    alerts: copyAlerts(settings.alerts),
   };
 }
 
@@ -194,6 +211,7 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
   const reset = asRecord(doc.reset) ?? {};
   const storedExclusions = asRecord(doc.excludedProviders);
   const storedSubLimits = asRecord(doc.subLimits);
+  const storedAlerts = asRecord(doc.alerts);
   const limits = { ...defaults.limits };
   const storedLimits = asRecord(doc.limits);
   if (storedLimits) {
@@ -231,6 +249,8 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
       : defaults.hiddenProviders,
     excludedProviders: storedExclusions ? readExclusions(storedExclusions) : defaults.excludedProviders,
     subLimits: storedSubLimits ? readSubLimits(storedSubLimits) : defaults.subLimits,
+    // Documents saved before alerts existed lack the field: they parse to off (webhookUrl: null).
+    alerts: storedAlerts ? readAlerts(storedAlerts, defaults.alerts) : defaults.alerts,
   };
 }
 
@@ -303,6 +323,10 @@ function copySubLimits(subLimits: Record<string, SubLimit[]>): Record<string, Su
 
 function copyExclusions(exclusions: Record<string, string[]>): Record<string, string[]> {
   return Object.fromEntries(Object.entries(exclusions).map(([groupId, providers]) => [groupId, [...providers]]));
+}
+
+function copyAlerts(alerts: AlertsConfig): AlertsConfig {
+  return { ...alerts, thresholds: [...alerts.thresholds] };
 }
 
 /** A stored provider list: the valid ids, each once, invalid ones skipped. */
@@ -462,6 +486,95 @@ function parseSubLimits(value: unknown, errors: string[]): Record<string, SubLim
   return subLimits;
 }
 
+// ── Alerts ───────────────────────────────────────────────────────────────────
+
+export const MAX_ALERT_THRESHOLDS = 5;
+export const ALERT_FORMATS: readonly AlertsFormat[] = ["generic", "slack", "discord"];
+
+function isAlertFormat(value: unknown): value is AlertsFormat {
+  return (ALERT_FORMATS as readonly unknown[]).includes(value);
+}
+
+function isAlertLocale(value: unknown): value is string {
+  return typeof value === "string" && hasLocale(routing.locales, value);
+}
+
+/** Stored thresholds: 1-100 integers, each once, sorted; the whole list falls back together. */
+function readThresholds(value: unknown, fallback: number[]): number[] {
+  if (!Array.isArray(value) || value.length === 0) return fallback;
+  const thresholds: number[] = [];
+  for (const item of value.slice(0, MAX_ALERT_THRESHOLDS)) {
+    if (!isIntegerIn(item, 1, 100)) return fallback;
+    if (!thresholds.includes(item)) thresholds.push(item);
+  }
+  return thresholds.length > 0 ? thresholds.sort((a, b) => a - b) : fallback;
+}
+
+/** A stored `alerts` document, read field by field: what does not hold up keeps its default. */
+function readAlerts(doc: Record<string, unknown>, defaults: AlertsConfig): AlertsConfig {
+  const webhookUrl =
+    doc.webhookUrl === null
+      ? null
+      : typeof doc.webhookUrl === "string" &&
+          doc.webhookUrl.length <= MAX_WEBHOOK_URL_LENGTH &&
+          isAllowedWebhookUrl(doc.webhookUrl)
+        ? doc.webhookUrl
+        : defaults.webhookUrl;
+  return {
+    webhookUrl,
+    thresholds: readThresholds(doc.thresholds, defaults.thresholds),
+    perProvider: typeof doc.perProvider === "boolean" ? doc.perProvider : defaults.perProvider,
+    format: isAlertFormat(doc.format) ? doc.format : defaults.format,
+    locale: isAlertLocale(doc.locale) ? doc.locale : defaults.locale,
+  };
+}
+
+/** The `alerts` part of the PUT body: unlike the stored document, a bad field fails the whole save. */
+function parseAlertsUpdate(value: unknown, errors: string[]): AlertsConfig {
+  const body = asRecord(value);
+  if (!body) {
+    errors.push("alerts must be a JSON object");
+    return copyAlerts(DEFAULT_ALERTS);
+  }
+
+  let webhookUrl: string | null = null;
+  if (body.webhookUrl !== null) {
+    if (
+      typeof body.webhookUrl !== "string" ||
+      body.webhookUrl.length > MAX_WEBHOOK_URL_LENGTH ||
+      !isAllowedWebhookUrl(body.webhookUrl)
+    ) {
+      errors.push("alerts.webhookUrl must be an allowed https URL, or null");
+    } else {
+      webhookUrl = body.webhookUrl;
+    }
+  }
+
+  const rawThresholds = body.thresholds;
+  const thresholds: number[] = [];
+  if (!Array.isArray(rawThresholds) || rawThresholds.length < 1 || rawThresholds.length > MAX_ALERT_THRESHOLDS) {
+    errors.push(`alerts.thresholds must be an array of 1-${MAX_ALERT_THRESHOLDS} integers from 1 to 100`);
+  } else {
+    rawThresholds.forEach((item, index) => {
+      if (!isIntegerIn(item, 1, 100)) errors.push(`alerts.thresholds[${index}] must be an integer from 1 to 100`);
+      else if (!thresholds.includes(item)) thresholds.push(item);
+    });
+    thresholds.sort((a, b) => a - b);
+  }
+
+  if (typeof body.perProvider !== "boolean") errors.push("alerts.perProvider must be true or false");
+  if (!isAlertFormat(body.format)) errors.push(`alerts.format must be one of ${ALERT_FORMATS.join(", ")}`);
+  if (!isAlertLocale(body.locale)) errors.push("alerts.locale must be a supported locale");
+
+  return {
+    webhookUrl,
+    thresholds,
+    perProvider: typeof body.perProvider === "boolean" ? body.perProvider : DEFAULT_ALERTS.perProvider,
+    format: isAlertFormat(body.format) ? body.format : DEFAULT_ALERTS.format,
+    locale: isAlertLocale(body.locale) ? body.locale : DEFAULT_ALERTS.locale,
+  };
+}
+
 /** Validates the JSON body of PUT /api/settings. Unlike stored settings, nothing is defaulted. */
 export function parseSettingsUpdate(input: unknown): SettingsParseResult {
   const body = asRecord(input);
@@ -505,6 +618,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
   const hiddenProviders = parseProviderList(body.hiddenProviders, "hiddenProviders", errors);
   const excludedProviders = parseExclusions(body.excludedProviders, errors);
   const subLimits = parseSubLimits(body.subLimits, errors);
+  const alerts = parseAlertsUpdate(body.alerts, errors);
 
   const groups: GroupDefinition[] = [];
   const rawGroups = body.groups ?? [];
@@ -554,6 +668,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
         hiddenProviders,
         excludedProviders,
         subLimits,
+        alerts,
       },
       groups,
       removedGroups,

@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { createElement, Fragment, type ReactNode, useRef, useState } from "react";
 import {
+  type AlertsDraft,
   type Draft,
   type DraftGroup,
   type DraftProvider,
@@ -25,6 +26,7 @@ export interface SettingsFormActions {
   addSubLimit: (provider: DraftProvider) => void;
   patchSubLimit: (providerId: string, key: string, changes: Partial<DraftSubLimit>) => void;
   removeSubLimit: (providerId: string, key: string) => void;
+  patchAlerts: (changes: Partial<AlertsDraft>) => void;
   addGroup: () => void;
   removeGroup: (group: DraftGroup) => void;
   /** Replaces the draft's group list in place: how the Machines/Groups/Accounts sections reflect a rename, merge or delete they made directly against the manage routes, outside the draft's own save. */
@@ -93,6 +95,9 @@ export function useSettingsForm(
 
   const removeSubLimit = (providerId: string, key: string) =>
     patchSubLimits(providerId, (list) => list.filter((sub) => sub.key !== key));
+
+  const patchAlerts = (changes: Partial<AlertsDraft>) =>
+    setDraft((current) => ({ ...current, alerts: { ...current.alerts, ...changes } }));
 
   const addSubLimit = (provider: DraftProvider) =>
     patchSubLimits(provider.id, (list) => [
@@ -233,6 +238,7 @@ export function useSettingsForm(
       addSubLimit,
       patchSubLimit,
       removeSubLimit,
+      patchAlerts,
       addGroup,
       removeGroup,
       setGroups,

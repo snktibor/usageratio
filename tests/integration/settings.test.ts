@@ -17,6 +17,7 @@ const VALID_UPDATE = {
   hiddenProviders: [],
   excludedProviders: {},
   subLimits: {},
+  alerts: { webhookUrl: null, thresholds: [50, 80, 100], perProvider: true, format: "generic", locale: "en" },
   groups: [],
   removedGroups: [],
 };
