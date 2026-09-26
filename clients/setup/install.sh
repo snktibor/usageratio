@@ -260,7 +260,9 @@ mv -f "$CONFIG_FILE.tmp.$$" "$CONFIG_FILE"
 
 say "Sending a first report as $MACHINE_ID in group $GROUP_ID (the first run may download ccusage)…"
 REPORT_STATUS=0
-/bin/bash "$INSTALL_DIR/$MODE/report-usage.sh" || REPORT_STATUS=$?
+# The very first report goes out right away: no point spreading it over the
+# jitter window the hourly cron runs use (see clients/auto/report-usage.sh).
+USAGERATIO_JITTER_MAX=0 /bin/bash "$INSTALL_DIR/$MODE/report-usage.sh" || REPORT_STATUS=$?
 if [ "$REPORT_STATUS" -eq 0 ]; then
   if [ "$MODE" = "auto" ]; then
     say "✅ First report sent."
@@ -318,8 +320,8 @@ say "   Scripts:  $INSTALL_DIR/$MODE, $INSTALL_DIR/shared"
 say "   Settings: $CONFIG_FILE"
 say "   Log:      $LOG_FILE"
 if [ "$MODE" = "auto" ]; then
-  say "   It reports every hour, on the hour (cron)."
+  say "   It reports every hour, a few minutes past the hour by design (cron)."
 elif [ -n "$RC_FILE" ]; then
-  say "   Open a new Terminal window, then report with: sync-tokens"
+  say "   Open a new $TERMINAL_WINDOW, then report with: sync-tokens"
 fi
 say "   $SOURCE_DIR is no longer needed; you can delete it."
