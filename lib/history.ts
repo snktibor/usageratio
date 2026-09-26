@@ -12,7 +12,7 @@ import { type SubLimit, splitBySubLimits } from "@/lib/sub-limits";
  * cycles Redis still holds raw events for (events are pruned after
  * RETENTION_DAYS; see lib/config.ts and lib/usage-store.ts `storeReport`).
  *
- * Lazy archiving, no cron: on every dashboard read (app/[locale]/page.tsx),
+ * Lazy archiving, no cron: on every dashboard read (app/[locale]/(dashboard)/page.tsx),
  * for every provider, if the newest archived cycle is older than the
  * previous cycle's start, and that previous cycle actually has events (it
  * does, since the page already reads from its start), the previous cycle

@@ -22,7 +22,7 @@ function clockMask(page: Page): Locator[] {
 }
 
 /**
- * app/[locale]/loading.tsx streams an instant skeleton before the real
+ * app/[locale]/(dashboard)/loading.tsx streams an instant skeleton before the real
  * dashboard replaces it; `page.goto` can resolve while that skeleton is still
  * what's on screen, so every dashboard screenshot waits for real content
  * (the "AI account" selector, only in the loaded page) first.

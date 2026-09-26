@@ -43,17 +43,7 @@ test("the provider switch keeps working and writes the usageratio_provider cooki
   expect(providerCookie?.value).toBe("openai");
 });
 
-// Known app bug (reported separately, not fixed here — components/dashboard-view.tsx and
-// app/[locale]/page.tsx are outside this suite's files): PROVIDER_COOKIE is exported from
-// components/dashboard-view.tsx, a "use client" module. Turbopack's client-boundary transform
-// turns every export of a "use client" file — including this plain string constant — into an
-// opaque client reference when it is imported into a Server Component. app/[locale]/page.tsx
-// does exactly that to read the cookie back (`cookies().get(PROVIDER_COOKIE)`), so
-// `typeof PROVIDER_COOKIE === "function"` there and the lookup never matches the real cookie
-// name. The selection is written correctly (previous test) but never survives a reload.
 test("the provider switch persists across a reload", async ({ page }) => {
-  test.fail();
-
   await page.goto("/en");
   await page.getByRole("combobox", { name: "AI account" }).selectOption("openai");
 
@@ -115,14 +105,9 @@ test("/en/nope shows Page not found", async ({ page }) => {
   await expect(page.locator('meta[name="robots"][content="noindex"]').first()).toBeAttached();
 });
 
-// Known app issue (reported separately): the catch-all app/[locale]/[...rest]/page.tsx calls
-// notFound() unconditionally, which is documented (next's own notFound() reference) to still
-// serve a 200 whenever the response has already started streaming before the check resolves.
-// This build streams a shell before notFound() takes effect even outside a Suspense boundary,
-// so every genuinely missing page answers 200 instead of 404 (content and noindex meta are still
-// correct — see the test above). A monitoring/SEO tool relying on the status code would be misled.
+// The catch-all sits outside the dashboard's loading boundary (app/[locale]/(dashboard)/loading.tsx),
+// so notFound() runs before anything streams and the status is a real 404.
 test("/en/nope answers with a real 404 status", async ({ page }) => {
-  test.fail();
   const response = await page.goto("/en/nope");
   expect(response?.status()).toBe(404);
 });

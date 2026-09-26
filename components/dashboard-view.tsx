@@ -17,14 +17,7 @@ import type { ProviderDashboardModel } from "@/lib/dashboard";
 import { formatDateTime, formatTokens } from "@/lib/format";
 import { applyGroundTruth, applySubLimitReading, parseOfficialPercent } from "@/lib/ground-truth";
 import type { CycleSummary } from "@/lib/history";
-
-/**
- * The last-selected provider, in a cookie rather than localStorage: read
- * during SSR (see app/[locale]/page.tsx, which reorders `providers` so the
- * selected one is first) so the very first render already shows it — no
- * client-only effect, no flash of the wrong provider.
- */
-export const PROVIDER_COOKIE = "usageratio_provider";
+import { PROVIDER_COOKIE } from "@/lib/preferences";
 
 const MODE_NOTE = {
   delta: "mode_note_delta",
@@ -163,7 +156,7 @@ function writeProviderCookie(providerId: string) {
 /**
  * Provider switching stays entirely in the browser; every model arrived in
  * the server payload. `providers` already has the cookie's provider first
- * (see app/[locale]/page.tsx), so the very first render picks it correctly.
+ * (see app/[locale]/(dashboard)/page.tsx), so the very first render picks it correctly.
  * Never rendered without a provider: components/dashboard.tsx shows the
  * empty state instead.
  */

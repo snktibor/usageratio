@@ -27,7 +27,7 @@
  *                                       (JSON, see lib/history.ts), kept for the newest
  *                                       HISTORY_RETENTION cycles. Written lazily on a dashboard
  *                                       read, once the cycle right before the current one falls
- *                                       out of the events' retention window (app/[locale]/page.tsx).
+ *                                       out of the events' retention window (app/[locale]/(dashboard)/page.tsx).
  *
  * One time-ordered set per provider/group makes all filters native commands:
  * provider and group are in the key, a period is a score range. The reset
