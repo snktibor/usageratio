@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { Fragment, type RefObject, useEffect, useRef, useState } from "react";
 import { CopyError, copyText } from "@/components/clipboard";
 import { CheckCircleIcon, CopyIcon } from "@/components/icons";
@@ -38,11 +39,13 @@ function CopyButton({
 }: {
   text: string | (() => Promise<string>);
   target: RefObject<HTMLElement | null>;
-  /** What is copied, for screen readers: "install.sh tartalma". */
+  /** What is copied, for screen readers: "install.sh contents". */
   label: string;
   disabled?: boolean;
   onProblem?: (message: string | null) => void;
 }) {
+  const t = useTranslations("Setup");
+  const tCommon = useTranslations("Common");
   const [state, setState] = useState<CopyState>("idle");
   const timer = useRef<number | null>(null);
 
@@ -63,7 +66,7 @@ function CopyButton({
         await copyText(text());
       } catch (error) {
         setState("idle");
-        onProblem?.(error instanceof CopyError ? error.message : "A másolás nem sikerült. Próbáld újra.");
+        onProblem?.(t(`copy_problem_${error instanceof CopyError ? error.code : "generic"}`));
         return;
       }
     } else {
@@ -92,25 +95,29 @@ function CopyButton({
         type="button"
         onClick={() => void copy()}
         disabled={disabled || state === "busy"}
-        aria-label={`${label} másolása`}
+        aria-label={tCommon("copy_aria_label", { label })}
         className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-rule px-2.5 py-1 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink disabled:pointer-events-none disabled:opacity-40"
       >
         {state === "copied" ? (
           <>
             <CheckCircleIcon className="text-good" />
-            Másolva
+            {tCommon("copied")}
           </>
         ) : state === "selected" ? (
-          "Kijelölve: Ctrl+C / ⌘C"
+          tCommon("copy_selected")
         ) : (
           <>
             <CopyIcon />
-            {state === "busy" ? "Másolás…" : "Másolás"}
+            {state === "busy" ? tCommon("copying") : tCommon("copy")}
           </>
         )}
       </button>
       <span className="sr-only" aria-live="polite">
-        {state === "copied" ? `${label} a vágólapon.` : state === "selected" ? `${label} kijelölve.` : ""}
+        {state === "copied"
+          ? tCommon("copied_aria", { label })
+          : state === "selected"
+            ? tCommon("selected_aria", { label })
+            : ""}
       </span>
     </>
   );
@@ -135,6 +142,7 @@ export function CommandBlock({
   resolve?: () => Promise<string>;
   disabled?: boolean;
 }) {
+  const tCommon = useTranslations("Common");
   const code = useRef<HTMLElement>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const block = (
@@ -144,7 +152,7 @@ export function CommandBlock({
         className={`min-w-0 grow py-1 pr-2.5 font-mono text-[13px] leading-relaxed whitespace-pre-wrap text-ink wrap-anywhere sm:pr-0 ${resolve ? "code-scroll max-h-80 overflow-y-auto" : ""}`}
         role={resolve ? "region" : undefined}
         tabIndex={resolve ? 0 : undefined}
-        aria-label={resolve ? `${label} előnézete` : undefined}
+        aria-label={resolve ? tCommon("preview_aria", { label }) : undefined}
       >
         <code ref={code}>{command}</code>
       </pre>
@@ -180,26 +188,28 @@ export function FileBlock({
   /** Shown instead of the content while it is null. */
   unavailable?: string;
 }) {
+  const t = useTranslations("Setup");
   const code = useRef<HTMLElement>(null);
+  const contentLabel = t("file_content_aria", { name });
   return (
     <article aria-label={name} className="overflow-hidden rounded-lg border border-rule">
       <header className="px-4 pb-3.5 pt-4 sm:px-5">
         <div className="flex items-start justify-between gap-4">
           <h3 className="min-w-0 pt-0.5 font-mono text-[15px] font-medium text-ink wrap-anywhere">{name}</h3>
-          <CopyButton text={content ?? ""} target={code} label={`${name} tartalma`} disabled={content === null} />
+          <CopyButton text={content ?? ""} target={code} label={contentLabel} disabled={content === null} />
         </div>
         <p className="mt-1 max-w-2xl text-sm leading-relaxed text-ink-2">{role}</p>
         <dl className="mt-2.5 grid grid-cols-[minmax(0,1fr)] gap-x-3 gap-y-1 text-sm sm:grid-cols-[auto_minmax(0,1fr)]">
-          <dt className="text-ink-3">Mentés</dt>
+          <dt className="text-ink-3">{t("file_save_label")}</dt>
           <dd className="min-w-0 font-mono text-[13px] text-ink-2 wrap-anywhere">{saveCommand}</dd>
-          <dt className="text-ink-3">Végleges helye</dt>
+          <dt className="text-ink-3">{t("file_installed_label")}</dt>
           <dd className="min-w-0 text-ink-2 wrap-anywhere">
             {installedAs ? (
               <span className="font-mono text-[13px]">
                 <BreakablePath path={installedAs} />
               </span>
             ) : (
-              "nem települ, csak egyszer fut"
+              t("file_not_installed")
             )}
           </dd>
         </dl>
@@ -211,7 +221,7 @@ export function FileBlock({
           role="region"
           // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must be focusable so keyboard users can scroll it
           tabIndex={0}
-          aria-label={`${name} tartalma`}
+          aria-label={contentLabel}
           className="code-scroll max-h-64 overflow-auto border-t border-rule bg-raised px-4 py-3 font-mono text-[12.5px] leading-relaxed text-ink-2 sm:px-5"
         >
           <code ref={code}>{content}</code>

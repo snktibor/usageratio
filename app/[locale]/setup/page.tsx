@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { PinGate } from "@/components/pin-gate";
-import { type SetupGroup, SetupView } from "@/components/setup-view";
+import { type SetupGroup, SetupView } from "@/components/setup/setup-view";
 import { StorageProblem } from "@/components/storage-problem";
 import type { ApiTokenStatus } from "@/lib/api-token";
 import { isAuthenticated } from "@/lib/auth";

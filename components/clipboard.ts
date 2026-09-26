@@ -1,5 +1,25 @@
-/** A copy that failed for a reason worth telling as is. */
-export class CopyError extends Error {}
+/** A copy problem's reason, worth telling apart: components translate it as `Setup.copy_problem_<code>`. */
+export type CopyErrorCode =
+  | "no_response"
+  | "session_expired"
+  | "no_token"
+  | "token_unreadable"
+  | "no_key"
+  | "storage_unavailable"
+  | "insecure_context"
+  | "permission_denied"
+  | "generic";
+
+/** A copy that failed for a reason worth telling apart. */
+export class CopyError extends Error {
+  readonly code: CopyErrorCode;
+
+  constructor(code: CopyErrorCode) {
+    super(code);
+    this.name = "CopyError";
+    this.code = code;
+  }
+}
 
 /** The API token from the server; every call is one entry on the audit trail. */
 export async function fetchApiToken(): Promise<string> {
@@ -7,21 +27,21 @@ export async function fetchApiToken(): Promise<string> {
   try {
     response = await fetch("/api/api-token/reveal", { method: "POST", cache: "no-store" });
   } catch {
-    throw new CopyError("A szerver nem válaszolt. Ellenőrizd a kapcsolatot, és próbáld újra.");
+    throw new CopyError("no_response");
   }
   const payload = (await response.json().catch(() => null)) as { token?: unknown } | null;
   if (response.ok && typeof payload?.token === "string") return payload.token;
   switch (response.status) {
     case 401:
-      throw new CopyError("A munkamenet lejárt. Töltsd újra az oldalt, és lépj be a PIN-kóddal.");
+      throw new CopyError("session_expired");
     case 404:
-      throw new CopyError("Nincs tárolt token. A dashboard Beállítások paneljén adhatod meg.");
+      throw new CopyError("no_token");
     case 409:
-      throw new CopyError("A tárolt token nem fejthető vissza. Add meg újra a Beállítások panelen.");
+      throw new CopyError("token_unreadable");
     case 500:
-      throw new CopyError("A szerveren nincs érvényes TOKEN_ENCRYPTION_KEY.");
+      throw new CopyError("no_key");
     default:
-      throw new CopyError("Az adattár most nem érhető el. Próbáld újra kicsit később.");
+      throw new CopyError("storage_unavailable");
   }
 }
 
@@ -45,11 +65,11 @@ export async function copyText(text: Promise<string>): Promise<void> {
   }
   const value = await text;
   if (!navigator.clipboard?.writeText) {
-    throw new CopyError("Ez a böngésző itt nem enged a vágólapra írni (csak HTTPS-en működik).");
+    throw new CopyError("insecure_context");
   }
   try {
     await navigator.clipboard.writeText(value);
   } catch {
-    throw new CopyError("A böngésző nem engedte a vágólapra írást. Kattints újra az oldalon, és próbáld megint.");
+    throw new CopyError("permission_denied");
   }
 }

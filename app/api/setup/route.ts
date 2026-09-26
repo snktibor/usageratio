@@ -1,51 +1,38 @@
-import { cookies } from "next/headers";
-import { routing } from "@/i18n/routing";
+import { getTranslations } from "next-intl/server";
+import { apiError } from "@/lib/api";
 import { isAuthenticated } from "@/lib/auth";
-import { log } from "@/lib/log";
+import { storageFailure as failure } from "@/lib/http";
+import { requestLocale } from "@/lib/request-locale";
 import { checkMachineSettings, parseMode, parseOs } from "@/lib/setup";
 import { buildSetupZip, loadClientSources, usageEndpoint } from "@/lib/setup-package";
 
 /**
- * GET /api/setup?os=macos|linux|windows&mode=auto|manual&group=Work&machine=win-desktop
+ * GET /api/setup?os=macos|linux|windows&mode=auto|manual&group=Work&machine=win-desktop[&locale=hu]
  *
  * The setup page's ZIP download. It sits behind the dashboard's PIN session like
  * the page itself: without a session the browser is sent to /setup, which asks
  * for the PIN. A package carries no secret (the installer asks for the API
  * token), but the group names are data. `machine` may be empty.
  *
+ * `/api/*` is excluded from the next-intl middleware matcher, so there is no
+ * request-scoped locale here (see i18n/request.ts); lib/request-locale.ts
+ * works out which one the README.txt inside the ZIP, and a bounced-back
+ * request, should use.
+ *
  * 200 application/zip · 303 no session · 400 bad parameters · 503 Redis down
  */
 
-function text(body: string, status: number): Response {
-  return new Response(body, {
-    status,
-    headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
-  });
-}
-
-/**
- * `/api/*` is excluded from the next-intl middleware matcher, so there is no
- * request-scoped locale here. The middleware does leave its default
- * `NEXT_LOCALE` cookie behind on every page visit (see i18n/routing.ts, which
- * does not override it), so that's what tells us which prefix (`/hu/setup`
- * or `/en/setup`) to bounce an unauthenticated request back to.
- */
-async function localePrefixedSetupPath(): Promise<string> {
-  const cookieValue = (await cookies()).get("NEXT_LOCALE")?.value ?? "";
-  const locale = (routing.locales as readonly string[]).includes(cookieValue)
-    ? (cookieValue as (typeof routing.locales)[number])
-    : routing.defaultLocale;
-  return `/${locale}/setup`;
-}
+const storageFailure = (error: unknown) => failure(error, "The setup download");
 
 export async function GET(request: Request): Promise<Response> {
+  const locale = await requestLocale(request);
+
   try {
     if (!(await isAuthenticated())) {
-      return Response.redirect(new URL(await localePrefixedSetupPath(), request.url), 303);
+      return Response.redirect(new URL(`/${locale}/setup`, request.url), 303);
     }
   } catch (error) {
-    log.error("setup_download.session_check_failed", { err: error });
-    return text("Az adattár most nem érhető el, ezért a letöltés sem. Próbáld újra kicsit később.", 503);
+    return storageFailure(error);
   }
 
   const params = new URL(request.url).searchParams;
@@ -53,11 +40,15 @@ export async function GET(request: Request): Promise<Response> {
   const mode = parseMode(params.get("mode"));
   const check = checkMachineSettings(params.get("group") ?? "", params.get("machine") ?? "");
   if (!os || !mode || !check.ok) {
-    return text("Hibás letöltési kérés. Nyisd meg újra a Telepítés oldalt, és onnan töltsd le a csomagot.", 400);
+    return apiError("invalid_payload", 400);
   }
 
   const settings = { apiUrl: usageEndpoint(request.headers), groupId: check.groupId, machineId: check.machineId };
-  const { fileName, bytes } = buildSetupZip(os, mode, settings, await loadClientSources());
+  const [translate, sources] = await Promise.all([
+    getTranslations({ locale, namespace: "Setup" }),
+    loadClientSources(),
+  ]);
+  const { fileName, bytes } = buildSetupZip(os, mode, settings, sources, translate);
   return new Response(bytes, {
     headers: {
       "Content-Type": "application/zip",

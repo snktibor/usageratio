@@ -4,9 +4,11 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createTranslator } from "next-intl";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SetupMode } from "@/lib/setup";
 import { buildSetupZip, loadClientSources } from "@/lib/setup-package";
+import en from "@/messages/en.json";
 import { readZip } from "./read-zip";
 
 /**
@@ -18,6 +20,7 @@ import { readZip } from "./read-zip";
  */
 
 const TOKEN = "0123456789abcdef0123456789abcdef";
+const t = createTranslator({ locale: "en", messages: en, namespace: "Setup" });
 const CCUSAGE_REPORT = {
   daily: [
     {
@@ -90,7 +93,13 @@ describe.skipIf(process.platform === "win32")("install.sh", { timeout: 60_000 },
 
   /** Unpacks a freshly built package into its own folder, as Archive Utility would. */
   async function unpack(mode: SetupMode, groupId: string, machineId = ""): Promise<string> {
-    const { bytes } = buildSetupZip("macos", mode, { apiUrl: stub.url, groupId, machineId }, await loadClientSources());
+    const { bytes } = buildSetupZip(
+      "macos",
+      mode,
+      { apiUrl: stub.url, groupId, machineId },
+      await loadClientSources(),
+      t,
+    );
     const folder = mkdtempSync(path.join(scratch, `package-${mode}-`));
     for (const entry of readZip(bytes)) writeFileSync(path.join(folder, entry.name), entry.data, { mode: entry.mode });
     return folder;

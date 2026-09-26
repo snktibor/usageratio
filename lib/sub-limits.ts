@@ -69,7 +69,7 @@ export function subLimitIdFor(name: string, taken: string[]): string {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 24)
-      .replace(/-+$/, "") || "alkeret";
+      .replace(/-+$/, "") || "sub-limit";
   let id = base;
   for (let n = 2; taken.includes(id); n++) id = `${base}-${n}`;
   return id;

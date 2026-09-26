@@ -20,15 +20,7 @@ const SOURCE_DIRS = ["app", "components", "lib"];
  * that are still hardcoded (see the i18n work in the plan). A key that gets
  * wired up must be taken off this list: the test says so.
  */
-const RESERVED_KEYS = [
-  "Settings.audit_notice",
-  "Settings.copy_failed",
-  "Settings.copy_token",
-  "Settings.copying",
-  "Settings.token_on_clipboard",
-  "Settings.token_on_clipboard_hidden",
-  "Setup.install_method",
-];
+const RESERVED_KEYS: string[] = [];
 
 /**
  * Keys reached through a table or a template literal that the scanner cannot
@@ -42,6 +34,11 @@ const DYNAMIC_KEY_PATTERNS = [
   /^Dashboard\.mode_note_(delta|snapshot|counter)$/,
   // lib/api-token.ts apiTokenStatusNote() hands the key over as data: `t(note.key)`.
   /^Settings\.token_status_(no_key|empty|unreadable|mismatch|stored_matches|stored)$/,
+  // lib/setup.ts PackageFile.roleKey: a Setup.role_* key, translated via `t(file.roleKey)`.
+  /^Setup\.role_(config|reporter_auto_unix|reporter_manual_unix|core|parser|installer_unix_auto|installer_unix_manual|reporter_auto_win|reporter_manual_win|task_installer|installer_win_auto|installer_win_manual|install_cmd)$/,
+  // lib/setup.ts renderReadme() calls its translator parameter `translate`, not `t`,
+  // so the scanner (which only resolves `t`-named calls) never sees these.
+  /^Setup\.readme_(title|install_heading|step_terminal|step_terminal_alt|step_double_click|step_admin|step_token|step_installed|settings_heading|settings_group|settings_machine|settings_server|machine_default|contents_heading|log|uninstall_heading|uninstall_unix_manual)$/,
 ];
 
 type Messages = Record<string, unknown>;
