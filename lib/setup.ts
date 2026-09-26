@@ -18,10 +18,10 @@ export type SetupMode = "auto" | "manual";
 export type InstallRoute = "zip" | "manual" | "oneShot";
 
 // Auto mode's installer per OS decides what Setup.mode_auto_* may claim:
-// clients/setup/install.sh (macOS) and clients/setup/install-linux.sh (Linux)
-// both register a crontab entry; clients/auto/install-task.ps1 (Windows)
-// registers a scheduled task with a daily 00:00 trigger repeating hourly —
-// none of the three has a "runs at startup" trigger.
+// clients/setup/install.sh (macOS and Linux, branching on `uname -s`) registers
+// a crontab entry; clients/auto/install-task.ps1 (Windows) registers a scheduled
+// task with a daily 00:00 trigger repeating hourly — none of the three has a
+// "runs at startup" trigger.
 export const SETUP_OSES: readonly SetupOs[] = ["macos", "linux", "windows"];
 export const SETUP_MODES: readonly SetupMode[] = ["auto", "manual"];
 export const INSTALL_ROUTES: readonly InstallRoute[] = ["zip", "manual", "oneShot"];
@@ -46,7 +46,6 @@ export const CCUSAGE_VERSION = "20.0.24";
 /** Every file a package ships from the repository, as is. */
 export const CLIENT_SOURCES = [
   "clients/setup/install.sh",
-  "clients/setup/install-linux.sh",
   "clients/setup/install.ps1",
   "clients/setup/install.cmd",
   "clients/auto/report-usage.sh",
@@ -121,10 +120,9 @@ export const INSTALLED_CONFIG: Record<SetupOs, string> = {
   windows: "%USERPROFILE%\\.usageratio\\config.json",
 };
 
-/** macOS and Linux ship the same reporter and wrapper scripts; only the installer differs. */
+/** macOS and Linux ship the same reporter, wrapper and installer scripts (install.sh branches on `uname -s`). */
 function unixFiles(os: "macos" | "linux", mode: SetupMode): PackageFile[] {
   const root = INSTALL_ROOT[os];
-  const installerSource = os === "macos" ? "clients/setup/install.sh" : "clients/setup/install-linux.sh";
   return [
     {
       name: "config",
@@ -160,7 +158,7 @@ function unixFiles(os: "macos" | "linux", mode: SetupMode): PackageFile[] {
     },
     {
       name: "install.sh",
-      source: installerSource,
+      source: "clients/setup/install.sh",
       roleKey: mode === "auto" ? "role_installer_unix_auto" : "role_installer_unix_manual",
       installedAs: null,
       executable: true,

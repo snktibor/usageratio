@@ -208,7 +208,7 @@ describe("buildSetupZip", () => {
     expect(byName.get("config")!.data.toString("utf8")).not.toMatch(/TOKEN/i);
   });
 
-  it("packs executable Linux scripts with the Linux installer, sharing the macOS reporter", async () => {
+  it("packs executable Linux scripts, sharing the macOS installer and reporter", async () => {
     const sources = await loadClientSources();
     const { fileName, bytes } = buildSetupZip("linux", "auto", SETTINGS, sources, t);
     const entries = readZip(bytes);
@@ -216,7 +216,7 @@ describe("buildSetupZip", () => {
     expect(fileName).toBe("usageratio-linux-auto.zip");
     const byName = new Map(entries.map((entry) => [entry.name, entry]));
     expect(byName.get("install.sh")!.mode).toBe(0o755);
-    expect(byName.get("install.sh")!.data.toString("utf8")).toBe(sources["clients/setup/install-linux.sh"]);
+    expect(byName.get("install.sh")!.data.toString("utf8")).toBe(sources["clients/setup/install.sh"]);
     expect(byName.get("report-usage-auto.sh")!.data.toString("utf8")).toBe(sources["clients/auto/report-usage.sh"]);
     for (const entry of entries) expect(entry.data.includes("\r\n"), entry.name).toBe(false);
   });
