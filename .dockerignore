@@ -1,0 +1,29 @@
+# Keeps the build context (and therefore layer cache invalidation) small.
+# The Dockerfile does its own `npm ci` and `npm run build` from source, so
+# none of this needs to reach the image.
+
+.git
+.github
+.vscode
+
+node_modules
+.next
+out
+
+# env files — never bake secrets into an image; docker-compose.yml passes
+# them at run time with env_file
+.env*
+!.env.example
+
+.claude
+.impeccable
+
+coverage
+.vitest
+playwright-report
+test-results
+
+*.log
+dev.log
+dev.pid
+.DS_Store

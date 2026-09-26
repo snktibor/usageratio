@@ -17,6 +17,9 @@ const hstsValue = `max-age=63072000; includeSubDomains${hstsPreload ? "; preload
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Only the Dockerfile's build sets this — Vercel's build stays on its own
+  // (Fluid Compute) output and must not be touched.
+  ...(process.env.DOCKER_BUILD === "1" ? { output: "standalone" as const } : {}),
   // The setup page and its ZIP download read the client scripts from disk at request time.
   outputFileTracingIncludes: {
     "/setup": ["./clients/**/*"],

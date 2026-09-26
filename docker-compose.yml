@@ -1,0 +1,102 @@
+# Full self-hosting stack: the app, a real Redis, and an Upstash-compatible
+# REST proxy in front of it (the app only ever speaks Upstash's REST API —
+# see lib/redis.ts — so this is what stands in for Upstash's own service).
+# See docs/self-hosting.md for setup, HTTPS options, backups and upgrades.
+#
+#   cp .env.example .env   # fill in USAGE_API_TOKEN, DASHBOARD_PIN, …
+#   echo "SRH_TOKEN=$(openssl rand -hex 32)" >> .env
+#   docker compose up -d
+#
+# docker-compose.dev.yml is separate: Redis + the REST proxy only, for
+# `npm run dev` against a local database. This file is the full stack, built
+# from the Dockerfile, for a real deployment.
+
+services:
+  app:
+    build: .
+    env_file: .env
+    environment:
+      # Always the in-stack REST proxy, regardless of what .env has for local
+      # (non-Docker) development — see docs/self-hosting.md.
+      KV_REST_API_URL: http://redis-rest:80
+      KV_REST_API_TOKEN: ${SRH_TOKEN:?Set SRH_TOKEN in .env, e.g. echo "SRH_TOKEN=$(openssl rand -hex 32)" >> .env}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-rest:
+        condition: service_started
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  redis-rest:
+    image: hiett/serverless-redis-http:0.0.10
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: ${SRH_TOKEN:?Set SRH_TOKEN in .env, e.g. echo "SRH_TOKEN=$(openssl rand -hex 32)" >> .env}
+      SRH_CONNECTION_STRING: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Optional reverse proxy with automatic HTTPS. Off by default; bring it up
+  # with `docker compose --profile caddy up -d` once DOMAIN is set in .env
+  # and DNS points at this host. See docs/self-hosting.md#https.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["caddy"]
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env, e.g. DOMAIN=usageratio.example.com}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Optional daily housekeeping trigger (Vercel Cron calls this itself; a
+  # self-hoster needs their own scheduler). Bring it up with
+  # `docker compose --profile housekeeping up -d`, or use your host's own
+  # cron / systemd timer against the same URL instead — see
+  # docs/self-hosting.md#housekeeping.
+  housekeeping:
+    image: alpine:3.20
+    profiles: ["housekeeping"]
+    environment:
+      CRON_SECRET: ${CRON_SECRET:?Set CRON_SECRET in .env, e.g. echo "CRON_SECRET=$(openssl rand -hex 32)" >> .env}
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apk add --no-cache curl >/dev/null
+        while true; do
+          sleep 86400
+          curl -fsS -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/cron/housekeeping \
+            || echo "housekeeping request failed" >&2
+        done
+
+volumes:
+  redis-data:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,22 @@
+# Used by docker-compose.yml's optional `caddy` profile:
+#   docker compose --profile caddy up -d
+#
+# Terminates TLS and gets a certificate automatically for DOMAIN (Let's
+# Encrypt over HTTP-01/TLS-ALPN — port 80 and 443 must be reachable from the
+# internet — or Caddy's internal CA if DOMAIN doesn't resolve publicly, e.g.
+# for a LAN-only "localhost" or ".local" name).
+#
+# Set in .env: DOMAIN=usageratio.example.com
+#
+# With this in front, the app itself never sees TLS: it only learns the
+# original scheme from Caddy's own forwarded headers, which is why
+# TRUST_PROXY=1 and COOKIE_SECURE=true belong in .env whenever this profile
+# is used (see docs/self-hosting.md#https).
+
+{$DOMAIN} {
+	encode gzip
+
+	reverse_proxy app:3000 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
