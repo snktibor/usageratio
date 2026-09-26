@@ -167,10 +167,9 @@ A breaking change is marked either with `!` after the type/scope (`feat(api)!: �
 ## Where docs live
 
 - [`README.md`](README.md) — quick start and feature overview.
-- [`docs/REFERENCE.md`](docs/REFERENCE.md) — the technical deep dive: deployment, the client
-  protocol, every setting, the API, the Redis data model, and security.
+- [`docs/README.md`](docs/README.md) — the documentation index: getting started, clients,
+  configuration, the API, the Redis data model, security, architecture, demo/development, upgrading.
 - [`docs/self-hosting.md`](docs/self-hosting.md) — running usageratio with Docker instead of Vercel.
-- [`docs/setup-auto.md`](docs/setup-auto.md) / [`docs/setup-manual.md`](docs/setup-manual.md) —
-  installing clients from the command line instead of the dashboard's Setup page.
-- [`SECURITY.md`](SECURITY.md) — how to report a vulnerability, and the threat model.
+- [`SECURITY.md`](SECURITY.md) — how to report a vulnerability, and the threat model (the detailed
+  design is in [`docs/security.md`](docs/security.md)).
 - [`AGENTS.md`](AGENTS.md) — facts and conventions for AI coding agents working in this repo.
