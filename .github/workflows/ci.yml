@@ -92,6 +92,11 @@ jobs:
         shell: ${{ matrix.shell }}
     steps:
       - uses: actions/checkout@v7
+      # The PowerShell core runs clients/shared/ccusage-providers.cjs with Node: pin it
+      # instead of relying on whatever the runner image ships.
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
       - name: Install PSScriptAnalyzer and Pester
         run: |
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
