@@ -25,14 +25,25 @@ describe("niceScale", () => {
 });
 
 describe("tick text", () => {
-  it("shows a decimal only where the step needs one", () => {
-    expect(formatPercentTick(0.05, 0.025)).toBe("5%");
-    expect(formatPercentTick(0.075, 0.025)).toBe("7,5%");
-    expect(formatPercentTick(0.2, 0.05)).toBe("20%");
+  it("shows a decimal only where the step needs one, in Hungarian", () => {
+    expect(formatPercentTick(0.05, 0.025, "hu")).toBe("5%");
+    expect(formatPercentTick(0.075, 0.025, "hu")).toBe("7,5%");
+    expect(formatPercentTick(0.2, 0.05, "hu")).toBe("20%");
+  });
+
+  it("shows a decimal only where the step needs one, in English", () => {
+    expect(formatPercentTick(0.05, 0.025, "en")).toBe("5%");
+    expect(formatPercentTick(0.075, 0.025, "en")).toBe("7.5%");
+    expect(formatPercentTick(0.2, 0.05, "en")).toBe("20%");
   });
 
   it("abbreviates token counts the Hungarian way", () => {
-    expect(formatTokenTick(1_200_000).replace(/\s/g, " ")).toBe("1,2 M");
-    expect(formatTokenTick(250_000).replace(/\s/g, " ")).toBe("250 E");
+    expect(formatTokenTick(1_200_000, "hu").replace(/\s/g, " ")).toBe("1,2 M");
+    expect(formatTokenTick(250_000, "hu").replace(/\s/g, " ")).toBe("250 E");
+  });
+
+  it("abbreviates token counts the English way", () => {
+    expect(formatTokenTick(1_200_000, "en")).toBe("1.2M");
+    expect(formatTokenTick(250_000, "en")).toBe("250K");
   });
 });
