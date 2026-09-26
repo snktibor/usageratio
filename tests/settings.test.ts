@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getConfig } from "@/lib/config";
+import { getConfig, isValidTimeZone } from "@/lib/config";
 import { getCycle } from "@/lib/cycle";
 import { MAX_PROVIDERS } from "@/lib/providers";
 import {
@@ -32,7 +32,7 @@ const MONTHLY: UsageSettings = {
   period: "monthly",
   useTokenLimits: true,
   limits: { claude: 2_000_000, deepseek: 1_250_000 },
-  reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30 },
+  reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30, timeZone: "America/New_York" },
   showRemaining: false,
   hiddenProviders: ["openai"],
   excludedProviders: { Work: ["claude", "deepseek"] },
@@ -44,13 +44,24 @@ const MONTHLY: UsageSettings = {
   },
 };
 
+describe("isValidTimeZone", () => {
+  it("accepts IANA names and rejects everything else", () => {
+    for (const zone of ["UTC", "Europe/Budapest", "America/New_York", "Asia/Tokyo"]) {
+      expect(isValidTimeZone(zone)).toBe(true);
+    }
+    for (const zone of ["", "Not/AZone", "GMT+2", "budapest"]) {
+      expect(isValidTimeZone(zone)).toBe(false);
+    }
+  });
+});
+
 describe("stored settings", () => {
   it("fall back to the configured defaults while nothing is saved", () => {
     expect(DEFAULTS).toEqual({
       period: "weekly",
       useTokenLimits: false,
-      limits: { deepseek: 500_000 },
-      reset: { weekday: 1, monthDay: 1, hour: 0, minute: 0 },
+      limits: {},
+      reset: { weekday: 1, monthDay: 1, hour: 0, minute: 0, timeZone: "UTC" },
       showRemaining: true,
       hiddenProviders: [],
       excludedProviders: {},
@@ -59,17 +70,20 @@ describe("stored settings", () => {
     expect(parseStoredSettings(null, DEFAULTS)).toEqual(DEFAULTS);
     expect(resolveConfig(config, null)).toEqual({
       ...config,
-      providerLimits: { deepseek: 500_000 },
+      providerLimits: {},
     });
   });
 
-  it("seed the defaults from the env vars", () => {
-    const seeded = settingsFromConfig(getConfig({ WEEKLY_LIMIT: "750_000", RESET_WEEKDAY: "3", RESET_TIME: "06:15" }));
+  it("seed the defaults from the env vars, the time zone included", () => {
+    const seeded = settingsFromConfig(
+      getConfig({ WEEKLY_LIMIT: "750_000", RESET_WEEKDAY: "3", RESET_TIME: "06:15", RESET_TIMEZONE: "Asia/Tokyo" }),
+    );
     expect(seeded).toEqual({
       period: "weekly",
       useTokenLimits: false,
-      limits: { deepseek: 750_000 },
-      reset: { weekday: 3, monthDay: 1, hour: 6, minute: 15 },
+      // No provider is known yet: the seed limit has nowhere to apply until one reports.
+      limits: {},
+      reset: { weekday: 3, monthDay: 1, hour: 6, minute: 15, timeZone: "Asia/Tokyo" },
       showRemaining: true,
       hiddenProviders: [],
       excludedProviders: {},
@@ -77,13 +91,13 @@ describe("stored settings", () => {
     });
   });
 
-  it("survive a round trip through Redis", () => {
+  it("survive a round trip through Redis, tagged as v3", () => {
     const raw = serializeSettings(MONTHLY, new Date("2026-09-21T10:00:00Z"));
-    expect(JSON.parse(raw)).toMatchObject({ v: 2, period: "monthly", updatedAt: 1789984800000 });
+    expect(JSON.parse(raw)).toMatchObject({ v: 3, period: "monthly", updatedAt: 1789984800000 });
     expect(parseStoredSettings(raw, DEFAULTS)).toEqual(MONTHLY);
   });
 
-  it("override the defaults, but never the time zone or the other configuration", () => {
+  it("override the defaults, the time zone included, but not the other configuration", () => {
     const effective = resolveConfig(config, serializeSettings(MONTHLY, new Date()), ["claude", "deepseek"]);
     expect(configForProvider(effective, "claude").limit).toBe(2_000_000);
     expect(configForProvider(effective, "deepseek").limit).toBe(1_250_000);
@@ -93,15 +107,27 @@ describe("stored settings", () => {
       monthDay: 15,
       hour: 9,
       minute: 30,
-      timeZone: "Europe/Budapest",
+      timeZone: "America/New_York",
     });
     expect(effective.useTokenLimits).toBe(true);
     expect(effective.showRemaining).toBe(false);
     expect(effective.tokenMode).toBe(config.tokenMode);
     expect(effective.retentionDays).toBe(config.retentionDays);
 
+    // Monthly reset on the 15th at 09:30 America/New_York (EDT, UTC-4 in September) = 13:30 UTC.
     const cycle = getCycle(new Date("2026-09-23T10:00:00Z"), effective.reset);
-    expect(cycle.start.toISOString()).toBe("2026-09-15T07:30:00.000Z");
+    expect(cycle.start.toISOString()).toBe("2026-09-15T13:30:00.000Z");
+  });
+
+  it("falls back to the deploy-time zone when the stored one is missing or invalid", () => {
+    for (const badReset of [
+      { weekday: 9, monthDay: 31, hour: "7", minute: 45 },
+      { weekday: 9, monthDay: 31, hour: "7", minute: 45, timeZone: "Mars/Colony" },
+      { weekday: 9, monthDay: 31, hour: "7", minute: 45, timeZone: 7 },
+    ]) {
+      const raw = JSON.stringify({ period: "yearly", limit: 1_234_567, reset: badReset });
+      expect(parseStoredSettings(raw, DEFAULTS).reset.timeZone).toBe(DEFAULTS.reset.timeZone);
+    }
   });
 
   it("are read field by field: what does not hold up falls back to its default", () => {
@@ -113,8 +139,9 @@ describe("stored settings", () => {
     expect(parseStoredSettings(raw, DEFAULTS)).toEqual({
       period: "weekly",
       useTokenLimits: false,
-      limits: { deepseek: 1_234_567 },
-      reset: { weekday: 1, monthDay: 31, hour: 0, minute: 45 },
+      // v1's global `limit` would apply to every already-known provider; none is known here.
+      limits: {},
+      reset: { weekday: 1, monthDay: 31, hour: 0, minute: 45, timeZone: "UTC" },
       showRemaining: true,
       hiddenProviders: [],
       excludedProviders: {},
@@ -129,7 +156,10 @@ describe("stored settings", () => {
     expect(parseStoredSettings(raw, DEFAULTS)).toEqual({
       ...MONTHLY,
       useTokenLimits: false,
-      limits: { deepseek: 2_000_000 },
+      // No provider is known on `DEFAULTS`, so v1's global limit has nothing to apply to.
+      limits: {},
+      // The document has no `reset.timeZone` (it predates the field): the default zone wins.
+      reset: { ...MONTHLY.reset, timeZone: DEFAULTS.reset.timeZone },
       showRemaining: true,
       hiddenProviders: [],
       excludedProviders: {},
@@ -231,7 +261,7 @@ describe("parseSettingsUpdate", () => {
     period: "monthly",
     useTokenLimits: true,
     limits: { claude: 2_000_000, deepseek: 1_250_000 },
-    reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30 },
+    reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30, timeZone: "America/New_York" },
     showRemaining: false,
     hiddenProviders: ["OpenAI", "openai"],
     excludedProviders: { " Work ": ["claude", "deepseek"], Home: [] },
@@ -280,12 +310,13 @@ describe("parseSettingsUpdate", () => {
   it("defaults nothing: every budget field is required", () => {
     const result = parseSettingsUpdate({});
     expect(result.ok).toBe(false);
-    expect(!result.ok && result.errors).toHaveLength(11);
+    expect(!result.ok && result.errors).toHaveLength(12);
     expect(!result.ok && result.errors).toContain(
       `hiddenProviders must be an array of at most ${MAX_PROVIDERS} provider ids`,
     );
     expect(!result.ok && result.errors).toContain("useTokenLimits must be true or false");
     expect(!result.ok && result.errors).toContain("showRemaining must be true or false");
+    expect(!result.ok && result.errors).toContain("reset.timeZone must be a valid IANA time zone name");
   });
 
   it.each([
@@ -305,6 +336,9 @@ describe("parseSettingsUpdate", () => {
     ["month day 32", { ...valid, reset: { ...valid.reset, monthDay: 32 } }],
     ["hour 24", { ...valid, reset: { ...valid.reset, hour: 24 } }],
     ["minute 60", { ...valid, reset: { ...valid.reset, minute: 60 } }],
+    ["a missing time zone", { ...valid, reset: { ...valid.reset, timeZone: undefined } }],
+    ["a time zone given as a number", { ...valid, reset: { ...valid.reset, timeZone: 7 } }],
+    ["an unknown time zone", { ...valid, reset: { ...valid.reset, timeZone: "Mars/Colony" } }],
     ["a missing remaining-tokens switch", { ...valid, showRemaining: undefined }],
     ["the switch given as text", { ...valid, showRemaining: "false" }],
     ["the switch given as a number", { ...valid, showRemaining: 0 }],
@@ -506,7 +540,7 @@ describe("buildSettingsView", () => {
     );
     expect(view).toEqual({
       settings: MONTHLY,
-      timeZone: "Europe/Budapest",
+      timeZone: "America/New_York",
       providers: [
         { id: "claude", label: "Claude", models: ["claude-fable-5-1"] },
         { id: "deepseek", label: "DeepSeek", models: [] },
@@ -526,5 +560,13 @@ describe("buildSettingsView", () => {
       hasReports: false,
     }));
     expect(buildSettingsView(config, groups).groups[8]?.color).toBe(NEUTRAL_COLOR);
+  });
+
+  it("stays renderable with no provider known yet: a fresh install with only heartbeats so far", () => {
+    const view = buildSettingsView(config, [], []);
+    expect(view.providers).toEqual([]);
+    expect(view.settings.limits).toEqual({});
+    expect(view.groups).toEqual([]);
+    expect(view.timeZone).toBe(config.reset.timeZone);
   });
 });

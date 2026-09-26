@@ -75,12 +75,20 @@ describe("parseUsageReport", () => {
     },
   );
 
-  it("normalizes provider ids and rejects invalid, empty or duplicate provider maps", () => {
+  it("normalizes provider ids and rejects invalid or duplicate provider maps", () => {
     const normalized = parseUsageReport({ ...VALID, providers: { Claude: 12, OpenAI: 8 } }, OPTIONS);
     expect(normalized.ok && normalized.report.providers).toEqual({ claude: 12, openai: 8 });
-    expect(errorsOf({ ...VALID, providers: {} })).toHaveLength(1);
     expect(errorsOf({ ...VALID, providers: { "bad/provider": 1 } })).toHaveLength(1);
     expect(errorsOf({ ...VALID, providers: { Claude: 1, claude: 2 } })).toHaveLength(1);
+  });
+
+  it("accepts an empty provider map: a heartbeat from a fresh machine with nothing to report yet", () => {
+    const result = parseUsageReport({ ...VALID, providers: {} }, OPTIONS);
+    expect(result.ok && result.report.providers).toEqual({});
+    // Still bounded, and still rejects unrelated garbage in the same field.
+    expect(
+      errorsOf({ ...VALID, providers: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`p${i}`, i])) }),
+    ).toHaveLength(1);
   });
 
   it.each([

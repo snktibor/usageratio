@@ -5,7 +5,15 @@ import { type KnownGroup, NEUTRAL_COLOR, PRESET_COLORS } from "@/lib/settings";
 
 const HOUR = 3_600_000;
 // The token limits are off by default; most of these cases are about measuring against one.
-const config = { ...getConfig({}), useTokenLimits: true, limit: 500_000, tokenMode: "delta" as const };
+// The zone is fixed explicitly: these fixtures are written in Budapest time, independent of
+// DEFAULT_RESET's own (deploy-time) default.
+const config = {
+  ...getConfig({}),
+  useTokenLimits: true,
+  limit: 500_000,
+  tokenMode: "delta" as const,
+  reset: { ...getConfig({}).reset, timeZone: "Europe/Budapest" },
+};
 
 // Wednesday 12:00 Budapest time; the cycle started Monday 00:00 (= Sunday 22:00 UTC), 60 h ago.
 const NOW = new Date("2026-09-23T10:00:00Z");
@@ -429,5 +437,11 @@ describe("buildProviderDashboards — which provider counts where", () => {
     expect(openai!.officialEntry).toEqual({ raw: "50", enteredAt: 3 });
     expect(openai!.subLimitEntries).toEqual({});
     expect(deepseek!.officialEntry).toBeNull();
+  });
+
+  it("returns an empty list rather than throwing when no provider is known yet", () => {
+    expect(buildProviderDashboards(NOW, config, [], store)).toEqual([]);
+    // Also with a store that has nothing at all: a fresh install with only heartbeats so far.
+    expect(buildProviderDashboards(NOW, config, [], { eventsByProvider: {}, groups: [], machines: [] })).toEqual([]);
   });
 });

@@ -182,7 +182,8 @@ function normalizeProviderMap(input) {
     providers.set(provider, tokens);
   }
 
-  if (providers.size === 0) throw new Error("providers is empty; ccusage did not return any usage source");
+  // Empty is accepted: a heartbeat, when ccusage found no usage and there was
+  // no fallback provider to zero out either (a brand new machine's first report).
   if (providers.size > MAX_PROVIDERS) throw new Error(`providers contains more than ${MAX_PROVIDERS} entries`);
   return Object.fromEntries([...providers].sort(([a], [b]) => a.localeCompare(b)));
 }

@@ -1,4 +1,3 @@
-export const DEFAULT_PROVIDER_ID = "deepseek";
 export const MAX_PROVIDERS = 20;
 
 const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
@@ -34,7 +33,7 @@ export function providerLabel(providerId: string): string {
     .join(" ");
 }
 
-/** Stable union: first appearance wins, invalid/duplicate ids are skipped. */
+/** Stable union: first appearance wins, invalid/duplicate ids are skipped; empty when nothing is known. */
 export function mergeProviderIds(...sources: Iterable<string>[]): string[] {
   const result: string[] = [];
   for (const source of sources) {
@@ -44,5 +43,5 @@ export function mergeProviderIds(...sources: Iterable<string>[]): string[] {
       if (result.length === MAX_PROVIDERS) return result;
     }
   }
-  return result.length > 0 ? result : [DEFAULT_PROVIDER_ID];
+  return result;
 }
