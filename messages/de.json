@@ -143,6 +143,8 @@
     "monthday": "Tag des Monats",
     "time": "Uhrzeit",
     "cycle_start_explanation": "Hier beginnt der neue Abrechnungszyklus, nach {timeZone}-Zeit.{monthDayNote, select, show { Gibt es in einem Monat keinen {monthDay}. Tag, zählt der letzte Tag des Monats.} other {}}",
+    "timezone_label": "Zeitzone",
+    "timezone_use_detected": "Zeitzone dieses Browsers verwenden ({zone})",
     "group_color_aria": "Farbe von „{id}“",
     "group_color_hex_aria": "HEX-Code der Farbe von „{id}“",
     "group_delete_aria": "„{id}“ löschen",

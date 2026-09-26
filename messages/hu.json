@@ -143,6 +143,8 @@
     "monthday": "A hónap napja",
     "time": "Időpont",
     "cycle_start_explanation": "Ekkor indul az új számlálási ciklus, {timeZone} idő szerint.{monthDayNote, select, show { Ha egy hónapban nincs {monthDay}. nap, a hónap utolsó napja számít.} other {}}",
+    "timezone_label": "Időzóna",
+    "timezone_use_detected": "A böngésző időzónájának használata ({zone})",
     "group_color_aria": "„{id}” színe",
     "group_color_hex_aria": "„{id}” színének HEX kódja",
     "group_delete_aria": "„{id}” törlése",

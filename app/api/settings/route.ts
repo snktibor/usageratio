@@ -100,7 +100,11 @@ export async function PUT(request: Request): Promise<Response> {
       Object.keys(parsed.update.settings.limits),
     );
     // The panel never lets the last one go: a dashboard needs a provider to show.
-    if (providerIds.every((providerId) => parsed.update.settings.hiddenProviders.includes(providerId))) {
+    // (A fresh install has none yet, and may still save its reset and groups.)
+    if (
+      providerIds.length > 0 &&
+      providerIds.every((providerId) => parsed.update.settings.hiddenProviders.includes(providerId))
+    ) {
       return json({ error: "invalid_payload", details: ["at least one provider must stay visible"] }, 400);
     }
     const saved = await saveSettings(parsed.update, new Date(), providerIds);

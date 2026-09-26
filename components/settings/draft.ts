@@ -66,6 +66,8 @@ export interface Draft {
   weekday: number;
   monthDay: number;
   time: string;
+  /** IANA name; the cycle's reset and the clients' day split both use it. */
+  timeZone: string;
   showRemaining: boolean;
   groups: DraftGroup[];
   /** Taken off the list in this session; kept whole so a refused removal can be put back. */
@@ -79,7 +81,7 @@ export interface SettingsRequest {
   period: BudgetPeriod;
   useTokenLimits: boolean;
   limits: Record<string, number>;
-  reset: { weekday: number; monthDay: number; hour: number; minute: number };
+  reset: { weekday: number; monthDay: number; hour: number; minute: number; timeZone: string };
   showRemaining: boolean;
   hiddenProviders: string[];
   excludedProviders: Record<string, string[]>;
@@ -134,6 +136,7 @@ export function draftFrom(view: SettingsView): Draft {
     weekday: reset.weekday,
     monthDay: reset.monthDay,
     time: `${twoDigits(reset.hour)}:${twoDigits(reset.minute)}`,
+    timeZone: reset.timeZone,
     showRemaining,
     groups: view.groups.map((group) => ({
       ...group,
@@ -250,7 +253,8 @@ export function withNewGroup(draft: Draft): Draft {
 }
 
 export function toRequest(draft: Draft): { request: SettingsRequest } | { problem: DraftProblem } {
-  if (!draft.providers.some((provider) => provider.visible)) {
+  // A fresh install knows no provider yet: its reset, time zone and groups can still be saved.
+  if (draft.providers.length > 0 && !draft.providers.some((provider) => provider.visible)) {
     return { problem: { code: "at_least_one_visible_account" } };
   }
 
@@ -289,6 +293,7 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
         monthDay: draft.monthDay,
         hour: Number(time[1]),
         minute: Number(time[2]),
+        timeZone: draft.timeZone,
       },
       showRemaining: draft.showRemaining,
       hiddenProviders: draft.providers.filter((provider) => !provider.visible).map((provider) => provider.id),

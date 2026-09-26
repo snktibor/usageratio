@@ -69,7 +69,7 @@ export function SettingsForm({ view, titleId, onClose }: { view: SettingsView; t
           onRemoveSubLimit={actions.removeSubLimit}
         />
 
-        <ResetSection titleId={titleId} draft={draft} timeZone={view.timeZone} onPatch={actions.patch} />
+        <ResetSection titleId={titleId} draft={draft} onPatch={actions.patch} />
 
         <GroupsSection
           titleId={titleId}

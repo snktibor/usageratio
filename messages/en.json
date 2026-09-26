@@ -143,6 +143,8 @@
     "monthday": "Day of the month",
     "time": "Time",
     "cycle_start_explanation": "This is when the new billing cycle starts, in {timeZone} time.{monthDayNote, select, show { If there is no {monthDay}th day in a month, the last day of the month counts.} other {}}",
+    "timezone_label": "Time zone",
+    "timezone_use_detected": "Use this browser's time zone ({zone})",
     "group_color_aria": "Color of “{id}”",
     "group_color_hex_aria": "HEX code of “{id}”'s color",
     "group_delete_aria": "Delete “{id}”",
