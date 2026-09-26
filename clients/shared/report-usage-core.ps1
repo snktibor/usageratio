@@ -55,7 +55,7 @@ if (-not $ccusageVersion) { $ccusageVersion = '20.0.24' }
 # installed command, "npx" only the current package through npx, anything else (the
 # default) the installed one first with npx as its fallback. Mirrors run_ccusage in
 # report-usage-core.sh. Throws when nothing the mode allows is on PATH.
-function Get-CcusageAttempts {
+function Get-CcusageAttemptList {
   $mode = $env:USAGERATIO_CCUSAGE
   $global = $null
   if ($mode -ne 'npx') {
@@ -98,7 +98,7 @@ function Invoke-Ccusage {
   return $null
 }
 
-function Read-ProviderTokens {
+function Read-ProviderUsage {
   param([string]$SinceDate, [string]$TimeZone, [string]$FallbackProviders, [string]$CycleStart)
   if (-not (Test-Path -LiteralPath $parserPath)) {
     throw "$parserPath is missing; install it next to this script."
@@ -106,7 +106,7 @@ function Read-ProviderTokens {
 
   $node = Get-Command node -ErrorAction SilentlyContinue
   if (-not $node) { throw 'Node.js was not found in PATH.' }
-  $attempts = Get-CcusageAttempts
+  $attempts = Get-CcusageAttemptList
 
   $errorFile = Join-Path ([IO.Path]::GetTempPath()) ("usageratio-ccusage-{0}.log" -f [Guid]::NewGuid())
   $blocksFile = Join-Path ([IO.Path]::GetTempPath()) ("usageratio-blocks-{0}.json" -f [Guid]::NewGuid())
@@ -121,7 +121,7 @@ function Read-ProviderTokens {
     try {
       $blocksRaw = Invoke-Ccusage -Attempts $attempts -CcusageArgs $blocksArgs
       if ($blocksRaw) { [IO.File]::WriteAllText($blocksFile, $blocksRaw) }
-    } catch { }
+    } catch { Write-Verbose "The hourly split is optional: without it the days stay whole. ($($_.Exception.Message))" }
     $hourlyArgs = @()
     if ($CycleStart -and (Test-Path -LiteralPath $blocksFile)) { $hourlyArgs = @($blocksFile, $CycleStart, $TimeZone) }
     # Windows PowerShell 5.1 drops an empty argument, which would shift the ones after it.
@@ -142,11 +142,11 @@ function Read-ProviderTokens {
     try {
       $splitJson = $raw | & $node.Source $parserPath parse-models $FallbackProviders @hourlyArgs 2> $null
       if ($LASTEXITCODE -eq 0 -and $splitJson) { $script:modelsJson = [string]$splitJson }
-    } catch { }
+    } catch { Write-Verbose "The split by model is optional: the report goes out without it. ($($_.Exception.Message))" }
     try {
       $daysSplitJson = $raw | & $node.Source $parserPath parse-days $FallbackProviders @hourlyArgs 2> $null
       if ($LASTEXITCODE -eq 0 -and $daysSplitJson) { $script:daysJson = [string]$daysSplitJson }
-    } catch { }
+    } catch { Write-Verbose "The split by day is optional: the report goes out without it. ($($_.Exception.Message))" }
     return [string]$providersJson
   } finally {
     Remove-Item -LiteralPath $errorFile, $blocksFile -Force -ErrorAction SilentlyContinue
@@ -163,7 +163,7 @@ $logFile = [Environment]::GetEnvironmentVariable('USAGERATIO_LOG_FILE')
 if (-not $logFile) { $logFile = Join-Path $dataDir 'usageratio.log' }
 $logDir = Split-Path -Parent $logFile
 
-function Write-Log {
+function Write-UsageLog {
   param([string]$Message)
   $line = '{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
   try {
@@ -171,7 +171,7 @@ function Write-Log {
     Add-Content -LiteralPath $logFile -Value $line -Encoding UTF8
     $lines = @(Get-Content -LiteralPath $logFile)
     if ($lines.Count -gt 1000) { Set-Content -LiteralPath $logFile -Value $lines[-500..-1] -Encoding UTF8 }
-  } catch { }
+  } catch { Write-Verbose "A log that cannot be written must not stop the report. ($($_.Exception.Message))" }
   if ($OutputMode -eq 'Manual' -and $Message.StartsWith('ERROR:')) {
     Write-Host "$([char]0x274c) Sync failed: $($Message.Substring(6).Trim())" -ForegroundColor Red
   }
@@ -190,7 +190,7 @@ if (Test-Path -LiteralPath $ConfigPath) {
   try {
     $config = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
   } catch {
-    Write-Log "ERROR: $ConfigPath is not valid JSON: $($_.Exception.Message)"
+    Write-UsageLog "ERROR: $ConfigPath is not valid JSON: $($_.Exception.Message)"
     exit 2
   }
 }
@@ -205,23 +205,23 @@ $headers = @{ Authorization = "Bearer $apiToken" }
 # Windows PowerShell 5.1 on older systems does not offer TLS 1.2 by default.
 try {
   [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-} catch { }
+} catch { Write-Verbose "Older systems may not know TLS 1.2 by this name; the request will tell. ($($_.Exception.Message))" }
 
 if (-not $groupId -or -not $machineId) {
-  Write-Log "ERROR: machineId and groupId must be set in $ConfigPath"
+  Write-UsageLog "ERROR: machineId and groupId must be set in $ConfigPath"
   exit 2
 }
 if (-not $DryRun -and -not $apiToken) {
-  Write-Log "ERROR: apiToken is not set in $ConfigPath"
+  Write-UsageLog "ERROR: apiToken is not set in $ConfigPath"
   exit 2
 }
 if (-not (Test-Path -LiteralPath $parserPath)) {
-  Write-Log "ERROR: $parserPath is missing; install it next to this script"
+  Write-UsageLog "ERROR: $parserPath is missing; install it next to this script"
   exit 2
 }
 $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
 if (-not $nodeCommand) {
-  Write-Log 'ERROR: Node.js was not found (it is required by ccusage and the JSON parser)'
+  Write-UsageLog 'ERROR: Node.js was not found (it is required by ccusage and the JSON parser)'
   exit 2
 }
 
@@ -236,18 +236,18 @@ if ($Providers) {
     $providersJson = $Providers | & $nodeCommand.Source $parserPath validate
     if ($LASTEXITCODE -ne 0) { throw 'Invalid provider JSON.' }
   } catch {
-    Write-Log "ERROR: -Providers is invalid: $($_.Exception.Message)"
+    Write-UsageLog "ERROR: -Providers is invalid: $($_.Exception.Message)"
     exit 3
   }
 } elseif ($Tokens -ne '') {
   if ($Tokens -notmatch '^([A-Za-z0-9._-]+)=(\d+)$') {
-    Write-Log "ERROR: -Tokens takes provider=count, e.g. -Tokens claude=1234 (got: '$Tokens')"
+    Write-UsageLog "ERROR: -Tokens takes provider=count, e.g. -Tokens claude=1234 (got: '$Tokens')"
     exit 3
   }
   $tokensProvider = $Matches[1]
   $tokensCount = [decimal]$Matches[2]
   if ($tokensCount -gt 9007199254740991) {
-    Write-Log "ERROR: -Tokens exceeds JSON's safe integer range: $tokensCount"
+    Write-UsageLog "ERROR: -Tokens exceeds JSON's safe integer range: $tokensCount"
     exit 3
   }
   $providersJson = @{ $tokensProvider = [long]$tokensCount } | ConvertTo-Json -Compress
@@ -264,9 +264,9 @@ if ($Providers) {
     if ($cycleStart -is [DateTime]) {
       $cycleStart = $cycleStart.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     }
-    $providersJson = Read-ProviderTokens -SinceDate $sinceDate -TimeZone $timeZone -FallbackProviders $fallbackProviders -CycleStart ([string]$cycleStart)
+    $providersJson = Read-ProviderUsage -SinceDate $sinceDate -TimeZone $timeZone -FallbackProviders $fallbackProviders -CycleStart ([string]$cycleStart)
   } catch {
-    Write-Log "ERROR: ccusage could not be read: $($_.Exception.Message)"
+    Write-UsageLog "ERROR: ccusage could not be read: $($_.Exception.Message)"
     exit 3
   }
 }
@@ -282,10 +282,10 @@ $report = [ordered]@{
   providers = $providerMap
 }
 if ($modelsJson -and $modelsJson.Trim() -ne '{}') {
-  try { $report.models = $modelsJson | ConvertFrom-Json } catch { }
+  try { $report.models = $modelsJson | ConvertFrom-Json } catch { Write-Verbose "A damaged split by model is dropped; the totals still go out. ($($_.Exception.Message))" }
 }
 if ($daysJson -and $daysJson.Trim() -ne '{}') {
-  try { $report.days = $daysJson | ConvertFrom-Json } catch { }
+  try { $report.days = $daysJson | ConvertFrom-Json } catch { Write-Verbose "A damaged split by day is dropped; the totals still go out. ($($_.Exception.Message))" }
 }
 # The report's own mode/interval (lib/validation.ts ReportMode): "manual" for
 # -OutputMode Manual (clients/manual/report-usage.ps1, and the one-shot report),
@@ -323,7 +323,7 @@ function Send-Report {
     $text = $_.Exception.Message
     # 5.1 throws WebException, 7+ throws HttpResponseException; both expose .Response.StatusCode.
     if ($_.Exception.PSObject.Properties['Response'] -and $_.Exception.Response) {
-      try { $status = [int]$_.Exception.Response.StatusCode } catch { }
+      try { $status = [int]$_.Exception.Response.StatusCode } catch { Write-Verbose "Not every error carries a status code; 0 stands for none. ($($_.Exception.Message))" }
     }
     if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $text = $_.ErrorDetails.Message }
     return @{ Status = $status; Text = $text }
@@ -343,7 +343,7 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
 if ($result.Status -eq 200 -or $result.Status -eq 201) {
   $note = ''
   if ($result.Status -eq 200) { $note = ' (already stored)' }
-  Write-Log "OK: $providersJson as $machineId/$groupId$note"
+  Write-UsageLog "OK: $providersJson as $machineId/$groupId$note"
   if ($OutputMode -eq 'Manual') {
     $providerCount = @($providerMap.PSObject.Properties).Count
     Write-Host "$([char]0x2705) Sync successful: $providerCount providers sent.$note" -ForegroundColor Green
@@ -354,8 +354,8 @@ if ($result.Status -eq 200 -or $result.Status -eq 201) {
 $text = ([string]$result.Text -replace '\s+', ' ')
 if ($text.Length -gt 300) { $text = $text.Substring(0, 300) }
 if ($result.Status -eq 0) {
-  Write-Log "ERROR: could not reach ${apiUrl}: $text"
+  Write-UsageLog "ERROR: could not reach ${apiUrl}: $text"
 } else {
-  Write-Log "ERROR: server answered HTTP $($result.Status): $text"
+  Write-UsageLog "ERROR: server answered HTTP $($result.Status): $text"
 }
 exit 1

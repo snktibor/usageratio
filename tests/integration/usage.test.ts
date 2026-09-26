@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET, POST } from "@/app/api/usage/route";
 import { MAX_GROUPS } from "@/lib/settings";
+import { createToken, revokeToken } from "@/lib/tokens";
 import { useRedis } from "../helpers/redis-fixture";
 
 const URL = "http://localhost/api/usage";
@@ -121,5 +122,35 @@ describe("POST|GET /api/usage", () => {
     expect(body.cycle.end).toBeTruthy();
     expect(body.cycle.sinceDate).toBeTruthy();
     expect(body.cycle.timeZone).toBeTruthy();
+  });
+
+  describe("per-machine tokens (lib/tokens.ts), alongside the master USAGE_API_TOKEN", () => {
+    it("accepts an unbound per-machine token exactly like the master token", async () => {
+      const issued = await createToken("laptop", null, new Date());
+      if (!issued.ok) throw new Error("unreachable");
+      const response = await POST(post(validReport(), { authorization: `Bearer ${issued.token}` }));
+      expect(response.status).toBe(201);
+    });
+
+    it("answers 401 once that token is revoked", async () => {
+      const issued = await createToken("laptop", null, new Date());
+      if (!issued.ok) throw new Error("unreachable");
+      await revokeToken(issued.id, new Date());
+      const response = await POST(post(validReport(), { authorization: `Bearer ${issued.token}` }));
+      expect(response.status).toBe(401);
+    });
+
+    it("a machine-bound token reports for its own machine, 403 machine_mismatch for another", async () => {
+      const issued = await createToken("desktop", "mac-studio", new Date());
+      if (!issued.ok) throw new Error("unreachable");
+      const auth = { authorization: `Bearer ${issued.token}` };
+
+      const own = await POST(post(validReport({ machineId: "mac-studio" }), auth));
+      expect(own.status).toBe(201);
+
+      const other = await POST(post(validReport({ machineId: "other-machine" }), auth));
+      expect(other.status).toBe(403);
+      expect((await other.json()).error).toBe("machine_mismatch");
+    });
   });
 });

@@ -5,19 +5,22 @@ import { log } from "@/lib/log";
 import { getRedis } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
 import { parseStoredSettings, resolveConfig, settingsFromConfig } from "@/lib/settings";
+import { pruneRevokedTokens } from "@/lib/tokens";
 import { loadIndexes } from "@/lib/usage-store";
 
 /**
  * Prunes the index hashes (`usage:machines`, `usage:providers`, `usage:groups`,
- * `usage:official`) of entries nothing still points to, and the audit trail of
+ * `usage:official`) of entries nothing still points to, `usage:tokens` of
+ * tokens revoked long enough ago (lib/tokens.ts), and the audit trail of
  * entries older than its retention window. It never touches the raw event
  * ZSETs (`usage:events:{provider}:{group}`), which already self-prune on
  * every report (`storeReport` in lib/usage-store.ts); this is only about the
  * indexes that would otherwise grow forever with dead ids.
  *
- * Every step reads the same snapshot (one `loadIndexes()` call), so a run is
- * idempotent: nothing left behind by one run is missed by a `dryRun` preview,
- * and a second run right after finds nothing left to remove.
+ * Every step reads the same snapshot (one `loadIndexes()` call, or its own
+ * read for `usage:tokens`), so a run is idempotent: nothing left behind by one
+ * run is missed by a `dryRun` preview, and a second run right after finds
+ * nothing left to remove.
  */
 
 const DAY_MS = 86_400_000;
@@ -33,6 +36,7 @@ export interface HousekeepingReport {
   providers: HousekeepingStepReport;
   groups: HousekeepingStepReport;
   officialUsage: HousekeepingStepReport;
+  tokens: HousekeepingStepReport;
   audit: { removed: number };
   dryRun: boolean;
 }
@@ -133,6 +137,9 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
   }
   const auditRemoved = auditRaw.length - auditKeep;
 
+  // Step 6: per-machine tokens (lib/tokens.ts) revoked long enough ago to forget entirely.
+  const tokensPruned = await pruneRevokedTokens(now, { dryRun });
+
   if (!dryRun) {
     if (machineFields.length > 0) await redis.hdel(KEYS.machines, ...machineFields);
     if (staleProviders.length > 0)
@@ -150,6 +157,7 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     providers: { removed: staleProviders.length, ids: staleProviders.map((provider) => provider.providerId) },
     groups: { removed: staleGroups.length, ids: staleGroups.map((group) => group.groupId) },
     officialUsage: { removed: staleOfficialFields.length, ids: staleOfficialFields },
+    tokens: tokensPruned,
     audit: { removed: auditRemoved },
     dryRun,
   };
@@ -159,6 +167,7 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     providers: report.providers,
     groups: report.groups,
     official_usage: report.officialUsage,
+    tokens: report.tokens,
   })) {
     if (removed > 0) log.info(`housekeeping.${step}_pruned`, { removed, ids, dryRun });
   }
@@ -169,6 +178,7 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     providers: report.providers.removed,
     groups: report.groups.removed,
     officialUsage: report.officialUsage.removed,
+    tokens: report.tokens.removed,
     audit: report.audit.removed,
   });
 

@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiError, json, readJsonBody, requireBearer, requireSameOrigin, withApiHandler } from "@/lib/api";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { currentCookies, runWithRequest } from "@/lib/request-context";
+import { createToken, revokeToken } from "@/lib/tokens";
+import { useRedis } from "./helpers/redis-fixture";
 import { fakeCookieJar, withRequest } from "./helpers/request";
 
 const URL = "http://localhost:3000/api/usage";
@@ -135,29 +137,58 @@ describe("readJsonBody", () => {
 });
 
 describe("requireBearer", () => {
+  useRedis();
   const request = (authorization?: string) =>
     new Request(URL, { headers: authorization === undefined ? {} : { authorization } });
 
-  it("answers 500 while the server has no usable token", () => {
+  it("answers 500 while the server has no usable token", async () => {
     vi.stubEnv("USAGE_API_TOKEN", "");
-    expect((requireBearer(request("Bearer x")) as Response).status).toBe(500);
+    expect(((await requireBearer(request("Bearer x"))) as Response).status).toBe(500);
     vi.stubEnv("USAGE_API_TOKEN", "short");
-    expect((requireBearer(request("Bearer short")) as Response).status).toBe(500);
+    expect(((await requireBearer(request("Bearer short"))) as Response).status).toBe(500);
   });
 
   it("answers 401 with a challenge for a missing or wrong token", async () => {
     vi.stubEnv("USAGE_API_TOKEN", "0123456789abcdef");
-    const missing = requireBearer(request()) as Response;
+    const missing = (await requireBearer(request())) as Response;
     expect(missing.status).toBe(401);
     expect(missing.headers.get("www-authenticate")).toBe('Bearer realm="usage"');
     expect(await missing.json()).toEqual({ error: "unauthorized" });
-    expect((requireBearer(request("Bearer 0123456789abcdeX")) as Response).status).toBe(401);
-    expect((requireBearer(request("Basic 0123456789abcdef")) as Response).status).toBe(401);
+    expect(((await requireBearer(request("Bearer 0123456789abcdeX"))) as Response).status).toBe(401);
+    expect(((await requireBearer(request("Basic 0123456789abcdef"))) as Response).status).toBe(401);
   });
 
-  it("lets the master token through", () => {
+  it("lets the master token through", async () => {
     vi.stubEnv("USAGE_API_TOKEN", " 0123456789abcdef ");
-    expect(requireBearer(request("bearer 0123456789abcdef"))).toEqual({ tokenId: "master" });
+    expect(await requireBearer(request("bearer 0123456789abcdef"))).toEqual({ tokenId: "master", machineId: null });
+  });
+
+  it("authenticates a per-machine token, unbound or bound to a machine", async () => {
+    vi.stubEnv("USAGE_API_TOKEN", "0123456789abcdef");
+    const now = new Date("2026-09-26T00:00:00Z");
+    const unbound = await createToken("laptop", null, now);
+    const bound = await createToken("desktop", "mac-studio", now);
+    if (!unbound.ok || !bound.ok) throw new Error("unreachable");
+
+    expect(await requireBearer(request(`Bearer ${unbound.token}`))).toEqual({
+      tokenId: unbound.id,
+      machineId: null,
+    });
+    expect(await requireBearer(request(`Bearer ${bound.token}`))).toEqual({
+      tokenId: bound.id,
+      machineId: "mac-studio",
+    });
+  });
+
+  it("answers 401 for a revoked per-machine token", async () => {
+    vi.stubEnv("USAGE_API_TOKEN", "0123456789abcdef");
+    const now = new Date("2026-09-26T00:00:00Z");
+    const created = await createToken("laptop", null, now);
+    if (!created.ok) throw new Error("unreachable");
+    await revokeToken(created.id, now);
+
+    const response = (await requireBearer(request(`Bearer ${created.token}`))) as Response;
+    expect(response.status).toBe(401);
   });
 });
 

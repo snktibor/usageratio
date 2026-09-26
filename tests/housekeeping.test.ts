@@ -9,10 +9,10 @@ import { useRedis } from "./helpers/redis-fixture";
 
 /**
  * lib/housekeeping.ts prunes the index hashes (machines, providers, groups,
- * official usage) and the audit trail of entries nothing still points to, and
- * never the raw event history. These tests seed a store by hand, matching the
- * shapes lib/usage-store.ts and lib/api-token.ts write, and check the counts
- * and what survives.
+ * official usage, per-machine tokens) and the audit trail of entries nothing
+ * still points to, and never the raw event history. These tests seed a store
+ * by hand, matching the shapes lib/usage-store.ts, lib/api-token.ts and
+ * lib/tokens.ts write, and check the counts and what survives.
  */
 
 const DAY_MS = 86_400_000;
@@ -83,6 +83,16 @@ describe("runHousekeeping", () => {
     const ancient = Array.from({ length: 3 }, (_, index) => record(NOW.getTime() - (400 + index) * DAY_MS));
     await redis.rpush("usage:api-token:audit", ...ancient);
 
+    // Per-machine tokens (lib/tokens.ts): a live one, one revoked recently (inside the
+    // 90-day REVOKED_RETENTION_DAYS window), and one revoked long enough ago to forget.
+    const token = (id: string, revokedAt: number | null) =>
+      JSON.stringify({ id, label: id, machineId: null, createdAt: OLD, lastUsedAt: null, revokedAt });
+    await redis.hset("usage:tokens", {
+      "hash-live": token("tk_live0001", null),
+      "hash-revoked-recent": token("tk_recent01", RECENT),
+      "hash-revoked-old": token("tk_old000001", NOW.getTime() - 200 * DAY_MS),
+    });
+
     return cycle;
   }
 
@@ -97,6 +107,7 @@ describe("runHousekeeping", () => {
     expect(report.groups).toEqual({ removed: 1, ids: ["empty-old"] });
     expect(report.officialUsage.removed).toBe(2);
     expect(report.officialUsage.ids.sort()).toEqual(["dead-provider", "referenced-provider"]);
+    expect(report.tokens).toEqual({ removed: 1, ids: ["tk_old000001"] });
     expect(report.audit).toEqual({ removed: 3 });
     expect(report.dryRun).toBe(false);
 
@@ -116,6 +127,9 @@ describe("runHousekeeping", () => {
     expect(await getRedis().hexists("usage:official", "dead-provider")).toBe(0);
     expect(await getRedis().hexists("usage:official", "referenced-provider")).toBe(0);
     expect(await getRedis().llen("usage:api-token:audit")).toBe(1);
+    expect(await getRedis().hexists("usage:tokens", "hash-live")).toBe(1);
+    expect(await getRedis().hexists("usage:tokens", "hash-revoked-recent")).toBe(1);
+    expect(await getRedis().hexists("usage:tokens", "hash-revoked-old")).toBe(0);
 
     // The summary is written for the admin/cron surface to show.
     const last = JSON.parse(String(await getRedis().get("usage:housekeeping:last"))) as { at: number };
@@ -136,6 +150,7 @@ describe("runHousekeeping", () => {
     expect(report.providers.removed).toBe(1);
     expect(report.groups.removed).toBe(1);
     expect(report.officialUsage.removed).toBe(2);
+    expect(report.tokens.removed).toBe(1);
     expect(report.audit.removed).toBe(3);
     expect(report.dryRun).toBe(true);
 
@@ -149,6 +164,7 @@ describe("runHousekeeping", () => {
     expect(after).toEqual(before);
     expect(await getRedis().hexists("usage:providers", "dead-provider")).toBe(1);
     expect(await getRedis().llen("usage:api-token:audit")).toBe(4);
+    expect(await getRedis().hexists("usage:tokens", "hash-revoked-old")).toBe(1);
     expect(await getRedis().exists("usage:housekeeping:last")).toBe(0);
   });
 
@@ -161,6 +177,7 @@ describe("runHousekeeping", () => {
     expect(second.providers.removed).toBe(0);
     expect(second.groups.removed).toBe(0);
     expect(second.officialUsage.removed).toBe(0);
+    expect(second.tokens.removed).toBe(0);
     expect(second.audit.removed).toBe(0);
   });
 
@@ -205,6 +222,7 @@ describe("runHousekeeping", () => {
       providers: { removed: 0, ids: [] },
       groups: { removed: 0, ids: [] },
       officialUsage: { removed: 0, ids: [] },
+      tokens: { removed: 0, ids: [] },
       audit: { removed: 0 },
       dryRun: false,
     });

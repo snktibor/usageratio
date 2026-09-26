@@ -20,6 +20,13 @@
  *   usage:api-token:audit    LIST   newest first, at most AUDIT_LIMIT entries:
  *                                   {"at","a","ua","ch","pf","s", "ip"|"iph"+"ipp"} (see lib/api-token.ts)
  *
+ *   usage:tokens             HASH   sha256(token) → {"id","label","machineId","createdAt",
+ *                                   "lastUsedAt","revokedAt"}: per-machine API tokens, an
+ *                                   alternative to the shared USAGE_API_TOKEN that can be
+ *                                   individually revoked (see lib/tokens.ts). The field is the
+ *                                   token's own hash, never its plaintext, which is shown once at
+ *                                   creation and not stored.
+ *
  *   usage:housekeeping:last  STRING {"at": ms, "report": HousekeepingReport} — the last run of
  *                                   lib/housekeeping.ts (see app/api/cron/housekeeping/route.ts)
  *
@@ -70,4 +77,5 @@ export const KEYS = {
   apiToken: "usage:api-token",
   apiTokenAudit: "usage:api-token:audit",
   housekeepingLast: "usage:housekeeping:last",
+  tokens: "usage:tokens",
 };

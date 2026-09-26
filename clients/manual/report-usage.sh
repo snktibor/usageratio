@@ -2,7 +2,7 @@
 
 set -u
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 CORE_SCRIPT="$SCRIPT_DIR/../shared/report-usage-core.sh"
 
 if [ ! -f "$CORE_SCRIPT" ]; then

@@ -1,4 +1,4 @@
-import { apiError, json, readJsonBody, requireBearer, withApiHandler } from "@/lib/api";
+import { apiError, type BearerAuth, json, readJsonBody, requireBearer, withApiHandler } from "@/lib/api";
 import {
   CYCLE_RATE_LIMIT_PER_TOKEN,
   getConfig,
@@ -41,10 +41,16 @@ import { loadReportContext } from "@/lib/usage-store";
  * `sinceDate`, so clients can build a true cycle-to-date snapshot.
  *
  * 201 stored · 200 identical report already stored · 400 bad JSON/payload ·
- * 401 bad token · 413 body too large · 422 a registry cap (too many groups,
+ * 401 bad token · 403 machine_mismatch (a machine-bound token reporting for
+ * another machine) · 413 body too large · 422 a registry cap (too many groups,
  * providers or machines) refused the report, with its `limit` · 429 a rate
  * limit was hit, with `retryAfterSeconds` · 500 server misconfigured ·
  * 503 Redis down
+ *
+ * Authorization accepts the shared USAGE_API_TOKEN, or a per-machine token
+ * minted from the settings panel (lib/tokens.ts, `/api/tokens`); the latter
+ * can be revoked individually, and optionally bound to one `machineId`, in
+ * which case a report naming a different machine is refused outright.
  *
  * Rate limits (lib/rate-limit.ts `hit`, all answer 429 `rate_limited`):
  * a per-IP counter of failed Bearer tokens (`usage:rl:unauth:*`, 60/minute —
@@ -65,8 +71,8 @@ const MAX_BODY_BYTES = 65_536;
  * A valid token, or a 500 (server misconfigured — not the caller's doing),
  * never touches the counter.
  */
-async function requireBearerThrottled(request: Request): Promise<Response | { tokenId: "master" }> {
-  const auth = requireBearer(request);
+async function requireBearerThrottled(request: Request): Promise<Response | BearerAuth> {
+  const auth = await requireBearer(request);
   if (!(auth instanceof Response) || auth.status !== 401) return auth;
 
   const key = `usage:rl:unauth:${sha256Hex(await clientIp()).slice(0, 32)}`;
@@ -128,6 +134,10 @@ export const POST = withApiHandler("api/usage", async ({ request }) => {
   if (!body.ok) return body.response;
 
   const machineId = rawMachineId(body.value);
+  // A machine-bound token (lib/tokens.ts) may only ever report for its own machine.
+  if (auth.machineId !== null && machineId?.trim() !== auth.machineId) {
+    return apiError("machine_mismatch", 403);
+  }
   if (machineId) {
     const machineKey = `usage:rl:ingest:${sha256Hex(`${auth.tokenId}:${machineId}`).slice(0, 32)}`;
     const machineHit = await hit(machineKey, INGEST_RATE_LIMIT_PER_MACHINE, 3600);

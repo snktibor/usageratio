@@ -10,6 +10,7 @@ import { MachinesSection } from "@/components/settings/sections/machines-section
 import { ResetSection } from "@/components/settings/sections/reset-section";
 import { SubLimitsSection } from "@/components/settings/sections/sub-limits-section";
 import { TokenSection } from "@/components/settings/sections/token-section";
+import { TokensSection } from "@/components/settings/sections/tokens-section";
 import { useSettingsForm } from "@/components/settings/use-settings-form";
 import { PRIMARY_BUTTON, QUIET_BUTTON } from "@/components/ui/classes";
 import type { SettingsView } from "@/lib/settings";
@@ -96,6 +97,8 @@ export function SettingsForm({ view, titleId, onClose }: { view: SettingsView; t
           onChange={(apiToken) => actions.patch({ apiToken })}
           timeZone={view.timeZone}
         />
+
+        <TokensSection titleId={titleId} timeZone={view.timeZone} onManaged={actions.refresh} />
       </div>
 
       <footer className="sticky bottom-0 border-t border-hairline bg-raised px-6 py-4">
