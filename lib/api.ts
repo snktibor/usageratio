@@ -43,7 +43,11 @@ export type ApiErrorCode =
   | "token_unreadable"
   | "groups_have_reports"
   | "not_found"
-  | "demo_read_only";
+  | "demo_read_only"
+  | "machine_exists"
+  | "group_exists"
+  | "group_has_events"
+  | "provider_has_events";
 
 export const MIN_API_TOKEN_LENGTH = 16;
 
