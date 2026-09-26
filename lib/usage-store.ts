@@ -27,8 +27,11 @@ import type { ReportMode, UsageReport } from "@/lib/validation";
  *   usage:providers                      HASH providerId → first-seen ms
  *   usage:events:{providerId}:{groupId}  ZSET  score = report time (epoch ms)
  *                                              member = {"m": machineId, "t": tokens, "ts": ms,
- *                                                        "b": {modelId: tokens}, "c": 1}
+ *                                                        "b": {modelId: tokens}, "$": costUsd,
+ *                                                        "$b": {modelId: costUsd}, "c": 1}
  *                                              ("b", the split by model, only from clients that send one;
+ *                                              "$"/"$b", the API-list-price cost estimate and its split by
+ *                                              model, only from a client that opted in (lib/setup.ts COST);
  *                                              "c" marks a day's checkpoint, see lib/days.ts)
  *   usage:groups            HASH  groupId   → {"color": "#rrggbb", "ts": first-seen ms}
  *                                 (a bare ms number in entries older than group colours)
@@ -68,20 +71,28 @@ const DAY_MS = 86_400_000;
 /**
  * One stored report (or checkpoint) of one provider. The models are sorted so
  * a retried POST serializes to the very same member, which ZADD NX then skips.
+ * `costUsd`/`modelCosts` are the optional API-list-price estimate (lib/setup.ts
+ * COST): absent for every client that does not opt in, and always absent from
+ * a checkpoint, since a day's split carries no cost of its own (lib/days.ts).
  */
 function eventMember(
   machineId: string,
   tokens: number,
   timestampMs: number,
   models: Record<string, number> | undefined,
+  costUsd: number | undefined,
+  modelCosts: Record<string, number> | undefined,
   checkpoint = false,
 ): string {
   const entries = Object.entries(models ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const costEntries = Object.entries(modelCosts ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return JSON.stringify({
     m: machineId,
     t: tokens,
     ts: timestampMs,
     ...(entries.length > 0 && { b: Object.fromEntries(entries) }),
+    ...(costUsd !== undefined && { $: costUsd }),
+    ...(costEntries.length > 0 && { $b: Object.fromEntries(costEntries) }),
     ...(checkpoint && { c: 1 }),
   });
 }
@@ -216,7 +227,14 @@ export async function storeReport(
     const machineEntries: Record<string, string> = {};
     for (const [providerId, tokens] of providers) {
       const eventsKey = KEYS.events(providerId, report.groupId);
-      const member = eventMember(report.machineId, tokens, report.timestampMs, report.models[providerId]);
+      const member = eventMember(
+        report.machineId,
+        tokens,
+        report.timestampMs,
+        report.models[providerId],
+        report.costs[providerId],
+        report.modelCosts[providerId],
+      );
       const lastReport = machineEntry(
         report.groupId,
         report.timestampMs,
@@ -236,7 +254,15 @@ export async function storeReport(
         .filter((checkpoint) => checkpoint.providerId === providerId)
         .map((checkpoint) => ({
           score: checkpoint.ts,
-          member: eventMember(report.machineId, checkpoint.tokens, checkpoint.ts, checkpoint.models, true),
+          member: eventMember(
+            report.machineId,
+            checkpoint.tokens,
+            checkpoint.ts,
+            checkpoint.models,
+            undefined,
+            undefined,
+            true,
+          ),
         }));
       const [first, ...rest] = members;
       if (first) plan.add(null, () => tx.zadd(KEYS.events(providerId, report.groupId), { nx: true }, first, ...rest));
@@ -259,16 +285,22 @@ function parseEvent(raw: unknown, groupId: string): UsageEvent | null {
   try {
     const value: unknown = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (typeof value !== "object" || value === null) return null;
-    const { m, t, ts, b, c } = value as Record<string, unknown>;
+    const { m, t, ts, b, c, $: cost, $b: modelCostsRaw } = value as Record<string, unknown>;
     if (typeof m !== "string" || typeof t !== "number" || typeof ts !== "number") return null;
     if (!Number.isFinite(t) || t < 0 || !Number.isFinite(ts)) return null;
     const models = parseModelSplit(b);
+    // Same shape a token split has (finite, non-negative), just fractional dollars: lenient about
+    // an older member, or one from a client that never opted into cost, having neither field.
+    const costUsd = typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : undefined;
+    const modelCosts = parseModelSplit(modelCostsRaw);
     return {
       machineId: m,
       groupId,
       tokens: t,
       ts,
       ...(models && { models }),
+      ...(costUsd !== undefined && { costUsd }),
+      ...(modelCosts && { modelCosts }),
       ...(c === 1 && { checkpoint: true }),
     };
   } catch {

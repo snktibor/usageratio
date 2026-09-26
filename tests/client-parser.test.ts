@@ -10,6 +10,8 @@ import { PROVIDER_LABELS, MAX_PROVIDERS as SERVER_MAX_PROVIDERS } from "@/lib/pr
 
 const require = createRequire(import.meta.url);
 type ModelMap = Record<string, Record<string, number>>;
+type CostMap = Record<string, number>;
+type ModelCostMap = Record<string, Record<string, number>>;
 type DayMap = Record<
   string,
   { providers: Record<string, number>; models?: ModelMap; hours?: Record<string, Record<string, number>> }
@@ -41,7 +43,7 @@ const {
     input: unknown,
     fallbackProviders?: string[],
     hourly?: Hourly,
-  ) => { providers: Record<string, number>; models: ModelMap };
+  ) => { providers: Record<string, number>; models: ModelMap; costs: CostMap; modelCosts: ModelCostMap };
   PROVIDERS: { id: string; test: RegExp }[];
   providerFrom: (value: unknown, fallback?: string) => string;
 };
@@ -55,7 +57,7 @@ describe("ccusage provider parser", () => {
     expect(normalizeProviderMap({})).toEqual({});
     // No rows, and no fallback providers to zero out: {} goes out rather than an error.
     expect(parseCcusageProviders({ daily: [] })).toEqual({});
-    expect(parseCcusageUsage({ daily: [] })).toEqual({ providers: {}, models: {} });
+    expect(parseCcusageUsage({ daily: [] })).toEqual({ providers: {}, models: {}, costs: {}, modelCosts: {} });
   });
 
   it("splits unified daily rows by model vendor and falls back to the agent", () => {
@@ -124,6 +126,8 @@ describe("ccusage provider parser", () => {
     ).toEqual({
       providers: { claude: 22, deepseek: 28 },
       models: { claude: { "claude-opus-4-5-20251101": 22 }, deepseek: { "deepseek-chat": 28 } },
+      costs: {},
+      modelCosts: {},
     });
   });
 
@@ -134,7 +138,12 @@ describe("ccusage provider parser", () => {
         { agent: "codex", modelsUsed: ["gpt-5", "gpt-5-codex"], totalTokens: 4 },
       ],
     });
-    expect(usage).toEqual({ providers: { openai: 14 }, models: { openai: { "gpt-5-codex": 10 } } });
+    expect(usage).toEqual({
+      providers: { openai: 14 },
+      models: { openai: { "gpt-5-codex": 10 } },
+      costs: {},
+      modelCosts: {},
+    });
   });
 
   it("builds a heartbeat payload (providers: {}) when there is nothing to report", () => {
@@ -190,6 +199,123 @@ describe("ccusage provider parser", () => {
     expect(models.claude!["model-0"]).toBeUndefined();
     expect(models.claude!["model-24"]).toBe(25);
   });
+});
+
+// The shape `ccusage daily --json --by-agent --breakdown --offline` actually returns for a
+// cost-bearing day (captured from a real run): each model breakdown gets a "cost" alongside
+// its tokens, and every agent/day row a "totalCost" that sums them, mirroring "totalTokens".
+const COST_FIXTURE = {
+  daily: [
+    {
+      period: "2026-09-21",
+      agent: "all",
+      agents: [
+        {
+          agent: "claude",
+          modelBreakdowns: [
+            { modelName: "claude-opus-4-5-20251101", inputTokens: 1000, outputTokens: 200, cost: 1.5 },
+            { modelName: "claude-sonnet-4-5-20250929", inputTokens: 500, outputTokens: 100, cost: 0.1234 },
+          ],
+          totalCost: 1.6234,
+        },
+        { agent: "codex", modelsUsed: ["gpt-5-codex"], totalTokens: 400, totalCost: 0.08 },
+      ],
+      totalCost: 1.7034,
+    },
+    {
+      period: "2026-09-22",
+      agents: [
+        { agent: "claude", modelBreakdowns: [{ modelName: "claude-opus-4-5-20251101", totalTokens: 300, cost: 0.5 }] },
+      ],
+    },
+  ],
+};
+
+describe("ccusage cost (the opt-in --offline reading)", () => {
+  it("sums a cost-bearing daily report into providerId → USD, and its split by model", () => {
+    expect(parseCcusageUsage(COST_FIXTURE)).toEqual({
+      providers: { claude: 2100, openai: 400 },
+      models: {
+        claude: { "claude-opus-4-5-20251101": 1500, "claude-sonnet-4-5-20250929": 600 },
+        openai: { "gpt-5-codex": 400 },
+      },
+      costs: { claude: 2.1234, openai: 0.08 },
+      modelCosts: {
+        claude: { "claude-opus-4-5-20251101": 2, "claude-sonnet-4-5-20250929": 0.1234 },
+        openai: { "gpt-5-codex": 0.08 },
+      },
+    });
+  });
+
+  it("without --offline (--no-cost), ccusage sends no cost fields, and none are parsed", () => {
+    const withoutCost = {
+      daily: [
+        {
+          period: "2026-09-21",
+          agents: [
+            {
+              agent: "claude",
+              modelBreakdowns: [
+                { modelName: "claude-opus-4-5-20251101", inputTokens: 1000, outputTokens: 200 },
+                { modelName: "claude-sonnet-4-5-20250929", inputTokens: 500, outputTokens: 100 },
+              ],
+            },
+            { agent: "codex", modelsUsed: ["gpt-5-codex"], totalTokens: 400 },
+          ],
+        },
+      ],
+    };
+    const usage = parseCcusageUsage(withoutCost);
+    expect(usage.providers).toEqual({ claude: 1800, openai: 400 });
+    expect(usage.costs).toEqual({});
+    expect(usage.modelCosts).toEqual({});
+  });
+
+  it("puts costs/modelCosts into the payload built from parse-costs, only when the caller opted in", () => {
+    const dir = mkdtempSync(join(tmpdir(), "usageratio-costs-"));
+    try {
+      const run = (...args: string[]) =>
+        execFileSync("node", [PARSER, ...args], { input: JSON.stringify(COST_FIXTURE), encoding: "utf8" });
+      writeFileSync(join(dir, "costs.json"), run("parse-costs"));
+      writeFileSync(join(dir, "models.json"), run("parse-models"));
+
+      const payload = JSON.parse(
+        execFileSync(
+          "node",
+          [
+            PARSER,
+            "payload",
+            "mac",
+            "Personal",
+            "2026-09-22T11:49:28Z",
+            join(dir, "models.json"),
+            join(dir, "none-days.json"),
+            "auto",
+            "",
+            join(dir, "costs.json"),
+          ],
+          { input: run("parse"), encoding: "utf8" },
+        ),
+      );
+      expect(payload.costs).toEqual({ claude: 2.1234, openai: 0.08 });
+      expect(payload.modelCosts).toEqual({
+        claude: { "claude-opus-4-5-20251101": 2, "claude-sonnet-4-5-20250929": 0.1234 },
+        openai: { "gpt-5-codex": 0.08 },
+      });
+
+      // Without a costs file (the client never opted in), the payload carries neither field.
+      const bare = JSON.parse(
+        execFileSync("node", [PARSER, "payload", "mac", "Personal", "2026-09-22T11:49:28Z", join(dir, "models.json")], {
+          input: run("parse"),
+          encoding: "utf8",
+        }),
+      );
+      expect(bare).not.toHaveProperty("costs");
+      expect(bare).not.toHaveProperty("modelCosts");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
 
 // One real model name each registry entry's pattern actually matches (unlike the
@@ -389,6 +515,8 @@ describe("ccusage split by hour", () => {
       providers: { claude: 230, openai: 10 },
       // 100 of 120 tokens are left of Saturday: opus 100 → 83, sonnet 20 → 16.
       models: { claude: { "claude-opus-5": 213, "claude-sonnet-5": 16 }, openai: { "gpt-5-codex": 10 } },
+      costs: {},
+      modelCosts: {},
     });
     // Without the blocks the whole Saturday counts, as before.
     expect(parseCcusageProviders(daily)).toEqual({ claude: 250, openai: 10 });

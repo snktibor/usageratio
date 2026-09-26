@@ -370,7 +370,11 @@
     "history_cycle_column": "Cycle",
     "history_tokens_column": "Tokens",
     "history_official_column": "Official",
-    "history_groups_column": "Groups"
+    "history_groups_column": "Groups",
+    "cost": "Cost",
+    "cost_estimate": "≈ {amount} at API list prices",
+    "cost_estimate_tooltip_aria": "What does this cost estimate mean?",
+    "cost_estimate_tooltip": "This is an estimate from ccusage's own API price list, not your actual bill: a subscription plan such as Claude Max or ChatGPT Pro is not billed per token."
   },
   "Setup": {
     "title": "Setup",
@@ -403,6 +407,8 @@
     "machine_label": "Machine ID (optional)",
     "machine_placeholder": "computer name",
     "machine_hint": "Left empty, it will be the machine's name.",
+    "cost_opt_in": "Estimate cost (API list prices)",
+    "cost_opt_in_hint": "Adds an approximate USD cost to reports, from ccusage's own price list. Subscription plans (Claude Max, ChatGPT Pro...) are not billed this way — treat it as an estimate only.",
     "download_zip": "Download as ZIP",
     "zip_desc": "Ready package with installer, with the settings above. Doesn't contain a token, the installer will ask for it.",
     "download_package": "Download package",

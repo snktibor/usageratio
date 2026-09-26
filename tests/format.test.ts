@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatMonthDay, formatPercent } from "@/lib/format";
+import { formatCost, formatCostOrDash, formatMonthDay, formatPercent } from "@/lib/format";
 
 describe("formatPercent", () => {
   it('marks a tiny non-zero share with the locale\'s own "less than" percent form', () => {
@@ -14,6 +14,23 @@ describe("formatPercent", () => {
 
   it("leaves an exact zero alone", () => {
     expect(formatPercent(0, "en")).toBe("0%");
+  });
+});
+
+describe("formatCost", () => {
+  it("formats a USD amount with the locale's own currency conventions", () => {
+    expect(formatCost(12.3456, "en")).toBe("$12.35");
+    expect(formatCost(0, "en")).toBe("$0.00");
+  });
+});
+
+describe("formatCostOrDash", () => {
+  it("is a dash for a machine or group that never sent a cost figure", () => {
+    expect(formatCostOrDash(undefined, "en")).toBe("–");
+  });
+
+  it("formats the amount otherwise", () => {
+    expect(formatCostOrDash(4.5, "en")).toBe("$4.50");
   });
 });
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_MACHINES } from "@/lib/config";
 import { MAX_PROVIDERS } from "@/lib/providers";
 import { getMemoryStoreForTests, getRedis } from "@/lib/redis";
+import { KEYS } from "@/lib/redis-keys";
 import { MAX_GROUPS } from "@/lib/settings";
 import { loadEvents, loadIndexes, storeReport } from "@/lib/usage-store";
 import { parseUsageReport, type UsageReport } from "@/lib/validation";
@@ -63,6 +64,72 @@ describe("storeReport — duplicate detection", () => {
 
     const repeat = await storeOk(report({ providers: { claude: 100, deepseek: 999 } }), NOW, 70, null);
     expect(repeat.duplicate).toBe(true);
+  });
+});
+
+describe("storeReport — cost (an opt-in API-list-price estimate)", () => {
+  useRedis();
+
+  it("round-trips the cost estimate and its split by model, alongside tokens", async () => {
+    const withCost = report({
+      providers: { claude: 1000 },
+      costs: { claude: 4.5678 },
+      modelCosts: { claude: { "claude-opus-4-5": 4.5678 } },
+    });
+    await storeOk(withCost, NOW, 70, null);
+
+    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    expect(eventsByProvider.claude).toEqual([
+      {
+        machineId: "mac",
+        groupId: "Personal",
+        tokens: 1000,
+        ts: withCost.timestampMs,
+        costUsd: 4.5678,
+        modelCosts: { "claude-opus-4-5": 4.5678 },
+      },
+    ]);
+  });
+
+  it("stores no cost fields at all for a report that never sent one (an opted-out or older client)", async () => {
+    await storeOk(report({ providers: { claude: 500 } }), NOW, 70, null);
+
+    const raw = await getRedis().zrange<string[]>(KEYS.events("claude", "Personal"), 0, -1);
+    const member = JSON.parse(raw[0]!);
+    expect(member).not.toHaveProperty("$");
+    expect(member).not.toHaveProperty("$b");
+
+    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    expect(eventsByProvider.claude![0]).not.toHaveProperty("costUsd");
+    expect(eventsByProvider.claude![0]).not.toHaveProperty("modelCosts");
+  });
+
+  it("reads a legacy member (written before cost existed) as having no cost, rather than failing", async () => {
+    await getRedis().zadd(KEYS.events("claude", "Personal"), {
+      score: 1000,
+      member: JSON.stringify({ m: "old-mac", t: 500, ts: 1000 }),
+    });
+    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    expect(eventsByProvider.claude).toEqual([{ machineId: "old-mac", groupId: "Personal", tokens: 500, ts: 1000 }]);
+  });
+
+  it("never puts a cost on a day's checkpoint, even when the report that brought it in had one", async () => {
+    const cycle = { timeZone: "UTC", startMs: Date.parse("2026-09-20T00:00:00Z") };
+    const withDays = report({
+      providers: { claude: 1200 },
+      costs: { claude: 6 },
+      days: {
+        "2026-09-21": { providers: { claude: 1000 } },
+        "2026-09-22": { providers: { claude: 200 } },
+      },
+    });
+    await storeReport(withDays, NOW, 70, cycle);
+
+    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    const checkpoint = eventsByProvider.claude!.find((event) => event.checkpoint);
+    expect(checkpoint).toBeDefined();
+    expect(checkpoint).not.toHaveProperty("costUsd");
+    expect(checkpoint).not.toHaveProperty("modelCosts");
   });
 });
 

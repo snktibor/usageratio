@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizeUsage, type UsageEvent } from "@/lib/aggregate";
+import { summarizeCost, summarizeUsage, type UsageEvent } from "@/lib/aggregate";
 
 const WINDOW = { startMs: 1000, endMs: 2000 };
 
@@ -175,5 +175,53 @@ describe("summarizeUsage — edge cases", () => {
     const summary = summarizeUsage([ev("b", "Zeta", 5, 1100), ev("a", "Alpha", 5, 1200)], WINDOW, "delta");
     expect(summary.groups.map((g) => g.groupId)).toEqual(["Alpha", "Zeta"]);
     expect(summary.series.map((s) => s.machineId)).toEqual(["a", "b"]);
+  });
+});
+
+describe("summarizeCost", () => {
+  function withCost(machineId: string, groupId: string, tokens: number, ts: number, costUsd: number): UsageEvent {
+    return { ...ev(machineId, groupId, tokens, ts), costUsd };
+  }
+
+  it("takes each machine's highest in-window cost reading, always the cycle-to-date snapshot", () => {
+    const cost = summarizeCost(
+      [
+        withCost("mac", "Personal", 100, 900, 1), // before the window
+        withCost("mac", "Personal", 400, 1800, 5.5),
+        withCost("mac", "Personal", 150, 1100, 2.25),
+        withCost("win-1", "Work", 80, 1500, 0.75),
+      ],
+      WINDOW,
+    );
+    expect(cost.total).toBe(6.25);
+    expect(cost.byMachine).toEqual({ mac: 5.5, "win-1": 0.75 });
+    expect(cost.byGroup).toEqual({ Personal: 5.5, Work: 0.75 });
+    expect(cost.hasCost).toBe(true);
+  });
+
+  it("leaves out a machine that never reported a cost figure, rather than showing it at $0", () => {
+    const cost = summarizeCost([ev("mac", "Personal", 500, 1500), withCost("win-1", "Work", 80, 1500, 1.2)], WINDOW);
+    expect(cost.byMachine).toEqual({ "win-1": 1.2 });
+    expect(cost.hasCost).toBe(true);
+  });
+
+  it("reports hasCost false, and empty totals, without a single cost-bearing event", () => {
+    const cost = summarizeCost([ev("mac", "Personal", 500, 1500)], WINDOW);
+    expect(cost).toEqual({ total: 0, byGroup: {}, byMachine: {}, hasCost: false });
+  });
+
+  it("ignores a cost reading from outside the window, even as the machine's baseline", () => {
+    // Cost is always snapshot semantics: nothing before startMs ever counts, unlike counter mode's baseline.
+    const cost = summarizeCost([withCost("mac", "Personal", 900, 500, 9), withCost("mac", "Personal", 40, 2100, 0.4)], {
+      startMs: 1000,
+      endMs: 2000,
+    });
+    expect(cost.hasCost).toBe(false);
+  });
+
+  it("sums two machines of the same group", () => {
+    const cost = summarizeCost([withCost("a", "Work", 10, 1100, 1), withCost("b", "Work", 20, 1200, 2)], WINDOW);
+    expect(cost.byGroup).toEqual({ Work: 3 });
+    expect(cost.total).toBe(3);
   });
 });

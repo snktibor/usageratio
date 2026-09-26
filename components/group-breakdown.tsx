@@ -1,6 +1,6 @@
 import { useLocale, useTranslations } from "next-intl";
 import type { DashboardModel } from "@/lib/dashboard";
-import { formatLimitShare, formatPercent, formatTokens } from "@/lib/format";
+import { formatCostOrDash, formatLimitShare, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
 
 type Group = DashboardModel["groups"][number];
@@ -72,6 +72,7 @@ export function GroupBreakdown({ model, view }: { model: DashboardModel; view: D
   const hasUsage = model.total > 0;
   // No token limit and no official figure: there is no limit to take a share of.
   const hasLimitShare = view.quota !== null;
+  const hasCost = Boolean(model.cost);
 
   return (
     <section aria-labelledby="groups-heading">
@@ -103,6 +104,11 @@ export function GroupBreakdown({ model, view }: { model: DashboardModel; view: D
                     {t("of_quota")}
                   </th>
                 )}
+                {hasCost && (
+                  <th scope="col" className="py-2 pl-4 text-right font-normal">
+                    {t("cost")}
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody className="tabular-nums">
@@ -127,6 +133,11 @@ export function GroupBreakdown({ model, view }: { model: DashboardModel; view: D
                   </td>
                   {hasLimitShare && (
                     <td className="py-3 pl-4 text-right">{formatLimitShare(group.limitShare, locale)}</td>
+                  )}
+                  {hasCost && (
+                    <td className="py-3 pl-4 text-right text-ink-2">
+                      {formatCostOrDash(model.cost?.byGroup[group.groupId], locale)}
+                    </td>
                   )}
                 </tr>
               ))}

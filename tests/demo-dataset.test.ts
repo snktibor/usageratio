@@ -161,6 +161,30 @@ describe("buildDemoDataset", () => {
     }
   });
 
+  it("gives Claude and OpenAI a plausible cost estimate, and leaves the other providers without one", () => {
+    const withCost = new Set(
+      reports.flatMap((report) => Object.keys(report.costs)).filter((providerId) => providerId !== ""),
+    );
+    expect(withCost).toEqual(new Set(["claude", "openai"]));
+    for (const report of reports) {
+      for (const [providerId, cost] of Object.entries(report.costs)) {
+        expect(cost, `${report.machineId} ${providerId} cost`).toBeGreaterThan(0);
+        const modelSum = Object.values(report.modelCosts[providerId] ?? {}).reduce((sum, amount) => sum + amount, 0);
+        expect(modelSum, `${report.machineId} ${providerId} modelCosts`).toBeCloseTo(cost, 4);
+      }
+    }
+  });
+
+  it("gives Claude and OpenAI's archived cycles a cost too, and leaves the others without one", () => {
+    for (const entry of dataset.history) {
+      if (entry.providerId === "claude" || entry.providerId === "openai") {
+        expect(entry.summary.cost, `${entry.providerId} @ ${entry.summary.start}`).toBeGreaterThan(0);
+      } else {
+        expect(entry.summary.cost, `${entry.providerId} @ ${entry.summary.start}`).toBeUndefined();
+      }
+    }
+  });
+
   it("gives every hourly machine a complete previous cycle", () => {
     const previousEnd = dataset.cycles.current.start.getTime();
     const stillReporting = DEMO_MACHINES.filter(

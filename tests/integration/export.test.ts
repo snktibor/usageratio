@@ -61,7 +61,7 @@ describe("GET /api/export", () => {
 
     const csv = await response.text();
     const lines = csv.trim().split("\r\n");
-    expect(lines[0]).toBe("provider,groupId,machineId,timestamp,tokens,checkpoint,models");
+    expect(lines[0]).toBe("provider,groupId,machineId,timestamp,tokens,checkpoint,models,costUsd");
     expect(lines.some((line) => line.startsWith("claude,Work,mac,"))).toBe(true);
     expect(csv).toContain(JSON.stringify({ "claude-sonnet-4-5-20250929": 500 }).replace(/"/g, '""'));
   });

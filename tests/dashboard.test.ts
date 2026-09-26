@@ -441,6 +441,52 @@ describe("buildDashboard — timeline", () => {
   });
 });
 
+describe("buildDashboard — cost", () => {
+  it("has no cost field at all when nothing in the window carries one", () => {
+    const model = buildDashboard(NOW, config, snapshot({ events: [report("win-1", "Work", 150_000, 10)] }));
+    expect(model.cost).toBeUndefined();
+  });
+
+  it("gains an optional cost field, by group, machine and model, once at least one event carries one", () => {
+    const model = buildDashboard(
+      NOW,
+      config,
+      snapshot({
+        events: [
+          {
+            ...report("win-1", "Work", 150_000, 10),
+            costUsd: 4.5,
+            modelCosts: { "claude-opus-4-5": 4.5 },
+            models: { "claude-opus-4-5": 150_000 },
+          },
+          { ...report("mac", "Personal", 100_000, 20), costUsd: 1.2 },
+        ],
+      }),
+    );
+    expect(model.cost).toEqual({
+      total: 5.7,
+      byGroup: { Work: 4.5, Personal: 1.2 },
+      byMachine: { "win-1": 4.5, mac: 1.2 },
+      byModel: { "claude-opus-4-5": 4.5 },
+    });
+  });
+
+  it("leaves a machine that never sent a cost figure out of byMachine/byGroup", () => {
+    const model = buildDashboard(
+      NOW,
+      config,
+      snapshot({
+        events: [
+          { ...report("win-1", "Work", 150_000, 10), costUsd: 4.5 },
+          report("mac", "Personal", 100_000, 20), // no cost: this client never opted in
+        ],
+      }),
+    );
+    expect(model.cost?.byMachine).toEqual({ "win-1": 4.5 });
+    expect(model.cost?.byGroup).toEqual({ Work: 4.5 });
+  });
+});
+
 describe("buildProviderDashboards — which provider counts where", () => {
   const seen = NOW.getTime() - 0.5 * HOUR;
   const store = {
