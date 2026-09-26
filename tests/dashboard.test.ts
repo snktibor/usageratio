@@ -334,6 +334,92 @@ describe("buildDashboard — machines", () => {
   });
 });
 
+describe("buildDashboard — manual machine health", () => {
+  it("shows a manual machine as 'manual' rather than 'late', no matter how long since it last reported", () => {
+    const model = buildDashboard(
+      NOW,
+      config,
+      snapshot({
+        // 5 h since the last report: an auto machine on the default interval would be "late" here.
+        machines: [
+          {
+            machineId: "laptop",
+            groupId: "Personal",
+            lastSeenAt: NOW.getTime() - 5 * HOUR,
+            lastTokens: 0,
+            mode: "manual",
+          },
+        ],
+        groups: [group("Personal", 1)],
+      }),
+    );
+    expect(model.machines.find((m) => m.machineId === "laptop")?.health).toBe("manual");
+  });
+
+  it("still shows a manual machine as 'inactive' once it passes inactiveMachineDays, then drops it", () => {
+    const shortWindow = { ...config, inactiveMachineDays: 2 };
+    const withinWindow = buildDashboard(
+      NOW,
+      shortWindow,
+      snapshot({
+        machines: [
+          {
+            machineId: "laptop",
+            groupId: "Personal",
+            lastSeenAt: NOW.getTime() - 1.5 * 24 * HOUR,
+            lastTokens: 0,
+            mode: "manual",
+          },
+        ],
+        groups: [group("Personal", 1)],
+      }),
+    );
+    expect(withinWindow.machines.find((m) => m.machineId === "laptop")?.health).toBe("manual");
+
+    // Past the window, a manual machine (like any other) is dropped from the list entirely.
+    const pastWindow = buildDashboard(
+      NOW,
+      shortWindow,
+      snapshot({
+        machines: [
+          {
+            machineId: "laptop",
+            groupId: "Personal",
+            lastSeenAt: NOW.getTime() - 3 * 24 * HOUR,
+            lastTokens: 0,
+            mode: "manual",
+          },
+        ],
+        groups: [group("Personal", 1)],
+      }),
+    );
+    expect(pastWindow.machines.some((m) => m.machineId === "laptop")).toBe(false);
+  });
+
+  it("grades an auto machine against its own interval when the report carried one", () => {
+    const model = buildDashboard(
+      NOW,
+      config,
+      snapshot({
+        machines: [
+          // 25 min old: "active" on the server's default 60 min interval, but "late" on this
+          // machine's own faster 5 min one ((2*5+10) = 20 min).
+          {
+            machineId: "fast",
+            groupId: "Personal",
+            lastSeenAt: NOW.getTime() - 25 * 60_000,
+            lastTokens: 0,
+            mode: "auto",
+            intervalMinutes: 5,
+          },
+        ],
+        groups: [group("Personal", 1)],
+      }),
+    );
+    expect(model.machines.find((m) => m.machineId === "fast")?.health).toBe("late");
+  });
+});
+
 describe("buildDashboard — timeline", () => {
   it("charts the groups in the table's order and ends on their totals", () => {
     const model = buildDashboard(

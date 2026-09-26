@@ -1,6 +1,6 @@
 import { useLocale, useTranslations } from "next-intl";
 import { CalibratedNote, Swatch } from "@/components/group-breakdown";
-import { CheckCircleIcon, ClockIcon, MoonIcon } from "@/components/icons";
+import { CheckCircleIcon, ClockIcon, InfoCircleIcon, MoonIcon } from "@/components/icons";
 import type { DashboardModel, MachineHealth } from "@/lib/dashboard";
 import { formatAgo, formatDateTime, formatLimitShare, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
@@ -10,12 +10,15 @@ type Machine = DashboardModel["machines"][number];
 const HEALTH_ICON: Record<MachineHealth, { icon: typeof CheckCircleIcon; iconColor: string }> = {
   active: { icon: CheckCircleIcon, iconColor: "text-good" },
   late: { icon: ClockIcon, iconColor: "text-warning" },
+  // A manual machine reports on demand rather than to a schedule: a neutral note, not a warning.
+  manual: { icon: InfoCircleIcon, iconColor: "text-ink-2" },
   inactive: { icon: MoonIcon, iconColor: "text-ink-3" },
 };
 
 const HEALTH_LABEL_KEY = {
   active: "status_active",
   late: "status_late",
+  manual: "status_manual",
   inactive: "status_inactive",
 } as const satisfies Record<MachineHealth, string>;
 

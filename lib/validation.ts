@@ -21,6 +21,9 @@ export interface HourUsage {
   tokens: number;
 }
 
+/** How a client is scheduled to report; decides its machine's health on the dashboard. */
+export type ReportMode = "auto" | "manual";
+
 /** A validated multi-provider snapshot, as sent by the client scripts. */
 export interface UsageReport {
   machineId: string;
@@ -41,6 +44,15 @@ export interface UsageReport {
   timestampMs: number;
   /** Event time normalized to UTC ISO 8601. */
   timestamp: string;
+  /**
+   * Optional (and treated as "auto" wherever it is read) so code building a
+   * `UsageReport` outside `parseUsageReport` — tests, mainly — need not set it.
+   * `parseUsageReport` always fills it in: "auto" when the client's own field
+   * is absent (older clients, and the one-shot report, only ever ran manually).
+   */
+  mode?: ReportMode;
+  /** The auto client's own reporting interval in minutes; absent/null unless `mode` is "auto". */
+  intervalMinutes?: number | null;
 }
 
 export type ParseResult = { ok: true; report: UsageReport } | { ok: false; errors: string[] };
@@ -342,6 +354,39 @@ function parseDays(input: unknown, providers: Record<string, number>, timeZone: 
   return days;
 }
 
+const MIN_INTERVAL_MINUTES = 5;
+const MAX_INTERVAL_MINUTES = 1440;
+
+/** Optional; "auto" (what every machine health check treats a missing field as) when absent. */
+function parseReportMode(input: unknown, errors: string[]): ReportMode {
+  if (input === undefined) return "auto";
+  if (input === "auto" || input === "manual") return input;
+  errors.push('mode must be "auto" or "manual"');
+  return "auto";
+}
+
+/**
+ * Optional; null when absent. An auto client's own reporting interval, in
+ * minutes: lib/dashboard.ts machine health uses it instead of the server's
+ * default when present, so a machine on a non-default schedule (a custom
+ * install-task.ps1 -IntervalMinutes) is not flagged "late" between reports.
+ */
+function parseIntervalMinutes(input: unknown, errors: string[]): number | null {
+  if (input === undefined) return null;
+  if (
+    typeof input === "number" &&
+    Number.isInteger(input) &&
+    input >= MIN_INTERVAL_MINUTES &&
+    input <= MAX_INTERVAL_MINUTES
+  ) {
+    return input;
+  }
+  errors.push(
+    `intervalMinutes must be a whole number of minutes between ${MIN_INTERVAL_MINUTES} and ${MAX_INTERVAL_MINUTES}`,
+  );
+  return null;
+}
+
 /** Validates the JSON body of POST /api/usage. */
 export function parseUsageReport(input: unknown, options: ParseOptions): ParseResult {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
@@ -356,6 +401,8 @@ export function parseUsageReport(input: unknown, options: ParseOptions): ParseRe
   const providers = parseProviders(body.providers, "providers", errors);
   const models = parseModels(body.models, providers, errors);
   const days = parseDays(body.days, providers, options.timeZone, errors);
+  const mode = parseReportMode(body.mode, errors);
+  const intervalMinutes = parseIntervalMinutes(body.intervalMinutes, errors);
 
   let timestampMs: number | null = null;
   if (typeof body.timestamp === "string") timestampMs = parseIsoTimestamp(body.timestamp.trim());
@@ -383,6 +430,8 @@ export function parseUsageReport(input: unknown, options: ParseOptions): ParseRe
       days,
       timestampMs,
       timestamp: new Date(timestampMs).toISOString(),
+      mode,
+      intervalMinutes,
     },
   };
 }

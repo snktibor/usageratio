@@ -36,11 +36,23 @@ OUTPUT_MODE="${USAGERATIO_OUTPUT_MODE:-silent}"
 # Which ccusage runs: "global" only the installed command, "npx" only the current
 # package through npx, anything else the installed one with npx as its fallback.
 CCUSAGE_RUNNER="${USAGERATIO_CCUSAGE:-auto}"
+# The ccusage version npx runs; keep equal to lib/setup.ts CCUSAGE_VERSION (tests/setup.test.ts
+# checks it). USAGERATIO_CCUSAGE_VERSION overrides it; "latest" is an explicit opt-in.
+CCUSAGE_VERSION="${USAGERATIO_CCUSAGE_VERSION:-20.0.24}"
 
 case "$OUTPUT_MODE" in
   silent | manual) ;;
   *) OUTPUT_MODE="silent" ;;
 esac
+
+# The report's own mode/interval (lib/validation.ts ReportMode): "manual" when the
+# wrapper prints its own status (clients/manual/report-usage.sh, and the one-shot
+# report), "auto" otherwise (clients/auto/report-usage.sh, which sets
+# USAGERATIO_INTERVAL_MINUTES to match its schedule). Health on the dashboard
+# treats a manual machine differently: it is never "late", since it has no schedule to miss.
+REPORT_MODE="auto"
+[ "$OUTPUT_MODE" = "manual" ] && REPORT_MODE="manual"
+INTERVAL_MINUTES="${USAGERATIO_INTERVAL_MINUTES:-}"
 
 # Runs ccusage with the given arguments into the file $1: the global ccusage
 # first, and when that fails (an older version may not know unified reports
@@ -54,7 +66,7 @@ run_ccusage() {
       return
       ;;
     npx)
-      npx --yes ccusage@latest "$@" >"$output"
+      npx --yes "ccusage@$CCUSAGE_VERSION" "$@" >"$output"
       return
       ;;
   esac
@@ -62,7 +74,7 @@ run_ccusage() {
     return 0
   fi
   command -v npx >/dev/null 2>&1 || return 1
-  npx --yes ccusage@latest "$@" >"$output"
+  npx --yes "ccusage@$CCUSAGE_VERSION" "$@" >"$output"
 }
 
 # Runs ccusage's unified daily report and converts every model/source to a
@@ -322,7 +334,7 @@ fi
 # ─── Payload ──────────────────────────────────────────────────────────────────
 
 TIMESTAMP="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-PAYLOAD="$(printf '%s' "$PROVIDERS_JSON" | node "$CCUSAGE_PARSER" payload "$MACHINE_ID" "$GROUP_ID" "$TIMESTAMP" "$WORK_DIR/models.json" "$WORK_DIR/days.json" 2>"$WORK_DIR/payload-error")" || {
+PAYLOAD="$(printf '%s' "$PROVIDERS_JSON" | node "$CCUSAGE_PARSER" payload "$MACHINE_ID" "$GROUP_ID" "$TIMESTAMP" "$WORK_DIR/models.json" "$WORK_DIR/days.json" "$REPORT_MODE" "$INTERVAL_MINUTES" 2>"$WORK_DIR/payload-error")" || {
   log "ERROR: could not create the JSON payload"
   exit 3
 }

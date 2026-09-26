@@ -58,7 +58,9 @@ $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
   -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`""
 
 # Daily at midnight, repeating all day: the most portable way to say "every N minutes, forever".
-$trigger = New-ScheduledTaskTrigger -Daily -At '00:00'
+# RandomDelay spreads machines' first run of the day over up to 5 minutes, so they do not all
+# report in the same second (see clients/auto/report-usage.sh's jitter for the Unix equivalent).
+$trigger = New-ScheduledTaskTrigger -Daily -At '00:00' -RandomDelay (New-TimeSpan -Minutes 5)
 $repeat = New-ScheduledTaskTrigger -Once -At '00:00' `
   -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
   -RepetitionDuration (New-TimeSpan -Days 1)

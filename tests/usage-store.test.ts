@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MAX_MACHINES } from "@/lib/config";
 import { MAX_PROVIDERS } from "@/lib/providers";
-import { getMemoryStoreForTests } from "@/lib/redis";
+import { getMemoryStoreForTests, getRedis } from "@/lib/redis";
 import { MAX_GROUPS } from "@/lib/settings";
 import { loadEvents, loadIndexes, storeReport } from "@/lib/usage-store";
 import { parseUsageReport, type UsageReport } from "@/lib/validation";
@@ -161,6 +161,62 @@ describe("storeReport — heartbeat (an empty providers snapshot)", () => {
     const indexes = await loadIndexes();
     expect(indexes.providers.map((provider) => provider.providerId)).toEqual(["claude"]);
     expect(indexes.machines).toHaveLength(1);
+  });
+});
+
+describe("storeReport — machine mode and interval", () => {
+  useRedis();
+
+  it("defaults a machine to auto/null and omits both fields from the stored entry", async () => {
+    await storeOk(report({}), NOW, 70, null);
+    const indexes = await loadIndexes();
+    expect(indexes.machines).toEqual([
+      expect.objectContaining({ machineId: "mac", mode: "auto", intervalMinutes: null }),
+    ]);
+
+    const raw = await getRedis().hget<string>("usage:machines", "claude:mac");
+    expect(JSON.parse(raw!)).not.toHaveProperty("md");
+    expect(JSON.parse(raw!)).not.toHaveProperty("iv");
+  });
+
+  it("stores a manual machine's mode, and an auto machine's own interval", async () => {
+    await storeOk(report({ machineId: "phone", mode: "manual" }), NOW, 70, null);
+    await storeOk(report({ machineId: "server", mode: "auto", intervalMinutes: 30 }), NOW, 70, null);
+
+    const indexes = await loadIndexes();
+    const byId = new Map(indexes.machines.map((machine) => [machine.machineId, machine]));
+    expect(byId.get("phone")).toEqual(
+      expect.objectContaining({ machineId: "phone", mode: "manual", intervalMinutes: null }),
+    );
+    expect(byId.get("server")).toEqual(
+      expect.objectContaining({ machineId: "server", mode: "auto", intervalMinutes: 30 }),
+    );
+
+    const rawPhone = await getRedis().hget<string>("usage:machines", "claude:phone");
+    expect(JSON.parse(rawPhone!)).toMatchObject({ md: "manual" });
+    expect(JSON.parse(rawPhone!)).not.toHaveProperty("iv");
+
+    const rawServer = await getRedis().hget<string>("usage:machines", "claude:server");
+    expect(JSON.parse(rawServer!)).toMatchObject({ iv: 30 });
+    expect(JSON.parse(rawServer!)).not.toHaveProperty("md");
+  });
+
+  it("reads an entry stored before mode/interval existed as auto/null (production Redis)", async () => {
+    await getRedis().hset("usage:machines", { "claude:old-mac": JSON.stringify({ g: "Personal", ts: 1000, t: 500 }) });
+    const indexes = await loadIndexes();
+    expect(indexes.machines).toEqual([
+      expect.objectContaining({ machineId: "old-mac", mode: "auto", intervalMinutes: null }),
+    ]);
+  });
+
+  it("ignores a damaged interval value and falls back to null", async () => {
+    await getRedis().hset("usage:machines", {
+      "claude:weird": JSON.stringify({ g: "Personal", ts: 1000, t: 500, iv: -5 }),
+    });
+    const indexes = await loadIndexes();
+    expect(indexes.machines).toEqual([
+      expect.objectContaining({ machineId: "weird", mode: "auto", intervalMinutes: null }),
+    ]);
   });
 });
 
