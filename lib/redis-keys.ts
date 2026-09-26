@@ -30,6 +30,10 @@
  *   usage:housekeeping:last  STRING {"at": ms, "report": HousekeepingReport} — the last run of
  *                                   lib/housekeeping.ts (see app/api/cron/housekeeping/route.ts)
  *
+ *   usage:alert:{providerId}:{cycleStartMs}:{threshold}
+ *                             STRING "1", SET NX EX 70d — the guard that makes a threshold
+ *                                   alert fire once per provider per cycle (see lib/alerts.ts)
+ *
  *   usage:history:{providerId}   ZSET  score = cycle start (epoch ms), member = a CycleSummary
  *                                       (JSON, see lib/history.ts), kept for the newest
  *                                       HISTORY_RETENTION cycles. Written lazily on a dashboard
@@ -78,4 +82,6 @@ export const KEYS = {
   apiTokenAudit: "usage:api-token:audit",
   housekeepingLast: "usage:housekeeping:last",
   tokens: "usage:tokens",
+  alert: (providerId: string, cycleStartMs: number, threshold: number) =>
+    `usage:alert:${providerId}:${cycleStartMs}:${threshold}`,
 };

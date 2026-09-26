@@ -7,10 +7,11 @@ import {
   parseLimit,
   parseModelParts,
   parseSharePercent,
+  toggleAlertThreshold,
   toRequest,
 } from "@/components/settings/draft";
 import { getConfig } from "@/lib/config";
-import { buildSettingsView, MAX_GROUPS, MAX_LIMIT, parseSettingsUpdate } from "@/lib/settings";
+import { buildSettingsView, MAX_ALERT_THRESHOLDS, MAX_GROUPS, MAX_LIMIT, parseSettingsUpdate } from "@/lib/settings";
 import { MAX_SUB_LIMIT_MODELS } from "@/lib/sub-limits";
 
 /**
@@ -206,5 +207,66 @@ describe("toRequest", () => {
       providers: draft.providers.map((provider) => ({ ...provider, visible: false })),
     };
     expect(toRequest(allHidden)).toEqual({ problem: { code: "at_least_one_visible_account" } });
+  });
+
+  it("turns an empty webhook field into alerts off", () => {
+    const draft = draftFrom(view);
+    const result = toRequest({ ...draft, alerts: { ...draft.alerts, webhookUrl: "  " } });
+    if (!("request" in result)) throw new Error(`expected a request, got a problem: ${JSON.stringify(result)}`);
+    expect(result.request.alerts.webhookUrl).toBeNull();
+    expect(parseSettingsUpdate(result.request)).toMatchObject({ ok: true });
+  });
+
+  it("carries an edited webhook, thresholds, format and locale through to the parsed update", () => {
+    const draft = draftFrom(view);
+    const edited: Draft = {
+      ...draft,
+      alerts: {
+        webhookUrl: " https://hooks.example.com/x ",
+        thresholds: [90, 25, 25],
+        perProvider: false,
+        format: "discord",
+        locale: "de",
+      },
+    };
+    const result = toRequest(edited);
+    if (!("request" in result)) throw new Error(`expected a request, got a problem: ${JSON.stringify(result)}`);
+    const parsed = parseSettingsUpdate(result.request);
+    if (!parsed.ok) throw new Error(`expected parseSettingsUpdate to accept it: ${parsed.errors.join("; ")}`);
+    expect(parsed.update.settings.alerts).toEqual({
+      webhookUrl: "https://hooks.example.com/x",
+      thresholds: [25, 90],
+      perProvider: false,
+      format: "discord",
+      locale: "de",
+    });
+  });
+
+  it("rejects a webhook URL that fails the allow-list", () => {
+    const draft = draftFrom(view);
+    const withBadWebhook: Draft = { ...draft, alerts: { ...draft.alerts, webhookUrl: "https://localhost/x" } };
+    expect(toRequest(withBadWebhook)).toEqual({ problem: { code: "invalid_alert_webhook" } });
+  });
+
+  it("requires at least one threshold", () => {
+    const draft = draftFrom(view);
+    const noThresholds: Draft = { ...draft, alerts: { ...draft.alerts, thresholds: [] } };
+    expect(toRequest(noThresholds)).toEqual({ problem: { code: "alerts_need_at_least_one_threshold" } });
+  });
+});
+
+describe("toggleAlertThreshold", () => {
+  it("adds a value that is not yet selected, keeping the list sorted", () => {
+    expect(toggleAlertThreshold([50, 100], 80)).toEqual([50, 80, 100]);
+  });
+
+  it("removes a value that is already selected", () => {
+    expect(toggleAlertThreshold([50, 80, 100], 80)).toEqual([50, 100]);
+  });
+
+  it("ignores an addition once MAX_ALERT_THRESHOLDS is reached", () => {
+    const full = [10, 20, 30, 40, 50];
+    expect(full).toHaveLength(MAX_ALERT_THRESHOLDS);
+    expect(toggleAlertThreshold(full, 60)).toEqual(full);
   });
 });

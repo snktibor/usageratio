@@ -294,6 +294,7 @@ describe("the application's store code on the memory store", () => {
       hiddenProviders: [],
       excludedProviders: {},
       subLimits: {},
+      alerts: { webhookUrl: null, thresholds: [50, 80, 100], perProvider: true, format: "generic", locale: "en" },
       groups: [{ id: "Work", color: "#3987e5" }],
       removedGroups: [],
     });
