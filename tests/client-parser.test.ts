@@ -4,6 +4,9 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { MAX_REPORT_DAYS } from "@/lib/days";
+import { MAX_MODELS_PER_REPORT, MAX_MODELS_PER_PROVIDER as SERVER_MAX_MODELS_PER_PROVIDER } from "@/lib/models";
+import { PROVIDER_LABELS, MAX_PROVIDERS as SERVER_MAX_PROVIDERS } from "@/lib/providers";
 
 const require = createRequire(import.meta.url);
 type ModelMap = Record<string, Record<string, number>>;
@@ -13,18 +16,35 @@ type DayMap = Record<
 >;
 type Hourly = { blocks: unknown; cycleStartMs: number; timeZone: string } | null;
 const PARSER = join(__dirname, "../clients/shared/ccusage-providers.cjs");
-const { normalizeModelMap, normalizeProviderMap, parseCcusageDays, parseCcusageProviders, parseCcusageUsage } =
-  require("../clients/shared/ccusage-providers.cjs") as {
-    normalizeModelMap: (input: unknown, providers: Record<string, number>) => ModelMap;
-    normalizeProviderMap: (input: unknown) => Record<string, number>;
-    parseCcusageDays: (input: unknown, hourly?: Hourly) => DayMap;
-    parseCcusageProviders: (input: unknown, fallbackProviders?: string[], hourly?: Hourly) => Record<string, number>;
-    parseCcusageUsage: (
-      input: unknown,
-      fallbackProviders?: string[],
-      hourly?: Hourly,
-    ) => { providers: Record<string, number>; models: ModelMap };
-  };
+const {
+  MAX_DAYS,
+  MAX_MODELS,
+  MAX_MODELS_PER_PROVIDER,
+  MAX_PROVIDERS,
+  normalizeModelMap,
+  normalizeProviderMap,
+  parseCcusageDays,
+  parseCcusageProviders,
+  parseCcusageUsage,
+  PROVIDERS,
+  providerFrom,
+} = require("../clients/shared/ccusage-providers.cjs") as {
+  MAX_DAYS: number;
+  MAX_MODELS: number;
+  MAX_MODELS_PER_PROVIDER: number;
+  MAX_PROVIDERS: number;
+  normalizeModelMap: (input: unknown, providers: Record<string, number>) => ModelMap;
+  normalizeProviderMap: (input: unknown) => Record<string, number>;
+  parseCcusageDays: (input: unknown, hourly?: Hourly) => DayMap;
+  parseCcusageProviders: (input: unknown, fallbackProviders?: string[], hourly?: Hourly) => Record<string, number>;
+  parseCcusageUsage: (
+    input: unknown,
+    fallbackProviders?: string[],
+    hourly?: Hourly,
+  ) => { providers: Record<string, number>; models: ModelMap };
+  PROVIDERS: { id: string; test: RegExp }[];
+  providerFrom: (value: unknown, fallback?: string) => string;
+};
 
 describe("ccusage provider parser", () => {
   it("normalizes provider maps used by the reporters", () => {
@@ -144,6 +164,54 @@ describe("ccusage provider parser", () => {
     expect(Object.keys(models.claude!)).toHaveLength(20);
     expect(models.claude!["model-0"]).toBeUndefined();
     expect(models.claude!["model-24"]).toBe(25);
+  });
+});
+
+// One real model name each registry entry's pattern actually matches (unlike the
+// others, "meta"'s test needs "llama" or "…ai", not just the id itself).
+const PROVIDER_PROBES: Record<string, string> = {
+  deepseek: "deepseek-chat",
+  claude: "claude-opus-4-5",
+  openai: "gpt-5-codex",
+  gemini: "gemini-2.5-pro",
+  xai: "grok-4",
+  qwen: "qwen-2.5-max",
+  kimi: "kimi-k2",
+  mistral: "mistral-large",
+  meta: "llama-3.1-405b",
+};
+
+describe("provider registry", () => {
+  it("matches providerFrom's precedence: the first entry to test true wins", () => {
+    expect(PROVIDERS.map((provider) => provider.id)).toEqual([
+      "deepseek",
+      "claude",
+      "openai",
+      "gemini",
+      "xai",
+      "qwen",
+      "kimi",
+      "mistral",
+      "meta",
+    ]);
+    for (const provider of PROVIDERS) {
+      const probe = PROVIDER_PROBES[provider.id];
+      expect(probe, `missing a probe model name for ${provider.id}`).toBeDefined();
+      expect(providerFrom(probe)).toBe(provider.id);
+    }
+  });
+
+  it("gives every registry provider a display label on the dashboard", () => {
+    for (const provider of PROVIDERS) {
+      expect(Object.hasOwn(PROVIDER_LABELS, provider.id), provider.id).toBe(true);
+    }
+  });
+
+  it("keeps its limits equal to the server's (lib/providers.ts, lib/models.ts, lib/days.ts)", () => {
+    expect(MAX_PROVIDERS).toBe(SERVER_MAX_PROVIDERS);
+    expect(MAX_MODELS_PER_PROVIDER).toBe(SERVER_MAX_MODELS_PER_PROVIDER);
+    expect(MAX_MODELS).toBe(MAX_MODELS_PER_REPORT);
+    expect(MAX_DAYS).toBe(MAX_REPORT_DAYS);
   });
 });
 

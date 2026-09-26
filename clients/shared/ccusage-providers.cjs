@@ -71,18 +71,32 @@ function slug(value) {
     .slice(0, 64);
 }
 
+/**
+ * The recognized providers, in matching order: the first whose `test` matches
+ * the (already lowercased) model/vendor text wins. Order is precedence — keep
+ * it the way it is unless a provider's name would otherwise be shadowed by an
+ * earlier one's pattern (this mirrors the if-chain providerFrom() used to be).
+ * Every id here needs a display label in lib/providers.ts PROVIDER_LABELS;
+ * tests/client-parser.test.ts checks that.
+ */
+const PROVIDERS = [
+  { id: "deepseek", test: /deepseek/ },
+  { id: "claude", test: /claude|anthropic/ },
+  { id: "openai", test: /openai|chatgpt|codex|gpt[-_. ]?\d|(^|[^a-z])o[134]($|[-_. ])/ },
+  { id: "gemini", test: /gemini|google[-_. /]?(ai)?/ },
+  { id: "xai", test: /grok|xai|x-ai/ },
+  { id: "qwen", test: /qwen|alibaba/ },
+  { id: "kimi", test: /kimi|moonshot/ },
+  { id: "mistral", test: /mistral|codestral/ },
+  { id: "meta", test: /llama|meta[-_. /]?ai/ },
+];
+
 /** Prefer the actual model vendor; use the collecting agent only as fallback. */
 function providerFrom(value, fallback = "") {
   const text = String(value ?? "").toLowerCase();
-  if (/deepseek/.test(text)) return "deepseek";
-  if (/claude|anthropic/.test(text)) return "claude";
-  if (/openai|chatgpt|codex|gpt[-_. ]?\d|(^|[^a-z])o[134]($|[-_. ])/i.test(text)) return "openai";
-  if (/gemini|google[-_. /]?(ai)?/.test(text)) return "gemini";
-  if (/grok|xai|x-ai/.test(text)) return "xai";
-  if (/qwen|alibaba/.test(text)) return "qwen";
-  if (/kimi|moonshot/.test(text)) return "kimi";
-  if (/mistral|codestral/.test(text)) return "mistral";
-  if (/llama|meta[-_. /]?ai/.test(text)) return "meta";
+  for (const provider of PROVIDERS) {
+    if (provider.test.test(text)) return provider.id;
+  }
 
   const source = slug(fallback || value);
   const aliases = {
@@ -654,11 +668,16 @@ if (require.main === module) {
 }
 
 module.exports = {
+  MAX_DAYS,
+  MAX_MODELS,
+  MAX_MODELS_PER_PROVIDER,
+  MAX_PROVIDERS,
   normalizeModelMap,
   normalizeProviderMap,
   parseCcusageDays,
   parseCcusageProviders,
   parseCcusageUsage,
+  PROVIDERS,
   providerFrom,
   tokenTotal,
 };
