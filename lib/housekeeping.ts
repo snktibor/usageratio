@@ -1,12 +1,13 @@
 import { parseAuditRecord } from "@/lib/api-token";
+import { archiveDueCycles } from "@/lib/archive";
 import { getConfig, RETENTION_DAYS } from "@/lib/config";
-import { getCycle } from "@/lib/cycle";
+import { getCycle, getPreviousCycle } from "@/lib/cycle";
 import { log } from "@/lib/log";
 import { getRedis } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
 import { parseStoredSettings, resolveConfig, settingsFromConfig } from "@/lib/settings";
 import { pruneRevokedTokens } from "@/lib/tokens";
-import { loadIndexes } from "@/lib/usage-store";
+import { loadEvents, loadIndexes } from "@/lib/usage-store";
 
 /**
  * Prunes the index hashes (`usage:machines`, `usage:providers`, `usage:groups`,
@@ -16,6 +17,10 @@ import { loadIndexes } from "@/lib/usage-store";
  * ZSETs (`usage:events:{provider}:{group}`), which already self-prune on
  * every report (`storeReport` in lib/usage-store.ts); this is only about the
  * indexes that would otherwise grow forever with dead ids.
+ *
+ * One step writes instead of pruning: it archives the cycle that just ended
+ * into the cycle history (lib/archive.ts), so the history does not depend on
+ * someone opening the dashboard during the following cycle.
  *
  * Every step reads the same snapshot (one `loadIndexes()` call, or its own
  * read for `usage:tokens`), so a run is idempotent: nothing left behind by one
@@ -38,6 +43,8 @@ export interface HousekeepingReport {
   officialUsage: HousekeepingStepReport;
   tokens: HousekeepingStepReport;
   audit: { removed: number };
+  /** Providers whose just-ended cycle this run archived (with `dryRun`: would archive). */
+  history: { archived: number; ids: string[] };
   dryRun: boolean;
 }
 
@@ -113,9 +120,24 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
   // Step 3: groups with zero events across every provider, old enough to be dead rather than new. A group with any data never qualifies.
   const staleGroups = indexes.groups.filter((group) => group.firstSeenAt < cutoffMs && !groupHasEvents(group.groupId));
 
-  // Step 4: official-usage entries from a cycle that has since rolled over, or that no longer parse.
+  // Step 4: archive the cycle that just ended into `usage:history:{provider}` (lib/archive.ts), the
+  // same way the first dashboard render after it does: a cycle nobody looked at is kept all the same.
+  // It runs before step 5 deletes that cycle's official-usage entries, and reads the same snapshot.
   const config = resolveConfig(getConfig(), indexes.settings, providerIds);
   const cycle = getCycle(now, config.reset);
+  const previousCycle = getPreviousCycle(cycle, config.reset);
+  const { eventsByProvider } = await loadEvents(providerIds, indexes.groups, previousCycle.start.getTime());
+  const archived = await archiveDueCycles({
+    providerIds,
+    config,
+    cycle,
+    previousCycle,
+    eventsByProvider,
+    rawOfficialUsage: indexes.officialUsage,
+    dryRun,
+  });
+
+  // Step 5: official-usage entries from a cycle that has since rolled over, or that no longer parse.
   const staleOfficialFields = Object.entries(indexes.officialUsage)
     .filter(([, raw]) => {
       const cycleStartMs = officialCycleStartMs(raw);
@@ -123,7 +145,7 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     })
     .map(([field]) => field);
 
-  // Step 5: audit entries past their retention window. The list is newest first, so the first
+  // Step 6: audit entries past their retention window. The list is newest first, so the first
   // (from the head) that is too old marks where the still-current entries end.
   const auditRaw = await redis.lrange<string>(KEYS.apiTokenAudit, 0, -1);
   const auditCutoffMs = now.getTime() - auditRetentionDays() * DAY_MS;
@@ -137,7 +159,7 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
   }
   const auditRemoved = auditRaw.length - auditKeep;
 
-  // Step 6: per-machine tokens (lib/tokens.ts) revoked long enough ago to forget entirely.
+  // Step 7: per-machine tokens (lib/tokens.ts) revoked long enough ago to forget entirely.
   const tokensPruned = await pruneRevokedTokens(now, { dryRun });
 
   if (!dryRun) {
@@ -159,6 +181,7 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     officialUsage: { removed: staleOfficialFields.length, ids: staleOfficialFields },
     tokens: tokensPruned,
     audit: { removed: auditRemoved },
+    history: { archived: archived.length, ids: archived },
     dryRun,
   };
 
@@ -172,6 +195,8 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     if (removed > 0) log.info(`housekeeping.${step}_pruned`, { removed, ids, dryRun });
   }
   if (auditRemoved > 0) log.info("housekeeping.audit_pruned", { removed: auditRemoved, dryRun });
+  if (archived.length > 0)
+    log.info("housekeeping.history_archived", { archived: archived.length, ids: archived, dryRun });
   log.info("housekeeping.run", {
     dryRun,
     machines: report.machines.removed,
@@ -180,6 +205,7 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     officialUsage: report.officialUsage.removed,
     tokens: report.tokens.removed,
     audit: report.audit.removed,
+    archived: report.history.archived,
   });
 
   if (!dryRun) await redis.set(KEYS.housekeepingLast, JSON.stringify({ at: now.getTime(), report }));

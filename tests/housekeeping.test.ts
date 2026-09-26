@@ -1,16 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { serializeAuditRecord } from "@/lib/api-token";
 import { getConfig } from "@/lib/config";
-import { getCycle } from "@/lib/cycle";
+import { getCycle, getPreviousCycle } from "@/lib/cycle";
 import { runHousekeeping } from "@/lib/housekeeping";
+import { ingestReport } from "@/lib/ingest";
 import { getRedis } from "@/lib/redis";
 import { serializeGroupEntry, serializeSettings, settingsFromConfig } from "@/lib/settings";
+import { loadHistory } from "@/lib/usage-store";
 import { useRedis } from "./helpers/redis-fixture";
 
 /**
  * lib/housekeeping.ts prunes the index hashes (machines, providers, groups,
  * official usage, per-machine tokens) and the audit trail of entries nothing
- * still points to, and never the raw event history. These tests seed a store
+ * still points to, and never the raw event history; its one writing step
+ * archives the cycle that just ended (lib/archive.ts). These tests seed a store
  * by hand, matching the shapes lib/usage-store.ts, lib/api-token.ts and
  * lib/tokens.ts write, and check the counts and what survives.
  */
@@ -224,7 +227,71 @@ describe("runHousekeeping", () => {
       officialUsage: { removed: 0, ids: [] },
       tokens: { removed: 0, ids: [] },
       audit: { removed: 0 },
+      history: { archived: 0, ids: [] },
       dryRun: false,
+    });
+  });
+
+  describe("history step", () => {
+    /** One report in the cycle before NOW's, through the same path a client's POST takes. */
+    async function reportInPreviousCycle(providerId: string, tokens: number) {
+      const cycle = getCycle(NOW, getConfig().reset);
+      const previous = getPreviousCycle(cycle, getConfig().reset);
+      const at = new Date(previous.start.getTime() + DAY_MS);
+      const result = await ingestReport(
+        {
+          machineId: "mac",
+          groupId: "Personal",
+          providers: { [providerId]: tokens },
+          timestamp: at.toISOString(),
+        },
+        at,
+      );
+      if (!result.ok) throw new Error(JSON.stringify(result));
+      return { cycle, previous };
+    }
+
+    it("archives the cycle that just ended without any dashboard visit, with its official percentage", async () => {
+      const { previous } = await reportInPreviousCycle("claude", 1234);
+      // The previous cycle's typed-in figure: step 5 prunes it in this very run, after step 4 read it.
+      await getRedis().hset("usage:official", {
+        claude: JSON.stringify({ raw: "40", enteredAt: NOW.getTime(), cycleStartMs: previous.start.getTime() }),
+      });
+
+      const report = await runHousekeeping(NOW, { dryRun: false });
+
+      expect(report.history).toEqual({ archived: 1, ids: ["claude"] });
+      expect(report.officialUsage.ids).toEqual(["claude"]);
+      const history = await loadHistory(["claude"]);
+      expect(history.claude).toHaveLength(1);
+      expect(history.claude?.[0]).toMatchObject({ start: previous.start.getTime(), total: 1234, official: 40 });
+    });
+
+    it("archives each cycle once: a second run, like a later dashboard render, finds nothing due", async () => {
+      await reportInPreviousCycle("claude", 1234);
+      await runHousekeeping(NOW, { dryRun: false });
+      const second = await runHousekeeping(new Date(NOW.getTime() + 1000), { dryRun: false });
+
+      expect(second.history).toEqual({ archived: 0, ids: [] });
+      expect((await loadHistory(["claude"])).claude).toHaveLength(1);
+    });
+
+    it("dry run names the providers that are due but writes no history", async () => {
+      await reportInPreviousCycle("claude", 1234);
+
+      const report = await runHousekeeping(NOW, { dryRun: true });
+
+      expect(report.history).toEqual({ archived: 1, ids: ["claude"] });
+      expect((await loadHistory(["claude"])).claude ?? []).toHaveLength(0);
+    });
+
+    it("skips a provider with no events in the cycle that just ended", async () => {
+      await seedEvents("claude", "Personal", NOW.getTime());
+      await getRedis().hset("usage:providers", { claude: String(NOW.getTime()) });
+      await getRedis().hset("usage:groups", { Personal: serializeGroupEntry("#3987e5", NOW.getTime()) });
+
+      const report = await runHousekeeping(NOW, { dryRun: false });
+      expect(report.history).toEqual({ archived: 0, ids: [] });
     });
   });
 

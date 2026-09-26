@@ -12,16 +12,19 @@ import { type SubLimit, splitBySubLimits } from "@/lib/sub-limits";
  * cycles Redis still holds raw events for (events are pruned after
  * RETENTION_DAYS; see lib/config.ts and lib/usage-store.ts `storeReport`).
  *
- * Lazy archiving, no cron: on every dashboard read (app/[locale]/(dashboard)/page.tsx),
- * for every provider, if the newest archived cycle is older than the
- * previous cycle's start, and that previous cycle actually has events (it
- * does, since the page already reads from its start), the previous cycle
- * is summarized from data still in hand and written with `ZADD NX` — so two
- * renders racing each other still write it exactly once. Only the cycle
+ * Archiving (lib/archive.ts `archiveDueCycles`) runs from two places: every
+ * dashboard read (app/[locale]/(dashboard)/page.tsx) and the daily
+ * housekeeping run (lib/housekeeping.ts, `history` step), whichever comes
+ * first after a cycle ends. For every provider, if the newest archived cycle
+ * is older than the previous cycle's start, and that previous cycle actually
+ * has events (both callers read events from its start), the previous cycle
+ * is summarized from data still in hand and written with `ZADD NX`, so two
+ * callers racing each other still write it exactly once. Only the cycle
  * right before the current one can ever be archived this way: by the time a
  * *later* cycle would need to archive an older one, its events are already
- * gone from Redis. A host that wants unbroken history across a long absence
- * still needs to load the dashboard at least once a cycle.
+ * gone from Redis. With the daily cron in place that no longer depends on
+ * anyone opening the dashboard; a host that runs neither the cron nor the
+ * dashboard for a whole cycle still loses that cycle's summary.
  *
  * Pure; the Redis side (`archiveCycle`, `loadHistory`, `loadNewestArchivedStarts`)
  * lives in lib/usage-store.ts.

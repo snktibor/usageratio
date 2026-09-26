@@ -5,30 +5,22 @@ import { Dashboard } from "@/components/dashboard";
 import { PinGate } from "@/components/pin-gate";
 import { StorageProblem } from "@/components/storage-problem";
 import { routing } from "@/i18n/routing";
-import type { UsageEvent } from "@/lib/aggregate";
+import { archiveDueCycles } from "@/lib/archive";
 import { isAuthenticated } from "@/lib/auth";
 import { currentTime } from "@/lib/clock";
-import { type AppConfig, getConfig } from "@/lib/config";
-import { type Cycle, getCycle, getPreviousCycle } from "@/lib/cycle";
+import { getConfig } from "@/lib/config";
+import { getCycle, getPreviousCycle } from "@/lib/cycle";
 import { buildProviderDashboards, type ProviderDashboardModel } from "@/lib/dashboard";
 import { ensureDemoData } from "@/lib/demo/seed";
-import { type CycleSummary, officialPercentForCycle, summarizeCycle } from "@/lib/history";
+import type { CycleSummary } from "@/lib/history";
 import { log } from "@/lib/log";
 import { modelKeysIn } from "@/lib/models";
 import { currentOfficialEntries } from "@/lib/official-usage";
 import { PROVIDER_COOKIE } from "@/lib/preferences";
 import { mergeProviderIds } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
-import {
-  buildSettingsView,
-  configForProvider,
-  countsForProvider,
-  resolveConfig,
-  type SettingsView,
-  storedProviderIds,
-  subLimitsOf,
-} from "@/lib/settings";
-import { archiveCycle, loadEvents, loadHistory, loadIndexes, loadNewestArchivedStarts } from "@/lib/usage-store";
+import { buildSettingsView, resolveConfig, type SettingsView, storedProviderIds } from "@/lib/settings";
+import { loadEvents, loadHistory, loadIndexes } from "@/lib/usage-store";
 
 // Rendered per request: the page depends on the session cookie and on live data.
 export const dynamic = "force-dynamic";
@@ -37,62 +29,6 @@ interface DashboardData {
   providers: ProviderDashboardModel[];
   settings: SettingsView;
   historyByProvider: Record<string, CycleSummary[]>;
-}
-
-/**
- * Lazy archiving of the cycle right before the current one: on a dashboard
- * read, once it is no longer the newest archived cycle for a provider (and it
- * actually has events — it does here, since `loadEvents` above already reads
- * from its start), it is summarized and written with `ZADD NX`. `archivedAt`
- * is the cycle's own end time, not the wall-clock time of this render: two
- * renders racing each other build the very same summary bytes, so `ZADD NX`
- * truly dedupes them into one entry rather than adding a second one that only
- * differs by when each happened to run. See lib/history.ts for why only this
- * one cycle can be archived this way, and for `summarizeCycle`. Best-effort: a
- * failure here is logged, never turned into a broken dashboard.
- */
-async function archivePreviousCycle(
-  providerIds: string[],
-  config: AppConfig,
-  cycle: Cycle,
-  previousCycle: Cycle,
-  eventsByProvider: Record<string, UsageEvent[]>,
-  rawOfficialUsage: Record<string, string>,
-): Promise<void> {
-  if (providerIds.length === 0) return;
-  const previousStartMs = previousCycle.start.getTime();
-  const newestStarts = await loadNewestArchivedStarts(providerIds);
-
-  const due = providerIds.filter((providerId) => {
-    const newest = newestStarts[providerId];
-    if (newest !== null && newest !== undefined && newest >= previousStartMs) return false;
-    return (eventsByProvider[providerId] ?? []).some(
-      (event) => event.ts >= previousStartMs && event.ts < cycle.start.getTime(),
-    );
-  });
-  if (due.length === 0) return;
-
-  await Promise.all(
-    due.map(async (providerId) => {
-      try {
-        const counts = (groupId: string) => countsForProvider(config.excludedProviders, groupId, providerId);
-        const providerConfig = configForProvider(config, providerId);
-        const official = officialPercentForCycle(rawOfficialUsage, providerId, previousStartMs);
-        const summary = summarizeCycle({
-          events: (eventsByProvider[providerId] ?? []).filter((event) => counts(event.groupId)),
-          window: { startMs: previousStartMs, endMs: cycle.start.getTime() },
-          mode: config.tokenMode,
-          limit: config.useTokenLimits ? providerConfig.limit : null,
-          official,
-          subLimits: subLimitsOf(config, providerId),
-          archivedAt: cycle.start.getTime(),
-        });
-        await archiveCycle(providerId, summary);
-      } catch (error) {
-        log.error("dashboard.archive_failed", { providerId, err: error });
-      }
-    }),
-  );
 }
 
 /** Two round trips: the saved settings decide the cycle, the cycle decides which reports to read. */
@@ -115,7 +51,15 @@ async function loadDashboard(): Promise<DashboardData> {
   // The reset is shared by every provider, so one cycle start also tells which stored ground-truth figures still apply.
   const officialUsage = currentOfficialEntries(indexes.officialUsage, cycle.start.getTime());
 
-  await archivePreviousCycle(providerIds, config, cycle, previousCycle, eventsByProvider, indexes.officialUsage);
+  // Lazy archiving of the cycle that just ended (the daily housekeeping run does the same; see lib/archive.ts).
+  await archiveDueCycles({
+    providerIds,
+    config,
+    cycle,
+    previousCycle,
+    eventsByProvider,
+    rawOfficialUsage: indexes.officialUsage,
+  });
   const historyByProvider = await loadHistory(providerIds);
 
   return {
