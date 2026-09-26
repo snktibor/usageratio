@@ -69,7 +69,7 @@ describe("sub-limit definitions", () => {
     expect(subLimitIdFor("Fable 5", [])).toBe("fable-5");
     expect(subLimitIdFor("Fable", ["fable", "fable-2"])).toBe("fable-3");
     expect(subLimitIdFor("Ősz ünnep", [])).toBe("osz-unnep");
-    expect(subLimitIdFor("★", [])).toBe("alkeret");
+    expect(subLimitIdFor("★", [])).toBe("sub-limit");
     expect(subLimitIdFor("a".repeat(40), [])).toHaveLength(24);
   });
 });

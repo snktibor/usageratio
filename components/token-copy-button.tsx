@@ -2,18 +2,20 @@
 
 import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
-import { CopyError, copyText, fetchApiToken } from "@/components/clipboard";
+import { CopyError, type CopyErrorCode, copyText, fetchApiToken } from "@/components/clipboard";
 import { CheckCircleIcon, KeyIcon } from "@/components/icons";
 import { StatusLine } from "@/components/status-line";
 import { type ApiTokenStatus, apiTokenStatusNote } from "@/lib/api-token";
 
-type CopyState = { phase: "idle" } | { phase: "busy" } | { phase: "copied" } | { phase: "failed"; message: string };
+type CopyState = { phase: "idle" } | { phase: "busy" } | { phase: "copied" } | { phase: "failed"; code: CopyErrorCode };
 
 /**
  * The setup page's "copy the API token" button. The token is never part of
  * the page: it is fetched from the server on the click, and that fetch is audited.
  */
 export function TokenCopyButton({ status }: { status: ApiTokenStatus }) {
+  const t = useTranslations("Setup");
+  const tCommon = useTranslations("Common");
   const tSettings = useTranslations("Settings");
   const [state, setState] = useState<CopyState>({ phase: "idle" });
   const timer = useRef<number | null>(null);
@@ -33,10 +35,7 @@ export function TokenCopyButton({ status }: { status: ApiTokenStatus }) {
       setState({ phase: "copied" });
       timer.current = window.setTimeout(() => setState({ phase: "idle" }), 2500);
     } catch (error) {
-      setState({
-        phase: "failed",
-        message: error instanceof CopyError ? error.message : "A másolás nem sikerült. Próbáld újra.",
-      });
+      setState({ phase: "failed", code: error instanceof CopyError ? error.code : "generic" });
     }
   }
 
@@ -55,30 +54,28 @@ export function TokenCopyButton({ status }: { status: ApiTokenStatus }) {
           {state.phase === "copied" ? (
             <>
               <CheckCircleIcon className="text-good" />
-              Token a vágólapon
+              {t("token_on_clipboard")}
             </>
           ) : (
             <>
               <KeyIcon />
-              {state.phase === "busy" ? "Másolás…" : "Token másolása"}
+              {state.phase === "busy" ? tCommon("copying") : t("copy_token")}
             </>
           )}
         </button>
-        {available && <span className="text-sm text-ink-3">A lekérés az auditnaplóba kerül.</span>}
+        {available && <span className="text-sm text-ink-3">{t("audit_notice")}</span>}
       </div>
       <div aria-live="polite">
         {state.phase === "failed" ? (
-          <StatusLine tone="problem">{state.message}</StatusLine>
+          <StatusLine tone="problem">{t(`copy_problem_${state.code}`)}</StatusLine>
         ) : state.phase === "copied" ? (
-          <span className="sr-only">A token a vágólapon.</span>
+          <span className="sr-only">{t("token_on_clipboard_hidden")}</span>
         ) : null}
       </div>
       {!available || note.tone === "warning" ? (
         <StatusLine tone={note.tone}>
           {tSettings(note.key)}
-          {status.state === "empty" || status.state === "unreadable"
-            ? " A dashboard Beállítások paneljén adhatod meg."
-            : ""}
+          {status.state === "empty" || status.state === "unreadable" ? t("provide_in_settings") : ""}
         </StatusLine>
       ) : null}
     </div>

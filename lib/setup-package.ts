@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
+import type { Translator } from "@/lib/i18n";
 import {
   CLIENT_SOURCES,
   type ClientSources,
@@ -22,7 +23,7 @@ import { createZip } from "@/lib/zip";
  * package. lib/setup.ts decides what goes in.
  */
 
-export async function loadClientSources(): Promise<ClientSources> {
+async function readClientSources(): Promise<ClientSources> {
   const entries = await Promise.all(
     CLIENT_SOURCES.map(async (source) => {
       // Spelled with a literal "clients" so the build traces that folder alone, not the whole project.
@@ -33,6 +34,15 @@ export async function loadClientSources(): Promise<ClientSources> {
   return Object.fromEntries(entries) as ClientSources;
 }
 
+// The scripts only change with a deploy, so one read serves every request; in
+// `next dev` they are re-read every time, so an edit shows up without a restart.
+let cachedSources: Promise<ClientSources> | null = null;
+
+export function loadClientSources(): Promise<ClientSources> {
+  if (process.env.NODE_ENV === "development") return readClientSources();
+  return (cachedSources ??= readClientSources());
+}
+
 /** Gzipped and in base64, 76 characters a line: what a here-document or here-string carries safely. */
 function pack(text: string): string {
   return gzipSync(text, { level: 9 })
@@ -40,13 +50,21 @@ function pack(text: string): string {
     .replace(/.{76}(?=.)/g, "$&\n");
 }
 
+// Keyed by the sources object, so a fresh `loadClientSources()` result (only
+// possible in `next dev`) gets its own blobs rather than a stale entry.
+const blobsBySources = new WeakMap<ClientSources, OneShotBlobs>();
+
 /** The scripts the one-off report unpacks (lib/setup.ts renderOneShot). */
 export function oneShotBlobs(sources: ClientSources): OneShotBlobs {
-  return {
+  const cached = blobsBySources.get(sources);
+  if (cached) return cached;
+  const blobs: OneShotBlobs = {
     parser: pack(sources["clients/shared/ccusage-providers.cjs"]),
     unixCore: pack(sources["clients/shared/report-usage-core.sh"]),
     windowsCore: pack(sources["clients/shared/report-usage-core.ps1"]),
   };
+  blobsBySources.set(sources, blobs);
+  return blobs;
 }
 
 const HOST_PATTERN = /^[a-z0-9.-]+(:\d{1,5})?$/i;
@@ -89,9 +107,10 @@ export function buildSetupZip(
   mode: SetupMode,
   settings: MachineSettings,
   sources: ClientSources,
+  translate: Translator<"Setup">,
   now: Date = new Date(),
 ): { fileName: string; bytes: Uint8Array<ArrayBuffer> } {
-  const readme = forPlatform(os, renderReadme(os, mode, settings));
+  const readme = forPlatform(os, renderReadme(os, mode, settings, translate));
   const entries = [
     { name: "README.txt", data: os === "windows" ? `﻿${readme}` : readme, executable: false },
     ...packageFiles(os, mode).map((file) => ({
