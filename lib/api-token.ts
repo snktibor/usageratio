@@ -18,14 +18,25 @@ export type ApiTokenStatus =
   | { state: "empty" }
   /** Stored, but it does not decrypt: the key changed, or the value was damaged. */
   | { state: "unreadable"; updatedAt: number | null }
-  /** `matchesServer`: whether it equals the server's USAGE_API_TOKEN; null when that is not set. */
-  | { state: "stored"; updatedAt: number | null; matchesServer: boolean | null };
+  /**
+   * `matchesServer`: whether it equals the server's USAGE_API_TOKEN; null when that is not set.
+   * `keyId`: the fingerprint of the current TOKEN_ENCRYPTION_KEY (see lib/secret-box.ts).
+   * `needsReseal`: true while the stored value is not yet sealed with the current key (a rotation
+   * in progress); the vault re-seals it in the background as soon as it is read.
+   */
+  | {
+      state: "stored";
+      updatedAt: number | null;
+      matchesServer: boolean | null;
+      keyId: string | null;
+      needsReseal: boolean;
+    };
 
 export type AuditAction = "created" | "updated" | "revealed";
 
 export const AUDIT_ACTIONS: readonly AuditAction[] = ["created", "updated", "revealed"];
 
-/** The requesting browser, as the request described it. */
+/** The requesting browser, as the request described it. `ip` is the raw address (lib/request-context.ts `clientIp`). */
 export interface AuditClient {
   userAgent: string;
   /** The Sec-CH-UA client hint (Chromium browsers only). */
@@ -40,10 +51,24 @@ export interface AuditClient {
 /**
  * One stored entry. It keeps the raw request details, and the browser is only
  * named when read, so a better reading below applies to old entries as well.
+ *
+ * The address is never stored in full unless AUDIT_RAW_IP=1: `ip` carries the
+ * raw address only for that opt-in, or for a record written before hashing
+ * existed; a current record instead carries `ipHash` (sha256(salt + ip),
+ * truncated) and `ipPrefix` (its /24 for IPv4, /48 for IPv6), so the trail
+ * still tells two visits from the same network apart without keeping the
+ * address itself. Exactly one of the two schemes is populated at a time.
  */
-export interface AuditRecord extends AuditClient {
+export interface AuditRecord {
   at: number;
   action: AuditAction;
+  userAgent: string;
+  brands: string;
+  platform: string;
+  ip: string | null;
+  ipHash: string | null;
+  ipPrefix: string | null;
+  session: string | null;
 }
 
 /** One entry as the audit popup gets it. */
@@ -55,6 +80,7 @@ export interface AuditEntry {
   /** "macOS"; null when the request does not tell. */
   os: string | null;
   userAgent: string;
+  /** One display string: "203.0.113.0/24 · 3fa9c1a2b91c", the raw address (AUDIT_RAW_IP=1 or a legacy record), or "unknown". */
   ip: string;
   session: string | null;
 }
@@ -92,7 +118,9 @@ export function serializeAuditRecord(record: AuditRecord): string {
     ua: record.userAgent,
     ch: record.brands,
     pf: record.platform,
-    ip: record.ip,
+    ...(record.ip !== null && { ip: record.ip }),
+    ...(record.ipHash !== null && { iph: record.ipHash }),
+    ...(record.ipPrefix !== null && { ipp: record.ipPrefix }),
     s: record.session,
   });
 }
@@ -110,15 +138,25 @@ export function parseAuditRecord(raw: string): AuditRecord | null {
   if (typeof entry.at !== "number" || !Number.isFinite(entry.at)) return null;
   if (!(AUDIT_ACTIONS as readonly unknown[]).includes(entry.a)) return null;
   const text = (field: unknown) => (typeof field === "string" ? field : "");
+  const optionalText = (field: unknown): string | null => (typeof field === "string" && field !== "" ? field : null);
   return {
     at: entry.at,
     action: entry.a as AuditAction,
     userAgent: text(entry.ua),
     brands: text(entry.ch),
     platform: text(entry.pf),
-    ip: text(entry.ip) || "unknown",
-    session: typeof entry.s === "string" && entry.s !== "" ? entry.s : null,
+    ip: optionalText(entry.ip),
+    ipHash: optionalText(entry.iph),
+    ipPrefix: optionalText(entry.ipp),
+    session: optionalText(entry.s),
   };
+}
+
+/** The address as the audit popup shows it: the raw one when kept, else its hash/prefix pair, else "unknown". */
+function displayIp(record: Pick<AuditRecord, "ip" | "ipHash" | "ipPrefix">): string {
+  if (record.ip !== null) return record.ip;
+  if (record.ipPrefix !== null && record.ipHash !== null) return `${record.ipPrefix} · ${record.ipHash}`;
+  return record.ipPrefix ?? record.ipHash ?? "unknown";
 }
 
 export function toAuditEntry(record: AuditRecord): AuditEntry {
@@ -129,9 +167,45 @@ export function toAuditEntry(record: AuditRecord): AuditEntry {
     browser,
     os,
     userAgent: record.userAgent,
-    ip: record.ip,
+    ip: displayIp(record),
     session: record.session,
   };
+}
+
+/** A raw IPv4/IPv6 address's network prefix for the audit trail: "203.0.113.0/24", or the /48 for IPv6; null otherwise. */
+export function networkPrefix(ip: string): string | null {
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip);
+  if (v4) {
+    const octets = v4.slice(1, 5).map(Number);
+    return octets.some((n) => n < 0 || n > 255) ? null : `${octets[0]}.${octets[1]}.${octets[2]}.0/24`;
+  }
+  if (ip.includes(":")) {
+    const groups = expandIPv6(ip.split("%")[0] ?? "");
+    if (!groups) return null;
+    return `${groups
+      .slice(0, 3)
+      .map((group) => Number.parseInt(group, 16).toString(16))
+      .join(":")}::/48`;
+  }
+  return null;
+}
+
+/** "2001:db8::1" (and every other valid textual form) to its 8 hextets, zero-padded; null when it does not parse. */
+function expandIPv6(ip: string): string[] | null {
+  if (!/^[0-9a-fA-F:]+$/.test(ip)) return null;
+  const halves = ip.split("::");
+  if (halves.length > 2) return null;
+  if (halves.length === 1) {
+    const parts = ip.split(":");
+    return parts.length === 8 && parts.every((part) => part.length > 0)
+      ? parts.map((part) => part.padStart(4, "0"))
+      : null;
+  }
+  const head = halves[0] ? halves[0].split(":").filter(Boolean) : [];
+  const tail = halves[1] ? halves[1].split(":").filter(Boolean) : [];
+  const missing = 8 - head.length - tail.length;
+  if (missing < 0) return null;
+  return [...head, ...Array(missing).fill("0"), ...tail].map((part) => part.padStart(4, "0"));
 }
 
 // ── Naming the browser ───────────────────────────────────────────────────────

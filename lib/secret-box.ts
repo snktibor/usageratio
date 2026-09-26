@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
 /**
  * AES-256-GCM for the secrets the dashboard keeps in Redis. The 256-bit key
@@ -7,6 +7,12 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
  * 96-bit IV, and the 128-bit tag makes any change to the stored bytes fail to
  * decrypt. `context` is bound in as additional authenticated data: a value
  * sealed for one purpose does not open as another.
+ *
+ * Key rotation (see lib/token-vault.ts `encryptionKeys`): a sealed value may
+ * carry `kid`, a fingerprint of the key that sealed it. The version stays 1
+ * and `kid` is only ever an extra field, so a value sealed today still opens
+ * under a build from before rotation existed, and a rollback after a rotation
+ * still opens values sealed by the newer build.
  */
 
 const ALGORITHM = "aes-256-gcm";
@@ -17,9 +23,16 @@ const TAG_BYTES = 16;
 /** One encrypted value, every part base64url. */
 export interface SealedSecret {
   v: 1;
+  /** Fingerprint of the key that sealed this value; absent from values sealed before rotation existed. */
+  kid?: string;
   iv: string;
   ct: string;
   tag: string;
+}
+
+/** A short, non-secret fingerprint of a key: which one sealed a value, without revealing it. */
+export function keyFingerprint(key: Buffer): string {
+  return createHash("sha256").update(key).digest("hex").slice(0, 8);
 }
 
 /**
@@ -39,13 +52,14 @@ export function parseEncryptionKey(raw: string | undefined): Buffer | null {
   return null;
 }
 
-export function sealSecret(plaintext: string, key: Buffer, context: string): SealedSecret {
+export function sealSecret(plaintext: string, key: Buffer, context: string, kid?: string): SealedSecret {
   const iv = randomBytes(IV_BYTES);
   const cipher = createCipheriv(ALGORITHM, key, iv, { authTagLength: TAG_BYTES });
   cipher.setAAD(Buffer.from(context, "utf8"));
   const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   return {
     v: 1,
+    ...(kid !== undefined && { kid }),
     iv: iv.toString("base64url"),
     ct: ciphertext.toString("base64url"),
     tag: cipher.getAuthTag().toString("base64url"),
