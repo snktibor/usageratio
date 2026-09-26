@@ -51,10 +51,13 @@ switch to `SECURITY_CSP=enforce` (or remove the variable, since that's the defau
 
 ## Adding `CRON_SECRET`
 
-If housekeeping (stale-entry pruning, audit-trail retention) has never run because `CRON_SECRET` was
-never set, add it now (at least 16 characters) and redeploy — `vercel.json`'s cron entry calls
-`GET /api/cron/housekeeping` once a day automatically once the secret is present. Self-hosting a
-scheduler yourself instead: see [self-hosting.md § Housekeeping](self-hosting.md#housekeeping-the-daily-cron).
+If housekeeping (stale-entry pruning, audit-trail retention, and archiving each finished cycle into
+history) has never run because `CRON_SECRET` was never set, add it now (at least 16 characters) and
+redeploy — `vercel.json`'s cron entry calls `GET /api/cron/housekeeping` once a day automatically once
+the secret is present. Before this, a cycle's history was only archived on the first dashboard render
+after it ended; the daily cron now archives it too, whichever happens first, so history no longer
+depends on someone opening the dashboard. Self-hosting a scheduler yourself instead: see
+[self-hosting.md § Housekeeping](self-hosting.md#housekeeping-the-daily-cron).
 
 ## Sessions
 

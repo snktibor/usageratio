@@ -27,7 +27,7 @@ local development and tests.
 | `usage:tokens` | HASH | `sha256(token) → JSON {"id","label","machineId","createdAt","lastUsedAt","revokedAt"}` — the field is the token's own hash, the plaintext is never stored | Up to `MAX_TOKENS` (100) live; a revoked entry is dropped entirely 90 days after `revokedAt` (housekeeping) | `POST`/`DELETE /api/tokens*` |
 | `usage:housekeeping:last` | STRING | JSON `{"at": ms, "report": HousekeepingReport}` | Forever (overwritten each run) | `runHousekeeping` (non-dry-run) |
 | `usage:alert:{providerId}:{cycleStartMs}:{threshold}` | STRING | `"1"`, `SET NX` | 70 days TTL | `lib/alerts.ts` `evaluateAlerts` — the guard that makes a threshold fire once per provider per cycle |
-| `usage:history:{providerId}` | ZSET | score = cycle start (epoch ms); member = JSON `CycleSummary` (see [History](#history-archived-cycles)) | Newest 24 entries per provider (`HISTORY_RETENTION`), trimmed on write | Lazily, on a dashboard render (`archiveCycle`); also `npm run seed`'s pre-archived entries |
+| `usage:history:{providerId}` | ZSET | score = cycle start (epoch ms); member = JSON `CycleSummary` (see [History](#history-archived-cycles)) | Newest 24 entries per provider (`HISTORY_RETENTION`), trimmed on write | The first dashboard render after a cycle ends, or the daily housekeeping run's `history` step — whichever comes first (`archiveCycle` via `archiveDueCycles`); also `npm run seed`'s pre-archived entries |
 | `usage:session:{sha256(sessionId:pin)}` | STRING | JSON `{"c": createdAtMs, "s": lastSeenMs}` (a bare `"1"` for a legacy pre-rolling session) | `SESSION_MAX_DAYS` (default 30) from creation; refreshed (extended) on activity, capped by `SESSION_IDLE_DAYS` (default 7) of allowed silence | Login (`attemptLogin`); refreshed by `isAuthenticated` |
 | `usage:session:{...}:sudo` | STRING | `"1"` | 5 minutes | `POST /api/auth/sudo` |
 | `usage:auth:device:{sha256(deviceId)}` | STRING | `"1"` | 365 days | A successful login |
@@ -134,15 +134,22 @@ cycle even for a monthly budget (up to 62 days) — so anything older is summari
 `cost` is present only if at least one event of that cycle carried a cost estimate; `models` keeps
 only the heaviest `HISTORY_TOP_MODELS` (8) models, largest first.
 
-**Lazy archiving, no cron.** On every dashboard render, for every provider: if the newest archived
-cycle is older than the *previous* cycle's start, and that previous cycle actually has events (it
-does, since the page already reads from its start), the previous cycle is summarized from data
-still in Redis and written with `ZADD NX` — so two dashboard renders racing each other still write
-exactly one entry (`archivedAt` is the cycle's own end time, not wall-clock time, so both renders
-compute byte-identical summary JSON). Only the cycle right **before** the current one can ever be
+**Archived from two places, whichever runs first.** For every provider, if the newest archived cycle
+is older than the *previous* cycle's start, and that previous cycle actually has events, the previous
+cycle is summarized from data still in Redis and written with `ZADD NX`. Two callers share this
+(`lib/archive.ts` `archiveDueCycles`): the first dashboard render after a cycle ends, and the daily
+housekeeping run's `history` step (`GET /api/cron/housekeeping`, run before its official-usage-pruning
+step so that cycle's typed-in percentage still makes it into the summary). Racing callers still write
+exactly one entry — `archivedAt` is the cycle's own end time, not wall-clock time, so every caller
+computes byte-identical summary JSON. Only the cycle right **before** the current one can ever be
 archived this way — by the time a later cycle would need to archive an older one, that older cycle's
-raw events are already gone from Redis (past `RETENTION_DAYS`). A deployment that wants unbroken
-history across a long gap in dashboard visits still needs at least one page load per cycle.
+raw events are already gone from Redis (past `RETENTION_DAYS`). A cycle is only lost if **neither**
+the dashboard is opened **nor** the daily housekeeping cron runs during the following cycle — with
+the cron configured (see [getting-started.md](getting-started.md) and
+[self-hosting.md](self-hosting.md)), history no longer depends on anyone opening the dashboard. A dry
+housekeeping run only names which providers are due, without writing anything; a real run's report
+gains `history: { archived, ids }` alongside the pruning counts in the [Redis keys](#redis-keys)
+table above.
 
 ## The legacy migration
 

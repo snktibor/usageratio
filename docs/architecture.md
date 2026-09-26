@@ -23,8 +23,9 @@ cap. If the write was neither a duplicate nor a heartbeat, the route defers a th
 everything — without a session, only the PIN form renders, and a store outage renders a storage
 warning instead of a blank page. Once authenticated: load the settings and index hashes in one
 round trip → resolve the effective config → compute the current and previous cycle
-(`lib/cycle.ts`) → load that window's events → lazily archive the previous cycle for any provider
-not yet archived → load the archived history → build each provider's dashboard model
+(`lib/cycle.ts`) → load that window's events → archive the previous cycle for any provider not yet
+archived (`lib/archive.ts`, shared with the daily housekeeping run — see below) → load the archived
+history → build each provider's dashboard model
 (`lib/aggregate.ts`, `lib/dashboard.ts`, `lib/quota.ts`, `lib/timeline.ts`) and the settings view.
 
 **A settings-panel save** (`PUT /api/settings`): same-origin check → refuse in demo mode → session
@@ -77,13 +78,14 @@ a delta, so the dashboard takes the *largest* report of the cycle rather than su
 smaller value (a client's local log rotated) can never pull the total back down. Reports are stored
 raw, so `TOKEN_MODE` can be changed later and history is simply reinterpreted under the new rule.
 
-**Lazy history archive, no cron.** On every dashboard read, for each provider, if the newest
-archived cycle is older than the previous cycle's start, that previous cycle is summarized from
-data already in hand and written with `ZADD NX` — so two renders racing each other still produce
-one entry (the archived timestamp is the cycle's own end time, not wall-clock time, so the two
-summaries are byte-identical and `NX` truly dedupes). The trade-off: a deployment nobody opens for
-more than one full cycle loses that cycle's history, since by the time it's next opened the raw
-events needed to summarize it are already gone.
+**History archiving shared by two triggers.** For each provider, if the newest archived cycle is
+older than the previous cycle's start, that previous cycle is summarized from data already in hand
+and written with `ZADD NX` (`lib/archive.ts` `archiveDueCycles`) — so two callers racing each other
+still produce one entry (the archived timestamp is the cycle's own end time, not wall-clock time, so
+every caller's summary is byte-identical and `NX` truly dedupes). The dashboard page and the daily
+housekeeping run (its `history` step) both call it, so a cycle is only lost if neither runs during
+the following cycle — configuring the housekeeping cron (see [upgrading.md](upgrading.md)) means
+history no longer depends on anyone opening the dashboard.
 
 **Hand-written SVG charts, no chart library.** `lib/chart.ts` computes a "nice" round axis scale and
 locale-aware tick labels; the chart components build one `ChartSeries` per group (plus a dashed
