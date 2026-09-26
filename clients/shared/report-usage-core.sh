@@ -5,7 +5,7 @@
 #
 #   report-usage.sh                  read every provider snapshot and send it
 #   report-usage.sh --providers '{"claude":22000,"deepseek":15000}'
-#   report-usage.sh --tokens 1234    compatibility shortcut: {"deepseek":1234}
+#   report-usage.sh --tokens claude=1234   one provider's total: {"claude":1234}
 #   report-usage.sh --dry-run        print the JSON payload, send nothing
 #
 # Settings live outside the script, so it can be replaced without losing them:
@@ -221,7 +221,7 @@ while [ $# -gt 0 ]; do
       ;;
     --tokens)
       TOKENS_OVERRIDE="${2:-}"
-      shift 2 || { echo "--tokens needs a number" >&2; exit 2; }
+      shift 2 || { echo "--tokens needs provider=count, e.g. --tokens claude=1234" >&2; exit 2; }
       ;;
     --tokens=*)
       TOKENS_OVERRIDE="${1#--tokens=}"
@@ -286,15 +286,31 @@ if [ -n "$PROVIDERS_OVERRIDE" ]; then
     exit 3
   }
 elif [ -n "$TOKENS_OVERRIDE" ]; then
+  # One provider's total, as provider=count; several providers need --providers.
   case "$TOKENS_OVERRIDE" in
-    "" | *[!0-9]*)
-      log "ERROR: --tokens must be a non-negative whole number, got: '$TOKENS_OVERRIDE'"
+    *=*) ;;
+    *)
+      log "ERROR: --tokens takes provider=count, e.g. --tokens claude=1234 (got: '$TOKENS_OVERRIDE')"
       exit 3
       ;;
   esac
-  TOKENS_OVERRIDE="$(printf '%s' "$TOKENS_OVERRIDE" | sed -e 's/^0*//')"
-  TOKENS_OVERRIDE="${TOKENS_OVERRIDE:-0}"
-  PROVIDERS_JSON="$(printf '{"deepseek":%s}' "$TOKENS_OVERRIDE" | node "$CCUSAGE_PARSER" validate)" || exit 3
+  TOKENS_PROVIDER="${TOKENS_OVERRIDE%%=*}"
+  TOKENS_COUNT="${TOKENS_OVERRIDE#*=}"
+  case "$TOKENS_PROVIDER" in
+    "" | *[!A-Za-z0-9._-]*)
+      log "ERROR: --tokens provider id may contain letters, digits, '.', '_' and '-' only, got: '$TOKENS_PROVIDER'"
+      exit 3
+      ;;
+  esac
+  case "$TOKENS_COUNT" in
+    "" | *[!0-9]*)
+      log "ERROR: --tokens count must be a non-negative whole number, got: '$TOKENS_COUNT'"
+      exit 3
+      ;;
+  esac
+  TOKENS_COUNT="$(printf '%s' "$TOKENS_COUNT" | sed -e 's/^0*//')"
+  TOKENS_COUNT="${TOKENS_COUNT:-0}"
+  PROVIDERS_JSON="$(printf '{"%s":%s}' "$TOKENS_PROVIDER" "$TOKENS_COUNT" | node "$CCUSAGE_PARSER" validate)" || exit 3
 elif [ -z "$API_TOKEN" ]; then
   log "ERROR: API_TOKEN is required to read the current cycle before running ccusage"
   exit 2

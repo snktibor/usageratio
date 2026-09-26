@@ -13,11 +13,11 @@ const HEALTH_ICON: Record<MachineHealth, { icon: typeof CheckCircleIcon; iconCol
   inactive: { icon: MoonIcon, iconColor: "text-ink-3" },
 };
 
-const HEALTH_LABEL_KEY: Record<MachineHealth, string> = {
+const HEALTH_LABEL_KEY = {
   active: "status_active",
   late: "status_late",
   inactive: "status_inactive",
-};
+} as const satisfies Record<MachineHealth, string>;
 
 function rowKey(machine: Machine): string {
   return JSON.stringify([machine.machineId, machine.groupId]);

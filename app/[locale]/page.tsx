@@ -1,6 +1,11 @@
+import { cookies } from "next/headers";
+import { hasLocale } from "next-intl";
+import { setRequestLocale } from "next-intl/server";
 import { Dashboard } from "@/components/dashboard";
+import { PROVIDER_COOKIE } from "@/components/dashboard-view";
 import { PinGate } from "@/components/pin-gate";
 import { StorageProblem } from "@/components/storage-problem";
+import { routing } from "@/i18n/routing";
 import { isAuthenticated } from "@/lib/auth";
 import { currentTime } from "@/lib/clock";
 import { getConfig } from "@/lib/config";
@@ -62,7 +67,24 @@ async function loadDashboard(): Promise<DashboardData> {
   };
 }
 
-export default async function Page() {
+/**
+ * The cookie's provider first, so the dashboard renders the last-selected one
+ * from the very first paint (see components/dashboard-view.tsx: it reads the
+ * order, not the cookie, so the client and the server always agree).
+ */
+function withSelectedProviderFirst(
+  providers: ProviderDashboardModel[],
+  selectedId: string | undefined,
+): ProviderDashboardModel[] {
+  const index = selectedId ? providers.findIndex((provider) => provider.id === selectedId) : -1;
+  if (index <= 0) return providers;
+  return [providers[index]!, ...providers.slice(0, index), ...providers.slice(index + 1)];
+}
+
+export default async function Page({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  if (hasLocale(routing.locales, locale)) setRequestLocale(locale);
+
   let data: DashboardData | null = null;
   let storageError: unknown = null;
 
@@ -77,5 +99,10 @@ export default async function Page() {
   if (storageError) {
     return <StorageProblem notConfigured={storageError instanceof StorageNotConfiguredError} />;
   }
-  return data ? <Dashboard providers={data.providers} settings={data.settings} /> : <PinGate />;
+  if (!data) return <PinGate />;
+
+  const selectedProviderId = (await cookies()).get(PROVIDER_COOKIE)?.value;
+  return (
+    <Dashboard providers={withSelectedProviderFirst(data.providers, selectedProviderId)} settings={data.settings} />
+  );
 }

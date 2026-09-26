@@ -1,3 +1,4 @@
+import type { Translator } from "@/lib/i18n";
 import { parseId } from "@/lib/validation";
 
 /**
@@ -6,6 +7,9 @@ import { parseId } from "@/lib/validation";
  * config the page generates. Pure, so the page shows exactly what the ZIP
  * download (lib/setup-package.ts) contains. The API token is never part of a
  * package: the installer asks for it and checks it against the server.
+ *
+ * Carries no UI text of its own: everything shown to a visitor is a
+ * `Setup.*` message key (messages/{en,hu,de}.json), translated by the caller.
  */
 
 export type SetupOs = "macos" | "linux" | "windows";
@@ -13,15 +17,14 @@ export type SetupMode = "auto" | "manual";
 /** The three ways the page can hand over the package: which tab is open. */
 export type InstallRoute = "zip" | "manual" | "oneShot";
 
+// Auto mode's installer per OS decides what Setup.mode_auto_* may claim:
+// clients/setup/install.sh (macOS) and clients/setup/install-linux.sh (Linux)
+// both register a crontab entry; clients/auto/install-task.ps1 (Windows)
+// registers a scheduled task with a daily 00:00 trigger repeating hourly —
+// none of the three has a "runs at startup" trigger.
 export const SETUP_OSES: readonly SetupOs[] = ["macos", "linux", "windows"];
 export const SETUP_MODES: readonly SetupMode[] = ["auto", "manual"];
 export const INSTALL_ROUTES: readonly InstallRoute[] = ["zip", "manual", "oneShot"];
-
-export const ROUTE_LABEL: Record<InstallRoute, string> = {
-  zip: "ZIP telepítő",
-  manual: "Bemásolós telepítő",
-  oneShot: "Egyszeri parancs",
-};
 
 /**
  * The address the reporters fall back to, too. Deliberately not a real
@@ -59,13 +62,29 @@ export interface MachineSettings {
   machineId: string;
 }
 
+/** What a package file is for; a `Setup.role_*` message key. */
+export type SetupRoleKey =
+  | "role_config"
+  | "role_reporter_auto_unix"
+  | "role_reporter_manual_unix"
+  | "role_core"
+  | "role_parser"
+  | "role_installer_unix_auto"
+  | "role_installer_unix_manual"
+  | "role_reporter_auto_win"
+  | "role_reporter_manual_win"
+  | "role_task_installer"
+  | "role_installer_win_auto"
+  | "role_installer_win_manual"
+  | "role_install_cmd";
+
 export interface PackageFile {
   /** The file's name inside the package folder. */
   name: string;
   /** Shipped as is from the repository; null for the generated config. */
   source: ClientSource | null;
-  /** What it is for (Hungarian, shown on the page and in README.txt). */
-  role: string;
+  /** What it is for, shown on the page and in README.txt. */
+  roleKey: SetupRoleKey;
   /** Where the installer puts it; null for the installer itself. */
   installedAs: string | null;
   executable: boolean;
@@ -74,24 +93,6 @@ export interface PackageFile {
 }
 
 export const OS_LABEL: Record<SetupOs, string> = { macos: "macOS", linux: "Linux", windows: "Windows" };
-export const MODE_LABEL: Record<SetupMode, string> = { auto: "Automatikus", manual: "Manuális" };
-
-export const MODE_SUMMARY: Record<SetupOs, Record<SetupMode, string>> = {
-  macos: {
-    auto: "Óránként magától küld, a cron ütemezésével, csendben. Telepítés után nincs vele teendő.",
-    manual: "Akkor küld, amikor a Terminálban beírod: sync-tokens. Az eredményt ki is írja.",
-  },
-  linux: {
-    auto: "Óránként magától küld, a cron ütemezésével, csendben. Telepítés után nincs vele teendő.",
-    manual: "Akkor küld, amikor a terminálban beírod: sync-tokens. Az eredményt ki is írja.",
-  },
-  windows: {
-    auto:
-      "Óránként magától küld a Feladatütemezővel, ablak nélkül, akkor is, ha senki nincs bejelentkezve. " +
-      "A telepítő ehhez egyszer rendszergazdai jogot kér.",
-    manual: "Akkor küld, amikor elindítod az asztali Sync tokens parancsikont. Az eredményt ki is írja.",
-  },
-};
 
 const INSTALL_ROOT: Record<SetupOs, string> = {
   macos: "~/.usageratio",
@@ -112,14 +113,6 @@ export const INSTALLED_CONFIG: Record<SetupOs, string> = {
   windows: "%USERPROFILE%\\.usageratio\\config.json",
 };
 
-const CORE_ROLE =
-  "A jelentő magja: lekéri a szervertől az aktuális ciklust, lefuttatja a ccusage-et, " +
-  "és elküldi a szolgáltatónkénti állást.";
-const PARSER_ROLE = "A ccusage kimenetét szolgáltatónkénti tokenszámokká alakítja. Node.js-szel fut.";
-const CONFIG_ROLE =
-  "A gép beállításai: a szerver címe, a csoport és a gép azonosítója. A telepítő kiegészíti a tokennel, " +
-  "és a helyére írja.";
-
 /** macOS and Linux ship the same reporter and wrapper scripts; only the installer differs. */
 function unixFiles(os: "macos" | "linux", mode: SetupMode): PackageFile[] {
   const root = INSTALL_ROOT[os];
@@ -128,7 +121,7 @@ function unixFiles(os: "macos" | "linux", mode: SetupMode): PackageFile[] {
     {
       name: "config",
       source: null,
-      role: CONFIG_ROLE,
+      roleKey: "role_config",
       installedAs: INSTALLED_CONFIG[os],
       executable: false,
       zipOnly: false,
@@ -136,10 +129,7 @@ function unixFiles(os: "macos" | "linux", mode: SetupMode): PackageFile[] {
     {
       name: `report-usage-${mode}.sh`,
       source: mode === "auto" ? "clients/auto/report-usage.sh" : "clients/manual/report-usage.sh",
-      role:
-        mode === "auto"
-          ? "Ezt futtatja óránként a cron. Csendes: csak a naplóba ír."
-          : "Ezt indítja a sync-tokens parancs, és kiírja, sikerült-e a küldés.",
+      roleKey: mode === "auto" ? "role_reporter_auto_unix" : "role_reporter_manual_unix",
       installedAs: `${root}/${mode}/report-usage.sh`,
       executable: true,
       zipOnly: false,
@@ -147,7 +137,7 @@ function unixFiles(os: "macos" | "linux", mode: SetupMode): PackageFile[] {
     {
       name: "report-usage-core.sh",
       source: "clients/shared/report-usage-core.sh",
-      role: CORE_ROLE,
+      roleKey: "role_core",
       installedAs: `${root}/shared/report-usage-core.sh`,
       executable: true,
       zipOnly: false,
@@ -155,7 +145,7 @@ function unixFiles(os: "macos" | "linux", mode: SetupMode): PackageFile[] {
     {
       name: "ccusage-providers.cjs",
       source: "clients/shared/ccusage-providers.cjs",
-      role: PARSER_ROLE,
+      roleKey: "role_parser",
       installedAs: `${root}/shared/ccusage-providers.cjs`,
       executable: true,
       zipOnly: false,
@@ -163,10 +153,7 @@ function unixFiles(os: "macos" | "linux", mode: SetupMode): PackageFile[] {
     {
       name: "install.sh",
       source: installerSource,
-      role:
-        "A telepítő: bekéri és ellenőrzi a tokent, a helyükre másolja a fájlokat, " +
-        (mode === "auto" ? "beállítja az óránkénti cron-feladatot" : "felveszi a sync-tokens parancsot") +
-        ", és elküld egy próbajelentést.",
+      roleKey: mode === "auto" ? "role_installer_unix_auto" : "role_installer_unix_manual",
       installedAs: null,
       executable: true,
       zipOnly: false,
@@ -180,7 +167,7 @@ function windowsFiles(mode: SetupMode): PackageFile[] {
     {
       name: "config.json",
       source: null,
-      role: CONFIG_ROLE,
+      roleKey: "role_config",
       installedAs: INSTALLED_CONFIG.windows,
       executable: false,
       zipOnly: false,
@@ -188,10 +175,7 @@ function windowsFiles(mode: SetupMode): PackageFile[] {
     {
       name: `report-usage-${mode}.ps1`,
       source: mode === "auto" ? "clients/auto/report-usage.ps1" : "clients/manual/report-usage.ps1",
-      role:
-        mode === "auto"
-          ? "Ezt futtatja óránként a Feladatütemező, ablak nélkül. Csendes: csak a naplóba ír."
-          : "Ezt indítja az asztali Sync tokens parancsikon, és kiírja, sikerült-e a küldés.",
+      roleKey: mode === "auto" ? "role_reporter_auto_win" : "role_reporter_manual_win",
       installedAs: `${root}\\${mode}\\report-usage.ps1`,
       executable: false,
       zipOnly: false,
@@ -201,7 +185,7 @@ function windowsFiles(mode: SetupMode): PackageFile[] {
     files.push({
       name: "install-task.ps1",
       source: "clients/auto/install-task.ps1",
-      role: "Létrehozza az óránkénti, rejtett ütemezett feladatot (usageratio-report).",
+      roleKey: "role_task_installer",
       installedAs: `${root}\\auto\\install-task.ps1`,
       executable: false,
       zipOnly: false,
@@ -211,7 +195,7 @@ function windowsFiles(mode: SetupMode): PackageFile[] {
     {
       name: "report-usage-core.ps1",
       source: "clients/shared/report-usage-core.ps1",
-      role: CORE_ROLE,
+      roleKey: "role_core",
       installedAs: `${root}\\shared\\report-usage-core.ps1`,
       executable: false,
       zipOnly: false,
@@ -219,7 +203,7 @@ function windowsFiles(mode: SetupMode): PackageFile[] {
     {
       name: "ccusage-providers.cjs",
       source: "clients/shared/ccusage-providers.cjs",
-      role: PARSER_ROLE,
+      roleKey: "role_parser",
       installedAs: `${root}\\shared\\ccusage-providers.cjs`,
       executable: false,
       zipOnly: false,
@@ -227,10 +211,7 @@ function windowsFiles(mode: SetupMode): PackageFile[] {
     {
       name: "install.ps1",
       source: "clients/setup/install.ps1",
-      role:
-        "A telepítő: bekéri és ellenőrzi a tokent, a helyükre másolja a fájlokat, " +
-        (mode === "auto" ? "regisztrálja az ütemezett feladatot" : "létrehozza az asztali parancsikont") +
-        ", és elküld egy próbajelentést.",
+      roleKey: mode === "auto" ? "role_installer_win_auto" : "role_installer_win_manual",
       installedAs: null,
       executable: false,
       zipOnly: false,
@@ -238,7 +219,7 @@ function windowsFiles(mode: SetupMode): PackageFile[] {
     {
       name: "install.cmd",
       source: "clients/setup/install.cmd",
-      role: "Dupla kattintással elindítja az install.ps1-et.",
+      roleKey: "role_install_cmd",
       installedAs: null,
       executable: false,
       zipOnly: true,
@@ -274,24 +255,21 @@ export function renderConfig(os: SetupOs, settings: MachineSettings): string {
 
 export type SettingsCheck =
   | { ok: true; groupId: string; machineId: string }
-  | { ok: false; group: string | null; machine: string | null };
-
-const ID_RULE = "1–64 karakter lehet: betű, szám, szóköz, pont, kötőjel és aláhúzás, az elején betűvel vagy számmal.";
+  | { ok: false; group: "missing" | "invalid" | null; machine: "invalid" | null };
 
 /** The page's group and machine fields, checked by the same rule the ingest API applies. */
 export function checkMachineSettings(group: string, machine: string): SettingsCheck {
-  let groupProblem: string | null = null;
   const groupErrors: string[] = [];
   const groupId = parseId(group, "groupId", groupErrors);
-  if (groupId === "") groupProblem = "Add meg a csoportot, például Work vagy Personal.";
-  else if (groupErrors.length > 0) groupProblem = `A csoport neve ${ID_RULE}`;
+  const groupProblem: "missing" | "invalid" | null =
+    groupId === "" ? "missing" : groupErrors.length > 0 ? "invalid" : null;
 
-  let machineProblem: string | null = null;
+  let machineProblem: "invalid" | null = null;
   let machineId = "";
   if (machine.trim() !== "") {
     const machineErrors: string[] = [];
     machineId = parseId(machine, "machineId", machineErrors);
-    if (machineErrors.length > 0) machineProblem = `A gép azonosítója ${ID_RULE}`;
+    if (machineErrors.length > 0) machineProblem = "invalid";
   }
 
   if (groupProblem || machineProblem) return { ok: false, group: groupProblem, machine: machineProblem };
@@ -379,15 +357,6 @@ export type CcusageRunner = "global" | "npx";
 
 export const CCUSAGE_RUNNERS: readonly CcusageRunner[] = ["global", "npx"];
 
-export const RUNNER_LABEL: Record<CcusageRunner, string> = { global: "Telepítve van", npx: "Nincs telepítve" };
-
-export const RUNNER_SUMMARY: Record<CcusageRunner, string> = {
-  global: "A gépen lévő ccusage parancsot hívja: gyorsabb, és nem tölt le semmit.",
-  npx:
-    "A ccusage legfrissebb változatát npx-szel futtatja, így nem kell előre telepíteni; " +
-    "futáskor ez is letölti a csomagot az npm gyorsítótárába.",
-};
-
 /**
  * The scripts a one-off report unpacks into its temporary folder, gzipped and
  * in base64 (lib/setup-package.ts makes them). An interactive shell applies
@@ -428,7 +397,7 @@ export function renderOneShot(
   if (os === "windows") {
     return [
       "& {",
-      "  # usageratio: egyetlen jelentés; semmit nem telepít, és a végén minden átmeneti fájlját törli.",
+      "  # usageratio: a single report; installs nothing, and removes every temporary file of its own at the end.",
       "  $ErrorActionPreference = 'Stop'",
       "  $dir = Join-Path ([IO.Path]::GetTempPath()) ('usageratio-once-' + [Guid]::NewGuid())",
       "  $vars = [ordered]@{",
@@ -471,7 +440,7 @@ export function renderOneShot(
   // zsh's HIST_IGNORE_SPACE). No comments: zsh does not allow them interactively.
   return [
     " (",
-    ": usageratio: egyetlen jelentés, semmit nem telepít, és a végén minden átmeneti fájlját törli",
+    ": usageratio: a single report, installs nothing, and removes every temporary file of its own at the end",
     // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in the generated script
     'd="$(mktemp -d "${TMPDIR:-/tmp}/usageratio-once.XXXXXX")" || exit 1',
     `trap 'rm -rf "$d"' EXIT`,
@@ -496,61 +465,65 @@ export function renderOneShot(
 
 // ── README.txt ───────────────────────────────────────────────────────────────
 
-/** The instructions that travel inside the ZIP, for whoever opens the folder later. */
-export function renderReadme(os: SetupOs, mode: SetupMode, settings: MachineSettings): string {
+/**
+ * The instructions that travel inside the ZIP, for whoever opens the folder
+ * later, in the language of the request (app/api/setup/route.ts builds the
+ * translator). tests/messages.test.ts checks every key used here through the
+ * `Translator<"Setup">` annotation.
+ */
+export function renderReadme(
+  os: SetupOs,
+  mode: SetupMode,
+  settings: MachineSettings,
+  translate: Translator<"Setup">,
+): string {
   const folder = packageName(os, mode);
   const indent = (text: string) => text.replace(/^/gm, "     ");
   const steps =
     os !== "windows"
       ? [
-          "1. Nyisd meg a terminált, és indítsd el a telepítőt:",
+          translate("readme_step_terminal"),
           "",
           indent(zipInstallCommand(os, mode)),
           "",
-          '   Ha máshova bontottad ki: írd be, hogy "bash " (szóközzel), húzd az',
-          "   install.sh fájlt a terminál ablakába, és nyomj Entert.",
+          translate("readme_step_terminal_alt"),
         ]
       : [
-          "1. Kattints duplán az install.cmd fájlra ebben a mappában.",
-          "   PowerShellből is indíthatod:",
+          translate("readme_step_double_click"),
           "",
           indent(zipInstallCommand(os, mode)),
-          ...(mode === "auto" ? ["", "   Az ütemezett feladathoz a telepítő egyszer rendszergazdai jogot kér."] : []),
+          ...(mode === "auto" ? ["", translate("readme_step_admin")] : []),
         ];
   const width = Math.max(...packageFiles(os, mode).map((file) => file.name.length)) + 2;
+  const machine = settings.machineId || translate("readme_machine_default");
   const lines = [
-    `usageratio – ${OS_LABEL[os]} kliens, ${MODE_LABEL[mode].toLowerCase()} mód`,
+    translate("readme_title", { os: OS_LABEL[os], mode }),
     "",
-    MODE_SUMMARY[os][mode],
+    translate(`mode_${mode}_${os}`),
     "",
-    "Telepítés",
+    translate("readme_install_heading"),
     "",
     ...steps,
-    "2. Amikor kéri, add meg a USAGE_API_TOKEN-t (gépelés közben nem látszik).",
-    "   Ugyanaz a token, mint a többi gépen: egy már beállított kliensnél itt van:",
-    `   ${INSTALLED_CONFIG[os]}`,
-    "3. A telepítő a helyükre másolja a fájlokat, és elküld egy próbajelentést.",
-    `   Utána ez a mappa (${folder}) törölhető.`,
+    translate("readme_step_token", { path: INSTALLED_CONFIG[os] }),
+    translate("readme_step_installed", { folder }),
     "",
-    "Beállítások",
+    translate("readme_settings_heading"),
     "",
-    `   Csoport: ${settings.groupId}`,
-    `   Gép:     ${settings.machineId || "a számítógép neve (újratelepítéskor a korábbi azonosító marad)"}`,
-    `   Szerver: ${settings.apiUrl}`,
+    translate("readme_settings_group", { group: settings.groupId }),
+    translate("readme_settings_machine", { machine }),
+    translate("readme_settings_server", { url: settings.apiUrl }),
     "",
-    "A mappa tartalma",
+    translate("readme_contents_heading"),
     "",
-    ...packageFiles(os, mode).map((file) => `   ${file.name.padEnd(width)}${file.role}`),
+    ...packageFiles(os, mode).map((file) => `   ${file.name.padEnd(width)}${translate(file.roleKey)}`),
     "",
-    `Napló: ${LOG_FILE[os]}`,
+    translate("readme_log", { path: LOG_FILE[os] }),
     "",
-    "Eltávolítás",
+    translate("readme_uninstall_heading"),
     "",
     indent(uninstallCommand(os, mode)),
-    ...(os !== "windows" && mode === "manual"
-      ? ["", "   és töröld a shell indítófájljából (pl. ~/.zshrc vagy ~/.bashrc) az alias sync-tokens=... sort."]
-      : []),
-    ...(os === "windows" && mode === "auto" ? ["", "   (rendszergazdaként indított PowerShellben)"] : []),
+    ...(os !== "windows" && mode === "manual" ? ["", translate("readme_uninstall_unix_manual")] : []),
+    ...(os === "windows" && mode === "auto" ? ["", translate("uninstall_win_auto")] : []),
     "",
   ];
   return lines.join("\n");

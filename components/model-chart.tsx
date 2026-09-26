@@ -5,7 +5,6 @@ import { useId, useState } from "react";
 import { ChartLegend, type ChartSeries, CycleChart } from "@/components/cycle-chart";
 import { formatTokenTick, niceScale } from "@/lib/chart";
 import type { DashboardModel } from "@/lib/dashboard";
-import { formatTokens } from "@/lib/format";
 import { NEUTRAL_COLOR } from "@/lib/settings";
 
 /** The token axis never shrinks below this, so a handful of tokens does not fill the chart. */
@@ -60,7 +59,7 @@ export function ModelChart({ model }: { model: DashboardModel }) {
                     className="flex cursor-pointer items-baseline gap-2 rounded-full border border-rule px-3.5 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink peer-checked:border-ink peer-checked:bg-ink peer-checked:text-page peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink"
                   >
                     <span className="font-medium">{m.label}</span>
-                    <span className="tabular-nums opacity-70">{formatTokenTick(m.tokens)}</span>
+                    <span className="tabular-nums opacity-70">{formatTokenTick(m.tokens, locale)}</span>
                   </span>
                 </label>
               ))}
@@ -79,18 +78,16 @@ export function ModelChart({ model }: { model: DashboardModel }) {
               model={model}
               series={series}
               scale={niceScale(Math.max(...series.flatMap((s) => s.values)), MIN_AXIS_TOKENS)}
-              formatTick={formatTokenTick}
-              formatValue={(tokens) => `${formatTokens(tokens, locale)} token`}
-              formatEndLabel={formatTokenTick}
+              formatTick={(tokens) => formatTokenTick(tokens, locale)}
+              formatValue={(tokens) => t("token_amount", { count: tokens })}
+              formatEndLabel={(tokens) => formatTokenTick(tokens, locale)}
               label={t("model_chart_aria", { label: selected.label })}
             />
           </div>
         </>
       ) : (
         <p className="mt-3 max-w-xl text-ink-2">
-          {t("no_model_breakdown_1")}
-          <code className="text-ink">clients/</code>
-          {t("no_model_breakdown_2")}
+          {t.rich("no_model_breakdown", { code: (chunks) => <code className="text-ink">{chunks}</code> })}
         </p>
       )}
     </section>

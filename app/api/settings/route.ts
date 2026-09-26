@@ -1,7 +1,6 @@
-import { isAuthenticated } from "@/lib/auth";
+import { apiError, json, readJsonBody, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
 import { getConfig } from "@/lib/config";
 import { demoReadOnly } from "@/lib/demo/mode";
-import { storageFailure as failure, isForeignOrigin, json } from "@/lib/http";
 import { mergeProviderIds } from "@/lib/providers";
 import { buildSettingsView, parseSettingsUpdate, resolveConfig, storedProviderIds } from "@/lib/settings";
 import { loadGroupActivity, loadIndexes, saveSettings } from "@/lib/usage-store";
@@ -34,82 +33,50 @@ import { loadGroupActivity, loadIndexes, saveSettings } from "@/lib/usage-store"
 
 const MAX_BODY_BYTES = 16_384;
 
-const storageFailure = (error: unknown) => failure(error, "The settings");
+export const GET = withApiHandler("api/settings", async () => {
+  const unauthorized = await requireSession();
+  if (unauthorized) return unauthorized;
 
-export async function GET(): Promise<Response> {
-  try {
-    if (!(await isAuthenticated())) return json({ error: "unauthorized" }, 401);
+  const indexes = await loadIndexes();
+  const providerIds = mergeProviderIds(
+    indexes.providers.map((provider) => provider.providerId),
+    storedProviderIds(indexes.settings),
+  );
+  const config = resolveConfig(getConfig(), indexes.settings, providerIds);
+  return json({ ...buildSettingsView(config, await loadGroupActivity(indexes.groups, providerIds), providerIds) }, 200);
+});
 
-    const indexes = await loadIndexes();
-    const providerIds = mergeProviderIds(
-      indexes.providers.map((provider) => provider.providerId),
-      storedProviderIds(indexes.settings),
-    );
-    const config = resolveConfig(getConfig(), indexes.settings, providerIds);
-    return json(
-      {
-        ...buildSettingsView(config, await loadGroupActivity(indexes.groups, providerIds), providerIds),
-      },
-      200,
-    );
-  } catch (error) {
-    return storageFailure(error);
-  }
-}
-
-export async function PUT(request: Request): Promise<Response> {
-  if (isForeignOrigin(request)) return json({ error: "forbidden_origin" }, 403);
+export const PUT = withApiHandler("api/settings", async ({ request }) => {
+  const foreign = requireSameOrigin(request);
+  if (foreign) return foreign;
   const readOnly = demoReadOnly();
   if (readOnly) return readOnly;
 
-  try {
-    if (!(await isAuthenticated())) return json({ error: "unauthorized" }, 401);
-  } catch (error) {
-    return storageFailure(error);
-  }
+  const unauthorized = await requireSession();
+  if (unauthorized) return unauthorized;
 
-  if (!/^application\/json\b/i.test(request.headers.get("content-type") ?? "")) {
-    return json({ error: "unsupported_media_type" }, 415);
-  }
+  const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES });
+  if (!body.ok) return body.response;
 
-  let raw: string;
-  try {
-    raw = await request.text();
-  } catch {
-    return json({ error: "unreadable_body" }, 400);
-  }
-  if (Buffer.byteLength(raw, "utf8") > MAX_BODY_BYTES) {
-    return json({ error: "payload_too_large", maxBytes: MAX_BODY_BYTES }, 413);
-  }
+  const parsed = parseSettingsUpdate(body.value);
+  if (!parsed.ok) return apiError("invalid_payload", 400, { details: parsed.errors });
 
-  let body: unknown;
-  try {
-    body = JSON.parse(raw);
-  } catch {
-    return json({ error: "invalid_json" }, 400);
+  const indexes = await loadIndexes();
+  const providerIds = mergeProviderIds(
+    indexes.providers.map((provider) => provider.providerId),
+    storedProviderIds(indexes.settings),
+    Object.keys(parsed.update.settings.limits),
+  );
+  // The panel never lets the last one go: a dashboard needs a provider to show.
+  // (A fresh install has none yet, and may still save its reset and groups.)
+  if (
+    providerIds.length > 0 &&
+    providerIds.every((providerId) => parsed.update.settings.hiddenProviders.includes(providerId))
+  ) {
+    return apiError("invalid_payload", 400, { details: ["at least one provider must stay visible"] });
   }
-
-  const parsed = parseSettingsUpdate(body);
-  if (!parsed.ok) return json({ error: "invalid_payload", details: parsed.errors }, 400);
-
-  try {
-    const indexes = await loadIndexes();
-    const providerIds = mergeProviderIds(
-      indexes.providers.map((provider) => provider.providerId),
-      storedProviderIds(indexes.settings),
-      Object.keys(parsed.update.settings.limits),
-    );
-    // The panel never lets the last one go: a dashboard needs a provider to show.
-    if (providerIds.every((providerId) => parsed.update.settings.hiddenProviders.includes(providerId))) {
-      return json({ error: "invalid_payload", details: ["at least one provider must stay visible"] }, 400);
-    }
-    const saved = await saveSettings(parsed.update, new Date(), providerIds);
-    if (!saved.ok) {
-      return json({ error: "groups_have_reports", groups: saved.groupsWithReports }, 409);
-    }
-  } catch (error) {
-    return storageFailure(error);
-  }
+  const saved = await saveSettings(parsed.update, new Date(), providerIds);
+  if (!saved.ok) return apiError("groups_have_reports", 409, { groups: saved.groupsWithReports });
 
   return json({ ok: true, settings: parsed.update.settings }, 200);
-}
+});

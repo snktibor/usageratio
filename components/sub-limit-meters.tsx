@@ -5,17 +5,20 @@ import { useLocale, useTranslations } from "next-intl";
 import { useId } from "react";
 import { AlertTriangleIcon, CheckCircleIcon, InfoCircleIcon, StopCircleIcon } from "@/components/icons";
 import { statusLabel } from "@/components/quota-meter";
-import type { Entry } from "@/components/use-official-entry";
+import { StatusLine } from "@/components/status-line";
+import type { Entry, EntryStatus } from "@/components/use-official-entry";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatCycleMoment, formatHeroPercent, formatPercent, formatTokens } from "@/lib/format";
 import type { SubLimitView } from "@/lib/ground-truth";
+import type { Translator } from "@/lib/i18n";
 import type { SubLimitModel } from "@/lib/sub-limits";
 
-/** A sub-limit's field as typed, and how far the sub-limit is by it. */
+/** A sub-limit's field as typed, how far the sub-limit is by it, and whether its last save reached the store. */
 export interface SubLimitState {
   entry: Entry;
   invalid: boolean;
   view: SubLimitView;
+  status: EntryStatus;
 }
 
 /** The slider's own colour carries the severity, next to the icon and the label below it. */
@@ -33,19 +36,14 @@ interface RowProps {
   providerLabel: string;
 }
 
-function modeNote(sub: SubLimitModel, t: ReturnType<typeof useTranslations>, locale: string): string {
+function modeNote(sub: SubLimitModel, t: Translator<"Widgets">, locale: string): string {
   return sub.shareCap === null
     ? t("separate_quota")
     : t("max_share_of_quota", { share: formatPercent(sub.shareCap, locale) });
 }
 
 /** Where the figure comes from, and what it means for the provider's whole budget. */
-function sourceNote(
-  subView: SubLimitView,
-  providerLabel: string,
-  t: ReturnType<typeof useTranslations>,
-  locale: string,
-): string {
+function sourceNote(subView: SubLimitView, providerLabel: string, t: Translator<"Widgets">, locale: string): string {
   const { sub, source, ofProvider } = subView;
   const measured = t("machines_measured", { tokens: formatTokens(sub.total, locale) });
   const ofWhole =
@@ -67,12 +65,7 @@ function sourceNote(
     : t("by_machine_measurement", { ofWhole, measured });
 }
 
-function paceNote(
-  subView: SubLimitView,
-  model: DashboardModel,
-  t: ReturnType<typeof useTranslations>,
-  locale: string,
-): string {
+function paceNote(subView: SubLimitView, model: DashboardModel, t: Translator<"Widgets">, locale: string): string {
   const quota = subView.quota!;
   if (quota.total >= 1 || quota.total === 0 || quota.pace.earlyBurn) return "";
   if (quota.pace.runOutAt !== null) {
@@ -87,12 +80,7 @@ function paceNote(
 }
 
 /** Its own reading and the provider's disagree past the tolerance: which is likely mistyped. */
-function mismatchNote(
-  subView: SubLimitView,
-  providerLabel: string,
-  t: ReturnType<typeof useTranslations>,
-  locale: string,
-): string {
+function mismatchNote(subView: SubLimitView, providerLabel: string, t: Translator<"Widgets">, locale: string): string {
   return t("sublimit_mismatch", {
     name: subView.sub.name,
     share: formatPercent(subView.ofProvider!, locale),
@@ -102,12 +90,7 @@ function mismatchNote(
 }
 
 /** Nothing tells how far it is yet: what would. */
-function unknownNote(
-  subView: SubLimitView,
-  providerLabel: string,
-  t: ReturnType<typeof useTranslations>,
-  _locale: string,
-): string {
+function unknownNote(subView: SubLimitView, providerLabel: string, t: Translator<"Widgets">): string {
   const { sub } = subView;
   if (!sub.hasSplit) {
     return t("no_model_breakdown_sublimit", { name: sub.name });
@@ -125,7 +108,7 @@ function unknownNote(
 function SubLimitRow({ model, state, onChange: setEntry, providerLabel }: RowProps) {
   const locale = useLocale();
   const t = useTranslations("Widgets");
-  const { entry, invalid, view: subView } = state;
+  const { entry, invalid, view: subView, status } = state;
   const { sub } = subView;
   const fieldId = useId();
   const hintId = useId();
@@ -202,12 +185,15 @@ function SubLimitRow({ model, state, onChange: setEntry, providerLabel }: RowPro
         ) : quota ? (
           <span>
             <strong className="font-medium text-ink">
-              {formatHeroPercent(quota.usedFraction, locale)} {t("consumed")} {statusLabel(quota, t, locale)}
+              {t("sublimit_consumed_status", {
+                percent: formatHeroPercent(quota.usedFraction, locale),
+                status: statusLabel(quota, t),
+              })}
             </strong>
             {paceNote(subView, model, t, locale)} {sourceNote(subView, providerLabel, t, locale)}
           </span>
         ) : (
-          <span>{unknownNote(subView, providerLabel, t, locale)}</span>
+          <span>{unknownNote(subView, providerLabel, t)}</span>
         )}
       </p>
       {subView.mismatched && (
@@ -215,6 +201,11 @@ function SubLimitRow({ model, state, onChange: setEntry, providerLabel }: RowPro
           <StopCircleIcon className="mt-0.5 shrink-0 text-critical" />
           <span>{mismatchNote(subView, providerLabel, t, locale)}</span>
         </p>
+      )}
+      {status.status === "failed" && status.problem && (
+        <div className="mt-2">
+          <StatusLine tone="problem">{t(`official_save_failed_${status.problem}`)}</StatusLine>
+        </div>
       )}
     </li>
   );
@@ -252,8 +243,7 @@ export function SubLimitMeters({
       </ul>
       {hasSeparate && (
         <p className="mt-4 max-w-3xl text-sm text-ink-3">
-          {t("separate_sublimits_explanation_1", { label: providerLabel })}
-          {t("separate_sublimits_explanation_2")}
+          {t("separate_sublimits_explanation", { label: providerLabel })}
         </p>
       )}
     </div>

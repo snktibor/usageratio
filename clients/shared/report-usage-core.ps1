@@ -25,7 +25,7 @@
   Send this provider JSON instead of reading ccusage (tests the pipeline).
 
 .PARAMETER Tokens
-  Compatibility shortcut for -Providers '{"deepseek":N}'.
+  One provider's total as provider=count, e.g. -Tokens claude=1234 (use -Providers for several).
 
 .PARAMETER DryRun
   Print the JSON payload, send nothing.
@@ -35,7 +35,7 @@
 #>
 [CmdletBinding()]
 param(
-  [long]$Tokens = -1,
+  [string]$Tokens = '',
   [string]$Providers,
   [switch]$DryRun,
   [string]$ConfigPath,
@@ -198,12 +198,18 @@ if ($Providers) {
     Write-Log "ERROR: -Providers is invalid: $($_.Exception.Message)"
     exit 3
   }
-} elseif ($Tokens -ge 0) {
-  if ($Tokens -gt 9007199254740991) {
-    Write-Log "ERROR: -Tokens exceeds JSON's safe integer range: $Tokens"
+} elseif ($Tokens -ne '') {
+  if ($Tokens -notmatch '^([A-Za-z0-9._-]+)=(\d+)$') {
+    Write-Log "ERROR: -Tokens takes provider=count, e.g. -Tokens claude=1234 (got: '$Tokens')"
     exit 3
   }
-  $providersJson = @{ deepseek = $Tokens } | ConvertTo-Json -Compress
+  $tokensProvider = $Matches[1]
+  $tokensCount = [decimal]$Matches[2]
+  if ($tokensCount -gt 9007199254740991) {
+    Write-Log "ERROR: -Tokens exceeds JSON's safe integer range: $tokensCount"
+    exit 3
+  }
+  $providersJson = @{ $tokensProvider = [long]$tokensCount } | ConvertTo-Json -Compress
 } else {
   try {
     if (-not $apiToken) { throw 'apiToken is required to read the current cycle before running ccusage.' }

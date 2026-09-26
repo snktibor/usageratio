@@ -20,15 +20,7 @@ const SOURCE_DIRS = ["app", "components", "lib"];
  * that are still hardcoded (see the i18n work in the plan). A key that gets
  * wired up must be taken off this list: the test says so.
  */
-const RESERVED_KEYS = [
-  "Settings.audit_notice",
-  "Settings.copy_failed",
-  "Settings.copy_token",
-  "Settings.copying",
-  "Settings.token_on_clipboard",
-  "Settings.token_on_clipboard_hidden",
-  "Setup.install_method",
-];
+const RESERVED_KEYS: string[] = [];
 
 /**
  * Keys reached through a table or a template literal that the scanner cannot
@@ -40,6 +32,10 @@ const DYNAMIC_KEY_PATTERNS = [
   /^Setup\.runner_(global|npx)_desc$/,
   /^Widgets\.status_(active|late|inactive)$/,
   /^Dashboard\.mode_note_(delta|snapshot|counter)$/,
+  // lib/api-token.ts apiTokenStatusNote() hands the key over as data: `t(note.key)`.
+  /^Settings\.token_status_(no_key|empty|unreadable|mismatch|stored_matches|stored)$/,
+  // lib/setup.ts PackageFile.roleKey: a Setup.role_* key, translated via `t(file.roleKey)`.
+  /^Setup\.role_(config|reporter_auto_unix|reporter_manual_unix|core|parser|installer_unix_auto|installer_unix_manual|reporter_auto_win|reporter_manual_win|task_installer|installer_win_auto|installer_win_manual|install_cmd)$/,
 ];
 
 type Messages = Record<string, unknown>;
@@ -113,6 +109,8 @@ interface Scan {
 
 const BINDING =
   /\b(?:const|let)\s+(\w+)\s*=\s*(?:await\s+)?(?:useTranslations|getTranslations)\((?:\s*"([^"]+)"|[^)]*namespace:\s*"([^"]+)")/g;
+/** A translator handed in with its type: `translate: Translator<"Setup">` (lib/i18n.ts). */
+const TYPED_BINDING = /\b(\w+)\??\s*:\s*Translator<\s*"([^"]+)"\s*>/g;
 const LITERAL_CALL = /\b(\w+)(?:\.(?:rich|raw|has|markup))?\(\s*"([^"]+)"/g;
 const TEMPLATE_CALL = /\b(\w+)(?:\.(?:rich|raw|has|markup))?\(\s*`([^`]+)`/g;
 const TABLE_CALL = /\b(\w+)(?:\.(?:rich|raw|has|markup))?\(\s*([A-Za-z_]\w*)\s*\[/g;
@@ -135,10 +133,14 @@ function scanSources(): Scan {
       if (!name || !namespace) continue;
       byName.set(name, new Set([...(byName.get(name) ?? []), namespace]));
     }
+    for (const [, name, namespace] of source.matchAll(TYPED_BINDING)) {
+      if (!name || !namespace) continue;
+      byName.set(name, new Set([...(byName.get(name) ?? []), namespace]));
+    }
     const fileNamespaces = new Set([...byName.values()].flatMap((set) => [...set]));
     const translatorNames = new Set([...byName.keys(), "t"]);
 
-    // A translator handed in as a parameter (`t: any`) is the file's own namespace.
+    // An untyped translator parameter is taken to be the file's only namespace.
     const namespaceOf = (name: string, where: string): string | null => {
       const own = byName.get(name);
       if (own?.size === 1) return [...own][0]!;

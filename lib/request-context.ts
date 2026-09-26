@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { cookies, headers } from "next/headers";
 import { after } from "next/server";
-import { log } from "@/lib/log";
+import { log, setRequestIdSource } from "@/lib/log";
 
 /**
  * The request the code is currently serving, reachable without threading it
@@ -55,6 +55,9 @@ export function currentRequest(): RequestContext | null {
 export function currentRequestId(): string | null {
   return storage.getStore()?.requestId ?? null;
 }
+
+// Every log line written inside a request carries its id (lib/log.ts cannot import this module).
+setRequestIdSource(currentRequestId);
 
 /** The incoming request's headers: the context's when injected, Next's otherwise. */
 export async function currentHeaders(): Promise<Headers> {

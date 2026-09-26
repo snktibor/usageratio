@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
+import { createTranslator } from "next-intl";
 import { describe, expect, it } from "vitest";
+import { locales } from "@/i18n/locales.generated";
 import {
   CLIENT_SOURCES,
   checkMachineSettings,
@@ -10,17 +12,25 @@ import {
   packageFiles,
   renderConfig,
   renderOneShot,
+  renderReadme,
   SETUP_MODES,
   SETUP_OSES,
 } from "@/lib/setup";
 import { buildSetupZip, loadClientSources, oneShotBlobs, usageEndpoint } from "@/lib/setup-package";
+import de from "@/messages/de.json";
+import en from "@/messages/en.json";
+import hu from "@/messages/hu.json";
 import { readZip } from "./read-zip";
+
+const MESSAGES = { en, hu, de } as const;
 
 const SETTINGS: MachineSettings = {
   apiUrl: "https://usageratio.example.com/api/usage",
   groupId: "Otthoni gép",
   machineId: "",
 };
+
+const t = createTranslator({ locale: "en", messages: en, namespace: "Setup" });
 
 const COMBINATIONS = SETUP_OSES.flatMap((os) => SETUP_MODES.map((mode) => ({ os, mode })));
 
@@ -116,12 +126,14 @@ describe("checkMachineSettings", () => {
     });
   });
 
-  it("asks for a missing group and explains a bad machine id at the same time", () => {
+  it("asks for a missing group and flags a bad machine id at the same time", () => {
     const check = checkMachineSettings(" ", "my/mac");
-    expect(check.ok).toBe(false);
-    if (check.ok) return;
-    expect(check.group).toMatch(/Add meg a csoportot/);
-    expect(check.machine).toMatch(/A gép azonosítója/);
+    expect(check).toEqual({ ok: false, group: "missing", machine: "invalid" });
+  });
+
+  it("tells a missing group from an invalid one", () => {
+    expect(checkMachineSettings("", "")).toMatchObject({ group: "missing", machine: null });
+    expect(checkMachineSettings("$HOME", "")).toMatchObject({ group: "invalid", machine: null });
   });
 
   it("rejects what the ingest API would reject", () => {
@@ -170,7 +182,7 @@ describe("detectOs", () => {
 describe("buildSetupZip", () => {
   it("packs executable macOS scripts with LF line ends and no token", async () => {
     const sources = await loadClientSources();
-    const { fileName, bytes } = buildSetupZip("macos", "auto", SETTINGS, sources);
+    const { fileName, bytes } = buildSetupZip("macos", "auto", SETTINGS, sources, t);
     const entries = readZip(bytes);
 
     expect(fileName).toBe("usageratio-macos-auto.zip");
@@ -190,7 +202,7 @@ describe("buildSetupZip", () => {
 
   it("packs executable Linux scripts with the Linux installer, sharing the macOS reporter", async () => {
     const sources = await loadClientSources();
-    const { fileName, bytes } = buildSetupZip("linux", "auto", SETTINGS, sources);
+    const { fileName, bytes } = buildSetupZip("linux", "auto", SETTINGS, sources, t);
     const entries = readZip(bytes);
 
     expect(fileName).toBe("usageratio-linux-auto.zip");
@@ -203,7 +215,7 @@ describe("buildSetupZip", () => {
 
   it("packs the Windows package with CRLF line ends and a README Notepad reads", async () => {
     const sources = await loadClientSources();
-    const entries = readZip(buildSetupZip("windows", "auto", SETTINGS, sources).bytes);
+    const entries = readZip(buildSetupZip("windows", "auto", SETTINGS, sources, t).bytes);
     const byName = new Map(entries.map((entry) => [entry.name, entry.data]));
 
     expect([...byName.keys()]).toContain("install.cmd");
@@ -277,6 +289,53 @@ describe("renderOneShot", () => {
       expect(blob).toMatch(/^[A-Za-z0-9+/=\n]+$/);
       expect(Math.max(...blob.split("\n").map((line) => line.length))).toBeLessThanOrEqual(76);
       expect(gunzipSync(Buffer.from(blob, "base64")).toString("utf8")).toBe(sources[source]);
+    }
+  });
+});
+
+describe("packageFiles roleKey", () => {
+  it("names a Setup.role_* key that exists in every locale's messages", () => {
+    for (const [locale, messages] of Object.entries(MESSAGES)) {
+      for (const { os, mode } of COMBINATIONS) {
+        for (const file of packageFiles(os, mode)) {
+          expect(file.roleKey.startsWith("role_"), `${locale} ${os}/${mode} ${file.name}`).toBe(true);
+          expect(messages.Setup, `${locale} is missing Setup.${file.roleKey}`).toHaveProperty(file.roleKey);
+        }
+      }
+    }
+  });
+});
+
+describe("renderReadme", () => {
+  it("includes the mode sentence, the settings and every file's role", () => {
+    const settings = { ...SETTINGS, machineId: "mac-studio" };
+    const readme = renderReadme("macos", "auto", settings, t);
+    expect(readme).toContain(t("mode_auto_macos"));
+    expect(readme).toContain(settings.groupId);
+    expect(readme).toContain(settings.machineId);
+    expect(readme).toContain(settings.apiUrl);
+    for (const file of packageFiles("macos", "auto")) {
+      expect(readme).toContain(file.name);
+      expect(readme).toContain(t(file.roleKey));
+    }
+  });
+
+  it("names the machine by its default text while none was given", () => {
+    const readme = renderReadme("windows", "manual", SETTINGS, t);
+    expect(readme).toContain(t("readme_machine_default"));
+  });
+
+  it.each(locales)("renders in %s without a missing key", (locale) => {
+    const translate = createTranslator({
+      locale,
+      messages: MESSAGES[locale],
+      namespace: "Setup",
+      onError: (error) => {
+        throw error;
+      },
+    });
+    for (const { os, mode } of COMBINATIONS) {
+      expect(() => renderReadme(os, mode, SETTINGS, translate)).not.toThrow();
     }
   });
 });

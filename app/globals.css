@@ -10,7 +10,7 @@
   --color-rule: #383835;
   --color-ink: #f4f3ef;
   --color-ink-2: #c3c2b7;
-  --color-ink-3: #898781;
+  --color-ink-3: #9a9891; /* 5.4:1 on --color-raised, 6:1 on --color-page: AA for small text */
 
   /* Status: reserved meaning, always shown with an icon and a label */
   --color-good: #0ca30c;

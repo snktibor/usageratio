@@ -6,11 +6,12 @@ import {
   apiTokenStatusNote,
   describeClient,
   isValidApiToken,
+  networkPrefix,
   parseAuditRecord,
   serializeAuditRecord,
   toAuditEntry,
 } from "@/lib/api-token";
-import { openSecret, parseEncryptionKey, sealSecret } from "@/lib/secret-box";
+import { keyFingerprint, openSecret, parseEncryptionKey, sealSecret } from "@/lib/secret-box";
 
 const KEY = randomBytes(32);
 const CONTEXT = "usageratio/usage-api-token/v1";
@@ -49,6 +50,15 @@ describe("the encryption key", () => {
   });
 });
 
+describe("a key fingerprint", () => {
+  it("is short, stable and tells different keys apart", () => {
+    const other = randomBytes(32);
+    expect(keyFingerprint(KEY)).toHaveLength(8);
+    expect(keyFingerprint(KEY)).toBe(keyFingerprint(KEY));
+    expect(keyFingerprint(KEY)).not.toBe(keyFingerprint(other));
+  });
+});
+
 describe("a sealed secret", () => {
   it("opens to the plaintext, and never holds it", () => {
     const sealed = sealSecret(TOKEN, KEY, CONTEXT);
@@ -63,6 +73,16 @@ describe("a sealed secret", () => {
     const second = sealSecret(TOKEN, KEY, CONTEXT);
     expect(first.iv).not.toBe(second.iv);
     expect(first.ct).not.toBe(second.ct);
+  });
+
+  it("carries its key's fingerprint as `kid` when asked to, and none otherwise", () => {
+    const withKid = sealSecret(TOKEN, KEY, CONTEXT, keyFingerprint(KEY));
+    expect(withKid.kid).toBe(keyFingerprint(KEY));
+    expect(withKid.v).toBe(1);
+    const withoutKid = sealSecret(TOKEN, KEY, CONTEXT);
+    expect(withoutKid.kid).toBeUndefined();
+    // `kid` is only ever an extra field: a build that does not know about it still opens the value.
+    expect(openSecret(withKid, KEY, CONTEXT)).toBe(TOKEN);
   });
 
   it("does not open with another key or for another purpose", () => {
@@ -103,10 +123,10 @@ describe("a token to store", () => {
 
   it("gets a reason in Hungarian when it cannot be saved", () => {
     expect(apiTokenProblem(TOKEN)).toBeNull();
-    expect(apiTokenProblem("")).toMatch(/Írd vagy illeszd be/);
-    expect(apiTokenProblem("short")).toMatch(/legalább 16/);
-    expect(apiTokenProblem("with a space inside it")).toMatch(/szóközt/);
-    expect(apiTokenProblem("a".repeat(513))).toMatch(/legfeljebb 512/);
+    expect(apiTokenProblem("")).toBe("empty");
+    expect(apiTokenProblem("short")).toBe("too_short");
+    expect(apiTokenProblem("with a space inside it")).toBe("not_ascii");
+    expect(apiTokenProblem("a".repeat(513))).toBe("too_long");
   });
 });
 
@@ -142,8 +162,29 @@ describe("naming the browser", () => {
 
   it("names a non-browser client by its product token", () => {
     expect(describeClient("curl/8.7.1")).toEqual({ browser: "curl 8.7.1", os: null });
-    expect(describeClient("Mozilla/5.0 (compatible)")).toEqual({ browser: "Ismeretlen böngésző", os: null });
-    expect(describeClient("")).toEqual({ browser: "Ismeretlen kliens", os: null });
+    // Unknown browser and unknown client alike: the UI tells them apart by the User-Agent being empty.
+    expect(describeClient("Mozilla/5.0 (compatible)")).toEqual({ browser: null, os: null });
+    expect(describeClient("")).toEqual({ browser: null, os: null });
+  });
+});
+
+describe("an address's network prefix", () => {
+  it("is the /24 for IPv4", () => {
+    expect(networkPrefix("203.0.113.7")).toBe("203.0.113.0/24");
+    expect(networkPrefix("10.20.30.40")).toBe("10.20.30.0/24");
+    expect(networkPrefix("999.0.0.1")).toBeNull();
+  });
+
+  it("is the /48 for IPv6, compressed forms included", () => {
+    expect(networkPrefix("2001:db8:1234:5678::1")).toBe("2001:db8:1234::/48");
+    expect(networkPrefix("::1")).toBe("0:0:0::/48");
+    expect(networkPrefix("2001:0db8:0000:0000:0000:0000:0000:0001")).toBe("2001:db8:0::/48");
+  });
+
+  it("is null for anything else", () => {
+    expect(networkPrefix("unknown")).toBeNull();
+    expect(networkPrefix("not-an-address")).toBeNull();
+    expect(networkPrefix("")).toBeNull();
   });
 });
 
@@ -154,7 +195,9 @@ describe("an audit record", () => {
     userAgent: UA.safariMac,
     brands: "",
     platform: "",
-    ip: "203.0.113.7",
+    ip: null,
+    ipHash: "3fa9c1a2b91c",
+    ipPrefix: "203.0.113.0/24",
     session: "1a2b3c4d",
   };
 
@@ -163,16 +206,28 @@ describe("an audit record", () => {
     expect(parseAuditRecord(serializeAuditRecord({ ...record, session: null }))?.session).toBeNull();
   });
 
-  it("is named for the popup when read", () => {
+  it("keeps a legacy raw-IP record readable, with no hash or prefix", () => {
+    const legacy: AuditRecord = { ...record, ip: "203.0.113.7", ipHash: null, ipPrefix: null };
+    expect(parseAuditRecord(serializeAuditRecord(legacy))).toEqual(legacy);
+    expect(toAuditEntry(legacy).ip).toBe("203.0.113.7");
+  });
+
+  it("is named for the popup when read: hash and prefix combine into one display string", () => {
     expect(toAuditEntry(record)).toEqual({
       at: record.at,
       action: "revealed",
       browser: "Safari 18",
       os: "macOS",
       userAgent: UA.safariMac,
-      ip: "203.0.113.7",
+      ip: "203.0.113.0/24 · 3fa9c1a2b91c",
       session: "1a2b3c4d",
     });
+  });
+
+  it("falls back to just the prefix, just the hash, or 'unknown'", () => {
+    expect(toAuditEntry({ ...record, ipHash: null }).ip).toBe("203.0.113.0/24");
+    expect(toAuditEntry({ ...record, ipPrefix: null }).ip).toBe("3fa9c1a2b91c");
+    expect(toAuditEntry({ ...record, ipHash: null, ipPrefix: null }).ip).toBe("unknown");
   });
 
   it("is skipped when damaged, and read leniently when fields are missing", () => {
@@ -186,19 +241,26 @@ describe("an audit record", () => {
       userAgent: "",
       brands: "",
       platform: "",
-      ip: "unknown",
+      ip: null,
+      ipHash: null,
+      ipPrefix: null,
       session: null,
     });
   });
 });
 
 describe("the status note", () => {
+  const stored = (matchesServer: boolean | null) =>
+    ({ state: "stored", updatedAt: 1, matchesServer, keyId: "abcd1234", needsReseal: false }) as const;
+
   it("warns when the stored token is not the server's", () => {
-    expect(apiTokenStatusNote({ state: "stored", updatedAt: 1, matchesServer: false }).tone).toBe("warning");
-    expect(apiTokenStatusNote({ state: "stored", updatedAt: 1, matchesServer: true }).tone).toBe("good");
-    expect(apiTokenStatusNote({ state: "stored", updatedAt: 1, matchesServer: null }).tone).toBe("good");
+    expect(apiTokenStatusNote(stored(false)).tone).toBe("warning");
+    expect(apiTokenStatusNote(stored(true)).tone).toBe("good");
+    expect(apiTokenStatusNote(stored(null)).tone).toBe("good");
     expect(apiTokenStatusNote({ state: "unreadable", updatedAt: 1 }).tone).toBe("problem");
-    expect(apiTokenStatusNote({ state: "no_key" }).text).toMatch(/TOKEN_ENCRYPTION_KEY/);
+    expect(apiTokenStatusNote({ state: "no_key" }).key).toBe("token_status_no_key");
+    expect(apiTokenStatusNote(stored(false)).key).toBe("token_status_mismatch");
+    expect(apiTokenStatusNote(stored(null)).key).toBe("token_status_stored");
     expect(apiTokenStatusNote({ state: "empty" }).tone).toBe("neutral");
   });
 });

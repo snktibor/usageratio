@@ -382,7 +382,7 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
     [current, factorFor(current, DEMO_TARGETS.currentCycleShare)],
   ]);
 
-  const usage = DEMO_MACHINES.map((machine, machineIndex) => {
+  const usage = DEMO_MACHINES.map((_machine, machineIndex) => {
     const byProvider = new Map<string, HourSeries>();
     for (const [providerId, series] of raw[machineIndex]!) {
       const provider = DEMO_PROVIDERS.find((candidate) => candidate.id === providerId);
@@ -483,7 +483,13 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
       period: reset.period,
       useTokenLimits: false,
       limits: Object.fromEntries(DEMO_PROVIDERS.map((provider) => [provider.id, provider.limit])),
-      reset: { weekday: reset.weekday, monthDay: reset.monthDay, hour: reset.hour, minute: reset.minute },
+      reset: {
+        weekday: reset.weekday,
+        monthDay: reset.monthDay,
+        hour: reset.hour,
+        minute: reset.minute,
+        timeZone: reset.timeZone,
+      },
       showRemaining: true,
       hiddenProviders: [],
       excludedProviders: { Lab: ["openai"] },

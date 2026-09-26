@@ -62,7 +62,7 @@ export function InfoTip({ label, children }: { label: string; children: React.Re
       </button>
       {/* Padding, not margin: the pointer can cross to the tip without leaving the hover. */}
       <span role="tooltip" id={id} className={`absolute inset-x-0 top-full z-10 pt-2 transition-opacity ${visibility}`}>
-        <span className="block max-w-2xl space-y-2 rounded-md bg-raised px-4 py-3 text-sm leading-relaxed text-ink-2 shadow-lg ring-1 ring-white/10">
+        <span className="block max-w-2xl space-y-2 rounded-md bg-raised px-4 py-3 text-sm leading-relaxed text-ink-2 shadow-lg ring-1 ring-ink/10">
           {children}
         </span>
       </span>

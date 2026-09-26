@@ -1,0 +1,7 @@
+#!/bin/sh
+# Fake npx for CI/local Pester runs (macOS/Linux): see ccusage.cmd/ccusage.
+# USAGERATIO_CCUSAGE=global makes report-usage-core.ps1 call the ccusage shim
+# directly and never fall back to npx; this always fails so that fallback
+# path is never silently used.
+echo "npx shim: should not be called when USAGERATIO_CCUSAGE=global" >&2
+exit 1

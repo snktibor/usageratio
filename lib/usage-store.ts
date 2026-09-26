@@ -1,13 +1,16 @@
 import type { UsageEvent } from "@/lib/aggregate";
+import { MAX_MACHINES } from "@/lib/config";
 import type { KnownMachine } from "@/lib/dashboard";
 import { reportCheckpoints } from "@/lib/days";
 import { type OfficialUsageUpdate, officialUsageField, storedEntryFor } from "@/lib/official-usage";
-import { DEFAULT_PROVIDER_ID, mergeProviderIds, normalizeProviderId } from "@/lib/providers";
+import { MAX_PROVIDERS, mergeProviderIds, normalizeProviderId } from "@/lib/providers";
 import { getRedis, toStringRecord } from "@/lib/redis";
+import { KEYS } from "@/lib/redis-keys";
 import { TxPlan } from "@/lib/redis-tx";
 import {
   type IndexedGroup,
   type KnownGroup,
+  MAX_GROUPS,
   parseGroupEntry,
   randomGroupColor,
   type SettingsUpdate,
@@ -45,8 +48,11 @@ import type { UsageReport } from "@/lib/validation";
  * moment. Every later report sends the same days again, so these are no-ops
  * too, until a day's total changes.
  *
- * Pre-provider keys (`usage:events:{groupId}` and plain machine hash fields)
- * are still read as DeepSeek data, so the refactor does not hide history.
+ * Pre-provider data (a bare `usage:events:{groupId}` set, and `usage:machines`
+ * fields without a `providerId:` prefix, both from before providers existed)
+ * is no longer read here. Run `npm run migrate:legacy -- --apply`
+ * (lib/migrate-legacy.ts) against the store once, before deploying a build
+ * without this fallback, to fold it under the "deepseek" provider.
  *
  * The groups are a hash of their own rather than a list inside the settings
  * document because the machines all report at the top of the hour: a group
@@ -55,15 +61,6 @@ import type { UsageReport } from "@/lib/validation";
  * read-modify-write of one JSON document would let concurrent reports (or a
  * save on the panel) overwrite each other.
  */
-const KEYS = {
-  settings: "usage:settings",
-  providers: "usage:providers",
-  groups: "usage:groups",
-  machines: "usage:machines",
-  officialUsage: "usage:official",
-  events: (providerId: string, groupId: string) => `usage:events:${providerId}:${groupId}`,
-  legacyEvents: (groupId: string) => `usage:events:${groupId}`,
-};
 
 const DAY_MS = 86_400_000;
 
@@ -99,58 +96,134 @@ function parseModelSplit(raw: unknown): Record<string, number> | null {
   return split;
 }
 
+export type StoreReportRefusal = "too_many_groups" | "too_many_providers" | "too_many_machines";
+
+export type StoreReportResult =
+  | { ok: true; duplicate: boolean; newGroup: boolean; newProviders: string[]; heartbeat: boolean }
+  | { ok: false; refused: StoreReportRefusal; limit: number };
+
+/**
+ * The registry caps, checked in one pipeline before the write below: refuses
+ * a report that would register a group, provider or machine past MAX_GROUPS,
+ * MAX_PROVIDERS or MAX_MACHINES. Read here, not inside the write's MULTI, so
+ * two first reports racing each other can each see room and both get
+ * written — the caps bound runaway growth, they are not an exact invariant
+ * (see lib/config.ts MAX_MACHINES).
+ */
+async function checkRegistryCaps(report: UsageReport, heartbeat: boolean): Promise<StoreReportRefusal | null> {
+  const providers = Object.entries(report.providers);
+  const redis = getRedis();
+  const caps = redis.pipeline();
+  const plan = new TxPlan();
+  plan.add("groupCount", () => caps.hlen(KEYS.groups));
+  plan.add("groupExists", () => caps.hexists(KEYS.groups, report.groupId));
+  if (!heartbeat) {
+    plan.add("providerCount", () => caps.hlen(KEYS.providers));
+    for (const [providerId] of providers) {
+      plan.add(`providerExists:${providerId}`, () => caps.hexists(KEYS.providers, providerId));
+    }
+    plan.add("machineCount", () => caps.hlen(KEYS.machines));
+    for (const [providerId] of providers) {
+      plan.add(`machineExists:${providerId}`, () => caps.hexists(KEYS.machines, `${providerId}:${report.machineId}`));
+    }
+  }
+  const results: unknown[] = await caps.exec();
+
+  const groupCount = Number(plan.result(results, "groupCount"));
+  const groupExists = Number(plan.result(results, "groupExists")) === 1;
+  if (!groupExists && groupCount >= MAX_GROUPS) return "too_many_groups";
+  if (heartbeat) return null;
+
+  const providerCount = Number(plan.result(results, "providerCount"));
+  const newProviderCount = providers.filter(
+    ([providerId]) => Number(plan.result(results, `providerExists:${providerId}`)) === 0,
+  ).length;
+  if (providerCount + newProviderCount > MAX_PROVIDERS) return "too_many_providers";
+
+  const machineCount = Number(plan.result(results, "machineCount"));
+  const newMachineCount = providers.filter(
+    ([providerId]) => Number(plan.result(results, `machineExists:${providerId}`)) === 0,
+  ).length;
+  if (machineCount + newMachineCount > MAX_MACHINES) return "too_many_machines";
+
+  return null;
+}
+
 /**
  * Persists one report, and the checkpoints of its split by day inside its
  * cycle (`cycle`: the time zone the clients split the days in, and the start
  * of the cycle the report falls in; null stores the report alone).
  * `duplicate` is true when the identical report was already stored;
  * `newGroup` when its group was unknown and got registered with a random colour.
+ *
+ * An empty `providers` snapshot (`{}`) is a heartbeat: a fresh machine with
+ * nothing to report yet (see lib/validation.ts `parseProviders`). Its group is
+ * still registered — so the machine's group shows up on the settings panel —
+ * but no provider or machine row is invented for it, since there is nothing
+ * to name one after; `heartbeat` comes back true and `duplicate` false.
+ *
+ * Refuses (`ok: false`) instead of writing anything when the report would
+ * register a new group, provider or machine past its cap; see
+ * `checkRegistryCaps` above.
  */
 export async function storeReport(
   report: UsageReport,
   now: Date,
   retentionDays: number,
   cycle: { timeZone: string; startMs: number } | null,
-): Promise<{ duplicate: boolean; newGroup: boolean; newProviders: string[] }> {
+): Promise<StoreReportResult> {
   const providers = Object.entries(report.providers);
+  const heartbeat = providers.length === 0;
+
+  const refused = await checkRegistryCaps(report, heartbeat);
+  if (refused === "too_many_groups") return { ok: false, refused, limit: MAX_GROUPS };
+  if (refused === "too_many_providers") return { ok: false, refused, limit: MAX_PROVIDERS };
+  if (refused === "too_many_machines") return { ok: false, refused, limit: MAX_MACHINES };
+
   const oldestMs = now.getTime() - retentionDays * DAY_MS;
-  const checkpoints = cycle ? reportCheckpoints(report, cycle.timeZone, Math.max(cycle.startMs, oldestMs)) : [];
+  const checkpoints =
+    cycle && !heartbeat ? reportCheckpoints(report, cycle.timeZone, Math.max(cycle.startMs, oldestMs)) : [];
 
   const tx = getRedis().multi();
   const plan = new TxPlan();
   plan.add("group", () =>
     tx.hsetnx(KEYS.groups, report.groupId, serializeGroupEntry(randomGroupColor(), now.getTime())),
   );
-  const machineEntries: Record<string, string> = {};
-  for (const [providerId, tokens] of providers) {
-    const eventsKey = KEYS.events(providerId, report.groupId);
-    const member = eventMember(report.machineId, tokens, report.timestampMs, report.models[providerId]);
-    const lastReport = JSON.stringify({ g: report.groupId, ts: report.timestampMs, t: tokens });
-    plan.add(`provider:${providerId}`, () => tx.hsetnx(KEYS.providers, providerId, now.getTime()));
-    plan.add(`event:${providerId}`, () => tx.zadd(eventsKey, { nx: true }, { score: report.timestampMs, member }));
-    plan.add(null, () => tx.zremrangebyscore(eventsKey, 0, oldestMs));
-    plan.add(null, () => tx.expire(eventsKey, (retentionDays + 1) * 86_400));
-    machineEntries[`${providerId}:${report.machineId}`] = lastReport;
-  }
-  plan.add(null, () => tx.hset(KEYS.machines, machineEntries));
-  for (const [providerId] of providers) {
-    const members = checkpoints
-      .filter((checkpoint) => checkpoint.providerId === providerId)
-      .map((checkpoint) => ({
-        score: checkpoint.ts,
-        member: eventMember(report.machineId, checkpoint.tokens, checkpoint.ts, checkpoint.models, true),
-      }));
-    const [first, ...rest] = members;
-    if (first) plan.add(null, () => tx.zadd(KEYS.events(providerId, report.groupId), { nx: true }, first, ...rest));
+  if (!heartbeat) {
+    const machineEntries: Record<string, string> = {};
+    for (const [providerId, tokens] of providers) {
+      const eventsKey = KEYS.events(providerId, report.groupId);
+      const member = eventMember(report.machineId, tokens, report.timestampMs, report.models[providerId]);
+      const lastReport = JSON.stringify({ g: report.groupId, ts: report.timestampMs, t: tokens });
+      plan.add(`provider:${providerId}`, () => tx.hsetnx(KEYS.providers, providerId, now.getTime()));
+      plan.add(`event:${providerId}`, () => tx.zadd(eventsKey, { nx: true }, { score: report.timestampMs, member }));
+      plan.add(null, () => tx.zremrangebyscore(eventsKey, 0, oldestMs));
+      plan.add(null, () => tx.expire(eventsKey, (retentionDays + 1) * 86_400));
+      machineEntries[`${providerId}:${report.machineId}`] = lastReport;
+    }
+    plan.add(null, () => tx.hset(KEYS.machines, machineEntries));
+    for (const [providerId] of providers) {
+      const members = checkpoints
+        .filter((checkpoint) => checkpoint.providerId === providerId)
+        .map((checkpoint) => ({
+          score: checkpoint.ts,
+          member: eventMember(report.machineId, checkpoint.tokens, checkpoint.ts, checkpoint.models, true),
+        }));
+      const [first, ...rest] = members;
+      if (first) plan.add(null, () => tx.zadd(KEYS.events(providerId, report.groupId), { nx: true }, first, ...rest));
+    }
   }
   const results: unknown[] = await tx.exec();
 
   // ZADD NX answers how many members were new: 0 for every provider means the very same report was stored before.
-  const duplicate = providers.every(([providerId]) => Number(plan.result(results, `event:${providerId}`)) === 0);
-  const newProviders = providers.flatMap(([providerId]) =>
-    Number(plan.result(results, `provider:${providerId}`)) === 1 ? [providerId] : [],
-  );
-  return { duplicate, newGroup: Number(plan.result(results, "group")) === 1, newProviders };
+  const duplicate =
+    !heartbeat && providers.every(([providerId]) => Number(plan.result(results, `event:${providerId}`)) === 0);
+  const newProviders = heartbeat
+    ? []
+    : providers.flatMap(([providerId]) =>
+        Number(plan.result(results, `provider:${providerId}`)) === 1 ? [providerId] : [],
+      );
+  return { ok: true, duplicate, newGroup: Number(plan.result(results, "group")) === 1, newProviders, heartbeat };
 }
 
 function parseEvent(raw: unknown, groupId: string): UsageEvent | null {
@@ -183,8 +256,10 @@ function parseMachine(field: string, raw: string): ProviderMachine | null {
     const { g, ts, t } = JSON.parse(raw) as Record<string, unknown>;
     if (typeof g !== "string" || typeof ts !== "number" || !Number.isFinite(ts)) return null;
     const separator = field.indexOf(":");
-    const providerId = separator < 0 ? DEFAULT_PROVIDER_ID : normalizeProviderId(field.slice(0, separator));
-    const machineId = separator < 0 ? field : field.slice(separator + 1);
+    // A field without a "providerId:" prefix is pre-provider data: run the migration first (see the layout comment above).
+    if (separator < 0) return null;
+    const providerId = normalizeProviderId(field.slice(0, separator));
+    const machineId = field.slice(separator + 1);
     if (!providerId || machineId.length === 0) return null;
     return { providerId, machineId, groupId: g, lastSeenAt: ts, lastTokens: typeof t === "number" ? t : 0 };
   } catch {
@@ -268,6 +343,21 @@ export async function loadIndexes(): Promise<StoreIndexes> {
   };
 }
 
+/**
+ * Records `providerIds` as first seen at `atMs` (one millisecond apart, in
+ * order) unless they are already known. The provider list and the dashboard's
+ * default account follow first-seen order; the demo seed uses this to list its
+ * accounts in its own order.
+ */
+export async function registerProviders(providerIds: string[], atMs: number): Promise<void> {
+  if (providerIds.length === 0) return;
+  const tx = getRedis().multi();
+  providerIds.forEach((providerId, index) => {
+    tx.hsetnx(KEYS.providers, providerId, atMs + index);
+  });
+  await tx.exec();
+}
+
 /** The stored settings document alone. */
 export async function loadRawSettings(): Promise<string | null> {
   return toRawDocument(await getRedis().get(KEYS.settings));
@@ -310,7 +400,6 @@ export async function loadEvents(
   for (const providerId of providers) {
     for (const group of groups) {
       request(providerId, group.groupId, KEYS.events(providerId, group.groupId));
-      if (providerId === DEFAULT_PROVIDER_ID) request(providerId, group.groupId, KEYS.legacyEvents(group.groupId));
     }
   }
   const results: unknown[] = await reads.exec();
@@ -356,7 +445,6 @@ export async function loadGroupActivity(groups: IndexedGroup[], providerIds: str
   };
   for (const group of groups) {
     for (const providerId of providers) check(group.groupId, KEYS.events(providerId, group.groupId));
-    check(group.groupId, KEYS.legacyEvents(group.groupId));
   }
   const results: unknown[] = await reads.exec();
   const active = new Set<string>();
@@ -394,7 +482,6 @@ export async function saveSettings(
   };
   for (const groupId of update.removedGroups) {
     for (const providerId of mergeProviderIds(providerIds)) check(groupId, KEYS.events(providerId, groupId));
-    check(groupId, KEYS.legacyEvents(groupId));
   }
   const results: unknown[] = await reads.exec();
   const rawGroups = plan.result(results, "groups");

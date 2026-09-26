@@ -19,7 +19,13 @@ const HOUR = 3_600_000;
 const NOW = new Date("2026-09-23T10:00:00Z");
 const CYCLE_START = Date.parse("2026-09-20T22:00:00Z");
 const CYCLE_END = CYCLE_START + 7 * 24 * HOUR;
-const config = { ...getConfig({}), tokenMode: "snapshot" as const };
+// The zone is fixed explicitly: these fixtures are written in Budapest time, independent of
+// DEFAULT_RESET's own (deploy-time) default.
+const config = {
+  ...getConfig({}),
+  tokenMode: "snapshot" as const,
+  reset: { ...getConfig({}).reset, timeZone: "Europe/Budapest" },
+};
 
 const FABLE: SubLimit = {
   id: "fable",
@@ -69,7 +75,7 @@ describe("sub-limit definitions", () => {
     expect(subLimitIdFor("Fable 5", [])).toBe("fable-5");
     expect(subLimitIdFor("Fable", ["fable", "fable-2"])).toBe("fable-3");
     expect(subLimitIdFor("Ősz ünnep", [])).toBe("osz-unnep");
-    expect(subLimitIdFor("★", [])).toBe("alkeret");
+    expect(subLimitIdFor("★", [])).toBe("sub-limit");
     expect(subLimitIdFor("a".repeat(40), [])).toHaveLength(24);
   });
 });

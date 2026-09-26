@@ -28,11 +28,13 @@ export const DEFAULT_LIMIT = 500_000;
 
 /**
  * When the cycle restarts, as wall-clock time in `timeZone` (DST-aware). Only
- * reports since the most recent reset are shown. The period, the day and the
- * time are seeds for the settings panel; the time zone is not on the panel
- * and always comes from here.
+ * reports since the most recent reset are shown. The period, the day, the
+ * time and the time zone are all seeds for the settings panel: once it saves
+ * a document, lib/settings.ts `resolveConfig` applies its choices (including
+ * its own `reset.timeZone`) over these.
  * Optional env overrides: RESET_WEEKDAY (0 = Sunday … 6 = Saturday),
- * RESET_TIME ("HH:MM", 24h) and RESET_TIMEZONE (IANA name).
+ * RESET_TIME ("HH:MM", 24h) and RESET_TIMEZONE (IANA name; only the initial
+ * value — see lib/settings.ts).
  */
 export const DEFAULT_RESET: ResetConfig = {
   period: "weekly",
@@ -40,7 +42,7 @@ export const DEFAULT_RESET: ResetConfig = {
   monthDay: 1,
   hour: 0,
   minute: 0,
-  timeZone: "Europe/Budapest",
+  timeZone: "UTC",
 };
 
 /**
@@ -81,6 +83,29 @@ export const INACTIVE_MACHINE_DAYS = 35;
 
 /** Reports timestamped further in the future than this are rejected. */
 export const MAX_CLOCK_SKEW_MINUTES = 10;
+
+/**
+ * The registry caps `storeReport` (lib/usage-store.ts) refuses to grow past:
+ * MAX_GROUPS (lib/settings.ts) and MAX_PROVIDERS (lib/providers.ts) are the
+ * other two. A concurrent first report of two never-seen machines (or groups,
+ * or providers) can overshoot its cap by a few — the check reads the count
+ * before the write, not inside its transaction — this is anti-bloat, not an
+ * invariant the dashboard depends on.
+ */
+export const MAX_MACHINES = 200;
+
+/**
+ * POST /api/usage: hits per token+machine and the deployment-wide total,
+ * both per hour (app/api/usage/route.ts).
+ */
+export const INGEST_RATE_LIMIT_PER_MACHINE = 60;
+export const INGEST_RATE_LIMIT_GLOBAL = 600;
+
+/** GET /api/usage: cycle lookups per token, per hour. */
+export const CYCLE_RATE_LIMIT_PER_TOKEN = 120;
+
+/** Failed Bearer tokens per IP, per minute, on either method of /api/usage. */
+export const UNAUTH_RATE_LIMIT_PER_IP = 60;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -125,7 +150,8 @@ export interface AppConfig {
 
 const TOKEN_MODES: readonly TokenMode[] = ["delta", "snapshot", "counter"];
 
-function isValidTimeZone(timeZone: string): boolean {
+/** Whether Intl accepts `timeZone` as an IANA name; used to validate both the env var and the settings panel's. */
+export function isValidTimeZone(timeZone: string): boolean {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone });
     return true;

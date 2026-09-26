@@ -19,9 +19,8 @@ describe("seedStore", () => {
 
     const indexes = await loadIndexes();
     expect(indexes.groups.map((group) => group.groupId).sort()).toEqual(DEMO_GROUPS.map((g) => g.id).sort());
-    expect(indexes.providers.map((provider) => provider.providerId).sort()).toEqual(
-      DEMO_PROVIDERS.map((p) => p.id).sort(),
-    );
+    // In the dataset's own order, so the dashboard opens on Claude.
+    expect(indexes.providers.map((provider) => provider.providerId)).toEqual(DEMO_PROVIDERS.map((p) => p.id));
     expect(new Set(indexes.machines.map((machine) => machine.machineId))).toEqual(
       new Set(DEMO_MACHINES.map((machine) => machine.id)),
     );

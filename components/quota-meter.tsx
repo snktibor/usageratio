@@ -4,6 +4,7 @@ import { AlertTriangleIcon, CheckCircleIcon, InfoCircleIcon, StopCircleIcon } fr
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatCycleMoment, formatDuration, formatHeroPercent, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
+import type { Translator } from "@/lib/i18n";
 import type { QuotaAssessment } from "@/lib/quota";
 
 /** Fill carries severity; the track is a dimmer step of the same colour. */
@@ -26,7 +27,7 @@ const STATUS_STYLE = {
 /** No token limit and no official reading: nothing tells how much of the budget is gone. */
 const UNKNOWN_STYLE = { fill: "bg-ink", track: "bg-rule", icon: InfoCircleIcon, iconColor: "text-ink-3" } as const;
 
-export function statusLabel(quota: QuotaAssessment, t: any, _locale: string): string {
+export function statusLabel(quota: QuotaAssessment, t: Translator<"Widgets">): string {
   if (quota.status === "critical") return t("pace_running_out");
   if (quota.pace.earlyBurn) return t("pace_early_burn");
   if (quota.status === "warning") {
@@ -46,7 +47,7 @@ function paceSentence(
   model: DashboardModel,
   view: DashboardView,
   quota: QuotaAssessment,
-  t: any,
+  t: Translator<"Widgets">,
   locale: string,
 ): string {
   const { total, limit, pace } = quota;
@@ -61,8 +62,7 @@ function paceSentence(
       : t("no_tokens_left");
   }
   if (total === 0) {
-    const period = model.period === "monthly" ? t("monthly_adjective") : t("weekly_adjective");
-    return t("full_quota_available", { period });
+    return t("full_quota_available", { period: model.period });
   }
   if (pace.earlyBurn) {
     return t("first_day_burn", {
@@ -84,7 +84,7 @@ function meterAttributes(
   model: DashboardModel,
   quota: QuotaAssessment | null,
   tokenQuota: QuotaAssessment | null,
-  t: any,
+  t: Translator<"Widgets">,
   locale: string,
 ): React.HTMLAttributes<HTMLDivElement> {
   if (!quota) return { "aria-hidden": true };
@@ -127,7 +127,6 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
   const showRemaining = tokenQuota !== null && model.showRemaining;
   const style = quota ? STATUS_STYLE[quota.status] : UNKNOWN_STYLE;
   const StatusIcon = style.icon;
-  const period = model.period === "monthly" ? t("monthly_adjective") : t("weekly_adjective");
   const fillPercent = quota ? Math.min(1, quota.usedFraction) * 100 : 0;
   const nowFraction = model.cycle.elapsedFraction;
   const nowAlign = nowFraction < 0.05 ? "translate-x-0" : nowFraction > 0.95 ? "-translate-x-full" : "-translate-x-1/2";
@@ -139,7 +138,7 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
         {quota ? (
           <>
             <span className="hero-figure">{formatHeroPercent(quota.usedFraction, locale)}</span>
-            <span className="text-xl text-ink-2 sm:text-2xl">{t("quota_consumed", { period })}</span>
+            <span className="text-xl text-ink-2 sm:text-2xl">{t("quota_consumed", { period: model.period })}</span>
           </>
         ) : (
           <>
@@ -187,13 +186,14 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
         <StatusIcon className={`mt-1 shrink-0 ${style.iconColor}`} />
         {quota ? (
           <span>
-            <strong className="font-medium text-ink">{statusLabel(quota, t, locale)}</strong>{" "}
+            <strong className="font-medium text-ink">{statusLabel(quota, t)}</strong>{" "}
             {paceSentence(model, view, quota, t, locale)}
           </span>
         ) : (
           <span>
-            <strong className="font-medium text-ink">{t("quota_state_from_official_1")}</strong>
-            {t("quota_state_from_official_2")}
+            {t.rich("quota_state_from_official", {
+              strong: (chunks) => <strong className="font-medium text-ink">{chunks}</strong>,
+            })}
           </span>
         )}
       </p>
@@ -210,7 +210,7 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
               {t("token_count", { count: formatTokens(tokenQuota.total, locale) })}
             </dd>
             <dd className="text-sm text-ink-3">
-              {t("of_token_limit", { period, tokens: formatTokens(tokenQuota.limit, locale) })}
+              {t("of_token_limit", { period: model.period, tokens: formatTokens(tokenQuota.limit, locale) })}
             </dd>
           </div>
         ) : (

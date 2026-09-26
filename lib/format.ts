@@ -15,11 +15,10 @@ export function formatTokens(value: number, locale: string): string {
   return integer.format(Math.round(value));
 }
 
-/** 0.625 → "62,5%"; tiny non-zero values → "<0,1%" */
+/** 0.625 → "62,5%"; tiny non-zero values → "<0,1%" (each locale's own percent form) */
 export function formatPercent(fraction: number, locale: string): string {
   if (fraction > 0 && fraction < 0.001) {
-    const isHu = locale.startsWith("hu");
-    return isHu ? "<0,1%" : "<0.1%";
+    return `<${new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }).format(0.001)}`;
   }
   return new Intl.NumberFormat(locale, {
     style: "percent",
@@ -45,6 +44,26 @@ export function formatHeroPercent(fraction: number, locale: string): string {
 export function formatFactor(factor: number, locale: string): string {
   const digits = factor < 10 ? 2 : factor < 100 ? 1 : 0;
   return `${new Intl.NumberFormat(locale, { maximumFractionDigits: digits }).format(factor)}×`;
+}
+
+/**
+ * 21 → "21." in Hungarian and German, "21" in English: the day-of-month, in
+ * each locale's own convention. A day-only skeleton does not carry the
+ * separator on its own (verified: `Intl.DateTimeFormat(locale, { day:
+ * "numeric" })` gives a bare "21" in every locale), so it is borrowed from the
+ * day+month pattern, which does place a "." after the day for hu/de.
+ */
+export function formatMonthDay(day: number, locale: string): string {
+  const date = new Date(Date.UTC(2024, 0, day));
+  const parts = new Intl.DateTimeFormat(locale, {
+    day: "numeric",
+    month: "numeric",
+    timeZone: "UTC",
+  }).formatToParts(date);
+  const dayIndex = parts.findIndex((part) => part.type === "day");
+  const dayText = parts[dayIndex]!.value;
+  const after = parts[dayIndex + 1];
+  return after?.type === "literal" && /^\.+$/.test(after.value) ? dayText + after.value : dayText;
 }
 
 export function weekdayShort(weekday: number, locale: string): string {

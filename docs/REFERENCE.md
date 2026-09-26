@@ -139,7 +139,7 @@ the config so cron can find it too.
 | --- | --- |
 | `--dry-run` / `-DryRun` | prints the JSON payload, sends nothing |
 | `--providers '{"claude":22000}'` / `-Providers '{"claude":22000}'` | a manual multi-provider snapshot, for testing |
-| `--tokens N` / `-Tokens N` | compatibility shortcut: `{"deepseek":N}` |
+| `--tokens claude=N` / `-Tokens claude=N` | one provider's total: `{"claude":N}` |
 
 Exit codes: `0` sent · `1` send failed · `2` bad settings · `3` data read/JSON error.
 

@@ -1,6 +1,5 @@
-import { isAuthenticated } from "@/lib/auth";
+import { apiError, json, readJsonBody, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
 import { demoReadOnly } from "@/lib/demo/mode";
-import { storageFailure as failure, isForeignOrigin, json } from "@/lib/http";
 import { parseOfficialUsageUpdate } from "@/lib/official-usage";
 import { saveOfficialUsage } from "@/lib/usage-store";
 
@@ -24,49 +23,23 @@ import { saveOfficialUsage } from "@/lib/usage-store";
 
 const MAX_BODY_BYTES = 1_024;
 
-const storageFailure = (error: unknown) => failure(error, "The official-usage field");
-
-export async function PUT(request: Request): Promise<Response> {
-  if (isForeignOrigin(request)) return json({ error: "forbidden_origin" }, 403);
+export const PUT = withApiHandler("api/official-usage", async ({ request }) => {
+  const foreign = requireSameOrigin(request);
+  if (foreign) return foreign;
   const readOnly = demoReadOnly();
   if (readOnly) return readOnly;
 
-  try {
-    if (!(await isAuthenticated())) return json({ error: "unauthorized" }, 401);
-  } catch (error) {
-    return storageFailure(error);
-  }
+  const unauthorized = await requireSession();
+  if (unauthorized) return unauthorized;
 
-  if (!/^application\/json\b/i.test(request.headers.get("content-type") ?? "")) {
-    return json({ error: "unsupported_media_type" }, 415);
-  }
+  const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES });
+  if (!body.ok) return body.response;
 
-  let raw: string;
-  try {
-    raw = await request.text();
-  } catch {
-    return json({ error: "unreadable_body" }, 400);
-  }
-  if (Buffer.byteLength(raw, "utf8") > MAX_BODY_BYTES) {
-    return json({ error: "payload_too_large", maxBytes: MAX_BODY_BYTES }, 413);
-  }
-
-  let body: unknown;
-  try {
-    body = JSON.parse(raw);
-  } catch {
-    return json({ error: "invalid_json" }, 400);
-  }
-
-  const parsed = parseOfficialUsageUpdate(body);
-  if (!parsed.ok) return json({ error: "invalid_payload", details: parsed.errors }, 400);
+  const parsed = parseOfficialUsageUpdate(body.value);
+  if (!parsed.ok) return apiError("invalid_payload", 400, { details: parsed.errors });
 
   const enteredAt = Date.now();
-  try {
-    await saveOfficialUsage(parsed.update, new Date(enteredAt));
-  } catch (error) {
-    return storageFailure(error);
-  }
+  await saveOfficialUsage(parsed.update, new Date(enteredAt));
 
   return json({ ok: true, enteredAt }, 200);
-}
+});

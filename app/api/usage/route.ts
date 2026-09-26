@@ -1,9 +1,18 @@
 import { apiError, json, readJsonBody, requireBearer, withApiHandler } from "@/lib/api";
-import { getConfig } from "@/lib/config";
+import {
+  CYCLE_RATE_LIMIT_PER_TOKEN,
+  getConfig,
+  INGEST_RATE_LIMIT_GLOBAL,
+  INGEST_RATE_LIMIT_PER_MACHINE,
+  UNAUTH_RATE_LIMIT_PER_IP,
+} from "@/lib/config";
 import { dateInTimeZone, getCycle } from "@/lib/cycle";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { ingestReport } from "@/lib/ingest";
 import { mergeProviderIds } from "@/lib/providers";
+import { hit } from "@/lib/rate-limit";
+import { clientIp } from "@/lib/request-context";
+import { sha256Hex } from "@/lib/security";
 import { resolveConfig, storedProviderIds } from "@/lib/settings";
 import { loadReportContext } from "@/lib/usage-store";
 
@@ -32,16 +41,60 @@ import { loadReportContext } from "@/lib/usage-store";
  * `sinceDate`, so clients can build a true cycle-to-date snapshot.
  *
  * 201 stored · 200 identical report already stored · 400 bad JSON/payload ·
- * 401 bad token · 413 body too large · 500 server misconfigured · 503 Redis down
+ * 401 bad token · 413 body too large · 422 a registry cap (too many groups,
+ * providers or machines) refused the report, with its `limit` · 429 a rate
+ * limit was hit, with `retryAfterSeconds` · 500 server misconfigured ·
+ * 503 Redis down
+ *
+ * Rate limits (lib/rate-limit.ts `hit`, all answer 429 `rate_limited`):
+ * a per-IP counter of failed Bearer tokens (`usage:rl:unauth:*`, 60/minute —
+ * this only ever counts an actual 401, so machines sharing one IP behind a
+ * NAT are never throttled by each other's *valid* reports); once a token is
+ * accepted, POST is further limited per token+machine (`usage:rl:ingest:*`,
+ * 60/hour) and by a deployment-wide total (`usage:rl:ingest:global:*`,
+ * 600/hour); GET is limited per token (`usage:rl:cycle:*`, 120/hour).
  */
 
 // Room for the optional splits: up to 60 model ids, and those again for each of up to 32 days, with their hours.
 const MAX_BODY_BYTES = 65_536;
 
+/**
+ * `requireBearer`, throttled per IP against repeated bad tokens: a token that
+ * does not check out bumps `usage:rl:unauth:{sha256(ip)[:32]}` (60/minute),
+ * and once that window is used up the client gets 429 instead of endless 401s.
+ * A valid token, or a 500 (server misconfigured — not the caller's doing),
+ * never touches the counter.
+ */
+async function requireBearerThrottled(request: Request): Promise<Response | { tokenId: "master" }> {
+  const auth = requireBearer(request);
+  if (!(auth instanceof Response) || auth.status !== 401) return auth;
+
+  const key = `usage:rl:unauth:${sha256Hex(await clientIp()).slice(0, 32)}`;
+  const unauth = await hit(key, UNAUTH_RATE_LIMIT_PER_IP, 60);
+  if (!unauth.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: unauth.retryAfterSeconds });
+  return auth;
+}
+
+/** The body's `machineId` field, read before validation so the per-machine limiter can key on it. */
+function rawMachineId(body: unknown): string | null {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
+  const value = (body as Record<string, unknown>).machineId;
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+/** The current UTC hour, as a fixed-width bucket for the global ingest counter's key. */
+function hourBucket(now: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}${pad(now.getUTCHours())}`;
+}
+
 /** Current server-side cycle, used by clients to filter ccusage daily output. */
 export const GET = withApiHandler("api/usage", async ({ request }) => {
-  const auth = requireBearer(request);
+  const auth = await requireBearerThrottled(request);
   if (auth instanceof Response) return auth;
+
+  const cycleHit = await hit(`usage:rl:cycle:${auth.tokenId}`, CYCLE_RATE_LIMIT_PER_TOKEN, 3600);
+  if (!cycleHit.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: cycleHit.retryAfterSeconds });
 
   const config = getConfig();
   const context = await loadReportContext();
@@ -64,7 +117,7 @@ export const GET = withApiHandler("api/usage", async ({ request }) => {
 });
 
 export const POST = withApiHandler("api/usage", async ({ request }) => {
-  const auth = requireBearer(request);
+  const auth = await requireBearerThrottled(request);
   if (auth instanceof Response) return auth;
   // The demo's data is synthetic on purpose; nothing gets in.
   const readOnly = demoReadOnly();
@@ -74,8 +127,22 @@ export const POST = withApiHandler("api/usage", async ({ request }) => {
   const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES, requireJsonContentType: false });
   if (!body.ok) return body.response;
 
+  const machineId = rawMachineId(body.value);
+  if (machineId) {
+    const machineKey = `usage:rl:ingest:${sha256Hex(`${auth.tokenId}:${machineId}`).slice(0, 32)}`;
+    const machineHit = await hit(machineKey, INGEST_RATE_LIMIT_PER_MACHINE, 3600);
+    if (!machineHit.allowed) {
+      return apiError("rate_limited", 429, { retryAfterSeconds: machineHit.retryAfterSeconds });
+    }
+  }
+  const globalHit = await hit(`usage:rl:ingest:global:${hourBucket(new Date())}`, INGEST_RATE_LIMIT_GLOBAL, 3600);
+  if (!globalHit.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: globalHit.retryAfterSeconds });
+
   const result = await ingestReport(body.value, new Date());
-  if (!result.ok) return apiError("invalid_payload", 400, { details: result.errors });
+  if (!result.ok) {
+    if ("refused" in result) return apiError(result.refused, 422, { limit: result.limit });
+    return apiError("invalid_payload", 400, { details: result.errors });
+  }
 
   const { cycle } = result;
   return json(

@@ -3,8 +3,11 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useId } from "react";
 import { StopCircleIcon } from "@/components/icons";
+import { StatusLine } from "@/components/status-line";
+import type { EntryStatus } from "@/components/use-official-entry";
 import { formatDateTime, formatFactor, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
+import type { Translator } from "@/lib/i18n";
 
 interface GroundTruthInputProps {
   /** The field's text, exactly as typed. */
@@ -13,6 +16,8 @@ interface GroundTruthInputProps {
   invalid: boolean;
   /** When the current text was entered; null while the field is empty. */
   enteredAt: number | null;
+  /** Whether the field's last write reached the store, and why not when it did not. */
+  status: EntryStatus;
   view: DashboardView;
   timeZone: string;
   providerId: string;
@@ -25,7 +30,7 @@ interface GroundTruthInputProps {
 
 function hint(
   { invalid, enteredAt, view, timeZone, providerLabel }: GroundTruthInputProps,
-  t: any,
+  t: Translator<"Widgets">,
   locale: string,
 ): string {
   if (invalid) return t("number_between_0_100");
@@ -59,7 +64,7 @@ function hint(
 export function GroundTruthInput(props: GroundTruthInputProps) {
   const locale = useLocale();
   const t = useTranslations("Widgets");
-  const { raw, onChange, invalid, view, providerId, providerLabel, providers, onProviderChange } = props;
+  const { raw, onChange, invalid, status, view, providerId, providerLabel, providers, onProviderChange } = props;
   const fieldId = useId();
   const hintId = useId();
 
@@ -151,6 +156,11 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
         {invalid && <StopCircleIcon className="mt-0.5 shrink-0 text-critical" />}
         <span>{hint(props, t, locale)}</span>
       </p>
+      {status.status === "failed" && status.problem && (
+        <div className="mt-2">
+          <StatusLine tone="problem">{t(`official_save_failed_${status.problem}`)}</StatusLine>
+        </div>
+      )}
 
       {props.children}
     </section>

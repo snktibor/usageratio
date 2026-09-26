@@ -1,11 +1,5 @@
-import type { AppConfig, BudgetPeriod } from "@/lib/config";
-import {
-  DEFAULT_PROVIDER_ID,
-  MAX_PROVIDERS,
-  mergeProviderIds,
-  normalizeProviderId,
-  providerLabel,
-} from "@/lib/providers";
+import { type AppConfig, type BudgetPeriod, isValidTimeZone } from "@/lib/config";
+import { MAX_PROVIDERS, mergeProviderIds, normalizeProviderId, providerLabel } from "@/lib/providers";
 import {
   isSubLimitId,
   MAX_SUB_LIMIT_MODELS,
@@ -35,7 +29,12 @@ export interface UsageSettings {
   limits: Record<string, number>;
   /**
    * Both days are always kept, so switching the period back restores the
-   * earlier choice. The time zone is deploy-time configuration (lib/config.ts).
+   * earlier choice. `timeZone` is a setting too: `resolveConfig` lays it over
+   * the deploy-time default (lib/config.ts) whenever the document holds a
+   * valid one. Changing it mid-cycle leaves the day (and hour) checkpoints
+   * already written under the old zone (see lib/days.ts); snapshot mode
+   * tolerates that fine, since it always takes the largest total of the
+   * cycle rather than trusting any one checkpoint's boundaries.
    */
   reset: {
     /** Weekly budgets: 0 = Sunday … 6 = Saturday */
@@ -44,6 +43,8 @@ export interface UsageSettings {
     monthDay: number;
     hour: number;
     minute: number;
+    /** IANA time zone; validated on save, see `parseSettingsUpdate`. */
+    timeZone: string;
   };
   /**
    * False: the dashboard never states the tokens left, nor the overage. Only
@@ -146,8 +147,8 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 // ── Budget ───────────────────────────────────────────────────────────────────
 
 /** The budget part of a configuration: the defaults while nothing is saved. */
-export function settingsFromConfig(config: AppConfig, providerIds: string[] = [DEFAULT_PROVIDER_ID]): UsageSettings {
-  const { period, weekday, monthDay, hour, minute } = config.reset;
+export function settingsFromConfig(config: AppConfig, providerIds: string[] = []): UsageSettings {
+  const { period, weekday, monthDay, hour, minute, timeZone } = config.reset;
   const providers = mergeProviderIds(providerIds, Object.keys(config.providerLimits));
   return {
     period,
@@ -155,7 +156,7 @@ export function settingsFromConfig(config: AppConfig, providerIds: string[] = [D
     limits: Object.fromEntries(
       providers.map((providerId) => [providerId, config.providerLimits[providerId] ?? config.limit]),
     ),
-    reset: { weekday, monthDay, hour, minute },
+    reset: { weekday, monthDay, hour, minute, timeZone },
     showRemaining: config.showRemaining,
     hiddenProviders: [...config.hiddenProviders],
     excludedProviders: copyExclusions(config.excludedProviders),
@@ -201,8 +202,8 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
       if (providerId && isIntegerIn(rawLimit, 1, MAX_LIMIT)) limits[providerId] = rawLimit;
     }
   } else if (isIntegerIn(doc.limit, 1, MAX_LIMIT)) {
-    // v1 had one global limit. Apply it to every provider currently known;
-    // with no index yet the legacy provider is DeepSeek.
+    // v1 had one global limit. Apply it to every provider already known; with
+    // none known yet (a fresh install) there is nothing to seed it onto.
     for (const providerId of mergeProviderIds(Object.keys(limits))) limits[providerId] = doc.limit;
   }
 
@@ -216,6 +217,11 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
       monthDay: isIntegerIn(reset.monthDay, 1, 31) ? reset.monthDay : defaults.reset.monthDay,
       hour: isIntegerIn(reset.hour, 0, 23) ? reset.hour : defaults.reset.hour,
       minute: isIntegerIn(reset.minute, 0, 59) ? reset.minute : defaults.reset.minute,
+      // A v2 document has none: it keeps the deploy-time zone (env RESET_TIMEZONE, else UTC).
+      timeZone:
+        typeof reset.timeZone === "string" && isValidTimeZone(reset.timeZone)
+          ? reset.timeZone
+          : defaults.reset.timeZone,
     },
     // Documents saved before the switch existed lack the field: they keep the default.
     showRemaining: typeof doc.showRemaining === "boolean" ? doc.showRemaining : defaults.showRemaining,
@@ -229,15 +235,11 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
 }
 
 export function serializeSettings(settings: UsageSettings, now: Date): string {
-  return JSON.stringify({ v: 2, ...settings, updatedAt: now.getTime() });
+  return JSON.stringify({ v: 3, ...settings, updatedAt: now.getTime() });
 }
 
 /** The effective configuration: deploy-time `config` under the stored settings document. */
-export function resolveConfig(
-  config: AppConfig,
-  rawSettings: string | null,
-  providerIds: string[] = [DEFAULT_PROVIDER_ID],
-): AppConfig {
+export function resolveConfig(config: AppConfig, rawSettings: string | null, providerIds: string[] = []): AppConfig {
   return applySettings(config, parseStoredSettings(rawSettings, settingsFromConfig(config, providerIds)));
 }
 
@@ -255,7 +257,8 @@ export function storedProviderIds(raw: string | null): string[] {
           return id ? [id] : [];
         });
     }
-    return isIntegerIn(document?.limit, 1, MAX_LIMIT) ? [DEFAULT_PROVIDER_ID] : [];
+    // v1's global `limit` named no provider explicitly: nothing to retain here.
+    return [];
   } catch {
     return [];
   }
@@ -495,6 +498,9 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
   if (!isIntegerIn(reset.monthDay, 1, 31)) errors.push("reset.monthDay must be 1 to 31");
   if (!isIntegerIn(reset.hour, 0, 23)) errors.push("reset.hour must be 0 to 23");
   if (!isIntegerIn(reset.minute, 0, 59)) errors.push("reset.minute must be 0 to 59");
+  if (typeof reset.timeZone !== "string" || !isValidTimeZone(reset.timeZone)) {
+    errors.push("reset.timeZone must be a valid IANA time zone name");
+  }
   if (typeof body.showRemaining !== "boolean") errors.push("showRemaining must be true or false");
   const hiddenProviders = parseProviderList(body.hiddenProviders, "hiddenProviders", errors);
   const excludedProviders = parseExclusions(body.excludedProviders, errors);
@@ -542,6 +548,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
           monthDay: reset.monthDay as number,
           hour: reset.hour as number,
           minute: reset.minute as number,
+          timeZone: reset.timeZone as string,
         },
         showRemaining: body.showRemaining as boolean,
         hiddenProviders,
