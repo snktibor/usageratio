@@ -17,8 +17,9 @@ Opened from the dashboard header (visible only when signed in). Saves with `PUT 
 A toggle per detected provider/account controls whether it appears on the dashboard and in the
 account picker. At least one account must stay visible — the last visible one's toggle is
 disabled. Hiding an account doesn't stop the server storing its reports: re-enabling it brings its
-history back. A provider with no reports and nothing referencing it can be removed entirely
-(`DELETE /api/providers/[provider]`, forced if it still has events) from here too.
+history back. A hidden account can also be deleted outright, together with its reports, machines
+and settings (`DELETE /api/providers/[provider]`); if it still has reports, the panel asks you to
+confirm a force delete and to re-enter the PIN.
 
 ### Budget and token limits
 
@@ -65,15 +66,15 @@ sub-limit's own budget.
 
 ### Groups
 
-Create, recolor, or delete groups (a group with stored reports can't be deleted — its next report
-would just recreate it). Each group has a hex color and a **counts toward** picker: which visible
+Create, recolor, rename, or delete groups. Each group has a hex color and a **counts toward** picker: which visible
 accounts that group's usage counts against (unchecking an account excludes that group's reports
 from that account's totals — the reports stay stored). A `groupId` a machine reports that isn't on
 the list yet is created automatically, colored from a small set of curated, contrast-checked
 presets (falling back to a random hue once those are all in use). Renaming a group onto an
-existing id offers to merge the two (their histories are combined, taking the larger value per
-overlapping report, matching how snapshot mode is already read); deleting a group with stored
-reports needs confirmation and, if it still has events, an explicit override.
+existing id offers to merge the two: their reports are combined into one set, and the panel warns
+when a machine reported into both. A group without reports is removed with a plain save; deleting
+one with reports takes a force delete with the PIN re-entered. A machine still configured with a
+deleted or renamed group id recreates that group on its next report.
 
 ### Machines management
 
@@ -85,7 +86,8 @@ this only removes the machine from the index; see [data-model.md](data-model.md)
 ### Alerts
 
 An optional webhook message the first time a provider's usage in the current cycle crosses one of
-up to 5 configurable percentage thresholds (25/50/75/80/90/100% by default, editable). Fields:
+up to 5 percentage thresholds (50, 80 and 100% by default; 25, 75 and 90 are one click away).
+Each threshold fires at most once per provider per cycle. Fields:
 webhook URL (must be `https`, and can't point at a private/loopback/link-local address — the same
 allow-list a self-hosted deployment's own network is protected by, see
 [security.md](security.md)), message format (**generic** JSON, **Slack**, or **Discord**),
@@ -127,8 +129,8 @@ archived history — see [api.md](api.md) for the exact format.
 
 ## Environment variables
 
-Set once at deploy time. Everything here has a corresponding entry in
-[`.env.example`](../.env.example) with the exact same wording.
+Set once at deploy time. Every variable here is also listed, with a short comment, in
+[`.env.example`](../.env.example).
 
 ### Required
 

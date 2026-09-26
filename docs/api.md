@@ -30,7 +30,7 @@ All source: `app/api/**/route.ts`, shared helpers in `lib/api.ts`.
 - A `503` (storage not configured, or unreachable) gets `Retry-After: 60`; a `429` gets
   `Retry-After: <retryAfterSeconds>`.
 - A `401` for a missing/bad Bearer token gets `WWW-Authenticate: Bearer realm="usage"`.
-- Four auth mechanisms appear below: **none**, **bearer** (`Authorization: Bearer <token>` — the
+- Five auth mechanisms appear below: **none**, **bearer** (`Authorization: Bearer <token>` — the
   shared `USAGE_API_TOKEN` or a per-machine token), **session** (the dashboard's PIN-session cookie),
   **session + sudo** (a session, plus a live 5-minute sudo grant from `POST /api/auth/sudo`), and
   **cron secret** (`Authorization: Bearer $CRON_SECRET`).
@@ -134,7 +134,7 @@ The client-facing ingest endpoint. Auth: **bearer**.
 ```
 
 `groupRegistered` is `true` when the `groupId` wasn't on the settings panel's list yet (it's now
-auto-registered with a random color). `providersRegistered` lists any provider ids seen for the first
+auto-registered with the next free preset color). `providersRegistered` lists any provider ids seen for the first
 time. There is no equivalent `machineRegistered` flag — a new machine is simply reflected the next
 time `GET /api/machines` is read.
 

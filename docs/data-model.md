@@ -20,7 +20,7 @@ local development and tests.
 | `usage:providers` | HASH | `providerId → firstSeenMs` | Pruned by housekeeping once dead (no events, no live machine, unreferenced by settings, older than the retention window) | First report of a new provider (`HSETNX`); `npm run seed` |
 | `usage:events:{providerId}:{groupId}` | ZSET | score = report time (epoch ms); member = JSON `{"m": machineId, "t": tokens, "ts": ms, "b"?: {modelId: tokens}, "$"?: costUsd, "$b"?: {modelId: costUsd}, "c"?: 1}` — `"c":1` marks a day/hour checkpoint, not a real report | Self-pruning: every write also trims members older than `RETENTION_DAYS` (70) and re-sets the key's own TTL to `(RETENTION_DAYS + 1)` days | `POST /api/usage` (`storeReport`) |
 | `usage:groups` | HASH | `groupId → JSON {"color": "#rrggbb", "ts": firstSeenMs}` (a bare number in entries older than group colors) | Pruned by housekeeping once a group has zero events across every provider and is old enough | `POST /api/usage` (auto-register, `HSETNX`), `PUT /api/settings` (create/recolor) |
-| `usage:machines` | HASH | `providerId:machineId → JSON {"g": groupId, "ts": ms, "t": tokens, "md"?: "manual", "iv"?: intervalMinutes}` (`md`/`iv` omitted for the common case: mode `"auto"` with no custom interval) | Pruned by housekeeping (and the manual "prune" button) once silent longer than `INACTIVE_MACHINE_DAYS` (35) | `POST /api/usage` |
+| `usage:machines` | HASH | `providerId:machineId → JSON {"g": groupId, "ts": ms, "t": tokens, "md"?: "manual", "iv"?: intervalMinutes}` (`md`/`iv` omitted for the common case: mode `"auto"` with no custom interval) | Pruned by housekeeping once silent longer than `RETENTION_DAYS` (70); the settings panel's "remove silent machines" button prunes those silent longer than `INACTIVE_MACHINE_DAYS` (35) | `POST /api/usage` |
 | `usage:official` | HASH | `providerId`, or `providerId:subLimitId`, → JSON `{"raw": "45.5", "enteredAt": ms, "cycleStartMs": ms}` | Pruned by housekeeping once its `cycleStartMs` is no longer the current cycle | `PUT /api/official-usage` |
 | `usage:api-token` | STRING | JSON `{"v":1, "kid"?, "iv", "ct", "tag", "updatedAt"}` — AES-256-GCM, see [security.md](security.md) | Forever (one document, until overwritten) | `PUT /api/api-token` |
 | `usage:api-token:audit` | LIST | Newest first, JSON per entry: `{"at","a","ua","ch","pf","s", "ip"|"iph"+"ipp"}` | Capped at 500 entries (`LTRIM` on write); older-than-`AUDIT_RETENTION_DAYS` entries pruned by housekeeping | `PUT`/`POST /api/api-token(/reveal)` |
@@ -28,7 +28,7 @@ local development and tests.
 | `usage:housekeeping:last` | STRING | JSON `{"at": ms, "report": HousekeepingReport}` | Forever (overwritten each run) | `runHousekeeping` (non-dry-run) |
 | `usage:alert:{providerId}:{cycleStartMs}:{threshold}` | STRING | `"1"`, `SET NX` | 70 days TTL | `lib/alerts.ts` `evaluateAlerts` — the guard that makes a threshold fire once per provider per cycle |
 | `usage:history:{providerId}` | ZSET | score = cycle start (epoch ms); member = JSON `CycleSummary` (see [History](#history-archived-cycles)) | Newest 24 entries per provider (`HISTORY_RETENTION`), trimmed on write | The first dashboard render after a cycle ends, or the daily housekeeping run's `history` step — whichever comes first (`archiveCycle` via `archiveDueCycles`); also `npm run seed`'s pre-archived entries |
-| `usage:session:{sha256(sessionId:pin)}` | STRING | JSON `{"c": createdAtMs, "s": lastSeenMs}` (a bare `"1"` for a legacy pre-rolling session) | `SESSION_MAX_DAYS` (default 30) from creation; refreshed (extended) on activity, capped by `SESSION_IDLE_DAYS` (default 7) of allowed silence | Login (`attemptLogin`); refreshed by `isAuthenticated` |
+| `usage:session:{sha256(sessionId:pin)}` | STRING | JSON `{"c": createdAtMs, "s": lastSeenMs}` (a bare `"1"` for a legacy pre-rolling session) | Ends after `SESSION_IDLE_DAYS` (default 7) without use, and `SESSION_MAX_DAYS` (default 30) after creation at the latest; the key's TTL is the remaining maximum lifetime | Login (`attemptLogin`); `s` refreshed at most hourly by `isAuthenticated` |
 | `usage:session:{...}:sudo` | STRING | `"1"` | 5 minutes | `POST /api/auth/sudo` |
 | `usage:auth:device:{sha256(deviceId)}` | STRING | `"1"` | 365 days | A successful login |
 | `usage:auth:ip:{sha256(ip)}` (+ `:strikes`) | STRING | attempt counter | 15 min window, escalating on repeat lockouts (up to 6h); strikes remembered 24h | Login/sudo attempts |
@@ -63,16 +63,16 @@ machine's running total at the end of every *finished* day and hour of the repor
 (`lib/days.ts` `reportCheckpoints`) and writes each as an extra ZSET member, flagged `"c": 1`. This
 lets the charts place tokens at the moment they were actually used — including days/hours before a
 machine's first report, or days a manual machine skipped — instead of the whole gap jumping up at the
-next real report. Confirmed from the code: a checkpoint **is not a report** — the machine table's
+next real report. A checkpoint **is not a report**: the machine table's
 report counter and the "late"/"behind" health indicator both ignore checkpoint members — and only
 `snapshot` mode reads a running total from one at all (`delta`/`counter` mode would double-count it).
 `ZADD NX` means every later report resending the same days is a no-op, until a day's total actually
 changes. Only checkpoints falling **within the report's own cycle** are ever written.
 
-Member identity for dedup: `(machineId, groupId, tokens, timestamp, isCheckpoint)`. A retried,
-byte-identical `POST` therefore serializes to the exact same ZSET member, and `ZADD NX` reports it as
-already present — that's how `POST /api/usage`'s `duplicate: true` is detected (every provider's
-`ZADD` returned `0` new members).
+Deduplication needs no extra key: the member is the report itself (machine, tokens, timestamp, model
+split, cost, checkpoint flag), and the group is part of the key. A retried, byte-identical `POST`
+therefore serializes to the exact same ZSET member, and `ZADD NX` reports it as already present.
+That is how `POST /api/usage` detects `duplicate: true`: every provider's `ZADD` added nothing new.
 
 ## The settings document
 
@@ -82,14 +82,13 @@ deploy-time default (`lib/config.ts`) rather than failing the whole read:
 
 - **v1**: a single global `limit` (no per-provider budgets). On read, that value is projected onto
   every provider already known (nothing to seed it onto on a completely fresh install).
-- **v2**: per-provider `limits`, `reset.weekday`/`monthDay`/`hour`/`minute` — but no `reset.timeZone`,
-  `useTokenLimits`, `showRemaining`, `hiddenProviders`, `excludedProviders`, or `subLimits`. A v2
-  document keeps the deploy-time time zone (`RESET_TIMEZONE` env, else UTC); the other missing fields
-  default to their pre-feature behavior (token limits off, tokens-remaining shown, every provider
-  visible and counting everywhere).
-- **v3** (current, `{v: 3, ...}`): adds `reset.timeZone` (validated with `Intl.DateTimeFormat`),
-  `useTokenLimits`, `showRemaining`, `hiddenProviders`, `excludedProviders`, `subLimits`, and `alerts`.
-  A document saved before `alerts` existed reads as `alerts.webhookUrl: null` (off).
+- **v2**: per-provider `limits` and everything else except `reset.timeZone` and `alerts`. Fields added
+  to v2 over time (`useTokenLimits`, `showRemaining`, `hiddenProviders`, `excludedProviders`,
+  `subLimits`) are read with their defaults when a document predates them. A v2 document has no time
+  zone, so it uses the deploy-time one (`RESET_TIMEZONE` env, else UTC).
+- **v3** (current, `{v: 3, ...}`): adds `reset.timeZone` (an IANA name, validated with
+  `Intl.DateTimeFormat`) and `alerts`. A document without `alerts` reads as `alerts.webhookUrl: null`
+  (off).
 
 `PUT /api/settings`, in contrast to the lenient reader above, requires **every** field on every save —
 nothing is defaulted on write, so a client that only wants to change one field must first `GET`, edit,
@@ -146,29 +145,27 @@ archived this way — by the time a later cycle would need to archive an older o
 raw events are already gone from Redis (past `RETENTION_DAYS`). A cycle is only lost if **neither**
 the dashboard is opened **nor** the daily housekeeping cron runs during the following cycle — with
 the cron configured (see [getting-started.md](getting-started.md) and
-[self-hosting.md](self-hosting.md)), history no longer depends on anyone opening the dashboard. A dry
-housekeeping run only names which providers are due, without writing anything; a real run's report
-gains `history: { archived, ids }` alongside the pruning counts in the [Redis keys](#redis-keys)
-table above.
+[self-hosting.md](self-hosting.md)), history no longer depends on anyone opening the dashboard. The
+housekeeping report lists the archived providers under `history: { archived, ids }`; a dry run
+names the providers that are due and writes nothing.
 
 ## The legacy migration
 
-For a store that predates multi-provider support (only ever had DeepSeek), run this **once**, against
-production, **before** deploying a build whose `lib/usage-store.ts` no longer reads the old
+For a store that predates multi-provider support (it only ever tracked DeepSeek), run this **once**
+against production, **before** deploying this release, which no longer reads the old
 (provider-less) key shapes:
 
 ```bash
-node --env-file-if-exists=.env.local --import tsx scripts/migrate-legacy.ts             # dry run: prints the plan, writes nothing
-node --env-file-if-exists=.env.local --import tsx scripts/migrate-legacy.ts -- --apply  # performs it
+npm run migrate:legacy               # dry run: prints the plan, writes nothing
+npm run migrate:legacy -- --apply    # performs it
 ```
 
-(`npm run migrate:legacy` runs the same script; append `-- --apply` the same way.) It reads
-`KV_REST_API_URL`/`KV_REST_API_TOKEN` like any other script here. What it does:
+It reads `KV_REST_API_URL`/`KV_REST_API_TOKEN` (from the environment or `.env.local`) like any other
+script here. What it does:
 
 - `usage:events:{groupId}` → renamed to `usage:events:deepseek:{groupId}` (`RENAMENX`) if no
-  provider-prefixed set exists yet for that group, or **merged** into it (`ZUNIONSTORE ... AGGREGATE MAX`,
-  keeping the larger score for any member both sets share, since scores are snapshot running totals)
-  if one already does — then the legacy key is deleted.
+  provider-prefixed set exists yet for that group, or **merged** into it (`ZUNIONSTORE … AGGREGATE MAX`,
+  so a report present in both sets is kept once) if one already does; then the legacy key is deleted.
 - `usage:machines` fields with no `providerId:` prefix are moved to `deepseek:{field}`, keeping
   whichever of the two (if both exist) has the newer `ts`.
 

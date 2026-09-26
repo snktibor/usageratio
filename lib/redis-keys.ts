@@ -5,12 +5,15 @@
  *   usage:providers                       HASH   providerId → first-seen ms
  *   usage:events:{providerId}:{groupId}   ZSET   score = report time (epoch ms)
  *                                                 member = {"m": machineId, "t": tokens, "ts": ms,
- *                                                           "b": {modelId: tokens}, "c": 1}
+ *                                                           "b": {modelId: tokens}, "$": usd,
+ *                                                           "$b": {modelId: usd}, "c": 1}
  *                                                 ("b", the split by model, only from clients that send one;
- *                                                 "c" marks a day's checkpoint, see lib/days.ts)
+ *                                                 "$"/"$b", the opt-in cost estimate; "c" marks a
+ *                                                 day's or hour's checkpoint, see lib/days.ts)
  *   usage:groups            HASH  groupId   → {"color": "#rrggbb", "ts": first-seen ms}
  *                                 (a bare ms number in entries older than group colours)
- *   usage:machines          HASH  providerId:machineId → {"g": groupId, "ts": ms, "t": tokens}
+ *   usage:machines          HASH  providerId:machineId → {"g": groupId, "ts": ms, "t": tokens,
+ *                                 "md": "manual", "iv": intervalMinutes} ("md"/"iv" only when not the default)
  *   usage:official           HASH  providerId, or providerId:subLimitId →
  *                                  {"raw": "45.5", "enteredAt": ms, "cycleStartMs": ms}
  *                                  (the ground-truth field on the dashboard; see lib/official-usage.ts)
@@ -36,9 +39,10 @@
  *
  *   usage:history:{providerId}   ZSET  score = cycle start (epoch ms), member = a CycleSummary
  *                                       (JSON, see lib/history.ts), kept for the newest
- *                                       HISTORY_RETENTION cycles. Written lazily on a dashboard
- *                                       read, once the cycle right before the current one falls
- *                                       out of the events' retention window (app/[locale]/(dashboard)/page.tsx).
+ *                                       HISTORY_RETENTION cycles. The cycle right before the
+ *                                       current one is written once it has ended, by the first
+ *                                       dashboard render or the daily housekeeping run, whichever
+ *                                       comes first (lib/archive.ts).
  *
  * One time-ordered set per provider/group makes all filters native commands:
  * provider and group are in the key, a period is a score range. The reset
@@ -66,9 +70,12 @@
  * save on the panel) overwrite each other.
  *
  * lib/housekeeping.ts prunes the index hashes above (machines, providers,
- * groups, official usage) and the audit list of entries nothing still points
- * to; it never touches the event ZSETs, which already self-prune on every
- * report (`storeReport` in lib/usage-store.ts).
+ * groups, official usage), long-revoked tokens and old audit entries, and
+ * archives the cycle that just ended; it never touches the event ZSETs,
+ * which already self-prune on every report (`storeReport` in lib/usage-store.ts).
+ *
+ * Auth and rate-limit keys are built next to their code: usage:session:*,
+ * usage:auth:* (lib/auth.ts) and usage:rl:* (lib/rate-limit.ts callers).
  */
 export const KEYS = {
   settings: "usage:settings",

@@ -45,8 +45,7 @@ Every client — automatic or manual, macOS/Linux or Windows — runs the same c
 
 The provider id comes from matching `ccusage`'s model/vendor text against the `PROVIDERS` list in
 `clients/shared/ccusage-providers.cjs` (`claude`, `deepseek`, `gemini`, `kimi`, `meta`, `mistral`,
-`openai`, `qwen`, `xai`, and more as `ccusage` adds them) — order matters, the first pattern that
-matches wins. [CONTRIBUTING.md](../CONTRIBUTING.md#adding-a-provider) explains how to add a new one.
+`openai`, `qwen`, `xai`) — order matters, the first pattern that matches wins. [CONTRIBUTING.md](../CONTRIBUTING.md#adding-a-provider) explains how to add a new one.
 
 ## Installing from the Setup page
 
@@ -178,9 +177,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root\auto\install-task
 ```
 
 **Windows, manual (desktop shortcut):** the same layout under `manual\`, a `sync-tokens.cmd` wrapper, and
-a `Sync tokens.lnk` shortcut on the desktop pointing at it — see `docs/self-hosting.md`'s and the
-Setup page's generated README for the exact `New-Object -ComObject WScript.Shell` snippet, since it's
-easiest copied verbatim from there.
+a `Sync tokens.lnk` shortcut on the desktop pointing at it. The simplest way to get both is the
+Setup page's ZIP for Windows in manual mode: its `install.cmd` creates them.
 
 Every config value can be overridden per-run with an environment variable prefixed
 `USAGERATIO_` (`USAGERATIO_API_URL`, `USAGERATIO_API_TOKEN`, `USAGERATIO_MACHINE_ID`,
