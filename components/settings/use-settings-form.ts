@@ -27,7 +27,11 @@ export interface SettingsFormActions {
   removeSubLimit: (providerId: string, key: string) => void;
   addGroup: () => void;
   removeGroup: (group: DraftGroup) => void;
+  /** Replaces the draft's group list in place: how the Machines/Groups/Accounts sections reflect a rename, merge or delete they made directly against the manage routes, outside the draft's own save. */
+  setGroups: (updater: (groups: DraftGroup[]) => DraftGroup[]) => void;
   save: () => Promise<void>;
+  /** Refreshes the page's server-fetched data after a manage-route action (rename/delete/merge/prune), so the rest of the dashboard (outside this open dialog) catches up. */
+  refresh: () => void;
 }
 
 /**
@@ -214,6 +218,9 @@ export function useSettingsForm(
     }
   }
 
+  const setGroups = (updater: (groups: DraftGroup[]) => DraftGroup[]) =>
+    setDraft((current) => ({ ...current, groups: updater(current.groups) }));
+
   return {
     draft,
     problem,
@@ -228,7 +235,9 @@ export function useSettingsForm(
       removeSubLimit,
       addGroup,
       removeGroup,
+      setGroups,
       save,
+      refresh: () => router.refresh(),
     },
   };
 }

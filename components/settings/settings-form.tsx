@@ -6,6 +6,7 @@ import { AccountsSection } from "@/components/settings/sections/accounts-section
 import { BudgetSection } from "@/components/settings/sections/budget-section";
 import { GroupsSection } from "@/components/settings/sections/groups-section";
 import { LanguageSection } from "@/components/settings/sections/language-section";
+import { MachinesSection } from "@/components/settings/sections/machines-section";
 import { ResetSection } from "@/components/settings/sections/reset-section";
 import { SubLimitsSection } from "@/components/settings/sections/sub-limits-section";
 import { TokenSection } from "@/components/settings/sections/token-section";
@@ -50,6 +51,7 @@ export function SettingsForm({ view, titleId, onClose }: { view: SettingsView; t
           providers={draft.providers}
           visibleCount={visibleProviders.length}
           onToggle={(id, visible) => actions.patchProvider(id, { visible })}
+          onManaged={actions.refresh}
         />
 
         <BudgetSection
@@ -74,14 +76,19 @@ export function SettingsForm({ view, titleId, onClose }: { view: SettingsView; t
         <GroupsSection
           titleId={titleId}
           groups={draft.groups}
+          savedGroupIds={view.groups.map((group) => group.id)}
           newGroupName={draft.newGroupName}
           visibleProviders={visibleProviders}
           onPatchGroup={actions.patchGroup}
           onSetCounted={actions.setCounted}
           onRemoveGroup={actions.removeGroup}
+          onGroupsChanged={actions.setGroups}
           onAddGroup={actions.addGroup}
           onNewGroupNameChange={(newGroupName) => actions.patch({ newGroupName })}
+          onManaged={actions.refresh}
         />
+
+        <MachinesSection titleId={titleId} groups={draft.groups} onManaged={actions.refresh} />
 
         <TokenSection
           headingId={`${titleId}-token`}
