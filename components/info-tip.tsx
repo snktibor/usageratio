@@ -38,6 +38,7 @@ export function InfoTip({ label, children }: { label: string; children: React.Re
         : "invisible opacity-0 group-hover/tip:visible group-hover/tip:opacity-100 group-has-[:focus-visible]/tip:visible group-has-[:focus-visible]/tip:opacity-100";
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: the wrapper only notices the pointer or focus leaving the tip; the button inside is the control
     <span
       ref={root}
       className="group/tip inline-flex"
@@ -54,7 +55,7 @@ export function InfoTip({ label, children }: { label: string; children: React.Re
         aria-label={label}
         aria-describedby={id}
         aria-expanded={forced === true}
-        onClick={() => setForced((value) => (value === true ? false : true))}
+        onClick={() => setForced((value) => value !== true)}
         className="rounded-full p-1 text-ink-3 transition-colors hover:text-ink focus-visible:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink aria-expanded:text-ink"
       >
         <InfoCircleIcon />

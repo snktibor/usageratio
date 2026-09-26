@@ -35,10 +35,7 @@ describe("parseUsageReport", () => {
   });
 
   it("trims identifiers and allows accented letters, spaces, dots, dashes and underscores", () => {
-    const result = parseUsageReport(
-      { ...VALID, machineId: "  Tibor gépe_2.0-win  ", groupId: "Munka" },
-      OPTIONS,
-    );
+    const result = parseUsageReport({ ...VALID, machineId: "  Tibor gépe_2.0-win  ", groupId: "Munka" }, OPTIONS);
     expect(result.ok && result.report.machineId).toBe("Tibor gépe_2.0-win");
   });
 
@@ -131,10 +128,7 @@ describe("parseUsageReport", () => {
     ["a duplicate model id", { claude: { "Claude-Opus": 1, "claude-opus": 2 } }],
     ["a fractional token count", { claude: { "claude-opus": 1.5 } }],
     ["more tokens than the provider", { claude: { "claude-opus": 5000, "claude-haiku": 679 } }],
-    [
-      "too many models",
-      { claude: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`model-${i}`, 1])) },
-    ],
+    ["too many models", { claude: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`model-${i}`, 1])) }],
   ])("rejects models with %s", (_, models) => {
     expect(errorsOf({ ...VALID, models })).toHaveLength(1);
   });
@@ -199,7 +193,14 @@ describe("parseUsageReport", () => {
     ["more tokens than the day", { claude: { "2026-09-21T08:00:00Z": 400, "2026-09-21T09:00:00Z": 201 } }],
     [
       "too many hours",
-      { claude: Object.fromEntries(Array.from({ length: 26 }, (_, i) => [`2026-09-${i < 2 ? 20 : 21}T${String((22 + i) % 24).padStart(2, "0")}:00:00Z`, 1])) },
+      {
+        claude: Object.fromEntries(
+          Array.from({ length: 26 }, (_, i) => [
+            `2026-09-${i < 2 ? 20 : 21}T${String((22 + i) % 24).padStart(2, "0")}:00:00Z`,
+            1,
+          ]),
+        ),
+      },
     ],
   ])("rejects hours with %s", (_, hours) => {
     expect(errorsOf({ ...VALID, days: { "2026-09-21": { providers: { claude: 600 }, hours } } })).toHaveLength(1);

@@ -21,10 +21,12 @@ export const viewport: Viewport = {
   colorScheme: "dark",
 };
 
-import { NextIntlClientProvider } from 'next-intl';
-import { getMessages } from 'next-intl/server';
-import { notFound } from 'next/navigation';
-import { routing } from '@/i18n/routing';
+import { notFound } from "next/navigation";
+import { NextIntlClientProvider } from "next-intl";
+import { getMessages } from "next-intl/server";
+import { DemoBanner } from "@/components/demo-banner";
+import { routing } from "@/i18n/routing";
+import { isDemoMode } from "@/lib/demo/mode";
 
 export default async function RootLayout({
   children,
@@ -45,6 +47,7 @@ export default async function RootLayout({
     <html lang={locale} className={instrumentSans.variable}>
       <body className="min-h-dvh">
         <NextIntlClientProvider messages={messages}>
+          {isDemoMode() && <DemoBanner />}
           {children}
         </NextIntlClientProvider>
       </body>

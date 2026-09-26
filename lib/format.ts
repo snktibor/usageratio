@@ -101,9 +101,24 @@ export function formatDuration(ms: number, locale: string): string {
   const hours = Math.floor((total % DAY) / HOUR);
   const minutes = Math.floor((total % HOUR) / MINUTE);
 
-  const df = new Intl.NumberFormat(locale, { style: "unit", unit: "day", unitDisplay: "long", maximumFractionDigits: 0 });
-  const hf = new Intl.NumberFormat(locale, { style: "unit", unit: "hour", unitDisplay: "long", maximumFractionDigits: 0 });
-  const mf = new Intl.NumberFormat(locale, { style: "unit", unit: "minute", unitDisplay: "long", maximumFractionDigits: 0 });
+  const df = new Intl.NumberFormat(locale, {
+    style: "unit",
+    unit: "day",
+    unitDisplay: "long",
+    maximumFractionDigits: 0,
+  });
+  const hf = new Intl.NumberFormat(locale, {
+    style: "unit",
+    unit: "hour",
+    unitDisplay: "long",
+    maximumFractionDigits: 0,
+  });
+  const mf = new Intl.NumberFormat(locale, {
+    style: "unit",
+    unit: "minute",
+    unitDisplay: "long",
+    maximumFractionDigits: 0,
+  });
 
   if (days > 0) return hours > 0 ? `${df.format(days)} ${hf.format(hours)}` : df.format(days);
   if (hours > 0) return minutes > 0 ? `${hf.format(hours)} ${mf.format(minutes)}` : hf.format(hours);

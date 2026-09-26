@@ -150,11 +150,7 @@ function addUsage(usage, value, inheritedSource = "") {
     return;
   }
 
-  const models = Array.isArray(item.modelsUsed)
-    ? item.modelsUsed
-    : Array.isArray(item.models)
-      ? item.models
-      : [];
+  const models = Array.isArray(item.modelsUsed) ? item.modelsUsed : Array.isArray(item.models) ? item.models : [];
   const provider = providerFrom(models[0] ?? source, source);
   const tokens = tokenTotal(item);
   add(usage.providers, provider, tokens);
@@ -575,7 +571,9 @@ function readStdin() {
   return new Promise((resolve, reject) => {
     let input = "";
     process.stdin.setEncoding("utf8");
-    process.stdin.on("data", (chunk) => { input += chunk; });
+    process.stdin.on("data", (chunk) => {
+      input += chunk;
+    });
     process.stdin.on("end", () => resolve(input));
     process.stdin.on("error", reject);
   });
@@ -592,7 +590,9 @@ async function main() {
   }
 
   // parse, parse-models, parse-days: <fallback providers> [<blocks file> <cycle start> <time zone>]
-  const fallbacks = String(process.argv[3] ?? "").split(",").filter(Boolean);
+  const fallbacks = String(process.argv[3] ?? "")
+    .split(",")
+    .filter(Boolean);
   const hourly = readHourly(process.argv[4], process.argv[5], process.argv[6]);
   if (command === "parse") {
     process.stdout.write(JSON.stringify(parseCcusageProviders(parsed, fallbacks, hourly)));

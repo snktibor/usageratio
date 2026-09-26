@@ -90,9 +90,7 @@ describe("ccusage provider parser", () => {
           },
           {
             date: "2026-09-22",
-            agents: [
-              { agent: "claude", modelBreakdowns: [{ modelName: "claude-opus-4-5-20251101", totalTokens: 7 }] },
-            ],
+            agents: [{ agent: "claude", modelBreakdowns: [{ modelName: "claude-opus-4-5-20251101", totalTokens: 7 }] }],
           },
         ],
       }),
@@ -114,10 +112,13 @@ describe("ccusage provider parser", () => {
 
   it("keeps a split within the server's limits and its provider's total", () => {
     const many = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`model-${i}`, i + 1]));
-    const models = normalizeModelMap({ claude: many, openai: { "gpt-5": 99 }, ghost: { x: 1 } }, {
-      claude: 10_000,
-      openai: 50,
-    });
+    const models = normalizeModelMap(
+      { claude: many, openai: { "gpt-5": 99 }, ghost: { x: 1 } },
+      {
+        claude: 10_000,
+        openai: 50,
+      },
+    );
     // The 20 largest models stay; openai's split claims more than its total and is dropped.
     expect(Object.keys(models)).toEqual(["claude"]);
     expect(Object.keys(models.claude!)).toHaveLength(20);
@@ -189,7 +190,9 @@ describe("ccusage split by day", () => {
     expect(Object.keys(days)).toHaveLength(31);
     expect(Object.values(days).every((entry) => entry.models === undefined)).toBe(true);
 
-    const tooMany = Array.from({ length: 33 }, (_, i) => day(new Date(Date.UTC(2026, 7, 1 + i)).toISOString().slice(0, 10)));
+    const tooMany = Array.from({ length: 33 }, (_, i) =>
+      day(new Date(Date.UTC(2026, 7, 1 + i)).toISOString().slice(0, 10)),
+    );
     expect(parseCcusageDays({ daily: tooMany })).toEqual({});
   });
 
@@ -199,10 +202,14 @@ describe("ccusage split by day", () => {
       const daysFile = join(dir, "days.json");
       const payload = (providers: Record<string, number>) =>
         JSON.parse(
-          execFileSync("node", [PARSER, "payload", "mac", "Personal", "2026-09-22T11:49:28Z", join(dir, "none.json"), daysFile], {
-            input: JSON.stringify(providers),
-            encoding: "utf8",
-          }),
+          execFileSync(
+            "node",
+            [PARSER, "payload", "mac", "Personal", "2026-09-22T11:49:28Z", join(dir, "none.json"), daysFile],
+            {
+              input: JSON.stringify(providers),
+              encoding: "utf8",
+            },
+          ),
         ) as Record<string, unknown>;
 
       writeFileSync(daysFile, JSON.stringify(parseCcusageDays(report)));
@@ -291,7 +298,10 @@ describe("ccusage split by hour", () => {
 
   it("gives up the hours of a past day they do not add up to", () => {
     // Another agent used Claude on Sunday too: Claude Code's hours are only part of the day.
-    const days = parseCcusageDays(daily, hourly(blocks.filter((entry) => entry.startTime !== "2026-09-20T10:00:00.000Z")));
+    const days = parseCcusageDays(
+      daily,
+      hourly(blocks.filter((entry) => entry.startTime !== "2026-09-20T10:00:00.000Z")),
+    );
     expect(days["2026-09-20"]).not.toHaveProperty("hours");
     expect(days["2026-09-20"]!.providers.claude).toBe(50);
     expect(days["2026-09-19"]).toHaveProperty("hours");
@@ -339,11 +349,22 @@ describe("ccusage split by hour", () => {
       const payload = JSON.parse(
         execFileSync(
           "node",
-          [PARSER, "payload", "mac", "Personal", "2026-09-21T08:30:00Z", join(dir, "models.json"), join(dir, "days.json")],
+          [
+            PARSER,
+            "payload",
+            "mac",
+            "Personal",
+            "2026-09-21T08:30:00Z",
+            join(dir, "models.json"),
+            join(dir, "days.json"),
+          ],
           { input: JSON.stringify({ claude: 230, openai: 10 }), encoding: "utf8" },
         ),
       );
-      expect(payload.days["2026-09-19"].hours.claude).toEqual({ "2026-09-19T11:00:00Z": 60, "2026-09-19T20:00:00Z": 40 });
+      expect(payload.days["2026-09-19"].hours.claude).toEqual({
+        "2026-09-19T11:00:00Z": 60,
+        "2026-09-19T20:00:00Z": 40,
+      });
       expect(payload.models.claude).toEqual({ "claude-opus-5": 213, "claude-sonnet-5": 16 });
       // A missing blocks file only means no hours.
       expect(JSON.parse(run("parse", "claude", join(dir, "none.json"), hourlyArgs[1]!, hourlyArgs[2]!))).toEqual({

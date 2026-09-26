@@ -22,7 +22,9 @@ const CCUSAGE_REPORT = {
   daily: [
     {
       date: "2026-09-21",
-      agents: [{ agent: "claude", modelBreakdowns: [{ modelName: "claude-sonnet-4", inputTokens: 1000, outputTokens: 234 }] }],
+      agents: [
+        { agent: "claude", modelBreakdowns: [{ modelName: "claude-sonnet-4", inputTokens: 1000, outputTokens: 234 }] },
+      ],
     },
   ],
 };
@@ -102,7 +104,7 @@ describe.skipIf(process.platform === "win32")("install-linux.sh", { timeout: 60_
     mkdirSync(bin);
     tool("node", `exec "${process.execPath}" "$@"`);
     tool("ccusage", `cat <<'JSON'\n${JSON.stringify(CCUSAGE_REPORT)}\nJSON`);
-    tool("hostname", 'echo test-linux');
+    tool("hostname", "echo test-linux");
     tool("crontab", 'if [ "$1" = "-l" ]; then cat "$HOME/crontab.txt" 2>/dev/null; else cat >"$HOME/crontab.txt"; fi');
     stub = await startServer();
   });

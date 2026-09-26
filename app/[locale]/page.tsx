@@ -2,14 +2,17 @@ import { Dashboard } from "@/components/dashboard";
 import { PinGate } from "@/components/pin-gate";
 import { StorageProblem } from "@/components/storage-problem";
 import { isAuthenticated } from "@/lib/auth";
+import { currentTime } from "@/lib/clock";
 import { getConfig } from "@/lib/config";
 import { getCycle, getPreviousCycle } from "@/lib/cycle";
 import { buildProviderDashboards, type ProviderDashboardModel } from "@/lib/dashboard";
+import { ensureDemoData } from "@/lib/demo/seed";
+import { log } from "@/lib/log";
 import { modelKeysIn } from "@/lib/models";
 import { currentOfficialEntries } from "@/lib/official-usage";
 import { mergeProviderIds } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
-import { buildSettingsView, resolveConfig, storedProviderIds, type SettingsView } from "@/lib/settings";
+import { buildSettingsView, resolveConfig, type SettingsView, storedProviderIds } from "@/lib/settings";
 import { loadEvents, loadIndexes } from "@/lib/usage-store";
 
 // Rendered per request: the page depends on the session cookie and on live data.
@@ -22,7 +25,9 @@ interface DashboardData {
 
 /** Two round trips: the saved settings decide the cycle, the cycle decides which reports to read. */
 async function loadDashboard(): Promise<DashboardData> {
-  const now = new Date();
+  const now = currentTime();
+  // Demo mode only: reseeds the synthetic data once it has gone stale.
+  await ensureDemoData(now);
   const indexes = await loadIndexes();
   const providerIds = mergeProviderIds(
     indexes.providers.map((provider) => provider.providerId),
@@ -50,7 +55,9 @@ async function loadDashboard(): Promise<DashboardData> {
       config,
       groups,
       providerIds,
-      Object.fromEntries(Object.entries(eventsByProvider).map(([providerId, events]) => [providerId, modelKeysIn(events)])),
+      Object.fromEntries(
+        Object.entries(eventsByProvider).map(([providerId, events]) => [providerId, modelKeysIn(events)]),
+      ),
     ),
   };
 }
@@ -64,7 +71,7 @@ export default async function Page() {
     if (await isAuthenticated()) data = await loadDashboard();
   } catch (error) {
     storageError = error;
-    console.error("[usageratio] Dashboard could not load:", error);
+    log.error("dashboard.load_failed", { err: error });
   }
 
   if (storageError) {

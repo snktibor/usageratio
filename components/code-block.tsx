@@ -1,7 +1,7 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, type RefObject } from "react";
-import { copyText, CopyError } from "@/components/clipboard";
+import { Fragment, type RefObject, useEffect, useRef, useState } from "react";
+import { CopyError, copyText } from "@/components/clipboard";
 import { CheckCircleIcon, CopyIcon } from "@/components/icons";
 import { StatusLine } from "@/components/status-line";
 
@@ -10,6 +10,7 @@ export function BreakablePath({ path }: { path: string }) {
   return (
     <>
       {path.split(/(?<=[\\/])/).map((part, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: static path segments, never reordered
         <Fragment key={index}>
           {index > 0 && <wbr />}
           {part}
@@ -138,8 +139,10 @@ export function CommandBlock({
   const [problem, setProblem] = useState<string | null>(null);
   const block = (
     <div className="flex flex-col gap-2 rounded-md border border-rule bg-raised py-1.5 pl-4 pr-1.5 sm:flex-row sm:items-start sm:gap-3">
+      {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: role and aria-label are set together, only when the block scrolls */}
       <pre
         className={`min-w-0 grow py-1 pr-2.5 font-mono text-[13px] leading-relaxed whitespace-pre-wrap text-ink wrap-anywhere sm:pr-0 ${resolve ? "code-scroll max-h-80 overflow-y-auto" : ""}`}
+        role={resolve ? "region" : undefined}
         tabIndex={resolve ? 0 : undefined}
         aria-label={resolve ? `${label} előnézete` : undefined}
       >
@@ -205,6 +208,8 @@ export function FileBlock({
         <p className="border-t border-rule bg-raised px-4 py-4 text-sm text-ink-2 sm:px-5">{unavailable}</p>
       ) : (
         <pre
+          role="region"
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must be focusable so keyboard users can scroll it
           tabIndex={0}
           aria-label={`${name} tartalma`}
           className="code-scroll max-h-64 overflow-auto border-t border-rule bg-raised px-4 py-3 font-mono text-[12.5px] leading-relaxed text-ink-2 sm:px-5"

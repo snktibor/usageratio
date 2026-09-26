@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   currentOfficialEntries,
-  officialUsageField,
   OFFICIAL_USAGE_RAW_MAX_LENGTH,
+  officialUsageField,
   parseOfficialUsageUpdate,
   serializeOfficialEntry,
   storedEntryFor,
@@ -22,7 +22,12 @@ describe("officialUsageField", () => {
 
 describe("parseOfficialUsageUpdate", () => {
   it("accepts the provider's own field", () => {
-    const result = parseOfficialUsageUpdate({ providerId: "claude", subLimitId: null, raw: "45.5", cycleStartMs: CYCLE_START });
+    const result = parseOfficialUsageUpdate({
+      providerId: "claude",
+      subLimitId: null,
+      raw: "45.5",
+      cycleStartMs: CYCLE_START,
+    });
     expect(result).toEqual({
       ok: true,
       update: { providerId: "claude", subLimitId: null, raw: "45.5", cycleStartMs: CYCLE_START },
@@ -43,7 +48,12 @@ describe("parseOfficialUsageUpdate", () => {
   });
 
   it("accepts an empty raw: it clears the field", () => {
-    const result = parseOfficialUsageUpdate({ providerId: "claude", subLimitId: null, raw: "", cycleStartMs: CYCLE_START });
+    const result = parseOfficialUsageUpdate({
+      providerId: "claude",
+      subLimitId: null,
+      raw: "",
+      cycleStartMs: CYCLE_START,
+    });
     expect(result.ok).toBe(true);
   });
 
@@ -113,7 +123,12 @@ describe("storedEntryFor / currentOfficialEntries — round trip", () => {
   });
 
   it("an empty raw clears the field: nothing to store", () => {
-    const update = parseOfficialUsageUpdate({ providerId: "claude", subLimitId: null, raw: "", cycleStartMs: CYCLE_START });
+    const update = parseOfficialUsageUpdate({
+      providerId: "claude",
+      subLimitId: null,
+      raw: "",
+      cycleStartMs: CYCLE_START,
+    });
     if (!update.ok) throw new Error("expected a valid update");
     expect(storedEntryFor(update.update, 1_700_000_000_000)).toBeNull();
   });

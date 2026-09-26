@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+  type AuditRecord,
   apiTokenProblem,
   apiTokenStatusNote,
   describeClient,
@@ -8,7 +9,6 @@ import {
   parseAuditRecord,
   serializeAuditRecord,
   toAuditEntry,
-  type AuditRecord,
 } from "@/lib/api-token";
 import { openSecret, parseEncryptionKey, sealSecret } from "@/lib/secret-box";
 
@@ -97,7 +97,7 @@ describe("a token to store", () => {
     expect(isValidApiToken("a".repeat(513))).toBe(false);
     expect(isValidApiToken("abcdefgh ijklmnopq")).toBe(false);
     expect(isValidApiToken("árvíztűrőtükörfúrógép")).toBe(false);
-    expect(isValidApiToken(12345678901234567)).toBe(false);
+    expect(isValidApiToken(1234567890123456)).toBe(false);
     expect(isValidApiToken(null)).toBe(false);
   });
 
@@ -118,8 +118,9 @@ describe("naming the browser", () => {
     expect(
       describeClient(UA.edgeWindows, '"Microsoft Edge";v="140", "Not)A;Brand";v="8", "Chromium";v="140"', '"Windows"'),
     ).toEqual({ browser: "Edge 140", os: "Windows" });
-    expect(describeClient(UA.chromeMac, '"Brave";v="140", "Chromium";v="140", "Not_A Brand";v="24"', '"Chrome OS"'))
-      .toEqual({ browser: "Brave 140", os: "ChromeOS" });
+    expect(
+      describeClient(UA.chromeMac, '"Brave";v="140", "Chromium";v="140", "Not_A Brand";v="24"', '"Chrome OS"'),
+    ).toEqual({ browser: "Brave 140", os: "ChromeOS" });
     // A browser that only names the engine is still named.
     expect(describeClient("", '"Chromium";v="139", "Not/A)Brand";v="99"', '"Linux"')).toEqual({
       browser: "Chromium 139",

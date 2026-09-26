@@ -1,46 +1,41 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
-import { Link } from "@/i18n/routing";
 import { fetchApiToken } from "@/components/clipboard";
 import { BreakablePath, CommandBlock, FileBlock } from "@/components/code-block";
 import { ArrowLeftIcon, DownloadIcon, StopCircleIcon } from "@/components/icons";
-import { useTranslations } from "next-intl";
 import { InfoTip } from "@/components/info-tip";
 import { StatusLine } from "@/components/status-line";
 import { TokenCopyButton } from "@/components/token-copy-button";
-import { apiTokenStatusNote, type ApiTokenStatus } from "@/lib/api-token";
+import { Link } from "@/i18n/routing";
+import { type ApiTokenStatus, apiTokenStatusNote } from "@/lib/api-token";
 import {
   CCUSAGE_RUNNERS,
+  type CcusageRunner,
+  type ClientSources,
   checkMachineSettings,
   folderCommand,
   INSTALL_ROUTES,
   INSTALLED_CONFIG,
+  type InstallRoute,
   installerCommand,
   LOG_FILE,
-  MODE_LABEL,
-  MODE_SUMMARY,
+  type MachineSettings,
+  type OneShotBlobs,
   OS_LABEL,
   packageFiles,
   packageName,
   parseRoute,
   renderConfig,
   renderOneShot,
-  ROUTE_LABEL,
-  RUNNER_LABEL,
-  RUNNER_SUMMARY,
-  saveCommand,
   SETUP_MODES,
   SETUP_OSES,
-  uninstallCommand,
-  zipInstallCommand,
-  type CcusageRunner,
-  type ClientSources,
-  type InstallRoute,
-  type MachineSettings,
-  type OneShotBlobs,
   type SetupMode,
   type SetupOs,
+  saveCommand,
+  uninstallCommand,
+  zipInstallCommand,
 } from "@/lib/setup";
 
 export interface SetupGroup {
@@ -74,6 +69,7 @@ function readSetupPrefs(): SetupPrefs | null {
 function writeSetupPrefs(prefs: { os: SetupOs; route: InstallRoute; group: string; machine: string }) {
   try {
     const oneYear = 60 * 60 * 24 * 365;
+    // biome-ignore lint/suspicious/noDocumentCookie: a plain preference cookie; the Cookie Store API is not available everywhere yet
     document.cookie = `${SETUP_PREFS_COOKIE}=${encodeURIComponent(JSON.stringify(prefs))}; path=/; max-age=${oneYear}; samesite=lax`;
   } catch {
     // Cookies are optional; the selection still works for this page view.
@@ -215,10 +211,25 @@ function Step({ number, children }: { number: number; children: React.ReactNode 
   );
 }
 
-function TokenNote({ os, mode, tokenStatus, t }: { os: SetupOs; mode: SetupMode; tokenStatus: ApiTokenStatus; t: any }) {
+function TokenNote({
+  os,
+  mode,
+  tokenStatus,
+  t,
+}: {
+  os: SetupOs;
+  mode: SetupMode;
+  tokenStatus: ApiTokenStatus;
+  t: any;
+}) {
   return (
     <>
-      <p>{t.rich("token_note", { auto: os === "windows" && mode === "auto" ? "true" : "false", Code: (chunks: any) => <Code>{chunks}</Code> })}</p>
+      <p>
+        {t.rich("token_note", {
+          auto: os === "windows" && mode === "auto" ? "true" : "false",
+          Code: (chunks: any) => <Code>{chunks}</Code>,
+        })}
+      </p>
       <TokenCopyButton status={tokenStatus} />
     </>
   );
@@ -275,17 +286,11 @@ function OneShotSection({
         </h2>
         <InfoTip label={t("one_shot_tooltip_aria")}>
           <span className="block">{t("one_shot_tooltip_1")}</span>
-          <span className="block">
-            {t("one_shot_tooltip_2")}
-          </span>
-          <span className="block text-ink">
-            {t("one_shot_tooltip_3")}
-          </span>
+          <span className="block">{t("one_shot_tooltip_2")}</span>
+          <span className="block text-ink">{t("one_shot_tooltip_3")}</span>
         </InfoTip>
       </div>
-      <p className="mt-2 max-w-2xl text-ink-2">
-        {t("one_shot_desc")}
-      </p>
+      <p className="mt-2 max-w-2xl text-ink-2">{t("one_shot_desc")}</p>
 
       <div className="mt-6">
         <Segmented
@@ -300,11 +305,7 @@ function OneShotSection({
       </div>
 
       <div className="mt-6 max-w-2xl space-y-3 leading-relaxed">
-        <p>
-          {os === "windows"
-            ? t("copy_powershell")
-            : t("copy_terminal")}
-        </p>
+        <p>{os === "windows" ? t("copy_powershell") : t("copy_terminal")}</p>
         <CommandBlock
           command={preview}
           label={t("one_shot_command")}
@@ -319,9 +320,7 @@ function OneShotSection({
         {!available || note.tone === "warning" ? (
           <StatusLine tone={note.tone}>
             {note.text}
-            {tokenStatus.state === "empty" || tokenStatus.state === "unreadable"
-              ? t("provide_in_settings")
-              : ""}
+            {tokenStatus.state === "empty" || tokenStatus.state === "unreadable" ? t("provide_in_settings") : ""}
           </StatusLine>
         ) : null}
       </div>
@@ -432,9 +431,19 @@ export function SetupView({
         <p className="mt-4 text-ink-2">{t("install_client_intro")}</p>
       </div>
 
-      <section aria-label={t("package_settings_aria")} className="mt-10 rounded-lg border border-rule px-5 py-6 sm:px-6">
+      <section
+        aria-label={t("package_settings_aria")}
+        className="mt-10 rounded-lg border border-rule px-5 py-6 sm:px-6"
+      >
         <div className="flex flex-wrap gap-x-10 gap-y-5">
-          <Segmented legend={t("os_legend")} name="os" value={os} options={SETUP_OSES} labels={OS_LABEL} onChange={setOs} />
+          <Segmented
+            legend={t("os_legend")}
+            name="os"
+            value={os}
+            options={SETUP_OSES}
+            labels={OS_LABEL}
+            onChange={setOs}
+          />
           <Segmented
             legend={t("mode_legend")}
             name="mode"
@@ -464,7 +473,7 @@ export function SetupView({
               className={`mt-1.5 block w-full ${FIELD}`}
             />
             {groups.length > 0 && (
-              <div className="mt-2.5 flex flex-wrap gap-2" aria-label={t("existing_groups")}>
+              <div role="group" className="mt-2.5 flex flex-wrap gap-2" aria-label={t("existing_groups")}>
                 {groups.map((known) => (
                   <button
                     key={known.id}
@@ -473,17 +482,17 @@ export function SetupView({
                     onClick={() => setGroup(known.id)}
                     className="inline-flex max-w-full items-center gap-2 rounded-full border border-rule px-3 py-1 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink aria-pressed:border-ink-3 aria-pressed:bg-raised aria-pressed:text-ink"
                   >
-                    <span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ backgroundColor: known.color }} />
+                    <span
+                      aria-hidden="true"
+                      className="size-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: known.color }}
+                    />
                     <span className="truncate">{known.id}</span>
                   </button>
                 ))}
               </div>
             )}
-            <FieldNote
-              id={ids.groupNote}
-              problem={check.ok ? null : check.group}
-              hint={t("group_hint")}
-            />
+            <FieldNote id={ids.groupNote} problem={check.ok ? null : check.group} hint={t("group_hint")} />
           </div>
 
           <div className="min-w-0">
@@ -503,11 +512,7 @@ export function SetupView({
               aria-describedby={ids.machineNote}
               className={`mt-1.5 block w-full ${FIELD}`}
             />
-            <FieldNote
-              id={ids.machineNote}
-              problem={check.ok ? null : check.machine}
-              hint={t("machine_hint")}
-            />
+            <FieldNote id={ids.machineNote} problem={check.ok ? null : check.machine} hint={t("machine_hint")} />
           </div>
         </div>
       </section>
@@ -520,6 +525,7 @@ export function SetupView({
           id={panelId(ids.tabs, "zip")}
           aria-labelledby={tabId(ids.tabs, "zip")}
           hidden={route !== "zip"}
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: WAI-ARIA tabs pattern, the panel takes focus after its tab
           tabIndex={0}
           className="mt-8"
         >
@@ -527,9 +533,7 @@ export function SetupView({
             <h2 id={ids.zip} className="text-2xl font-semibold tracking-tight">
               {t("download_zip")}
             </h2>
-            <p className="mt-2 max-w-2xl text-ink-2">
-              {t("zip_desc")}
-            </p>
+            <p className="mt-2 max-w-2xl text-ink-2">{t("zip_desc")}</p>
 
             <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2">
               {zipHref ? (
@@ -554,13 +558,12 @@ export function SetupView({
             </div>
             {!zipHref && <p className="mt-3 text-sm text-ink-3">Előbb javítsd a csoportot vagy a gép azonosítóját.</p>}
 
+            {/* biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics once list-style is none */}
             <ol role="list" className="mt-8 max-w-2xl space-y-6">
               {unix ? (
                 <>
                   <Step number={1}>
-                    <p>
-                      {t.rich("zip_step_1_unix", { name, Code: (chunks: any) => <Code>{chunks}</Code> })}
-                    </p>
+                    <p>{t.rich("zip_step_1_unix", { name, Code: (chunks: any) => <Code>{chunks}</Code> })}</p>
                   </Step>
                   <Step number={2}>
                     <p>{t("zip_step_2_unix")}</p>
@@ -574,12 +577,17 @@ export function SetupView({
                 <>
                   <Step number={1}>
                     <p>
-                      {t.rich("zip_step_1_win", { strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong> })}
+                      {t.rich("zip_step_1_win", {
+                        strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong>,
+                      })}
                     </p>
                   </Step>
                   <Step number={2}>
                     <p>
-                      {t.rich("zip_step_2_win", { auto: mode === "auto" ? "true" : "false", Code: (chunks: any) => <Code>{chunks}</Code> })}
+                      {t.rich("zip_step_2_win", {
+                        auto: mode === "auto" ? "true" : "false",
+                        Code: (chunks: any) => <Code>{chunks}</Code>,
+                      })}
                     </p>
                     <p className="text-sm text-ink-3">{t("start_from_powershell")}</p>
                     <CommandBlock command={zipInstallCommand(os, mode)} label={t("installer_command")} />
@@ -598,6 +606,7 @@ export function SetupView({
           id={panelId(ids.tabs, "manual")}
           aria-labelledby={tabId(ids.tabs, "manual")}
           hidden={route !== "manual"}
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: WAI-ARIA tabs pattern, the panel takes focus after its tab
           tabIndex={0}
           className="mt-8"
         >
@@ -605,30 +614,22 @@ export function SetupView({
             <h2 id={ids.manual} className="text-2xl font-semibold tracking-tight">
               {t("copy_and_create")}
             </h2>
-            <p className="mt-2 max-w-2xl text-ink-2">
-              {t("copy_desc", { count: files.length })}
-            </p>
+            <p className="mt-2 max-w-2xl text-ink-2">{t("copy_desc", { count: files.length })}</p>
 
+            {/* biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics once list-style is none */}
             <ol role="list" className="mt-8 space-y-10">
               <Step number={1}>
-                <p className="max-w-2xl">
-                  {unix
-                    ? t("manual_step_1_unix")
-                    : t("manual_step_1_win")}
-                </p>
+                <p className="max-w-2xl">{unix ? t("manual_step_1_unix") : t("manual_step_1_win")}</p>
                 <CommandBlock command={folderCommand(os)} label={t("folder_command")} />
               </Step>
               <Step number={2}>
                 <p className="max-w-2xl">
-                  {os === "linux" ? (
-                    <>
-                      {t.rich("manual_step_2_linux", { Code: (chunks: any) => <Code>{chunks}</Code> })}
-                    </>
-                  ) : (
-                    <>
-                      {t.rich("manual_step_2_win_mac", { os, strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong> })}
-                    </>
-                  )}
+                  {os === "linux"
+                    ? t.rich("manual_step_2_linux", { Code: (chunks: any) => <Code>{chunks}</Code> })
+                    : t.rich("manual_step_2_win_mac", {
+                        os,
+                        strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong>,
+                      })}
                 </p>
                 <div className="space-y-4 pt-1">
                   {files.map((file) => (
@@ -658,6 +659,7 @@ export function SetupView({
           id={panelId(ids.tabs, "oneShot")}
           aria-labelledby={tabId(ids.tabs, "oneShot")}
           hidden={route !== "oneShot"}
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: WAI-ARIA tabs pattern, the panel takes focus after its tab
           tabIndex={0}
           className="mt-8"
         >
@@ -684,7 +686,13 @@ export function SetupView({
 
           <dt className="text-ink-3">{t("token")}</dt>
           <dd className="text-ink-2">
-            {t.rich("token_desc", { mac: INSTALLED_CONFIG.macos, win: INSTALLED_CONFIG.windows, Code: (chunks: any) => <Code>{chunks}</Code>, BreakablePath: (chunks: any) => <BreakablePath path={INSTALLED_CONFIG.windows} />, strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong> })}
+            {t.rich("token_desc", {
+              mac: INSTALLED_CONFIG.macos,
+              win: INSTALLED_CONFIG.windows,
+              Code: (chunks: any) => <Code>{chunks}</Code>,
+              BreakablePath: (_chunks: any) => <BreakablePath path={INSTALLED_CONFIG.windows} />,
+              strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong>,
+            })}
           </dd>
 
           <dt className="text-ink-3">{t("update")}</dt>
@@ -701,9 +709,7 @@ export function SetupView({
           <dd className="space-y-2 text-ink-2">
             <CommandBlock command={uninstallCommand(os, mode)} label={t("uninstall_command")} />
             {unix && mode === "manual" && (
-              <p>
-                {t.rich("uninstall_unix_manual", { Code: (chunks: any) => <Code>{chunks}</Code> })}
-              </p>
+              <p>{t.rich("uninstall_unix_manual", { Code: (chunks: any) => <Code>{chunks}</Code> })}</p>
             )}
             {os === "windows" && mode === "auto" && <p>{t("uninstall_win_auto")}</p>}
           </dd>

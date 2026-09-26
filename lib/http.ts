@@ -1,19 +1,19 @@
+import { apiError } from "@/lib/api";
+import { log } from "@/lib/log";
 import { StorageNotConfiguredError } from "@/lib/redis";
 
 /** Shared by the JSON endpoints behind the dashboard's PIN session. */
 
-export function json(body: Record<string, unknown>, status: number, headers?: Record<string, string>) {
-  return Response.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } });
-}
+export { json } from "@/lib/api";
 
 /** 503 for a store that is not connected or does not answer. `what` names the caller in the log. */
 export function storageFailure(error: unknown, what: string): Response {
   if (error instanceof StorageNotConfiguredError) {
-    console.error(`[usageratio] ${error.message}`);
-    return json({ error: "storage_not_configured" }, 503);
+    log.error("storage.not_configured", { what, err: error });
+    return apiError("storage_not_configured", 503);
   }
-  console.error(`[usageratio] ${what} could not reach the store:`, error);
-  return json({ error: "storage_unavailable" }, 503, { "Retry-After": "60" });
+  log.error("storage.unavailable", { what, err: error });
+  return apiError("storage_unavailable", 503);
 }
 
 /**
@@ -23,9 +23,7 @@ export function storageFailure(error: unknown, what: string): Response {
 export function isForeignOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
   if (!origin) return false;
-  const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "")
-    .split(",")[0]
-    ?.trim();
+  const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "").split(",")[0]?.trim();
   try {
     return new URL(origin).host !== host;
   } catch {

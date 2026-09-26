@@ -1,10 +1,9 @@
 "use client";
 
-import { useActionState, useRef } from "react";
-import { login, type LoginState } from "@/app/actions";
-import { StopCircleIcon } from "@/components/icons";
-
 import { useTranslations } from "next-intl";
+import { useActionState, useRef } from "react";
+import { type LoginState, login } from "@/app/actions";
+import { StopCircleIcon } from "@/components/icons";
 
 const INITIAL_STATE: LoginState = { error: null };
 
@@ -31,6 +30,7 @@ export function PinForm({ labelledBy, next }: { labelledBy: string; next: string
         maxLength={5}
         placeholder="•••••"
         required
+        // biome-ignore lint/a11y/noAutofocus: the PIN field is the page's only control
         autoFocus
         aria-labelledby={labelledBy}
         aria-invalid={state.error ? true : undefined}

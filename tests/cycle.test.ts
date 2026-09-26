@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getCycle, getDaySegments, getPreviousCycle } from "@/lib/cycle";
 import type { ResetConfig } from "@/lib/config";
+import { getCycle, getDaySegments, getPreviousCycle } from "@/lib/cycle";
 
 const HOUR = 3_600_000;
 

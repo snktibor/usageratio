@@ -1,10 +1,10 @@
-import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { PinGate } from "@/components/pin-gate";
-import { SetupView, type SetupGroup } from "@/components/setup-view";
+import { type SetupGroup, SetupView } from "@/components/setup-view";
 import { StorageProblem } from "@/components/storage-problem";
 import type { ApiTokenStatus } from "@/lib/api-token";
 import { isAuthenticated } from "@/lib/auth";
+import { log } from "@/lib/log";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { NEUTRAL_COLOR, resolveGroupColors } from "@/lib/settings";
 import { detectOs, parseMode, parseOs, parseRoute } from "@/lib/setup";
@@ -46,7 +46,7 @@ export default async function SetupPage({
     if (await isAuthenticated()) [groups, tokenStatus] = await Promise.all([loadGroups(), loadApiTokenStatus()]);
   } catch (error) {
     storageError = error;
-    console.error("[usageratio] The setup page could not load:", error);
+    log.error("setup_page.load_failed", { err: error });
   }
 
   if (storageError) {
@@ -58,8 +58,7 @@ export default async function SetupPage({
   return (
     <SetupView
       initialOs={
-        parseOs(params.os) ??
-        detectOs(requestHeaders.get("user-agent"), requestHeaders.get("sec-ch-ua-platform"))
+        parseOs(params.os) ?? detectOs(requestHeaders.get("user-agent"), requestHeaders.get("sec-ch-ua-platform"))
       }
       initialMode={parseMode(params.mode) ?? "auto"}
       initialRoute={parseRoute(params.route) ?? "zip"}

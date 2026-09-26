@@ -1,13 +1,14 @@
-import { Link } from "@/i18n/routing";
+import { getLocale, getTranslations } from "next-intl/server";
 import { logout } from "@/app/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { DashboardView } from "@/components/dashboard-view";
 import { DownloadIcon, GitHubIcon } from "@/components/icons";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { Link } from "@/i18n/routing";
 import type { ProviderDashboardModel } from "@/lib/dashboard";
+import { isDemoMode } from "@/lib/demo/mode";
 import { formatClock } from "@/lib/format";
 import type { SettingsView } from "@/lib/settings";
-import { getTranslations, getLocale } from "next-intl/server";
 
 export async function Dashboard({
   providers,
@@ -16,7 +17,7 @@ export async function Dashboard({
   providers: ProviderDashboardModel[];
   settings: SettingsView;
 }) {
-    const locale = await getLocale();
+  const locale = await getLocale();
   const t = await getTranslations("HomePage");
   const model = providers[0]!.dashboard;
   const refreshedAt = formatClock(model.generatedAt, model.timeZone, locale);
@@ -40,14 +41,16 @@ export async function Dashboard({
             <span className="sr-only sm:not-sr-only">{t("dashboard_setup")}</span>
           </Link>
           <SettingsDialog view={settings} />
-          <form action={logout}>
-            <button
-              type="submit"
-              className="rounded-md border border-rule px-3 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
-            >
-              {t("dashboard_logout")}
-            </button>
-          </form>
+          {!isDemoMode() && (
+            <form action={logout}>
+              <button
+                type="submit"
+                className="rounded-md border border-rule px-3 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
+              >
+                {t("dashboard_logout")}
+              </button>
+            </form>
+          )}
         </div>
       </header>
 

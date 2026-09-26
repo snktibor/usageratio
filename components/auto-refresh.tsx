@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "@/i18n/routing";
 import { useEffect } from "react";
+import { useRouter } from "@/i18n/routing";
 
 /**
  * Re-renders the server components on a timer and when the tab becomes

@@ -1,12 +1,12 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { useId, useState } from "react";
-import { ChartLegend, CycleChart, type ChartSeries } from "@/components/cycle-chart";
+import { ChartLegend, type ChartSeries, CycleChart } from "@/components/cycle-chart";
 import { formatTokenTick, niceScale } from "@/lib/chart";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatTokens } from "@/lib/format";
 import { NEUTRAL_COLOR } from "@/lib/settings";
-import { useTranslations, useLocale } from "next-intl";
 
 /** The token axis never shrinks below this, so a handful of tokens does not fill the chart. */
 const MIN_AXIS_TOKENS = 1_000;
@@ -17,7 +17,7 @@ const MIN_AXIS_TOKENS = 1_000;
  * clients that send the split by model count here.
  */
 export function ModelChart({ model }: { model: DashboardModel }) {
-    const locale = useLocale();
+  const locale = useLocale();
   const t = useTranslations("Widgets");
   const { models } = model.timeline;
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -40,9 +40,7 @@ export function ModelChart({ model }: { model: DashboardModel }) {
 
       {selected ? (
         <>
-          <p className="mt-1 text-sm text-ink-3">
-            {t("measured_tokens_by_group")}
-          </p>
+          <p className="mt-1 text-sm text-ink-3">{t("measured_tokens_by_group")}</p>
 
           <fieldset className="mt-5">
             <legend className="sr-only">{t("model")}</legend>
@@ -90,7 +88,9 @@ export function ModelChart({ model }: { model: DashboardModel }) {
         </>
       ) : (
         <p className="mt-3 max-w-xl text-ink-2">
-          {t("no_model_breakdown_1")}<code className="text-ink">clients/</code>{t("no_model_breakdown_2")}
+          {t("no_model_breakdown_1")}
+          <code className="text-ink">clients/</code>
+          {t("no_model_breakdown_2")}
         </p>
       )}
     </section>

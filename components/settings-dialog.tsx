@@ -1,11 +1,11 @@
 "use client";
 
-import { useRouter } from "@/i18n/routing";
-import { useTranslations, useLocale } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
 import { ApiTokenSettings } from "@/components/api-token-settings";
-import { LanguageSwitcher } from "@/components/language-switcher";
 import { CheckIcon, PlusIcon, SlidersIcon, StopCircleIcon, XIcon } from "@/components/icons";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { useRouter } from "@/i18n/routing";
 import type { BudgetPeriod } from "@/lib/config";
 import { formatTokens, weekdayLong } from "@/lib/format";
 import { modelLabel } from "@/lib/models";
@@ -14,8 +14,8 @@ import {
   MAX_LIMIT,
   normalizeHexColor,
   PRESET_COLORS,
-  suggestGroupColor,
   type SettingsView,
+  suggestGroupColor,
 } from "@/lib/settings";
 import {
   MAX_SUB_LIMIT_MODELS,
@@ -23,9 +23,9 @@ import {
   MAX_SUB_LIMITS,
   normalizeModelPart,
   normalizeSubLimitName,
-  subLimitIdFor,
   type SubLimit,
   type SubLimitMode,
+  subLimitIdFor,
 } from "@/lib/sub-limits";
 import { parseId } from "@/lib/validation";
 
@@ -104,8 +104,7 @@ interface SettingsRequest {
 const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
 const MONTH_DAYS = Array.from({ length: 31 }, (_, index) => index + 1);
 
-const FIELD =
-  "rounded-md border border-rule bg-page px-3 py-2 text-ink placeholder:text-ink-3 disabled:opacity-50";
+const FIELD = "rounded-md border border-rule bg-page px-3 py-2 text-ink placeholder:text-ink-3 disabled:opacity-50";
 const QUIET_BUTTON =
   "rounded-md border border-rule px-3 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink disabled:pointer-events-none disabled:opacity-40";
 
@@ -208,7 +207,11 @@ function parseModelParts(text: string): string[] | null {
 }
 
 /** A provider's sub-limits as the PUT body wants them, or what is wrong with one. */
-function subLimitsRequest(provider: DraftProvider, useTokenLimits: boolean, t: any): { list: SubLimit[] } | { problem: string } {
+function subLimitsRequest(
+  provider: DraftProvider,
+  useTokenLimits: boolean,
+  t: any,
+): { list: SubLimit[] } | { problem: string } {
   const list: SubLimit[] = [];
   for (const draft of provider.subLimits) {
     const name = normalizeSubLimitName(draft.name);
@@ -223,8 +226,7 @@ function subLimitsRequest(provider: DraftProvider, useTokenLimits: boolean, t: a
     const models = parseModelParts(draft.modelsText);
     if (models === null) {
       return {
-        problem:
-          t("invalid_sublimit_models", { name, maxModels: MAX_SUB_LIMIT_MODELS }),
+        problem: t("invalid_sublimit_models", { name, maxModels: MAX_SUB_LIMIT_MODELS }),
       };
     }
     // Hidden fields must not block the save: they keep what was saved.
@@ -234,8 +236,18 @@ function subLimitsRequest(provider: DraftProvider, useTokenLimits: boolean, t: a
       parseLimit(draft.limitText) ?? (draft.mode === "separate" && useTokenLimits ? null : draft.savedLimit);
     if (limit === null) return { problem: t("invalid_sublimit_limit", { name }) };
 
-    const taken = [...provider.subLimits.flatMap((other) => (other.id ? [other.id] : [])), ...list.map((sub) => sub.id)];
-    list.push({ id: draft.id ?? subLimitIdFor(name, taken), name, models, mode: draft.mode, sharePercent: share, limit });
+    const taken = [
+      ...provider.subLimits.flatMap((other) => (other.id ? [other.id] : [])),
+      ...list.map((sub) => sub.id),
+    ];
+    list.push({
+      id: draft.id ?? subLimitIdFor(name, taken),
+      name,
+      models,
+      mode: draft.mode,
+      sharePercent: share,
+      limit,
+    });
   }
   return { list };
 }
@@ -245,9 +257,7 @@ function groupNameProblem(name: string, groups: DraftGroup[], t: any): string | 
   const errors: string[] = [];
   const id = parseId(name, "id", errors);
   if (errors.length > 0) {
-    return (
-      t("group_name_rules")
-    );
+    return t("group_name_rules");
   }
   if (groups.some((group) => group.id === id)) return t("group_already_exists", { id });
   if (groups.length >= MAX_GROUPS) return t("max_groups_reached", { maxGroups: MAX_GROUPS });
@@ -362,7 +372,7 @@ function SubLimitEditor({
   onChange: (changes: Partial<DraftSubLimit>) => void;
   onRemove: () => void;
 }) {
-    const locale = useLocale();
+  const locale = useLocale();
   const t = useTranslations("Settings");
   const modeName = useId();
   const label = sub.name.trim() || t("new_sublimit");
@@ -474,7 +484,7 @@ function SubLimitEditor({
 }
 
 function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId: string; onClose: () => void }) {
-    const locale = useLocale();
+  const locale = useLocale();
   const t = useTranslations("Settings");
   const router = useRouter();
   const [draft, setDraft] = useState<Draft>(() => draftFrom(view));
@@ -546,18 +556,14 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
       ...current,
       groups: current.groups.filter((other) => other.id !== group.id),
       // A group that was only ever in this draft has nothing to remove on the server.
-      removed: view.groups.some((saved) => saved.id === group.id)
-        ? [...current.removed, group]
-        : current.removed,
+      removed: view.groups.some((saved) => saved.id === group.id) ? [...current.removed, group] : current.removed,
     }));
   }
 
   async function save() {
     // The token has its own save, with its own confirmation: typed but not saved, it would be lost.
     if (draft.apiToken.trim() !== "") {
-      return setProblem(
-        t("unsaved_api_token"),
-      );
+      return setProblem(t("unsaved_api_token"));
     }
 
     // A name left in the field was meant to be added: do not lose it silently.
@@ -602,9 +608,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
           ],
           removed: current.removed.filter((group) => !refused.includes(group.id)),
         }));
-        setProblem(
-          t("report_received_during_save", { refused: refused.join(", ") }),
-        );
+        setProblem(t("report_received_during_save", { refused: refused.join(", ") }));
       } else if (response.status === 400 && Array.isArray(payload?.details)) {
         setProblem(t("server_rejected_settings", { details: payload.details.join("; ") }));
       } else {
@@ -626,7 +630,9 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
       }}
     >
       <header className="flex items-center justify-between gap-4 px-6 pt-5">
-        <h2 id={titleId} className="text-xl font-medium">{t("settings_title")}</h2>
+        <h2 id={titleId} className="text-xl font-medium">
+          {t("settings_title")}
+        </h2>
         <div className="flex items-center gap-3">
           <LanguageSwitcher />
           <button
@@ -661,9 +667,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
               );
             })}
           </div>
-          <p className="mt-3 text-sm text-ink-3">
-            {t("hidden_account_explanation")}
-          </p>
+          <p className="mt-3 text-sm text-ink-3">{t("hidden_account_explanation")}</p>
         </section>
 
         <section aria-labelledby={`${titleId}-budget`} className="space-y-4">
@@ -702,9 +706,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
             />
             <span>
               {t("use_token_limits")}
-              <span className="mt-0.5 block text-sm text-ink-3">
-                {t("use_token_limits_explanation")}
-              </span>
+              <span className="mt-0.5 block text-sm text-ink-3">{t("use_token_limits_explanation")}</span>
             </span>
           </label>
 
@@ -734,7 +736,9 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                         <span className="mt-1.5 block text-sm text-ink-3">
                           {limit === null
                             ? t("positive_integer")
-                            : draft.period === "weekly" ? t("weekly_limit", { tokens: formatTokens(limit, locale) }) : t("monthly_limit", { tokens: formatTokens(limit, locale) })}
+                            : draft.period === "weekly"
+                              ? t("weekly_limit", { tokens: formatTokens(limit, locale) })
+                              : t("monthly_limit", { tokens: formatTokens(limit, locale) })}
                         </span>
                       </label>
                     );
@@ -751,9 +755,7 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                 />
                 <span>
                   {t("show_remaining_tokens")}
-                  <span className="mt-0.5 block text-sm text-ink-3">
-                    {t("show_remaining_tokens_explanation")}
-                  </span>
+                  <span className="mt-0.5 block text-sm text-ink-3">{t("show_remaining_tokens_explanation")}</span>
                 </span>
               </label>
             </div>
@@ -765,8 +767,10 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
             {t("sublimits")}
           </h3>
           <p className="mt-1.5 text-sm text-ink-3">
-            {t("sublimits_explanation_1")}<strong className="font-medium text-ink-2">{t("sublimits_explanation_2")}</strong>{" "}
-            {t("sublimits_explanation_3")}<strong className="font-medium text-ink-2">{t("sublimits_explanation_4")}</strong>
+            {t("sublimits_explanation_1")}
+            <strong className="font-medium text-ink-2">{t("sublimits_explanation_2")}</strong>{" "}
+            {t("sublimits_explanation_3")}
+            <strong className="font-medium text-ink-2">{t("sublimits_explanation_4")}</strong>
             {t("sublimits_explanation_5")}
           </p>
 
@@ -796,7 +800,9 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                         provider={provider}
                         useTokenLimits={draft.useTokenLimits}
                         onChange={(changes) => patchSubLimit(provider.id, sub.key, changes)}
-                        onRemove={() => patchSubLimits(provider.id, (list) => list.filter((other) => other.key !== sub.key))}
+                        onRemove={() =>
+                          patchSubLimits(provider.id, (list) => list.filter((other) => other.key !== sub.key))
+                        }
                       />
                     ))}
                   </ul>
@@ -807,7 +813,9 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
         </section>
 
         <section aria-labelledby={`${titleId}-reset`} className="space-y-4">
-          <h3 id={`${titleId}-reset`} className="font-medium">{t("reset")}</h3>
+          <h3 id={`${titleId}-reset`} className="font-medium">
+            {t("reset")}
+          </h3>
 
           <div className="flex flex-wrap gap-x-5 gap-y-4">
             {draft.period === "weekly" ? (
@@ -857,14 +865,16 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
 
           <p className="text-sm text-ink-3">
             {t("cycle_start_explanation_1", { timeZone: view.timeZone })}
-            {draft.period === "monthly" && draft.monthDay > 28 && (
-              <>{t("cycle_start_explanation_2", { monthDay: draft.monthDay })}</>
-            )}
+            {draft.period === "monthly" &&
+              draft.monthDay > 28 &&
+              t("cycle_start_explanation_2", { monthDay: draft.monthDay })}
           </p>
         </section>
 
         <section aria-labelledby={`${titleId}-groups`}>
-          <h3 id={`${titleId}-groups`} className="font-medium">{t("groups")}</h3>
+          <h3 id={`${titleId}-groups`} className="font-medium">
+            {t("groups")}
+          </h3>
 
           {draft.groups.length > 0 && (
             <ul className="mt-3 border-t border-hairline">
@@ -914,7 +924,9 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
                     aria-label={t("group_accounts_aria", { id: group.id })}
                     className="mt-2 flex flex-wrap items-center gap-1.5 pl-11"
                   >
-                    <span className="mr-1 text-sm text-ink-3" aria-hidden="true">{t("counts_towards")}</span>
+                    <span className="mr-1 text-sm text-ink-3" aria-hidden="true">
+                      {t("counts_towards")}
+                    </span>
                     {visibleProviders.map((provider) => (
                       <ToggleChip
                         key={provider.id}
@@ -956,11 +968,15 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
               className={`min-w-0 grow ${FIELD}`}
             />
             <button type="button" onClick={addGroup} className={`flex shrink-0 items-center gap-2 ${QUIET_BUTTON}`}>
-              <PlusIcon />{t("add")}</button>
+              <PlusIcon />
+              {t("add")}
+            </button>
           </div>
 
           <p className="mt-4 text-sm text-ink-3">
-            {t("group_name_explanation_1")}<code className="text-ink-2">groupId</code>{t("group_name_explanation_2")}
+            {t("group_name_explanation_1")}
+            <code className="text-ink-2">groupId</code>
+            {t("group_name_explanation_2")}
           </p>
         </section>
 
@@ -980,7 +996,9 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
           </p>
         )}
         <div className="flex justify-end gap-3">
-          <button type="button" onClick={onClose} className={QUIET_BUTTON}>{t("cancel")}</button>
+          <button type="button" onClick={onClose} className={QUIET_BUTTON}>
+            {t("cancel")}
+          </button>
           <button
             type="submit"
             disabled={saving}

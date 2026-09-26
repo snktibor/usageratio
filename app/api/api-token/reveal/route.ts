@@ -1,5 +1,6 @@
 import { isAuthenticated } from "@/lib/auth";
-import { isForeignOrigin, json, storageFailure as failure } from "@/lib/http";
+import { demoReadOnly } from "@/lib/demo/mode";
+import { storageFailure as failure, isForeignOrigin, json } from "@/lib/http";
 import { encryptionKey, revealApiToken } from "@/lib/token-vault";
 
 /**
@@ -18,6 +19,8 @@ const storageFailure = (error: unknown) => failure(error, "The API token reveal"
 
 export async function POST(request: Request): Promise<Response> {
   if (isForeignOrigin(request)) return json({ error: "forbidden_origin" }, 403);
+  const readOnly = demoReadOnly();
+  if (readOnly) return readOnly;
 
   try {
     if (!(await isAuthenticated())) return json({ error: "unauthorized" }, 401);

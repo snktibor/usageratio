@@ -472,6 +472,7 @@ export function renderOneShot(
   return [
     " (",
     ": usageratio: egyetlen jelentés, semmit nem telepít, és a végén minden átmeneti fájlját törli",
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in the generated script
     'd="$(mktemp -d "${TMPDIR:-/tmp}/usageratio-once.XXXXXX")" || exit 1',
     `trap 'rm -rf "$d"' EXIT`,
     "trap 'exit 130' HUP INT TERM",

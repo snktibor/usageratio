@@ -42,9 +42,7 @@ export interface UsageReport {
   timestamp: string;
 }
 
-export type ParseResult =
-  | { ok: true; report: UsageReport }
-  | { ok: false; errors: string[] };
+export type ParseResult = { ok: true; report: UsageReport } | { ok: false; errors: string[] };
 
 export interface ParseOptions {
   now: Date;
@@ -59,8 +57,7 @@ const MAX_ID_LENGTH = 64;
 const ID_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u;
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const HOUR_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:00:00Z$/;
-const ISO_PATTERN =
-  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}:\d{2})$/;
+const ISO_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}:\d{2})$/;
 
 /** A machine or group id, trimmed. Problems are appended to `errors` under the name `field`. */
 export function parseId(value: unknown, field: string, errors: string[]): string {
@@ -137,9 +134,7 @@ function parseProviders(input: unknown, field: string, errors: string[]): Record
   for (const [rawProvider, tokens] of entries) {
     const provider = normalizeProviderId(rawProvider);
     if (!provider) {
-      errors.push(
-        `provider ${JSON.stringify(rawProvider)} must be 1-64 letters, digits, dots, dashes or underscores`,
-      );
+      errors.push(`provider ${JSON.stringify(rawProvider)} must be 1-64 letters, digits, dots, dashes or underscores`);
     } else if (Object.hasOwn(providers, provider)) {
       errors.push(`provider ${JSON.stringify(rawProvider)} is listed twice after normalization`);
     } else if (!isTokenCount(tokens)) {
@@ -199,9 +194,7 @@ function parseModels(
     for (const [rawModel, tokens] of entries) {
       const model = normalizeModelId(rawModel);
       if (!model) {
-        errors.push(
-          `model ${JSON.stringify(rawModel)} must be 1-64 letters, digits, dots, dashes or underscores`,
-        );
+        errors.push(`model ${JSON.stringify(rawModel)} must be 1-64 letters, digits, dots, dashes or underscores`);
       } else if (Object.hasOwn(split, model)) {
         errors.push(`model ${JSON.stringify(rawModel)} is listed twice after normalization`);
       } else if (!isTokenCount(tokens)) {
@@ -271,7 +264,9 @@ function parseHours(
     for (const [key, tokens] of entries) {
       const startMs = HOUR_PATTERN.test(key) ? Date.parse(key) : NaN;
       if (!Number.isFinite(startMs) || new Date(startMs).toISOString() !== key.replace("Z", ".000Z")) {
-        errors.push(`${field}.${rawProvider} must be keyed by hours like "2026-09-21T08:00:00Z", got ${JSON.stringify(key)}`);
+        errors.push(
+          `${field}.${rawProvider} must be keyed by hours like "2026-09-21T08:00:00Z", got ${JSON.stringify(key)}`,
+        );
       } else if (startMs < dayStartMs || startMs + HOUR_MS > dayEndMs) {
         errors.push(`${field}.${rawProvider}.${key} is not an hour of ${date} in ${timeZone}`);
       } else if (!isTokenCount(tokens)) {
@@ -296,12 +291,7 @@ function parseHours(
  * Every provider of a day must be in `providers`, and a provider's days may
  * not add up to more than its total there.
  */
-function parseDays(
-  input: unknown,
-  providers: Record<string, number>,
-  timeZone: string,
-  errors: string[],
-): DayUsage[] {
+function parseDays(input: unknown, providers: Record<string, number>, timeZone: string, errors: string[]): DayUsage[] {
   if (input === undefined) return [];
   if (!isObject(input)) {
     errors.push("days must be a JSON object");

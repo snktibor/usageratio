@@ -3,14 +3,14 @@ import path from "node:path";
 import { gzipSync } from "node:zlib";
 import {
   CLIENT_SOURCES,
+  type ClientSources,
   DEFAULT_API_URL,
+  type MachineSettings,
+  type OneShotBlobs,
   packageFiles,
   packageName,
   renderConfig,
   renderReadme,
-  type ClientSources,
-  type MachineSettings,
-  type OneShotBlobs,
   type SetupMode,
   type SetupOs,
 } from "@/lib/setup";
@@ -49,7 +49,7 @@ export function oneShotBlobs(sources: ClientSources): OneShotBlobs {
   };
 }
 
-const HOST_PATTERN =/^[a-z0-9.-]+(:\d{1,5})?$/i;
+const HOST_PATTERN = /^[a-z0-9.-]+(:\d{1,5})?$/i;
 
 function firstValue(header: string | null): string {
   return header?.split(",")[0]?.trim() ?? "";

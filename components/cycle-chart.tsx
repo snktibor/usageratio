@@ -1,11 +1,11 @@
 "use client";
 
+import { useLocale } from "next-intl";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { CycleRuler } from "@/components/cycle-ruler";
 import type { AxisScale } from "@/lib/chart";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatCycleMoment } from "@/lib/format";
-import { useLocale } from "next-intl";
 
 export interface ChartSeries {
   id: string;
@@ -89,7 +89,7 @@ export function CycleChart({
   formatEndLabel = formatValue,
   label,
 }: CycleChartProps) {
-    const locale = useLocale();
+  const locale = useLocale();
   const plotRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [active, setActive] = useState<number | null>(null);
@@ -119,7 +119,9 @@ export function CycleChart({
   const xs = times.map(xOf);
 
   const pathOf = (values: number[]) =>
-    values.map((value, index) => `${index === 0 ? "M" : "L"}${xs[index]!.toFixed(1)},${yOf(value).toFixed(1)}`).join("");
+    values
+      .map((value, index) => `${index === 0 ? "M" : "L"}${xs[index]!.toFixed(1)},${yOf(value).toFixed(1)}`)
+      .join("");
 
   // Values at the line ends, right of them where there is room; a label too close to one already placed is left to the legend and tooltip.
   const endX = xs[last] ?? 0;
@@ -138,7 +140,7 @@ export function CycleChart({
   }
 
   const readout = (index: number) =>
-    `${moment(times[index]!)}: ` + series.map((s) => `${s.label} ${formatValue(s.values[index]!)}`).join(", ");
+    `${moment(times[index]!)}: ${series.map((s) => `${s.label} ${formatValue(s.values[index]!)}`).join(", ")}`;
 
   const pointAt = (clientX: number) => {
     const plot = plotRef.current;
@@ -187,6 +189,7 @@ export function CycleChart({
         role="group"
         aria-label={label}
         aria-describedby={hintId}
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: the plot is keyboard-operated (arrow keys move the crosshair)
         tabIndex={0}
         onPointerMove={(event) => pointAt(event.clientX)}
         onPointerDown={(event) => pointAt(event.clientX)}
@@ -205,7 +208,14 @@ export function CycleChart({
             {model.cycle.segments.slice(1).map((segment) => {
               const x = Math.round(segment.startFraction * width) + 0.5;
               return (
-                <line key={segment.startFraction} x1={x} x2={x} y1={PAD_TOP} y2={height} stroke="var(--color-hairline)" />
+                <line
+                  key={segment.startFraction}
+                  x1={x}
+                  x2={x}
+                  y1={PAD_TOP}
+                  y2={height}
+                  stroke="var(--color-hairline)"
+                />
               );
             })}
             {scale.ticks.map((tick) => {
@@ -235,9 +245,7 @@ export function CycleChart({
               />
             ))}
 
-            {active !== null && (
-              <line x1={activeX} x2={activeX} y1={PAD_TOP} y2={height} stroke="var(--color-ink-3)" />
-            )}
+            {active !== null && <line x1={activeX} x2={activeX} y1={PAD_TOP} y2={height} stroke="var(--color-ink-3)" />}
             {/* The page-coloured ring keeps a dot legible where lines cross. */}
             {[...series].reverse().map((s) => {
               const index = active ?? last;

@@ -103,6 +103,12 @@ function zonedTimeToUtc(
   return new Date(wallAsUtc - offsetAt(firstGuess, timeZone));
 }
 
+/** The calendar date ("YYYY-MM-DD") of `date` in `timeZone`: what `ccusage --since` takes. */
+export function dateInTimeZone(date: Date, timeZone: string): string {
+  const p = zonedParts(date, timeZone);
+  return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
+
 /** The cycle that contains `now`. */
 export function getCycle(now: Date, reset: ResetConfig): Cycle {
   return reset.period === "monthly" ? getMonthlyCycle(now, reset) : getWeeklyCycle(now, reset);

@@ -1,10 +1,11 @@
-import { ChartLegend, CycleChart, type ChartSeries } from "@/components/cycle-chart";
+import { useLocale, useTranslations } from "next-intl";
+import { ChartLegend, type ChartSeries, CycleChart } from "@/components/cycle-chart";
 import { formatPercentTick, niceScale } from "@/lib/chart";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatHeroPercent } from "@/lib/format";
-import { subLimitTimeline, type DashboardView, type SubLimitView } from "@/lib/ground-truth";
+import { type DashboardView, type SubLimitView, subLimitTimeline } from "@/lib/ground-truth";
 import { NEUTRAL_COLOR } from "@/lib/settings";
-import { useTranslations, useLocale } from "next-intl";
+
 /** The percentage axis never shrinks below this: a quiet start of the cycle stays low on the chart. */
 const MIN_AXIS_FRACTION = 0.1;
 
@@ -31,7 +32,7 @@ export function UsageChart({
   view: DashboardView;
   subLimits: SubLimitView[];
 }) {
-    const locale = useLocale();
+  const locale = useLocale();
   const t = useTranslations("Widgets");
   // Per measured token: the official figure's share of it, or 1/limit when measured against a token limit.
   const fractionPerToken = view.quota && model.total > 0 ? view.quota.usedFraction / model.total : null;
@@ -40,7 +41,15 @@ export function UsageChart({
   const subLimitSeries: ChartSeries[] = subLimits.flatMap((subView, index) => {
     const values = subLimitTimeline(subView);
     return values
-      ? [{ id: `sub:${subView.sub.id}`, label: t("sublimit_label", { name: subView.sub.name }), color: subLimitColor(index), values, faint: true }]
+      ? [
+          {
+            id: `sub:${subView.sub.id}`,
+            label: t("sublimit_label", { name: subView.sub.name }),
+            color: subLimitColor(index),
+            values,
+            faint: true,
+          },
+        ]
       : [];
   });
 
@@ -48,11 +57,7 @@ export function UsageChart({
   if (model.total === 0) {
     body = <p className="mt-3 max-w-xl text-ink-2">{t("no_measured_usage_chart")}</p>;
   } else if (fractionPerToken === null) {
-    body = (
-      <p className="mt-3 max-w-xl text-ink-2">
-        {t("chart_official_explanation")}
-      </p>
-    );
+    body = <p className="mt-3 max-w-xl text-ink-2">{t("chart_official_explanation")}</p>;
   } else {
     const groups: ChartSeries[] = model.timeline.groups.map((group) => ({
       id: `group:${group.groupId}`,
@@ -64,9 +69,7 @@ export function UsageChart({
       id: "total",
       label: t("total"),
       color: "var(--color-ink)",
-      values: model.timeline.times.map((_, index) =>
-        groups.reduce((sum, group) => sum + group.values[index]!, 0),
-      ),
+      values: model.timeline.times.map((_, index) => groups.reduce((sum, group) => sum + group.values[index]!, 0)),
       dashed: true,
     };
     // Drawn in reverse: the sub-limits' fainter lines lie beneath the groups'.
@@ -85,11 +88,7 @@ export function UsageChart({
             scale={scale}
             formatTick={(fraction) => formatPercentTick(fraction, scale.step)}
             formatValue={(val) => formatHeroPercent(val, locale)}
-            label={
-              subLimitSeries.length > 0
-                ? t("chart_aria_with_sublimits")
-                : t("chart_aria_no_sublimits")
-            }
+            label={subLimitSeries.length > 0 ? t("chart_aria_with_sublimits") : t("chart_aria_no_sublimits")}
           />
         </div>
       </>
@@ -103,9 +102,7 @@ export function UsageChart({
       </h2>
       {fractionPerToken !== null && (
         <p className="mt-1 text-sm text-ink-3">
-          {view.calibrated
-            ? t("chart_desc_official")
-            : t("chart_desc_measured")}
+          {view.calibrated ? t("chart_desc_official") : t("chart_desc_measured")}
           {subLimitSeries.length > 0 && t("chart_desc_sublimits")}
         </p>
       )}

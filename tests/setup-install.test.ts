@@ -22,7 +22,9 @@ const CCUSAGE_REPORT = {
   daily: [
     {
       date: "2026-09-21",
-      agents: [{ agent: "claude", modelBreakdowns: [{ modelName: "claude-sonnet-4", inputTokens: 1000, outputTokens: 234 }] }],
+      agents: [
+        { agent: "claude", modelBreakdowns: [{ modelName: "claude-sonnet-4", inputTokens: 1000, outputTokens: 234 }] },
+      ],
     },
   ],
 };

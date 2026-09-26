@@ -105,9 +105,7 @@ export interface SettingsView {
   groups: (GroupDefinition & { hasReports: boolean })[];
 }
 
-export type SettingsParseResult =
-  | { ok: true; update: SettingsUpdate }
-  | { ok: false; errors: string[] };
+export type SettingsParseResult = { ok: true; update: SettingsUpdate } | { ok: false; errors: string[] };
 
 export const MAX_LIMIT = 1_000_000_000_000;
 export const MAX_GROUPS = 50;
@@ -148,10 +146,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 // ── Budget ───────────────────────────────────────────────────────────────────
 
 /** The budget part of a configuration: the defaults while nothing is saved. */
-export function settingsFromConfig(
-  config: AppConfig,
-  providerIds: string[] = [DEFAULT_PROVIDER_ID],
-): UsageSettings {
+export function settingsFromConfig(config: AppConfig, providerIds: string[] = [DEFAULT_PROVIDER_ID]): UsageSettings {
   const { period, weekday, monthDay, hour, minute } = config.reset;
   const providers = mergeProviderIds(providerIds, Object.keys(config.providerLimits));
   return {
@@ -214,8 +209,7 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
   return {
     period: isPeriod(doc.period) ? doc.period : defaults.period,
     // Documents saved before this switch existed lack the field: they get the default (off).
-    useTokenLimits:
-      typeof doc.useTokenLimits === "boolean" ? doc.useTokenLimits : defaults.useTokenLimits,
+    useTokenLimits: typeof doc.useTokenLimits === "boolean" ? doc.useTokenLimits : defaults.useTokenLimits,
     limits,
     reset: {
       weekday: isIntegerIn(reset.weekday, 0, 6) ? reset.weekday : defaults.reset.weekday,
@@ -244,10 +238,7 @@ export function resolveConfig(
   rawSettings: string | null,
   providerIds: string[] = [DEFAULT_PROVIDER_ID],
 ): AppConfig {
-  return applySettings(
-    config,
-    parseStoredSettings(rawSettings, settingsFromConfig(config, providerIds)),
-  );
+  return applySettings(config, parseStoredSettings(rawSettings, settingsFromConfig(config, providerIds)));
 }
 
 /** Provider ids retained in a v2 settings document, even while they have no stored reports. */
@@ -257,10 +248,12 @@ export function storedProviderIds(raw: string | null): string[] {
     const document = asRecord(JSON.parse(raw));
     const limits = asRecord(document?.limits);
     if (limits) {
-      return Object.keys(limits).slice(0, MAX_PROVIDERS).flatMap((key) => {
-        const id = normalizeProviderId(key);
-        return id ? [id] : [];
-      });
+      return Object.keys(limits)
+        .slice(0, MAX_PROVIDERS)
+        .flatMap((key) => {
+          const id = normalizeProviderId(key);
+          return id ? [id] : [];
+        });
     }
     return isIntegerIn(document?.limit, 1, MAX_LIMIT) ? [DEFAULT_PROVIDER_ID] : [];
   } catch {
@@ -291,11 +284,7 @@ export function visibleProviderIds(config: AppConfig, providerIds: string[]): st
 }
 
 /** Whether a group's reports of a provider count on that provider's dashboard. */
-export function countsForProvider(
-  exclusions: Record<string, string[]>,
-  groupId: string,
-  providerId: string,
-): boolean {
+export function countsForProvider(exclusions: Record<string, string[]>, groupId: string, providerId: string): boolean {
   // Group ids such as "constructor" are valid: only own keys are exclusions.
   return !(Object.hasOwn(exclusions, groupId) && exclusions[groupId]!.includes(providerId));
 }
@@ -401,7 +390,8 @@ function parseSubLimit(input: unknown, field: string, errors?: string[]): SubLim
     problems.push(`${field}.mode must be "separate" or "share"`);
   }
   if (!isIntegerIn(entry.sharePercent, 1, 100)) problems.push(`${field}.sharePercent must be an integer from 1 to 100`);
-  if (!isIntegerIn(entry.limit, 1, MAX_LIMIT)) problems.push(`${field}.limit must be an integer between 1 and ${MAX_LIMIT}`);
+  if (!isIntegerIn(entry.limit, 1, MAX_LIMIT))
+    problems.push(`${field}.limit must be an integer between 1 and ${MAX_LIMIT}`);
 
   if (problems.length > 0) {
     errors?.push(...problems);
@@ -627,10 +617,7 @@ function byFirstAppearance(a: IndexedGroup, b: IndexedGroup): number {
  * (pre-colour entries, and `unindexedIds` that only occur in reports) take the
  * free presets in order of first appearance, so their colour never depends on rank.
  */
-export function resolveGroupColors(
-  groups: IndexedGroup[],
-  unindexedIds: string[] = [],
-): Map<string, string> {
+export function resolveGroupColors(groups: IndexedGroup[], unindexedIds: string[] = []): Map<string, string> {
   const colors = new Map<string, string>();
   for (const group of groups) {
     if (group.color) colors.set(group.groupId, group.color);

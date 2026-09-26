@@ -1,7 +1,8 @@
+import { useLocale, useTranslations } from "next-intl";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatLimitShare, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
-import { useTranslations, useLocale } from "next-intl";
+
 type Group = DashboardModel["groups"][number];
 
 /** `color` is the group's "#rrggbb": it comes from the settings, so it cannot be a Tailwind class. */
@@ -28,7 +29,7 @@ export function CalibratedNote({ view }: { view: DashboardView }) {
 
 /** Part-to-whole bar: 100% is this cycle's usage. The table below is its accessible twin. */
 function ShareBar({ groups }: { groups: Group[] }) {
-    const locale = useLocale();
+  const locale = useLocale();
   const t = useTranslations("Widgets");
   const visible = groups.filter((group) => group.share > 0);
 
@@ -37,15 +38,12 @@ function ShareBar({ groups }: { groups: Group[] }) {
       {visible.map((group, index) => {
         const isFirst = index === 0;
         const isLast = index === visible.length - 1;
-        const tipAlign = isFirst
-          ? "left-0"
-          : isLast
-            ? "right-0"
-            : "left-1/2 -translate-x-1/2";
+        const tipAlign = isFirst ? "left-0" : isLast ? "right-0" : "left-1/2 -translate-x-1/2";
         return (
           <div
             key={group.groupId}
             role="img"
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: focusable so keyboard users reach each segment's tooltip
             tabIndex={0}
             aria-label={`${group.groupId}: ${formatTokens(group.tokens, locale)} token, ${formatPercent(group.share, locale)}`}
             className={`group/segment relative h-full min-w-1 transition-[filter] hover:brightness-125 focus-visible:brightness-125 ${isLast ? "rounded-r-[4px]" : ""}`}
@@ -68,7 +66,7 @@ function ShareBar({ groups }: { groups: Group[] }) {
 }
 
 export function GroupBreakdown({ model, view }: { model: DashboardModel; view: DashboardView }) {
-    const locale = useLocale();
+  const locale = useLocale();
   const t = useTranslations("Widgets");
   // The split itself always comes from the machines: without measurements there is nothing to show.
   const hasUsage = model.total > 0;
@@ -114,7 +112,9 @@ export function GroupBreakdown({ model, view }: { model: DashboardModel; view: D
                     <span className="flex items-center gap-2.5">
                       <Swatch color={group.color} />
                       <span className="wrap-anywhere">{group.groupId}</span>
-                      <span className="hidden shrink-0 text-sm text-ink-3 sm:inline">{t("machines_count", { count: group.machines })}</span>
+                      <span className="hidden shrink-0 text-sm text-ink-3 sm:inline">
+                        {t("machines_count", { count: group.machines })}
+                      </span>
                     </span>
                     {/* Narrow screens have no room for a fourth column: the share moves under the name. */}
                     <span className="mt-0.5 block pl-5 text-sm text-ink-3 sm:hidden">
@@ -134,9 +134,7 @@ export function GroupBreakdown({ model, view }: { model: DashboardModel; view: D
           </table>
         </>
       ) : (
-        <p className="mt-4 max-w-xl text-ink-2">
-          {t("no_usage_yet")}
-        </p>
+        <p className="mt-4 max-w-xl text-ink-2">{t("no_usage_yet")}</p>
       )}
     </section>
   );

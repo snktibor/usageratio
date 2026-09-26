@@ -1,4 +1,7 @@
 import { Redis } from "@upstash/redis";
+import { currentTime } from "@/lib/clock";
+import { isDemoMode } from "@/lib/demo/mode";
+import { createMemoryRedis, type MemoryStore } from "@/lib/redis-memory";
 
 /** The Redis connection env vars are missing (store not connected to the project yet). */
 export class StorageNotConfiguredError extends Error {
@@ -11,7 +14,26 @@ export class StorageNotConfiguredError extends Error {
   }
 }
 
-let client: Redis | null = null;
+interface StoreState {
+  client: Redis | null;
+  /** The handle of the memory store behind `client`, when that is what it is. */
+  memoryStore: MemoryStore | null;
+}
+
+// On globalThis, not in this module: Next bundles instrumentation.ts and the
+// routes separately, and `next dev` re-evaluates modules on every edit. One
+// process must have one store, or demo mode would seed a copy nobody reads.
+const globalState = globalThis as typeof globalThis & { __usageratioStore?: StoreState };
+const state: StoreState = (globalState.__usageratioStore ??= { client: null, memoryStore: null });
+
+/**
+ * Where the data lives: Upstash over REST, or the in-memory store of demo
+ * mode and of `USAGE_STORE=memory` (a Docker-free development setup that
+ * forgets everything on restart).
+ */
+export function storageKind(): "memory" | "redis" {
+  return process.env.USAGE_STORE === "memory" || isDemoMode() ? "memory" : "redis";
+}
 
 /**
  * Lazily created so that `next build` works before the store is connected.
@@ -19,13 +41,20 @@ let client: Redis | null = null;
  * injects KV_REST_API_*, a store created on upstash.com uses UPSTASH_REDIS_REST_*.
  */
 export function getRedis(): Redis {
-  if (client) return client;
+  if (state.client) return state.client;
+
+  if (storageKind() === "memory") {
+    const memory = createMemoryRedis({ now: () => currentTime().getTime() });
+    state.client = memory.redis;
+    state.memoryStore = memory.store;
+    return state.client;
+  }
 
   const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) throw new StorageNotConfiguredError();
 
-  client = new Redis({
+  state.client = new Redis({
     url,
     token,
     // Values are (de)serialized explicitly in usage-store.ts, so ids such as
@@ -34,7 +63,31 @@ export function getRedis(): Redis {
     enableTelemetry: false,
     retry: { retries: 3, backoff: (attempt) => Math.exp(attempt) * 50 },
   });
-  return client;
+  return state.client;
+}
+
+function assertTestRun(): void {
+  if (!process.env.VITEST) throw new Error("The Redis client can only be swapped out under Vitest.");
+}
+
+/** Points the application at `next` (a memory client, typically), with its store handle when it has one. */
+export function setRedisClientForTests(next: Redis | null, store: MemoryStore | null = null): void {
+  assertTestRun();
+  state.client = next;
+  state.memoryStore = store;
+}
+
+/** Forgets the current client: the next `getRedis()` creates a fresh one from the environment. */
+export function resetRedisClientForTests(): void {
+  assertTestRun();
+  state.client = null;
+  state.memoryStore = null;
+}
+
+/** The store handle behind the current memory client (clock, injected failures, dumps); null when not memory. */
+export function getMemoryStoreForTests(): MemoryStore | null {
+  assertTestRun();
+  return state.memoryStore;
 }
 
 /**

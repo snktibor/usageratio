@@ -53,9 +53,10 @@ export function useOfficialEntry(
   const pending = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only the figure and its time matter, not the object identity
   useEffect(() => {
     if (!pending.current) setEntry(toEntry(server));
-  }, [server?.raw, server?.enteredAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [server?.raw, server?.enteredAt]);
 
   const update = useCallback(
     (raw: string) => {
@@ -95,6 +96,7 @@ export function useSubLimitEntries(
   const ids = subLimitIds.join("\n");
   const serverKey = subLimitIds.map((id) => `${id}=${server[id]?.raw ?? ""}@${server[id]?.enteredAt ?? ""}`).join("\n");
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `ids` and `serverKey` stand in for the ever-new `server` object
   useEffect(() => {
     setEntries((current) => {
       const next = new Map(current);
@@ -114,7 +116,6 @@ export function useSubLimitEntries(
       }
       return changed ? next : current;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ids, serverKey]);
 
   const update = useCallback(

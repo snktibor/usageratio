@@ -1,24 +1,23 @@
 "use client";
 
-import { useTranslations, useLocale } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
 import { HistoryIcon, XIcon } from "@/components/icons";
 import { StatusLine } from "@/components/status-line";
 import {
-  apiTokenProblem,
-  apiTokenStatusNote,
+  type ApiTokenStatus,
   AUDIT_ACTION_LABEL,
   AUDIT_LIMIT,
-  type ApiTokenStatus,
   type AuditEntry,
+  apiTokenProblem,
+  apiTokenStatusNote,
 } from "@/lib/api-token";
 import { formatDateTime, formatTimestamp } from "@/lib/format";
 
 /** How long "Igen" stays disabled after the confirmation opens. */
 const CONFIRM_DELAY_SECONDS = 5;
 
-const FIELD =
-  "rounded-md border border-rule bg-page px-3 py-2 text-ink placeholder:text-ink-3 disabled:opacity-50";
+const FIELD = "rounded-md border border-rule bg-page px-3 py-2 text-ink placeholder:text-ink-3 disabled:opacity-50";
 const QUIET_BUTTON =
   "rounded-md border border-rule px-3 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink disabled:pointer-events-none disabled:opacity-40";
 const PRIMARY_BUTTON =
@@ -74,7 +73,13 @@ function ConfirmReplaceDialog({ onCancel, onConfirm }: { onCancel: () => void; o
         {t("confirm_replace_body", { seconds: CONFIRM_DELAY_SECONDS })}
       </p>
       <div className="mt-6 flex justify-end gap-3">
-        <button type="button" autoFocus onClick={() => dialogRef.current?.close()} className={QUIET_BUTTON}>
+        <button
+          type="button"
+          // biome-ignore lint/a11y/noAutofocus: the safe choice takes focus when the confirmation opens
+          autoFocus
+          onClick={() => dialogRef.current?.close()}
+          className={QUIET_BUTTON}
+        >
           {t("cancel")}
         </button>
         <button
@@ -150,6 +155,8 @@ function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => v
       </p>
 
       <div
+        role="region"
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must be focusable so keyboard users can scroll it
         tabIndex={0}
         aria-label={t("audit_entries_aria")}
         className="code-scroll mx-6 mb-6 mt-4 min-h-24 grow overflow-y-auto overscroll-contain rounded-lg border border-hairline"
@@ -163,11 +170,16 @@ function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => v
         ) : load.entries.length === 0 ? (
           <p className="px-4 py-4 text-sm text-ink-3">{t("audit_no_entries")}</p>
         ) : (
+          // biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics once list-style is none
           <ol role="list" className="divide-y divide-hairline">
             {load.entries.map((entry, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: a fixed newest-first snapshot; two entries can share `at`
               <li key={`${entry.at}-${index}`} className="px-3.5 py-3 sm:px-4">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                  <time dateTime={new Date(entry.at).toISOString()} className="text-sm tabular-nums text-ink sm:text-base">
+                  <time
+                    dateTime={new Date(entry.at).toISOString()}
+                    className="text-sm tabular-nums text-ink sm:text-base"
+                  >
                     {formatTimestamp(entry.at, timeZone, locale)}
                   </time>
                   <span
@@ -217,7 +229,7 @@ export function ApiTokenSettings({
   onChange: (value: string) => void;
   timeZone: string;
 }) {
-    const locale = useLocale();
+  const locale = useLocale();
   const t = useTranslations("Settings");
   const [load, setLoad] = useState<Load>({ phase: "loading" });
   const [problem, setProblem] = useState<string | null>(null);

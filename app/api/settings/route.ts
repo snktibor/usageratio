@@ -1,13 +1,9 @@
 import { isAuthenticated } from "@/lib/auth";
 import { getConfig } from "@/lib/config";
-import { isForeignOrigin, json, storageFailure as failure } from "@/lib/http";
+import { demoReadOnly } from "@/lib/demo/mode";
+import { storageFailure as failure, isForeignOrigin, json } from "@/lib/http";
 import { mergeProviderIds } from "@/lib/providers";
-import {
-  buildSettingsView,
-  parseSettingsUpdate,
-  resolveConfig,
-  storedProviderIds,
-} from "@/lib/settings";
+import { buildSettingsView, parseSettingsUpdate, resolveConfig, storedProviderIds } from "@/lib/settings";
 import { loadGroupActivity, loadIndexes, saveSettings } from "@/lib/usage-store";
 
 /**
@@ -52,11 +48,7 @@ export async function GET(): Promise<Response> {
     const config = resolveConfig(getConfig(), indexes.settings, providerIds);
     return json(
       {
-        ...buildSettingsView(
-          config,
-          await loadGroupActivity(indexes.groups, providerIds),
-          providerIds,
-        ),
+        ...buildSettingsView(config, await loadGroupActivity(indexes.groups, providerIds), providerIds),
       },
       200,
     );
@@ -67,6 +59,8 @@ export async function GET(): Promise<Response> {
 
 export async function PUT(request: Request): Promise<Response> {
   if (isForeignOrigin(request)) return json({ error: "forbidden_origin" }, 403);
+  const readOnly = demoReadOnly();
+  if (readOnly) return readOnly;
 
   try {
     if (!(await isAuthenticated())) return json({ error: "unauthorized" }, 401);

@@ -17,6 +17,15 @@ i18n/locales.generated.ts
 # vercel
 .vercel
 
+# test and coverage output
+/.vitest/
+/coverage/
+/playwright-report/
+/test-results/
+
+# local tooling
+.impeccable/
+
 # misc
 .DS_Store
 *.pem

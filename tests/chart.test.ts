@@ -16,7 +16,11 @@ describe("niceScale", () => {
   });
 
   it("scales token counts", () => {
-    expect(niceScale(1_234_567, 1_000)).toEqual({ max: 1_500_000, step: 500_000, ticks: [0, 500_000, 1_000_000, 1_500_000] });
+    expect(niceScale(1_234_567, 1_000)).toEqual({
+      max: 1_500_000,
+      step: 500_000,
+      ticks: [0, 500_000, 1_000_000, 1_500_000],
+    });
   });
 });
 

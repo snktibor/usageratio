@@ -1,19 +1,19 @@
 import { summarizeUsage, type UsageEvent } from "@/lib/aggregate";
 import type { AppConfig, BudgetPeriod, TokenMode } from "@/lib/config";
 import { getCycle, getDaySegments, getPreviousCycle } from "@/lib/cycle";
-import { officialUsageField, type OfficialEntryView } from "@/lib/official-usage";
-import { assessQuota, type QuotaAssessment } from "@/lib/quota";
+import { type OfficialEntryView, officialUsageField } from "@/lib/official-usage";
 import { providerLabel } from "@/lib/providers";
+import { assessQuota, type QuotaAssessment } from "@/lib/quota";
 import {
   configForProvider,
   countsForProvider,
+  type KnownGroup,
   NEUTRAL_COLOR,
   resolveGroupColors,
   subLimitsOf,
   visibleProviderIds,
-  type KnownGroup,
 } from "@/lib/settings";
-import { measureSubLimits, splitBySubLimits, type SubLimit, type SubLimitModel } from "@/lib/sub-limits";
+import { measureSubLimits, type SubLimit, type SubLimitModel, splitBySubLimits } from "@/lib/sub-limits";
 import { buildTimeline, type CycleTimeline } from "@/lib/timeline";
 
 /** The most recent report of a machine, kept even when it is silent this cycle. */
@@ -264,9 +264,7 @@ export function buildProviderDashboards(
           events: (store.eventsByProvider[providerId] ?? []).filter((event) => counts(event.groupId)),
           // All of them: a group's colour must not depend on which provider is selected.
           groups: store.groups,
-          machines: store.machines.filter(
-            (machine) => machine.providerId === providerId && counts(machine.groupId),
-          ),
+          machines: store.machines.filter((machine) => machine.providerId === providerId && counts(machine.groupId)),
         },
         subLimits,
       ),

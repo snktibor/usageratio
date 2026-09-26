@@ -7,8 +7,7 @@ export default function ErrorPage({ reset }: { error: Error & { digest?: string 
       <div className="mt-[18vh] max-w-xl">
         <h1 className="text-4xl font-semibold tracking-tight">Az oldal nem tudott betölteni</h1>
         <p className="mt-4 text-ink-2">
-          Váratlan hiba történt a megjelenítés közben. A részletek a Vercel-projekt futásidejű naplójában
-          vannak.
+          Váratlan hiba történt a megjelenítés közben. A részletek a Vercel-projekt futásidejű naplójában vannak.
         </p>
         <button
           type="button"
