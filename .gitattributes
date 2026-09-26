@@ -1,0 +1,14 @@
+# Normalise line endings: everything is LF in the repository, including the
+# PowerShell/cmd clients (the setup ZIP converts them for Windows at build time).
+* text=auto eol=lf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+*.zip binary

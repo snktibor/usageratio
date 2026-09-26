@@ -264,9 +264,7 @@ export function buildProviderDashboards(
           events: (store.eventsByProvider[providerId] ?? []).filter((event) => counts(event.groupId)),
           // All of them: a group's colour must not depend on which provider is selected.
           groups: store.groups,
-          machines: store.machines.filter(
-            (machine) => machine.providerId === providerId && counts(machine.groupId),
-          ),
+          machines: store.machines.filter((machine) => machine.providerId === providerId && counts(machine.groupId)),
         },
         subLimits,
       ),

@@ -137,9 +137,7 @@ const warned = new Set<string>();
 function warnOnce(name: string, value: string, fallback: unknown): void {
   if (warned.has(name)) return;
   warned.add(name);
-  console.warn(
-    `[usageratio] Ignoring invalid ${name}=${JSON.stringify(value)}; using ${JSON.stringify(fallback)}.`,
-  );
+  console.warn(`[usageratio] Ignoring invalid ${name}=${JSON.stringify(value)}; using ${JSON.stringify(fallback)}.`);
 }
 
 /**
@@ -147,9 +145,7 @@ function warnOnce(name: string, value: string, fallback: unknown): void {
  * env vars. The budget fields are defaults; `resolveConfig` in lib/settings.ts
  * lays the settings saved on the dashboard over them.
  */
-export function getConfig(
-  env: Record<string, string | undefined> = process.env,
-): AppConfig {
+export function getConfig(env: Record<string, string | undefined> = process.env): AppConfig {
   let limit = DEFAULT_LIMIT;
   const rawLimit = env.WEEKLY_LIMIT?.trim();
   if (rawLimit) {

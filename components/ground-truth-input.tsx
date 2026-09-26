@@ -23,34 +23,33 @@ interface GroundTruthInputProps {
   children?: React.ReactNode;
 }
 
-function hint({ invalid, enteredAt, view, timeZone, providerLabel }: GroundTruthInputProps, t: any, locale: string): string {
+function hint(
+  { invalid, enteredAt, view, timeZone, providerLabel }: GroundTruthInputProps,
+  t: any,
+  locale: string,
+): string {
   if (invalid) return t("number_between_0_100");
   if (!view.calibrated) {
     if (!view.inTokens) {
-      return (
-        t("enter_official_no_token", { label: providerLabel })
-      );
+      return t("enter_official_no_token", { label: providerLabel });
     }
-    return (
-      t("enter_official_with_token", { label: providerLabel })
-    );
+    return t("enter_official_with_token", { label: providerLabel });
   }
 
   const entered = enteredAt === null ? "" : t("entered_at", { time: formatDateTime(enteredAt, timeZone, locale) });
   if (view.measured.total === 0) {
-    return (
-      t("no_consumption_yet", { entered })
-    );
+    return t("no_consumption_yet", { entered });
   }
   // Without a token limit there is neither a measured share of the limit nor a factor to state.
   if (view.scale === null || view.measured.usedFraction === null) {
-    return (
-      t("measured_ratio_only", { tokens: formatTokens(view.measured.total, locale), entered })
-    );
+    return t("measured_ratio_only", { tokens: formatTokens(view.measured.total, locale), entered });
   }
-  return (
-    t("measured_and_scaled", { tokens: formatTokens(view.measured.total, locale), fraction: formatPercent(view.measured.usedFraction, locale), factor: formatFactor(view.scale, locale), entered })
-  );
+  return t("measured_and_scaled", {
+    tokens: formatTokens(view.measured.total, locale),
+    fraction: formatPercent(view.measured.usedFraction, locale),
+    factor: formatFactor(view.scale, locale),
+    entered,
+  });
 }
 
 /**
@@ -58,7 +57,7 @@ function hint({ invalid, enteredAt, view, timeZone, providerLabel }: GroundTruth
  * purpose: while it is filled in, every figure below is restated by it.
  */
 export function GroundTruthInput(props: GroundTruthInputProps) {
-    const locale = useLocale();
+  const locale = useLocale();
   const t = useTranslations("Widgets");
   const { raw, onChange, invalid, view, providerId, providerLabel, providers, onProviderChange } = props;
   const fieldId = useId();
@@ -114,7 +113,10 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
               aria-describedby={hintId}
               className="block w-28 rounded-md border border-rule bg-page py-2 pl-3.5 pr-9 text-2xl font-medium tabular-nums text-ink placeholder:text-ink-3"
             />
-            <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-lg text-ink-3">
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-lg text-ink-3"
+            >
               %
             </span>
           </span>

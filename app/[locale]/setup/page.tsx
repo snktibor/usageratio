@@ -58,8 +58,7 @@ export default async function SetupPage({
   return (
     <SetupView
       initialOs={
-        parseOs(params.os) ??
-        detectOs(requestHeaders.get("user-agent"), requestHeaders.get("sec-ch-ua-platform"))
+        parseOs(params.os) ?? detectOs(requestHeaders.get("user-agent"), requestHeaders.get("sec-ch-ua-platform"))
       }
       initialMode={parseMode(params.mode) ?? "auto"}
       initialRoute={parseRoute(params.route) ?? "zip"}

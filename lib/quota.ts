@@ -56,16 +56,11 @@ export function assessQuota(total: number, limit: number, window: QuotaWindow): 
 
   // Before a projection exists, only a blatant start is flagged: more than
   // twice a day's even share gone while the first day is not even over.
-  const earlyBurn =
-    projectedTotal === null && total < limit && total / limit >= EARLY_BURN_FACTOR * dailyShare;
+  const earlyBurn = projectedTotal === null && total < limit && total / limit >= EARLY_BURN_FACTOR * dailyShare;
 
   let status: QuotaStatus = "good";
   if (total >= limit) status = "critical";
-  else if (
-    earlyBurn ||
-    total / limit >= WARNING_FRACTION ||
-    (projectedTotal !== null && projectedTotal > limit)
-  ) {
+  else if (earlyBurn || total / limit >= WARNING_FRACTION || (projectedTotal !== null && projectedTotal > limit)) {
     status = "warning";
   }
 

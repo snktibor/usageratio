@@ -49,11 +49,7 @@ describe("getDayStart and getDayEnd", () => {
 
 describe("reportCheckpoints", () => {
   const days: DayUsage[] = [
-    day(
-      "2026-09-19",
-      { claude: 200 },
-      { models: { claude: { "claude-opus-5": 150, "claude-sonnet-5": 50 } } },
-    ),
+    day("2026-09-19", { claude: 200 }, { models: { claude: { "claude-opus-5": 150, "claude-sonnet-5": 50 } } }),
     // A day without usage of its own has no row at all.
     day("2026-09-21", { claude: 500, openai: 40 }, { models: { claude: { "claude-opus-5": 500 } } }),
     day("2026-09-22", { claude: 400 }),
@@ -82,7 +78,12 @@ describe("reportCheckpoints", () => {
     // A report made right at midnight already closes the day before it: for both providers.
     const closed = reportCheckpoints(report("2026-09-22T22:00:00Z", days), ZONE, CYCLE_START);
     expect(closed.filter((checkpoint) => checkpoint.ts === Date.parse("2026-09-22T22:00:00Z"))).toEqual([
-      { providerId: "claude", ts: Date.parse("2026-09-22T22:00:00Z"), tokens: 1_100, models: { "claude-opus-5": 650, "claude-sonnet-5": 50 } },
+      {
+        providerId: "claude",
+        ts: Date.parse("2026-09-22T22:00:00Z"),
+        tokens: 1_100,
+        models: { "claude-opus-5": 650, "claude-sonnet-5": 50 },
+      },
       { providerId: "openai", ts: Date.parse("2026-09-22T22:00:00Z"), tokens: 40 },
     ]);
   });
@@ -94,7 +95,9 @@ describe("reportCheckpoints", () => {
         { claude: 60, openai: 5 },
         {
           models: { claude: { "claude-opus-5": 60 } },
-          hours: { claude: hours(["2026-09-19T11:00:00Z", 10], ["2026-09-19T15:00:00Z", 30], ["2026-09-19T21:00:00Z", 20]) },
+          hours: {
+            claude: hours(["2026-09-19T11:00:00Z", 10], ["2026-09-19T15:00:00Z", 30], ["2026-09-19T21:00:00Z", 20]),
+          },
         },
       ),
       // Today: the 09:00 hour is still in progress at the report's time.

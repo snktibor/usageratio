@@ -34,16 +34,27 @@ interface RowProps {
 }
 
 function modeNote(sub: SubLimitModel, t: ReturnType<typeof useTranslations>, locale: string): string {
-  return sub.shareCap === null ? t("separate_quota") : t("max_share_of_quota", { share: formatPercent(sub.shareCap, locale) });
+  return sub.shareCap === null
+    ? t("separate_quota")
+    : t("max_share_of_quota", { share: formatPercent(sub.shareCap, locale) });
 }
 
 /** Where the figure comes from, and what it means for the provider's whole budget. */
-function sourceNote(subView: SubLimitView, providerLabel: string, t: ReturnType<typeof useTranslations>, locale: string): string {
+function sourceNote(
+  subView: SubLimitView,
+  providerLabel: string,
+  t: ReturnType<typeof useTranslations>,
+  locale: string,
+): string {
   const { sub, source, ofProvider } = subView;
   const measured = t("machines_measured", { tokens: formatTokens(sub.total, locale) });
   const ofWhole =
     ofProvider !== null && sub.shareCap !== null
-      ? t("of_provider_with_cap", { label: providerLabel, ofWhole: formatPercent(ofProvider, locale), cap: formatPercent(sub.shareCap, locale) })
+      ? t("of_provider_with_cap", {
+          label: providerLabel,
+          ofWhole: formatPercent(ofProvider, locale),
+          cap: formatPercent(sub.shareCap, locale),
+        })
       : "";
   if (source === "official") return t("official_value_period", { ofWhole });
   if (source === "provider") {
@@ -56,11 +67,18 @@ function sourceNote(subView: SubLimitView, providerLabel: string, t: ReturnType<
     : t("by_machine_measurement", { ofWhole, measured });
 }
 
-function paceNote(subView: SubLimitView, model: DashboardModel, t: ReturnType<typeof useTranslations>, locale: string): string {
+function paceNote(
+  subView: SubLimitView,
+  model: DashboardModel,
+  t: ReturnType<typeof useTranslations>,
+  locale: string,
+): string {
   const quota = subView.quota!;
   if (quota.total >= 1 || quota.total === 0 || quota.pace.earlyBurn) return "";
   if (quota.pace.runOutAt !== null) {
-    return t("runs_out_around", { moment: formatCycleMoment(quota.pace.runOutAt, model.period, model.timeZone, locale) });
+    return t("runs_out_around", {
+      moment: formatCycleMoment(quota.pace.runOutAt, model.period, model.timeZone, locale),
+    });
   }
   if (quota.pace.projectedTotal !== null) {
     return t("projected_reset", { projected: formatPercent(quota.pace.projectedTotal, locale) });
@@ -69,7 +87,12 @@ function paceNote(subView: SubLimitView, model: DashboardModel, t: ReturnType<ty
 }
 
 /** Its own reading and the provider's disagree past the tolerance: which is likely mistyped. */
-function mismatchNote(subView: SubLimitView, providerLabel: string, t: ReturnType<typeof useTranslations>, locale: string): string {
+function mismatchNote(
+  subView: SubLimitView,
+  providerLabel: string,
+  t: ReturnType<typeof useTranslations>,
+  locale: string,
+): string {
   return t("sublimit_mismatch", {
     name: subView.sub.name,
     share: formatPercent(subView.ofProvider!, locale),
@@ -79,7 +102,12 @@ function mismatchNote(subView: SubLimitView, providerLabel: string, t: ReturnTyp
 }
 
 /** Nothing tells how far it is yet: what would. */
-function unknownNote(subView: SubLimitView, providerLabel: string, t: ReturnType<typeof useTranslations>, locale: string): string {
+function unknownNote(
+  subView: SubLimitView,
+  providerLabel: string,
+  t: ReturnType<typeof useTranslations>,
+  locale: string,
+): string {
   const { sub } = subView;
   if (!sub.hasSplit) {
     return t("no_model_breakdown_sublimit", { name: sub.name });
@@ -95,7 +123,7 @@ function unknownNote(subView: SubLimitView, providerLabel: string, t: ReturnType
  * its own entry, and a line on how it stands.
  */
 function SubLimitRow({ model, state, onChange: setEntry, providerLabel }: RowProps) {
-    const locale = useLocale();
+  const locale = useLocale();
   const t = useTranslations("Widgets");
   const { entry, invalid, view: subView } = state;
   const { sub } = subView;
@@ -133,7 +161,10 @@ function SubLimitRow({ model, state, onChange: setEntry, providerLabel }: RowPro
               aria-describedby={hintId}
               className="block w-24 rounded-md border border-rule bg-page py-1.5 pl-3 pr-8 text-lg font-medium tabular-nums text-ink placeholder:text-ink-3"
             />
-            <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-ink-3">
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-ink-3"
+            >
               %
             </span>
           </span>
@@ -201,7 +232,7 @@ export function SubLimitMeters({
   onChange: (subLimitId: string, raw: string) => void;
   providerLabel: string;
 }) {
-    const locale = useLocale();
+  const locale = useLocale();
   const t = useTranslations("Widgets");
   if (subLimits.length === 0) return null;
   const hasSeparate = model.subLimits.some((sub) => sub.shareCap === null);

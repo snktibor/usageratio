@@ -185,7 +185,9 @@ describe("stored settings", () => {
     expect(stored.hiddenProviders).toEqual(["openai", "gemini"]);
     expect(stored.excludedProviders).toEqual({ Work: ["claude"], constructor: ["deepseek"] });
     for (const value of [null, "openai", { openai: true }]) {
-      expect(parseStoredSettings(JSON.stringify({ ...MONTHLY, hiddenProviders: value }), DEFAULTS).hiddenProviders).toEqual([]);
+      expect(
+        parseStoredSettings(JSON.stringify({ ...MONTHLY, hiddenProviders: value }), DEFAULTS).hiddenProviders,
+      ).toEqual([]);
     }
     expect(
       parseStoredSettings(JSON.stringify({ ...MONTHLY, excludedProviders: ["Work"] }), DEFAULTS).excludedProviders,
@@ -236,7 +238,14 @@ describe("parseSettingsUpdate", () => {
     subLimits: {
       Claude: [
         { id: "fable", name: " Fable ", models: ["Fable"], mode: "separate", sharePercent: 50, limit: 400_000 },
-        { id: "opus", name: "Opus", models: ["opus-5", "OPUS-4", "opus-5"], mode: "share", sharePercent: 30, limit: 2_000_000 },
+        {
+          id: "opus",
+          name: "Opus",
+          models: ["opus-5", "OPUS-4", "opus-5"],
+          mode: "share",
+          sharePercent: 30,
+          limit: 2_000_000,
+        },
       ],
       deepseek: [],
     },
@@ -301,26 +310,53 @@ describe("parseSettingsUpdate", () => {
     ["the switch given as a number", { ...valid, showRemaining: 0 }],
     ["hidden providers that are not a list", { ...valid, hiddenProviders: "openai" }],
     ["a hidden provider that is no id", { ...valid, hiddenProviders: ["bad/provider"] }],
-    ["too many hidden providers", { ...valid, hiddenProviders: Array.from({ length: MAX_PROVIDERS + 1 }, (_, i) => `p${i}`) }],
+    [
+      "too many hidden providers",
+      { ...valid, hiddenProviders: Array.from({ length: MAX_PROVIDERS + 1 }, (_, i) => `p${i}`) },
+    ],
     ["exclusions that are a list", { ...valid, excludedProviders: [["Work", "claude"]] }],
     ["exclusions of a group that is no id", { ...valid, excludedProviders: { "a/b": ["claude"] } }],
     ["exclusions that are not a list", { ...valid, excludedProviders: { Work: "claude" } }],
     ["an excluded provider that is no id", { ...valid, excludedProviders: { Work: ["bad/provider"] } }],
-    ["a group excluded twice after trimming", { ...valid, excludedProviders: { Work: ["claude"], " Work": ["deepseek"] } }],
+    [
+      "a group excluded twice after trimming",
+      { ...valid, excludedProviders: { Work: ["claude"], " Work": ["deepseek"] } },
+    ],
     ["sub-limits that are a list", { ...valid, subLimits: [] }],
     ["sub-limits of an invalid provider", { ...valid, subLimits: { "bad/provider": [] } }],
     ["a provider's sub-limits that are no list", { ...valid, subLimits: { claude: {} } }],
-    ["too many sub-limits", { ...valid, subLimits: { claude: Array.from({ length: 6 }, (_, i) => ({ ...valid.subLimits.Claude[0], id: `s${i}` })) } }],
-    ["a sub-limit id with capitals", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], id: "Fable" }] } }],
-    ["the same sub-limit id twice", { ...valid, subLimits: { claude: [valid.subLimits.Claude[0], valid.subLimits.Claude[0]] } }],
+    [
+      "too many sub-limits",
+      {
+        ...valid,
+        subLimits: { claude: Array.from({ length: 6 }, (_, i) => ({ ...valid.subLimits.Claude[0], id: `s${i}` })) },
+      },
+    ],
+    [
+      "a sub-limit id with capitals",
+      { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], id: "Fable" }] } },
+    ],
+    [
+      "the same sub-limit id twice",
+      { ...valid, subLimits: { claude: [valid.subLimits.Claude[0], valid.subLimits.Claude[0]] } },
+    ],
     ["an empty sub-limit name", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], name: "  " }] } }],
-    ["a sub-limit name that is too long", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], name: "x".repeat(41) }] } }],
+    [
+      "a sub-limit name that is too long",
+      { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], name: "x".repeat(41) }] } },
+    ],
     ["a sub-limit without models", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], models: [] }] } }],
-    ["a model part with a slash", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], models: ["a/b"] }] } }],
+    [
+      "a model part with a slash",
+      { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], models: ["a/b"] }] } },
+    ],
     ["an unknown sub-limit mode", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], mode: "own" }] } }],
     ["a share above 100%", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], sharePercent: 101 }] } }],
     ["a fractional share", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], sharePercent: 12.5 }] } }],
-    ["a sub-limit without a token limit", { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], limit: undefined }] } }],
+    [
+      "a sub-limit without a token limit",
+      { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], limit: undefined }] } },
+    ],
     ["groups that are not a list", { ...valid, groups: { Work: "#3987e5" } }],
     ["a group id with a slash", { ...valid, groups: [{ id: "a/b", color: "#3987e5" }] }],
     ["an empty group id", { ...valid, groups: [{ id: "  ", color: "#3987e5" }] }],

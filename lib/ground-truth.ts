@@ -66,10 +66,7 @@ function readingTime(model: DashboardModel, reading: OfficialReading): number {
   return Math.min(model.generatedAt, Math.max(model.cycle.startMs, reading.atMs ?? model.generatedAt));
 }
 
-export function applyGroundTruth(
-  model: DashboardModel,
-  reading: OfficialReading | null,
-): DashboardView {
+export function applyGroundTruth(model: DashboardModel, reading: OfficialReading | null): DashboardView {
   const inTokens = model.quota !== null;
   const measured = { total: model.total, usedFraction: model.quota?.usedFraction ?? null };
 
@@ -172,7 +169,9 @@ export function applySubLimitReading(
     // A "share" sub-limit's tokens are among the provider's: its own reading can never
     // honestly claim more of the whole than the provider's own reading admits.
     const mismatched =
-      ofProvider !== null && providerUsedFraction !== null && ofProvider - providerUsedFraction > SUB_LIMIT_MISMATCH_THRESHOLD;
+      ofProvider !== null &&
+      providerUsedFraction !== null &&
+      ofProvider - providerUsedFraction > SUB_LIMIT_MISMATCH_THRESHOLD;
     return {
       sub,
       source: "official",
@@ -183,7 +182,8 @@ export function applySubLimitReading(
     };
   }
   // Without a split by model the machines cannot tell its part: better unknown than a false 0%.
-  if (!sub.hasSplit) return { sub, source: null, quota: null, ofProvider: null, providerUsedFraction, mismatched: false };
+  if (!sub.hasSplit)
+    return { sub, source: null, quota: null, ofProvider: null, providerUsedFraction, mismatched: false };
 
   if (sub.shareCap !== null && view.quota) {
     // Its tokens are among the provider's (`model.total`): it takes their proportion of the provider's figure.

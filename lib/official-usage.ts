@@ -61,7 +61,8 @@ export function currentOfficialEntries(
   const entries = new Map<string, OfficialEntryView>();
   for (const [field, raw] of Object.entries(stored)) {
     const entry = parseStoredEntry(raw);
-    if (entry && entry.cycleStartMs === cycleStartMs) entries.set(field, { raw: entry.raw, enteredAt: entry.enteredAt });
+    if (entry && entry.cycleStartMs === cycleStartMs)
+      entries.set(field, { raw: entry.raw, enteredAt: entry.enteredAt });
   }
   return entries;
 }
@@ -74,9 +75,7 @@ export interface OfficialUsageUpdate {
   cycleStartMs: number;
 }
 
-export type OfficialUsageParseResult =
-  | { ok: true; update: OfficialUsageUpdate }
-  | { ok: false; errors: string[] };
+export type OfficialUsageParseResult = { ok: true; update: OfficialUsageUpdate } | { ok: false; errors: string[] };
 
 export function parseOfficialUsageUpdate(input: unknown): OfficialUsageParseResult {
   if (typeof input !== "object" || input === null) return { ok: false, errors: ["body must be an object"] };

@@ -23,7 +23,7 @@ function rowKey(machine: Machine): string {
 }
 
 function LastReport({ machine, model }: { machine: Machine; model: DashboardModel }) {
-    const locale = useLocale();
+  const locale = useLocale();
   const t = useTranslations("Widgets");
   const { icon: HealthIcon, iconColor } = HEALTH_ICON[machine.health];
   return (
@@ -42,7 +42,7 @@ function LastReport({ machine, model }: { machine: Machine; model: DashboardMode
 }
 
 export function MachineTable({ model, view }: { model: DashboardModel; view: DashboardView }) {
-    const locale = useLocale();
+  const locale = useLocale();
   const t = useTranslations("Widgets");
   // No token limit and no official figure: there is no limit to take a share of.
   const hasLimitShare = view.quota !== null;

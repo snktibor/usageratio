@@ -50,10 +50,7 @@ async function isHttps(): Promise<boolean> {
 }
 
 /** Fixed-window counter: bumps `key` and reports how long until its window ends. */
-async function countAttempt(
-  key: string,
-  windowSeconds: number,
-): Promise<{ count: number; retryAfterSeconds: number }> {
+async function countAttempt(key: string, windowSeconds: number): Promise<{ count: number; retryAfterSeconds: number }> {
   const redis = getRedis();
   const pipeline = redis.pipeline();
   pipeline.incr(key);

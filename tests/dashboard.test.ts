@@ -41,11 +41,7 @@ describe("buildDashboard — quota and pace", () => {
   });
 
   it("warns when the current pace would exhaust the limit before the reset", () => {
-    const model = buildDashboard(
-      NOW,
-      config,
-      snapshot({ events: [report("win-1", "Work", 250_000, 10)] }),
-    );
+    const model = buildDashboard(NOW, config, snapshot({ events: [report("win-1", "Work", 250_000, 10)] }));
     expect(model.quota?.pace.projectedTotal).toBeCloseTo(700_000, 5);
     expect(model.quota?.status).toBe("warning");
     // Half the limit took 60 h, so the whole limit lasts 120 h.
@@ -53,11 +49,7 @@ describe("buildDashboard — quota and pace", () => {
   });
 
   it("is fine when the pace fits the limit", () => {
-    const model = buildDashboard(
-      NOW,
-      config,
-      snapshot({ events: [report("win-1", "Work", 100_000, 10)] }),
-    );
+    const model = buildDashboard(NOW, config, snapshot({ events: [report("win-1", "Work", 100_000, 10)] }));
     expect(model.quota?.status).toBe("good");
     expect(model.quota?.pace.projectedTotal).toBeCloseTo(280_000, 5);
     expect(model.quota?.pace.runOutAt).toBeNull();
@@ -65,21 +57,13 @@ describe("buildDashboard — quota and pace", () => {
 
   it("warns above 80% even if the pace is fine", () => {
     const lateInCycle = new Date(CYCLE_START + 160 * HOUR);
-    const model = buildDashboard(
-      lateInCycle,
-      config,
-      snapshot({ events: [report("win-1", "Work", 410_000, 10)] }),
-    );
+    const model = buildDashboard(lateInCycle, config, snapshot({ events: [report("win-1", "Work", 410_000, 10)] }));
     expect(model.quota?.pace.projectedTotal).toBeLessThan(500_000);
     expect(model.quota?.status).toBe("warning");
   });
 
   it("is critical once the limit is used up", () => {
-    const model = buildDashboard(
-      NOW,
-      config,
-      snapshot({ events: [report("win-1", "Work", 560_000, 10)] }),
-    );
+    const model = buildDashboard(NOW, config, snapshot({ events: [report("win-1", "Work", 560_000, 10)] }));
     expect(model.quota?.status).toBe("critical");
     expect(model.quota?.remaining).toBe(0);
     expect(model.quota?.overage).toBe(60_000);
@@ -88,11 +72,7 @@ describe("buildDashboard — quota and pace", () => {
 
   it("does not extrapolate during the first day of a cycle", () => {
     const early = new Date(CYCLE_START + 5 * HOUR);
-    const model = buildDashboard(
-      early,
-      config,
-      snapshot({ events: [report("win-1", "Work", 60_000, 2)] }),
-    );
+    const model = buildDashboard(early, config, snapshot({ events: [report("win-1", "Work", 60_000, 2)] }));
     expect(model.quota?.pace.projectedTotal).toBeNull();
     expect(model.quota?.pace.earlyBurn).toBe(false);
     expect(model.quota?.status).toBe("good");
@@ -101,11 +81,7 @@ describe("buildDashboard — quota and pace", () => {
   it("still warns on the first day when usage is far beyond a day's fair share", () => {
     const early = new Date(CYCLE_START + 13 * HOUR);
     // 40% gone in 13 hours; a whole day's even share is only 1/7 ≈ 14%.
-    const model = buildDashboard(
-      early,
-      config,
-      snapshot({ events: [report("win-1", "Work", 200_000, 2)] }),
-    );
+    const model = buildDashboard(early, config, snapshot({ events: [report("win-1", "Work", 200_000, 2)] }));
     expect(model.quota?.pace.projectedTotal).toBeNull();
     expect(model.quota?.pace.earlyBurn).toBe(true);
     expect(model.quota?.pace.dailyShare).toBeCloseTo(1 / 7, 10);
@@ -113,11 +89,7 @@ describe("buildDashboard — quota and pace", () => {
   });
 
   it("stops flagging an early burn once a real projection is available", () => {
-    const model = buildDashboard(
-      NOW,
-      config,
-      snapshot({ events: [report("win-1", "Work", 200_000, 2)] }),
-    );
+    const model = buildDashboard(NOW, config, snapshot({ events: [report("win-1", "Work", 200_000, 2)] }));
     expect(model.quota?.pace.projectedTotal).not.toBeNull();
     expect(model.quota?.pace.earlyBurn).toBe(false);
   });

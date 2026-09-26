@@ -38,7 +38,7 @@ function ProviderView({
   providers: ProviderDashboardModel[];
   onProviderChange: (providerId: string) => void;
 }) {
-    const locale = useLocale();
+  const locale = useLocale();
   const t = useTranslations("Dashboard");
   const model = selected.dashboard;
   const [entry, setEntry] = useOfficialEntry(selected.id, model.cycle.startMs, selected.officialEntry);
@@ -83,12 +83,7 @@ function ProviderView({
             providers={providers.map(({ id, label }) => ({ id, label }))}
             onProviderChange={onProviderChange}
           >
-            <SubLimitMeters
-              model={model}
-              subLimits={subLimits}
-              onChange={setSubEntry}
-              providerLabel={selected.label}
-            />
+            <SubLimitMeters model={model} subLimits={subLimits} onChange={setSubEntry} providerLabel={selected.label} />
           </GroundTruthInput>
           <QuotaMeter model={model} view={view} />
           {model.machines.length > 0 && (
@@ -109,7 +104,10 @@ function ProviderView({
             </h2>
             <p className="mt-3 text-ink-2">
               {t("setup_machines_1")}
-              <Link href="/setup" className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink-3">
+              <Link
+                href="/setup"
+                className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink-3"
+              >
                 {t("setup_machines_2")}
               </Link>{" "}
               {t("setup_machines_3")}
@@ -119,7 +117,13 @@ function ProviderView({
       </main>
       <footer className="mt-16 max-w-2xl border-t border-hairline pt-6 text-sm leading-relaxed text-ink-3">
         <p>
-          {t("cycle_info", { label: selected.label, start: formatDateTime(model.cycle.startMs, model.timeZone, locale), end: formatDateTime(model.cycle.endMs, model.timeZone, locale), timeZone: model.timeZone, tokens: formatTokens(model.previousTotal, locale) })}
+          {t("cycle_info", {
+            label: selected.label,
+            start: formatDateTime(model.cycle.startMs, model.timeZone, locale),
+            end: formatDateTime(model.cycle.endMs, model.timeZone, locale),
+            timeZone: model.timeZone,
+            tokens: formatTokens(model.previousTotal, locale),
+          })}
         </p>
         <p className="mt-1">{t(MODE_NOTE[model.tokenMode])}</p>
       </footer>
@@ -150,12 +154,5 @@ export function DashboardView({ providers }: { providers: ProviderDashboardModel
   }, []);
 
   const selected = providers.find((provider) => provider.id === selectedId) ?? providers[0]!;
-  return (
-    <ProviderView
-      key={selected.id}
-      selected={selected}
-      providers={providers}
-      onProviderChange={selectProvider}
-    />
-  );
+  return <ProviderView key={selected.id} selected={selected} providers={providers} onProviderChange={selectProvider} />;
 }

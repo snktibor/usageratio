@@ -202,11 +202,7 @@ function browserFromUserAgent(userAgent: string): string {
 }
 
 /** "Chrome 140" and "macOS", from the User-Agent and, where a Chromium browser sends them, its client hints. */
-export function describeClient(
-  userAgent: string,
-  brands = "",
-  platform = "",
-): { browser: string; os: string | null } {
+export function describeClient(userAgent: string, brands = "", platform = ""): { browser: string; os: string | null } {
   const hinted = platform.replace(/"/g, "").trim();
   const os =
     hinted && hinted !== "Unknown"

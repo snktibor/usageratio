@@ -46,9 +46,7 @@ function json(body: Record<string, unknown>, status: number, headers?: Record<st
 function authorize(request: Request): Response | null {
   const expectedToken = process.env.USAGE_API_TOKEN?.trim();
   if (!expectedToken || expectedToken.length < MIN_TOKEN_LENGTH) {
-    console.error(
-      `[usageratio] USAGE_API_TOKEN is missing or shorter than ${MIN_TOKEN_LENGTH} characters.`,
-    );
+    console.error(`[usageratio] USAGE_API_TOKEN is missing or shorter than ${MIN_TOKEN_LENGTH} characters.`);
     return json({ error: "server_misconfigured" }, 500);
   }
 
@@ -66,8 +64,7 @@ function dateInTimeZone(date: Date, timeZone: string): string {
     month: "2-digit",
     day: "2-digit",
   }).formatToParts(date);
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((candidate) => candidate.type === type)?.value ?? "";
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((candidate) => candidate.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 

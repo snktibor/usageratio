@@ -87,7 +87,10 @@ describe("summarizeUsage — snapshot mode", () => {
 });
 
 describe("summarizeUsage — day checkpoints", () => {
-  const checkpoint = (tokens: number, ts: number): UsageEvent => ({ ...ev("mac", "Personal", tokens, ts), checkpoint: true });
+  const checkpoint = (tokens: number, ts: number): UsageEvent => ({
+    ...ev("mac", "Personal", tokens, ts),
+    checkpoint: true,
+  });
   const events = [checkpoint(100, 1100), checkpoint(300, 1400), ev("mac", "Personal", 350, 1500)];
 
   it("does not count them as reports", () => {
@@ -97,7 +100,11 @@ describe("summarizeUsage — day checkpoints", () => {
 
   it("reads the running total of the last finished day when no report of the window follows it", () => {
     // The report that brought the checkpoint in was already made in the next window.
-    const [series] = summarizeUsage([checkpoint(300, 1400), ev("mac", "Personal", 350, 2100)], WINDOW, "snapshot").series;
+    const [series] = summarizeUsage(
+      [checkpoint(300, 1400), ev("mac", "Personal", 350, 2100)],
+      WINDOW,
+      "snapshot",
+    ).series;
     expect(series).toMatchObject({ tokens: 300, reports: 0, lastReportAt: null });
   });
 
@@ -156,11 +163,7 @@ describe("summarizeUsage — edge cases", () => {
   });
 
   it("treats one machine reporting into two groups as two independent series", () => {
-    const summary = summarizeUsage(
-      [ev("mac", "Work", 10, 1100), ev("mac", "Personal", 30, 1200)],
-      WINDOW,
-      "delta",
-    );
+    const summary = summarizeUsage([ev("mac", "Work", 10, 1100), ev("mac", "Personal", 30, 1200)], WINDOW, "delta");
     expect(summary.groups.map((g) => [g.groupId, g.tokens])).toEqual([
       ["Personal", 30],
       ["Work", 10],
@@ -169,11 +172,7 @@ describe("summarizeUsage — edge cases", () => {
   });
 
   it("breaks ties alphabetically so the order is stable", () => {
-    const summary = summarizeUsage(
-      [ev("b", "Zeta", 5, 1100), ev("a", "Alpha", 5, 1200)],
-      WINDOW,
-      "delta",
-    );
+    const summary = summarizeUsage([ev("b", "Zeta", 5, 1100), ev("a", "Alpha", 5, 1200)], WINDOW, "delta");
     expect(summary.groups.map((g) => g.groupId)).toEqual(["Alpha", "Zeta"]);
     expect(summary.series.map((s) => s.machineId)).toEqual(["a", "b"]);
   });

@@ -49,7 +49,7 @@ export function oneShotBlobs(sources: ClientSources): OneShotBlobs {
   };
 }
 
-const HOST_PATTERN =/^[a-z0-9.-]+(:\d{1,5})?$/i;
+const HOST_PATTERN = /^[a-z0-9.-]+(:\d{1,5})?$/i;
 
 function firstValue(header: string | null): string {
   return header?.split(",")[0]?.trim() ?? "";

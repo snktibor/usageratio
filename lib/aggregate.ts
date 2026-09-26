@@ -55,12 +55,7 @@ export interface UsageSummary {
  * exclusive): entry i is the usage inside [startMs, endsMs[i]). `events` are
  * sorted by time and may start before `startMs`.
  */
-export function usageOfSeriesUntil(
-  events: UsageEvent[],
-  startMs: number,
-  endsMs: number[],
-  mode: TokenMode,
-): number[] {
+export function usageOfSeriesUntil(events: UsageEvent[], startMs: number, endsMs: number[], mode: TokenMode): number[] {
   const usages: number[] = [];
   let usage = 0;
   // Counter mode: the last reading before the window is the baseline.
@@ -119,11 +114,7 @@ export function groupIntoSeries(events: UsageEvent[]): UsageEvent[][] {
  * Pass events from before the window too when available: counter mode uses
  * them as the baseline.
  */
-export function summarizeUsage(
-  events: UsageEvent[],
-  window: TimeWindow,
-  mode: TokenMode,
-): UsageSummary {
+export function summarizeUsage(events: UsageEvent[], window: TimeWindow, mode: TokenMode): UsageSummary {
   const series: SeriesUsage[] = [];
   for (const list of groupIntoSeries(events)) {
     const inWindow = list.filter(
@@ -162,10 +153,7 @@ export function summarizeUsage(
 
   groups.sort((a, b) => b.tokens - a.tokens || a.groupId.localeCompare(b.groupId));
   series.sort(
-    (a, b) =>
-      b.tokens - a.tokens ||
-      a.machineId.localeCompare(b.machineId) ||
-      a.groupId.localeCompare(b.groupId),
+    (a, b) => b.tokens - a.tokens || a.machineId.localeCompare(b.machineId) || a.groupId.localeCompare(b.groupId),
   );
 
   return { total, groups, series };

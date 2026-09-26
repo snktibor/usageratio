@@ -6,11 +6,7 @@ import { CheckCircleIcon, KeyIcon } from "@/components/icons";
 import { StatusLine } from "@/components/status-line";
 import { apiTokenStatusNote, type ApiTokenStatus } from "@/lib/api-token";
 
-type CopyState =
-  | { phase: "idle" }
-  | { phase: "busy" }
-  | { phase: "copied" }
-  | { phase: "failed"; message: string };
+type CopyState = { phase: "idle" } | { phase: "busy" } | { phase: "copied" } | { phase: "failed"; message: string };
 
 /**
  * The setup page's "copy the API token" button. The token is never part of
@@ -78,7 +74,9 @@ export function TokenCopyButton({ status }: { status: ApiTokenStatus }) {
       {!available || note.tone === "warning" ? (
         <StatusLine tone={note.tone}>
           {note.text}
-          {status.state === "empty" || status.state === "unreadable" ? " A dashboard Beállítások paneljén adhatod meg." : ""}
+          {status.state === "empty" || status.state === "unreadable"
+            ? " A dashboard Beállítások paneljén adhatod meg."
+            : ""}
         </StatusLine>
       ) : null}
     </div>

@@ -118,8 +118,9 @@ describe("naming the browser", () => {
     expect(
       describeClient(UA.edgeWindows, '"Microsoft Edge";v="140", "Not)A;Brand";v="8", "Chromium";v="140"', '"Windows"'),
     ).toEqual({ browser: "Edge 140", os: "Windows" });
-    expect(describeClient(UA.chromeMac, '"Brave";v="140", "Chromium";v="140", "Not_A Brand";v="24"', '"Chrome OS"'))
-      .toEqual({ browser: "Brave 140", os: "ChromeOS" });
+    expect(
+      describeClient(UA.chromeMac, '"Brave";v="140", "Chromium";v="140", "Not_A Brand";v="24"', '"Chrome OS"'),
+    ).toEqual({ browser: "Brave 140", os: "ChromeOS" });
     // A browser that only names the engine is still named.
     expect(describeClient("", '"Chromium";v="139", "Not/A)Brand";v="99"', '"Linux"')).toEqual({
       browser: "Chromium 139",

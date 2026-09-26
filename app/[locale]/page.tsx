@@ -50,7 +50,9 @@ async function loadDashboard(): Promise<DashboardData> {
       config,
       groups,
       providerIds,
-      Object.fromEntries(Object.entries(eventsByProvider).map(([providerId, events]) => [providerId, modelKeysIn(events)])),
+      Object.fromEntries(
+        Object.entries(eventsByProvider).map(([providerId, events]) => [providerId, modelKeysIn(events)]),
+      ),
     ),
   };
 }

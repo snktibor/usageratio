@@ -21,10 +21,10 @@ export const viewport: Viewport = {
   colorScheme: "dark",
 };
 
-import { NextIntlClientProvider } from 'next-intl';
-import { getMessages } from 'next-intl/server';
-import { notFound } from 'next/navigation';
-import { routing } from '@/i18n/routing';
+import { NextIntlClientProvider } from "next-intl";
+import { getMessages } from "next-intl/server";
+import { notFound } from "next/navigation";
+import { routing } from "@/i18n/routing";
 
 export default async function RootLayout({
   children,
@@ -44,9 +44,7 @@ export default async function RootLayout({
   return (
     <html lang={locale} className={instrumentSans.variable}>
       <body className="min-h-dvh">
-        <NextIntlClientProvider messages={messages}>
-          {children}
-        </NextIntlClientProvider>
+        <NextIntlClientProvider messages={messages}>{children}</NextIntlClientProvider>
       </body>
     </html>
   );

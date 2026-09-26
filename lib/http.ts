@@ -23,9 +23,7 @@ export function storageFailure(error: unknown, what: string): Response {
 export function isForeignOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
   if (!origin) return false;
-  const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "")
-    .split(",")[0]
-    ?.trim();
+  const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "").split(",")[0]?.trim();
   try {
     return new URL(origin).host !== host;
   } catch {

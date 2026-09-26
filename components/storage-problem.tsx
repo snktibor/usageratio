@@ -15,13 +15,11 @@ export async function StorageProblem({ notConfigured }: { notConfigured: boolean
         {notConfigured ? (
           <p className="mt-4 text-ink-2">
             {t.rich("storage_not_configured_desc", {
-              code: (chunks) => <code className="text-ink">{chunks}</code>
+              code: (chunks) => <code className="text-ink">{chunks}</code>,
             })}
           </p>
         ) : (
-          <p className="mt-4 text-ink-2">
-            {t("storage_unavailable_desc")}
-          </p>
+          <p className="mt-4 text-ink-2">{t("storage_unavailable_desc")}</p>
         )}
         <a
           href="/"

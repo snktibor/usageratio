@@ -9,7 +9,13 @@ type Segment = DashboardModel["cycle"]["segments"][number];
  * room. A month does not have it: today, the 1st and every fifth day are
  * named, minus the ones that would run into today's.
  */
-function rulerLabel(model: DashboardModel, segment: Segment, index: number, todayIndex: number, locale: string): string | null {
+function rulerLabel(
+  model: DashboardModel,
+  segment: Segment,
+  index: number,
+  todayIndex: number,
+  locale: string,
+): string | null {
   const width = segment.endFraction - segment.startFraction;
   if (model.period === "weekly") return width >= 0.07 ? weekdayShort(segment.weekday, locale) : null;
 
@@ -21,7 +27,7 @@ function rulerLabel(model: DashboardModel, segment: Segment, index: number, toda
 
 /** The days of the cycle, left to right across the full width: under the meter and under the charts. */
 export function CycleRuler({ model }: { model: DashboardModel }) {
-    const locale = useLocale();
+  const locale = useLocale();
   const nowFraction = model.cycle.elapsedFraction;
   const todayIndex = model.cycle.segments.findIndex(
     (segment) => nowFraction >= segment.startFraction && nowFraction < segment.endFraction,

@@ -60,7 +60,12 @@ describe("setup package contents", () => {
   it("uses the file names the installers look for", () => {
     const shell = readFileSync("clients/setup/install.sh", "utf8");
     const powershell = readFileSync("clients/setup/install.ps1", "utf8");
-    for (const name of ["report-usage-auto.sh", "report-usage-manual.sh", "report-usage-core.sh", "ccusage-providers.cjs"]) {
+    for (const name of [
+      "report-usage-auto.sh",
+      "report-usage-manual.sh",
+      "report-usage-core.sh",
+      "ccusage-providers.cjs",
+    ]) {
       expect(shell).toContain(name);
     }
     for (const name of [
@@ -205,7 +210,12 @@ describe("buildSetupZip", () => {
     for (const [name, data] of byName) {
       expect(data.toString("utf8").replace(/\r\n/g, ""), name).not.toContain("\n");
     }
-    expect(byName.get("README.txt")!.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]))).toBe(true);
+    expect(
+      byName
+        .get("README.txt")!
+        .subarray(0, 3)
+        .equals(Buffer.from([0xef, 0xbb, 0xbf])),
+    ).toBe(true);
     // A byte order mark in front of its #! line would make Node refuse the parser.
     expect(byName.get("ccusage-providers.cjs")!.subarray(0, 2).toString()).toBe("#!");
     expect(JSON.parse(byName.get("config.json")!.toString("utf8"))).toEqual({
@@ -246,7 +256,9 @@ describe("renderOneShot", () => {
     expect(text).toContain("    USAGERATIO_CCUSAGE = 'global'\n");
     expect(text).toContain("@'\nV0lORE9XUw==\n'@\n");
     expect(text).not.toContain("VU5JWA==");
-    expect(text).toMatch(/\} finally \{\n.*SetEnvironmentVariable\(\$name, \$null\).*\n.*Remove-Item -LiteralPath \$dir -Recurse/);
+    expect(text).toMatch(
+      /\} finally \{\n.*SetEnvironmentVariable\(\$name, \$null\).*\n.*Remove-Item -LiteralPath \$dir -Recurse/,
+    );
     expect(text.startsWith("& {\n")).toBe(true);
   });
 

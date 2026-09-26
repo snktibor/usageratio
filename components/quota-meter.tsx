@@ -1,13 +1,7 @@
 import { CycleRuler } from "@/components/cycle-ruler";
 import { AlertTriangleIcon, CheckCircleIcon, InfoCircleIcon, StopCircleIcon } from "@/components/icons";
 import type { DashboardModel } from "@/lib/dashboard";
-import {
-  formatCycleMoment,
-  formatDuration,
-  formatHeroPercent,
-  formatPercent,
-  formatTokens,
-} from "@/lib/format";
+import { formatCycleMoment, formatDuration, formatHeroPercent, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
 import type { QuotaAssessment } from "@/lib/quota";
 import { useTranslations, useLocale } from "next-intl";
@@ -47,7 +41,13 @@ function formatMoment(ms: number, model: DashboardModel, locale: string): string
   return formatCycleMoment(ms, model.period, model.timeZone, locale);
 }
 
-function paceSentence(model: DashboardModel, view: DashboardView, quota: QuotaAssessment, t: any, locale: string): string {
+function paceSentence(
+  model: DashboardModel,
+  view: DashboardView,
+  quota: QuotaAssessment,
+  t: any,
+  locale: string,
+): string {
   const { total, limit, pace } = quota;
   if (total >= limit) {
     // With the remaining tokens switched off, the overage (tokens left, below zero) stays unsaid too.
@@ -64,15 +64,17 @@ function paceSentence(model: DashboardModel, view: DashboardView, quota: QuotaAs
     return t("full_quota_available", { period });
   }
   if (pace.earlyBurn) {
-    return (
-      t("first_day_burn", { used: formatPercent(quota.usedFraction, locale), daily: formatPercent(pace.dailyShare, locale) })
-    );
+    return t("first_day_burn", {
+      used: formatPercent(quota.usedFraction, locale),
+      daily: formatPercent(pace.dailyShare, locale),
+    });
   }
   if (pace.projectedTotal === null) return t("need_one_day_for_pace");
   if (pace.runOutAt !== null) {
-    return (
-      t("run_out_estimation", { moment: formatMoment(pace.runOutAt, model, locale), duration: formatDuration(model.cycle.endMs - pace.runOutAt, locale) })
-    );
+    return t("run_out_estimation", {
+      moment: formatMoment(pace.runOutAt, model, locale),
+      duration: formatDuration(model.cycle.endMs - pace.runOutAt, locale),
+    });
   }
   return t("projected_total", { projected: formatPercent(pace.projectedTotal / limit, locale) });
 }
@@ -81,7 +83,8 @@ function meterAttributes(
   model: DashboardModel,
   quota: QuotaAssessment | null,
   tokenQuota: QuotaAssessment | null,
-  t: any, locale: string
+  t: any,
+  locale: string,
 ): React.HTMLAttributes<HTMLDivElement> {
   if (!quota) return { "aria-hidden": true };
   const label = model.period === "monthly" ? t("monthly_adjective") : t("weekly_adjective");
@@ -92,7 +95,11 @@ function meterAttributes(
       "aria-valuemin": 0,
       "aria-valuemax": tokenQuota.limit,
       "aria-valuenow": Math.round(Math.min(tokenQuota.total, tokenQuota.limit)),
-      "aria-valuetext": t("aria_token_valuetext", { total: formatTokens(tokenQuota.total, locale), limit: formatTokens(tokenQuota.limit, locale), percent: formatHeroPercent(tokenQuota.usedFraction, locale) }),
+      "aria-valuetext": t("aria_token_valuetext", {
+        total: formatTokens(tokenQuota.total, locale),
+        limit: formatTokens(tokenQuota.limit, locale),
+        percent: formatHeroPercent(tokenQuota.usedFraction, locale),
+      }),
     };
   }
   return {
@@ -111,7 +118,7 @@ function meterAttributes(
  * Without a token limit only an official reading fills it.
  */
 export function QuotaMeter({ model, view }: { model: DashboardModel; view: DashboardView }) {
-    const locale = useLocale();
+  const locale = useLocale();
   const t = useTranslations("Widgets");
   const { quota } = view;
   // Token amounts mean tokens only against a limit: without one `quota` counts fractions of the budget.
@@ -122,8 +129,7 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
   const period = model.period === "monthly" ? t("monthly_adjective") : t("weekly_adjective");
   const fillPercent = quota ? Math.min(1, quota.usedFraction) * 100 : 0;
   const nowFraction = model.cycle.elapsedFraction;
-  const nowAlign =
-    nowFraction < 0.05 ? "translate-x-0" : nowFraction > 0.95 ? "-translate-x-full" : "-translate-x-1/2";
+  const nowAlign = nowFraction < 0.05 ? "translate-x-0" : nowFraction > 0.95 ? "-translate-x-full" : "-translate-x-1/2";
   const elapsedNote = t("cycle_elapsed", { percent: formatPercent(nowFraction, locale) });
 
   return (
@@ -143,9 +149,7 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
           </>
         )}
         {view.calibrated && (
-          <span className="rounded-full border border-ink-3 px-3 py-1 text-sm text-ink-2">
-            {t("official_value")}
-          </span>
+          <span className="rounded-full border border-ink-3 px-3 py-1 text-sm text-ink-2">{t("official_value")}</span>
         )}
       </h1>
 
@@ -182,11 +186,13 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
         <StatusIcon className={`mt-1 shrink-0 ${style.iconColor}`} />
         {quota ? (
           <span>
-            <strong className="font-medium text-ink">{statusLabel(quota, t, locale)}</strong> {paceSentence(model, view, quota, t, locale)}
+            <strong className="font-medium text-ink">{statusLabel(quota, t, locale)}</strong>{" "}
+            {paceSentence(model, view, quota, t, locale)}
           </span>
         ) : (
           <span>
-            <strong className="font-medium text-ink">{t("quota_state_from_official_1")}</strong>{t("quota_state_from_official_2")}
+            <strong className="font-medium text-ink">{t("quota_state_from_official_1")}</strong>
+            {t("quota_state_from_official_2")}
           </span>
         )}
       </p>
@@ -199,7 +205,9 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
         {tokenQuota ? (
           <div>
             <dt className="text-sm text-ink-3">{t("consumed")}</dt>
-            <dd className="mt-1 text-2xl font-medium">{t("token_count", { count: formatTokens(tokenQuota.total, locale) })}</dd>
+            <dd className="mt-1 text-2xl font-medium">
+              {t("token_count", { count: formatTokens(tokenQuota.total, locale) })}
+            </dd>
             <dd className="text-sm text-ink-3">
               {t("of_token_limit", { period, tokens: formatTokens(tokenQuota.limit, locale) })}
             </dd>
@@ -207,7 +215,9 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
         ) : (
           <div>
             <dt className="text-sm text-ink-3">{t("measured_usage")}</dt>
-            <dd className="mt-1 text-2xl font-medium">{t("token_count", { count: formatTokens(view.measured.total, locale) })}</dd>
+            <dd className="mt-1 text-2xl font-medium">
+              {t("token_count", { count: formatTokens(view.measured.total, locale) })}
+            </dd>
             <dd className="text-sm text-ink-3">{t("according_to_machines")}</dd>
           </div>
         )}
@@ -215,7 +225,9 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
           <div>
             <dt className="text-sm text-ink-3">{tokenQuota.overage > 0 ? t("overage") : t("remaining")}</dt>
             <dd className="mt-1 text-2xl font-medium">
-              {t("token_count", { count: formatTokens(tokenQuota.overage > 0 ? tokenQuota.overage : tokenQuota.remaining, locale) })}
+              {t("token_count", {
+                count: formatTokens(tokenQuota.overage > 0 ? tokenQuota.overage : tokenQuota.remaining, locale),
+              })}
             </dd>
             <dd className="text-sm text-ink-3">{elapsedNote}</dd>
           </div>

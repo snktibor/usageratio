@@ -21,10 +21,23 @@ const CYCLE_START = Date.parse("2026-09-20T22:00:00Z");
 const CYCLE_END = CYCLE_START + 7 * 24 * HOUR;
 const config = { ...getConfig({}), tokenMode: "snapshot" as const };
 
-const FABLE: SubLimit = { id: "fable", name: "Fable", models: ["fable"], mode: "separate", sharePercent: 50, limit: 200_000 };
+const FABLE: SubLimit = {
+  id: "fable",
+  name: "Fable",
+  models: ["fable"],
+  mode: "separate",
+  sharePercent: 50,
+  limit: 200_000,
+};
 const OPUS: SubLimit = { id: "opus", name: "Opus", models: ["opus"], mode: "share", sharePercent: 40, limit: 1 };
 
-function report(machineId: string, groupId: string, hoursIntoCycle: number, models?: Record<string, number>, tokens?: number): UsageEvent {
+function report(
+  machineId: string,
+  groupId: string,
+  hoursIntoCycle: number,
+  models?: Record<string, number>,
+  tokens?: number,
+): UsageEvent {
   const total = tokens ?? Object.values(models ?? {}).reduce((sum, amount) => sum + amount, 0);
   return { machineId, groupId, tokens: total, ts: CYCLE_START + hoursIntoCycle * HOUR, ...(models && { models }) };
 }
@@ -103,8 +116,22 @@ describe("measureSubLimits", () => {
       report("mac", "Home", 20, { "claude-fable-5-1-20260901": 250, "claude-opus-5": 50 }),
       report("win", "Work", 30, { "claude-fable-5-1": 40 }),
     ];
-    const [fable] = measureSubLimits([FABLE], splitBySubLimits(events, [FABLE]).bySubLimit, window, times, "snapshot", null);
-    expect(fable).toMatchObject({ id: "fable", name: "Fable", mode: "separate", shareCap: null, total: 290, hasSplit: true });
+    const [fable] = measureSubLimits(
+      [FABLE],
+      splitBySubLimits(events, [FABLE]).bySubLimit,
+      window,
+      times,
+      "snapshot",
+      null,
+    );
+    expect(fable).toMatchObject({
+      id: "fable",
+      name: "Fable",
+      mode: "separate",
+      shareCap: null,
+      total: 290,
+      hasSplit: true,
+    });
     expect(fable!.models).toEqual(["Claude Fable 5.1"]);
     expect(fable!.quota).toBeNull();
   });
@@ -115,7 +142,14 @@ describe("measureSubLimits", () => {
       report("mac", "Home", 20, { "claude-fable-5-1": 250 }),
       report("win", "Work", 30, { "claude-fable-5-1": 40 }),
     ];
-    const [fable] = measureSubLimits([FABLE], splitBySubLimits(events, [FABLE]).bySubLimit, window, times, "snapshot", null);
+    const [fable] = measureSubLimits(
+      [FABLE],
+      splitBySubLimits(events, [FABLE]).bySubLimit,
+      window,
+      times,
+      "snapshot",
+      null,
+    );
     const at = (hours: number) => fable!.values[times.indexOf(CYCLE_START + hours * HOUR)];
     expect(fable!.values).toHaveLength(times.length);
     expect(at(0)).toBe(0);
@@ -156,8 +190,14 @@ describe("buildDashboard with sub-limits", () => {
   it("leaves a separate sub-limit out of every figure but its own and the models", () => {
     const model = buildDashboard(NOW, config, snapshot(events), [FABLE]);
     expect(model.total).toBe(700);
-    expect(model.groups.map((g) => [g.groupId, g.tokens])).toEqual([["Home", 500], ["Work", 200]]);
-    expect(model.machines.map((m) => [m.machineId, m.tokens])).toEqual([["mac", 500], ["win", 200]]);
+    expect(model.groups.map((g) => [g.groupId, g.tokens])).toEqual([
+      ["Home", 500],
+      ["Work", 200],
+    ]);
+    expect(model.machines.map((m) => [m.machineId, m.tokens])).toEqual([
+      ["mac", 500],
+      ["win", 200],
+    ]);
     const lastOf = (values: number[]) => values[values.length - 1];
     expect(model.timeline.groups.map((g) => lastOf(g.values))).toEqual([500, 200]);
     // The model chart still has every model.
@@ -233,7 +273,12 @@ describe("applySubLimitReading", () => {
     expect(sub.quota!.usedFraction).toBeCloseTo(0.25);
 
     const unlimited = buildDashboard(NOW, config, snapshot(events), [FABLE]);
-    const unknown = applySubLimitReading(unlimited, applyGroundTruth(unlimited, reading(50)), unlimited.subLimits[0]!, null);
+    const unknown = applySubLimitReading(
+      unlimited,
+      applyGroundTruth(unlimited, reading(50)),
+      unlimited.subLimits[0]!,
+      null,
+    );
     expect(unknown).toMatchObject({ source: null, quota: null });
   });
 

@@ -18,9 +18,7 @@ function report(machineId: string, groupId: string, tokens: number, hoursIntoCyc
 const model = buildDashboard(NOW, config, {
   events: [report("mac", "Personal", 10_000), report("win-1", "Work", 18_000), report("win-2", "Work", 12_000)],
   groups: [],
-  machines: [
-    { machineId: "retired", groupId: "Work", lastSeenAt: NOW.getTime() - 200 * HOUR, lastTokens: 0 },
-  ],
+  machines: [{ machineId: "retired", groupId: "Work", lastSeenAt: NOW.getTime() - 200 * HOUR, lastTokens: 0 }],
 });
 
 describe("parseOfficialPercent", () => {
@@ -167,11 +165,15 @@ describe("applyGroundTruth — with the official figure", () => {
 });
 
 describe("applyGroundTruth — without token limits", () => {
-  const bare = buildDashboard(NOW, { ...config, useTokenLimits: false }, {
-    events: [report("mac", "Personal", 10_000), report("win-1", "Work", 18_000), report("win-2", "Work", 12_000)],
-    groups: [],
-    machines: [],
-  });
+  const bare = buildDashboard(
+    NOW,
+    { ...config, useTokenLimits: false },
+    {
+      events: [report("mac", "Personal", 10_000), report("win-1", "Work", 18_000), report("win-2", "Work", 12_000)],
+      groups: [],
+      machines: [],
+    },
+  );
   const officialView = applyGroundTruth(bare, { percent: 20, atMs: null });
   const machine = (id: string) => officialView.machines.find((m) => m.machineId === id)!;
   const group = (id: string) => officialView.groups.find((g) => g.groupId === id)!;

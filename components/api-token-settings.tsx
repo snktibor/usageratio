@@ -17,8 +17,7 @@ import { formatDateTime, formatTimestamp } from "@/lib/format";
 /** How long "Igen" stays disabled after the confirmation opens. */
 const CONFIRM_DELAY_SECONDS = 5;
 
-const FIELD =
-  "rounded-md border border-rule bg-page px-3 py-2 text-ink placeholder:text-ink-3 disabled:opacity-50";
+const FIELD = "rounded-md border border-rule bg-page px-3 py-2 text-ink placeholder:text-ink-3 disabled:opacity-50";
 const QUIET_BUTTON =
   "rounded-md border border-rule px-3 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink disabled:pointer-events-none disabled:opacity-40";
 const PRIMARY_BUTTON =
@@ -167,7 +166,10 @@ function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => v
             {load.entries.map((entry, index) => (
               <li key={`${entry.at}-${index}`} className="px-3.5 py-3 sm:px-4">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                  <time dateTime={new Date(entry.at).toISOString()} className="text-sm tabular-nums text-ink sm:text-base">
+                  <time
+                    dateTime={new Date(entry.at).toISOString()}
+                    className="text-sm tabular-nums text-ink sm:text-base"
+                  >
                     {formatTimestamp(entry.at, timeZone, locale)}
                   </time>
                   <span
@@ -217,7 +219,7 @@ export function ApiTokenSettings({
   onChange: (value: string) => void;
   timeZone: string;
 }) {
-    const locale = useLocale();
+  const locale = useLocale();
   const t = useTranslations("Settings");
   const [load, setLoad] = useState<Load>({ phase: "loading" });
   const [problem, setProblem] = useState<string | null>(null);

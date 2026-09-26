@@ -16,7 +16,7 @@ export async function Dashboard({
   providers: ProviderDashboardModel[];
   settings: SettingsView;
 }) {
-    const locale = await getLocale();
+  const locale = await getLocale();
   const t = await getTranslations("HomePage");
   const model = providers[0]!.dashboard;
   const refreshedAt = formatClock(model.generatedAt, model.timeZone, locale);

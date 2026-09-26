@@ -198,9 +198,7 @@ function parseProviderIndex(raw: unknown): { providerId: string; firstSeenAt: nu
   const providers = Object.entries(toStringRecord(raw)).flatMap(([rawProvider, rawFirstSeenAt]) => {
     const providerId = normalizeProviderId(rawProvider);
     const firstSeenAt = Number(rawFirstSeenAt);
-    return providerId
-      ? [{ providerId, firstSeenAt: Number.isFinite(firstSeenAt) ? firstSeenAt : 0 }]
-      : [];
+    return providerId ? [{ providerId, firstSeenAt: Number.isFinite(firstSeenAt) ? firstSeenAt : 0 }] : [];
   });
   providers.sort((a, b) => a.firstSeenAt - b.firstSeenAt || a.providerId.localeCompare(b.providerId));
   return providers;

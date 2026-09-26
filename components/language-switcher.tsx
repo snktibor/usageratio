@@ -21,9 +21,7 @@ function localeFlag(locale: string) {
   try {
     const region = new Intl.Locale(locale).maximize().region;
     if (!region) return "";
-    return [...region.toUpperCase()]
-      .map((char) => String.fromCodePoint(0x1f1e6 + char.charCodeAt(0) - 65))
-      .join("");
+    return [...region.toUpperCase()].map((char) => String.fromCodePoint(0x1f1e6 + char.charCodeAt(0) - 65)).join("");
   } catch {
     return "";
   }

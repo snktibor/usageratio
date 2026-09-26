@@ -16,7 +16,8 @@ export function niceScale(maxValue: number, minMax: number): AxisScale {
   const rough = top / 4;
   const magnitude = 10 ** Math.floor(Math.log10(rough));
   const normalized = rough / magnitude;
-  const step = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10) * magnitude;
+  const step =
+    (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10) * magnitude;
   const count = Math.ceil(top / step - 1e-9);
   return { max: count * step, step, ticks: Array.from({ length: count + 1 }, (_, index) => index * step) };
 }

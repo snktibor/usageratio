@@ -215,10 +215,25 @@ function Step({ number, children }: { number: number; children: React.ReactNode 
   );
 }
 
-function TokenNote({ os, mode, tokenStatus, t }: { os: SetupOs; mode: SetupMode; tokenStatus: ApiTokenStatus; t: any }) {
+function TokenNote({
+  os,
+  mode,
+  tokenStatus,
+  t,
+}: {
+  os: SetupOs;
+  mode: SetupMode;
+  tokenStatus: ApiTokenStatus;
+  t: any;
+}) {
   return (
     <>
-      <p>{t.rich("token_note", { auto: os === "windows" && mode === "auto" ? "true" : "false", Code: (chunks: any) => <Code>{chunks}</Code> })}</p>
+      <p>
+        {t.rich("token_note", {
+          auto: os === "windows" && mode === "auto" ? "true" : "false",
+          Code: (chunks: any) => <Code>{chunks}</Code>,
+        })}
+      </p>
       <TokenCopyButton status={tokenStatus} />
     </>
   );
@@ -275,17 +290,11 @@ function OneShotSection({
         </h2>
         <InfoTip label={t("one_shot_tooltip_aria")}>
           <span className="block">{t("one_shot_tooltip_1")}</span>
-          <span className="block">
-            {t("one_shot_tooltip_2")}
-          </span>
-          <span className="block text-ink">
-            {t("one_shot_tooltip_3")}
-          </span>
+          <span className="block">{t("one_shot_tooltip_2")}</span>
+          <span className="block text-ink">{t("one_shot_tooltip_3")}</span>
         </InfoTip>
       </div>
-      <p className="mt-2 max-w-2xl text-ink-2">
-        {t("one_shot_desc")}
-      </p>
+      <p className="mt-2 max-w-2xl text-ink-2">{t("one_shot_desc")}</p>
 
       <div className="mt-6">
         <Segmented
@@ -300,11 +309,7 @@ function OneShotSection({
       </div>
 
       <div className="mt-6 max-w-2xl space-y-3 leading-relaxed">
-        <p>
-          {os === "windows"
-            ? t("copy_powershell")
-            : t("copy_terminal")}
-        </p>
+        <p>{os === "windows" ? t("copy_powershell") : t("copy_terminal")}</p>
         <CommandBlock
           command={preview}
           label={t("one_shot_command")}
@@ -319,9 +324,7 @@ function OneShotSection({
         {!available || note.tone === "warning" ? (
           <StatusLine tone={note.tone}>
             {note.text}
-            {tokenStatus.state === "empty" || tokenStatus.state === "unreadable"
-              ? t("provide_in_settings")
-              : ""}
+            {tokenStatus.state === "empty" || tokenStatus.state === "unreadable" ? t("provide_in_settings") : ""}
           </StatusLine>
         ) : null}
       </div>
@@ -432,9 +435,19 @@ export function SetupView({
         <p className="mt-4 text-ink-2">{t("install_client_intro")}</p>
       </div>
 
-      <section aria-label={t("package_settings_aria")} className="mt-10 rounded-lg border border-rule px-5 py-6 sm:px-6">
+      <section
+        aria-label={t("package_settings_aria")}
+        className="mt-10 rounded-lg border border-rule px-5 py-6 sm:px-6"
+      >
         <div className="flex flex-wrap gap-x-10 gap-y-5">
-          <Segmented legend={t("os_legend")} name="os" value={os} options={SETUP_OSES} labels={OS_LABEL} onChange={setOs} />
+          <Segmented
+            legend={t("os_legend")}
+            name="os"
+            value={os}
+            options={SETUP_OSES}
+            labels={OS_LABEL}
+            onChange={setOs}
+          />
           <Segmented
             legend={t("mode_legend")}
             name="mode"
@@ -473,17 +486,17 @@ export function SetupView({
                     onClick={() => setGroup(known.id)}
                     className="inline-flex max-w-full items-center gap-2 rounded-full border border-rule px-3 py-1 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink aria-pressed:border-ink-3 aria-pressed:bg-raised aria-pressed:text-ink"
                   >
-                    <span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ backgroundColor: known.color }} />
+                    <span
+                      aria-hidden="true"
+                      className="size-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: known.color }}
+                    />
                     <span className="truncate">{known.id}</span>
                   </button>
                 ))}
               </div>
             )}
-            <FieldNote
-              id={ids.groupNote}
-              problem={check.ok ? null : check.group}
-              hint={t("group_hint")}
-            />
+            <FieldNote id={ids.groupNote} problem={check.ok ? null : check.group} hint={t("group_hint")} />
           </div>
 
           <div className="min-w-0">
@@ -503,11 +516,7 @@ export function SetupView({
               aria-describedby={ids.machineNote}
               className={`mt-1.5 block w-full ${FIELD}`}
             />
-            <FieldNote
-              id={ids.machineNote}
-              problem={check.ok ? null : check.machine}
-              hint={t("machine_hint")}
-            />
+            <FieldNote id={ids.machineNote} problem={check.ok ? null : check.machine} hint={t("machine_hint")} />
           </div>
         </div>
       </section>
@@ -527,9 +536,7 @@ export function SetupView({
             <h2 id={ids.zip} className="text-2xl font-semibold tracking-tight">
               {t("download_zip")}
             </h2>
-            <p className="mt-2 max-w-2xl text-ink-2">
-              {t("zip_desc")}
-            </p>
+            <p className="mt-2 max-w-2xl text-ink-2">{t("zip_desc")}</p>
 
             <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2">
               {zipHref ? (
@@ -558,9 +565,7 @@ export function SetupView({
               {unix ? (
                 <>
                   <Step number={1}>
-                    <p>
-                      {t.rich("zip_step_1_unix", { name, Code: (chunks: any) => <Code>{chunks}</Code> })}
-                    </p>
+                    <p>{t.rich("zip_step_1_unix", { name, Code: (chunks: any) => <Code>{chunks}</Code> })}</p>
                   </Step>
                   <Step number={2}>
                     <p>{t("zip_step_2_unix")}</p>
@@ -574,12 +579,17 @@ export function SetupView({
                 <>
                   <Step number={1}>
                     <p>
-                      {t.rich("zip_step_1_win", { strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong> })}
+                      {t.rich("zip_step_1_win", {
+                        strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong>,
+                      })}
                     </p>
                   </Step>
                   <Step number={2}>
                     <p>
-                      {t.rich("zip_step_2_win", { auto: mode === "auto" ? "true" : "false", Code: (chunks: any) => <Code>{chunks}</Code> })}
+                      {t.rich("zip_step_2_win", {
+                        auto: mode === "auto" ? "true" : "false",
+                        Code: (chunks: any) => <Code>{chunks}</Code>,
+                      })}
                     </p>
                     <p className="text-sm text-ink-3">{t("start_from_powershell")}</p>
                     <CommandBlock command={zipInstallCommand(os, mode)} label={t("installer_command")} />
@@ -605,28 +615,23 @@ export function SetupView({
             <h2 id={ids.manual} className="text-2xl font-semibold tracking-tight">
               {t("copy_and_create")}
             </h2>
-            <p className="mt-2 max-w-2xl text-ink-2">
-              {t("copy_desc", { count: files.length })}
-            </p>
+            <p className="mt-2 max-w-2xl text-ink-2">{t("copy_desc", { count: files.length })}</p>
 
             <ol role="list" className="mt-8 space-y-10">
               <Step number={1}>
-                <p className="max-w-2xl">
-                  {unix
-                    ? t("manual_step_1_unix")
-                    : t("manual_step_1_win")}
-                </p>
+                <p className="max-w-2xl">{unix ? t("manual_step_1_unix") : t("manual_step_1_win")}</p>
                 <CommandBlock command={folderCommand(os)} label={t("folder_command")} />
               </Step>
               <Step number={2}>
                 <p className="max-w-2xl">
                   {os === "linux" ? (
-                    <>
-                      {t.rich("manual_step_2_linux", { Code: (chunks: any) => <Code>{chunks}</Code> })}
-                    </>
+                    <>{t.rich("manual_step_2_linux", { Code: (chunks: any) => <Code>{chunks}</Code> })}</>
                   ) : (
                     <>
-                      {t.rich("manual_step_2_win_mac", { os, strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong> })}
+                      {t.rich("manual_step_2_win_mac", {
+                        os,
+                        strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong>,
+                      })}
                     </>
                   )}
                 </p>
@@ -684,7 +689,13 @@ export function SetupView({
 
           <dt className="text-ink-3">{t("token")}</dt>
           <dd className="text-ink-2">
-            {t.rich("token_desc", { mac: INSTALLED_CONFIG.macos, win: INSTALLED_CONFIG.windows, Code: (chunks: any) => <Code>{chunks}</Code>, BreakablePath: (chunks: any) => <BreakablePath path={INSTALLED_CONFIG.windows} />, strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong> })}
+            {t.rich("token_desc", {
+              mac: INSTALLED_CONFIG.macos,
+              win: INSTALLED_CONFIG.windows,
+              Code: (chunks: any) => <Code>{chunks}</Code>,
+              BreakablePath: (chunks: any) => <BreakablePath path={INSTALLED_CONFIG.windows} />,
+              strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong>,
+            })}
           </dd>
 
           <dt className="text-ink-3">{t("update")}</dt>
@@ -701,9 +712,7 @@ export function SetupView({
           <dd className="space-y-2 text-ink-2">
             <CommandBlock command={uninstallCommand(os, mode)} label={t("uninstall_command")} />
             {unix && mode === "manual" && (
-              <p>
-                {t.rich("uninstall_unix_manual", { Code: (chunks: any) => <Code>{chunks}</Code> })}
-              </p>
+              <p>{t.rich("uninstall_unix_manual", { Code: (chunks: any) => <Code>{chunks}</Code> })}</p>
             )}
             {os === "windows" && mode === "auto" && <p>{t("uninstall_win_auto")}</p>}
           </dd>
