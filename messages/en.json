@@ -284,7 +284,7 @@
     "runner_global": "Installed",
     "runner_npx": "Not installed",
     "runner_global_desc": "Calls the local ccusage command: faster and downloads nothing.",
-    "runner_npx_desc": "Runs ccusage via npx, so no installation is needed beforehand; running it also downloads the package into the npm cache.",
+    "runner_npx_desc": "Runs a pinned ccusage version via npx, so no installation is needed beforehand; running it also downloads the package into the npm cache.",
     "copy_powershell": "Copy, paste into PowerShell, and press Enter.",
     "copy_terminal": "Copy, paste into a terminal, and press Enter.",
     "one_shot_command": "The one-time command",

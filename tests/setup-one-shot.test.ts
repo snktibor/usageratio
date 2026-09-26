@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type CcusageRunner, renderOneShot } from "@/lib/setup";
+import { CCUSAGE_VERSION, type CcusageRunner, renderOneShot } from "@/lib/setup";
 import { loadClientSources, oneShotBlobs } from "@/lib/setup-package";
 
 /**
@@ -149,7 +149,7 @@ describe.skipIf(process.platform === "win32")("one-off report (macOS/Linux)", { 
     const calls = path.join(scratch, "npx-calls");
     tool(
       "npx",
-      `echo "$*" >>"${calls}"\n[ "$1 $2" = "--yes ccusage@latest" ] || exit 1\ncat <<'JSON'\n${JSON.stringify(CCUSAGE_REPORT)}\nJSON`,
+      `echo "$*" >>"${calls}"\n[ "$1 $2" = "--yes ccusage@${CCUSAGE_VERSION}" ] || exit 1\ncat <<'JSON'\n${JSON.stringify(CCUSAGE_REPORT)}\nJSON`,
     );
 
     const result = await run("bash", await script("npx", "vendeg-gep"));
@@ -157,7 +157,9 @@ describe.skipIf(process.platform === "win32")("one-off report (macOS/Linux)", { 
     expect(result.stderr).toBe("");
     expect(result.code).toBe(0);
     expect(stub.reports).toEqual([expect.objectContaining({ machineId: "vendeg-gep", providers: { claude: 1234 } })]);
-    expect(readFileSync(calls, "utf8")).toMatch(/^--yes ccusage@latest blocks .*\n--yes ccusage@latest daily /);
+    expect(readFileSync(calls, "utf8")).toMatch(
+      new RegExp(`^--yes ccusage@${CCUSAGE_VERSION} blocks .*\\n--yes ccusage@${CCUSAGE_VERSION} daily `),
+    );
     expectNoTrace();
   });
 

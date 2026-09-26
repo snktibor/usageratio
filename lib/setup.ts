@@ -35,6 +35,14 @@ export const INSTALL_ROUTES: readonly InstallRoute[] = ["zip", "manual", "oneSho
  */
 export const DEFAULT_API_URL = "https://your-domain.example/api/usage";
 
+/**
+ * The ccusage version the clients pin themselves to (`npx --yes ccusage@$CCUSAGE_VERSION`),
+ * overridable per machine with USAGERATIO_CCUSAGE_VERSION ("latest" is an explicit opt-in).
+ * Kept equal to the same constant in clients/shared/report-usage-core.sh and
+ * report-usage-core.ps1; tests/setup.test.ts checks all three stay in sync.
+ */
+export const CCUSAGE_VERSION = "20.0.24";
+
 /** Every file a package ships from the repository, as is. */
 export const CLIENT_SOURCES = [
   "clients/setup/install.sh",

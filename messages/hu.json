@@ -284,7 +284,7 @@
     "runner_global": "Telepítve van",
     "runner_npx": "Nincs telepítve",
     "runner_global_desc": "A gépen lévő ccusage parancsot hívja: gyorsabb, és nem tölt le semmit.",
-    "runner_npx_desc": "A ccusage-et npx-szel futtatja, így nem kell előre telepíteni; ez a futtatás egyben letölti a csomagot az npm gyorsítótárába is.",
+    "runner_npx_desc": "Egy rögzített ccusage verziót futtat npx-szel, így nem kell előre telepíteni; ez a futtatás egyben letölti a csomagot az npm gyorsítótárába is.",
     "copy_powershell": "Másold ki, illeszd be egy PowerShellbe, és nyomj Entert.",
     "copy_terminal": "Másold ki, illeszd be egy terminálba, és nyomj Entert.",
     "one_shot_command": "Az egyszeri parancs",
