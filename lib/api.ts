@@ -1,5 +1,6 @@
 import { errors as upstash } from "@upstash/redis";
 import { isAuthenticated } from "@/lib/auth";
+import { reportError } from "@/lib/error-reporter";
 import { isForeignOrigin } from "@/lib/http";
 import { log } from "@/lib/log";
 import { StorageNotConfiguredError } from "@/lib/redis";
@@ -253,6 +254,8 @@ export function withApiHandler(
           response = apiError("storage_unavailable", 503);
         } else {
           log.error("api.unhandled", { route: name, err: error });
+          // A bug, not an outage: it also goes to the error webhook (ERROR_WEBHOOK_URL), which never throws.
+          await reportError(error, { path: new URL(request.url).pathname, requestId, route: name });
           response = apiError("internal_error", 500);
         }
       }
