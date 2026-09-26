@@ -393,6 +393,10 @@
     "token_on_clipboard": "Token in der Zwischenablage",
     "token_on_clipboard_hidden": "Der Token befindet sich in der Zwischenablage.",
     "audit_notice": "Die Abfrage wird im Auditprotokoll gespeichert.",
+    "sudo_prompt": "Bestätige mit deinem PIN-Code, um den Token für die nächsten 5 Minuten zu kopieren.",
+    "sudo_unlock": "Freischalten",
+    "sudo_unlocking": "Freischalten…",
+    "sudo_error_generic": "Der PIN-Code konnte nicht bestätigt werden. Versuche es erneut.",
     "file_save_label": "Speichern",
     "file_installed_label": "Endgültiger Ort",
     "file_not_installed": "wird nicht installiert, läuft nur einmal",
@@ -401,13 +405,14 @@
     "packed_note": "‹{name}, gepackt: {lines} Zeilen Base64›"
   },
   "Auth": {
-    "pin_malformed": "Der PIN-Code muss genau 5 Ziffern haben.",
-    "pin_misconfigured": "Auf dem Server ist kein gültiger DASHBOARD_PIN eingerichtet (5 Ziffern erforderlich).",
+    "pin_malformed": "Der PIN-Code oder das Passwort muss 5 bis 64 Zeichen haben.",
+    "pin_misconfigured": "Auf dem Server ist kein gültiger DASHBOARD_PIN eingerichtet (5 bis 64 Zeichen; nur Ziffern zeigen die numerische Tastatur).",
     "pin_invalid": "Falscher PIN-Code. {attemptsLeft, plural, one {Noch # Versuch übrig.} other {Noch # Versuche übrig.}}",
-    "pin_locked": "Falscher PIN-Code. Keine Versuche mehr, versuche es in {minutes, plural, one {# Minute} other {# Minuten}} erneut.",
     "rate_limited": "Zu viele Versuche. Versuche es in {minutes, plural, one {# Minute} other {# Minuten}} erneut.",
     "storage_not_configured": "Der Datenspeicher ist nicht verbunden: KV_REST_API_URL und KV_REST_API_TOKEN fehlen. Verbinde die Redis-Datenbank mit dem Vercel-Projekt und installiere die Anwendung dann neu.",
-    "storage_unavailable": "Der Datenspeicher ist gerade nicht erreichbar, daher auch die Anmeldung nicht. Versuche es gleich noch einmal."
+    "storage_unavailable": "Der Datenspeicher ist gerade nicht erreichbar, daher auch die Anmeldung nicht. Versuche es gleich noch einmal.",
+    "pin_show": "Anzeigen",
+    "pin_hide": "Verbergen"
   },
   "Errors": {
     "page_failed_title": "Die Seite konnte nicht geladen werden",

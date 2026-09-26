@@ -2,6 +2,7 @@
 export type CopyErrorCode =
   | "no_response"
   | "session_expired"
+  | "sudo_required"
   | "no_token"
   | "token_unreadable"
   | "no_key"
@@ -29,11 +30,13 @@ export async function fetchApiToken(): Promise<string> {
   } catch {
     throw new CopyError("no_response");
   }
-  const payload = (await response.json().catch(() => null)) as { token?: unknown } | null;
+  const payload = (await response.json().catch(() => null)) as { token?: unknown; error?: unknown } | null;
   if (response.ok && typeof payload?.token === "string") return payload.token;
   switch (response.status) {
     case 401:
       throw new CopyError("session_expired");
+    case 403:
+      throw new CopyError(payload?.error === "sudo_required" ? "sudo_required" : "storage_unavailable");
     case 404:
       throw new CopyError("no_token");
     case 409:

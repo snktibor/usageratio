@@ -1,6 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { PinForm } from "@/components/pin-form";
+import { autoSubmitLength, pinShape } from "@/lib/auth";
 
 /**
  * The only thing an unauthenticated visitor ever receives: no usage data is rendered here.
@@ -8,6 +9,7 @@ import { PinForm } from "@/components/pin-form";
  */
 export async function PinGate({ next = "/" }: { next?: string }) {
   const t = await getTranslations("HomePage");
+  const { numeric } = pinShape();
 
   return (
     <main className="mx-auto w-full max-w-4xl px-5 pt-6 sm:px-8 sm:pt-8">
@@ -21,7 +23,7 @@ export async function PinGate({ next = "/" }: { next?: string }) {
           {t("pin_heading")}
         </h1>
         <p className="mt-4 max-w-md text-ink-2">{t("pin_description")}</p>
-        <PinForm labelledBy="pin-heading" next={next} />
+        <PinForm labelledBy="pin-heading" next={next} numeric={numeric} autoSubmitLength={autoSubmitLength()} />
       </div>
     </main>
   );
