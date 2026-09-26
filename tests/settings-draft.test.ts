@@ -1,0 +1,210 @@
+import { describe, expect, it } from "vitest";
+import {
+  type Draft,
+  type DraftGroup,
+  draftFrom,
+  groupNameProblem,
+  parseLimit,
+  parseModelParts,
+  parseSharePercent,
+  toRequest,
+} from "@/components/settings/draft";
+import { getConfig } from "@/lib/config";
+import { buildSettingsView, MAX_GROUPS, MAX_LIMIT, parseSettingsUpdate } from "@/lib/settings";
+import { MAX_SUB_LIMIT_MODELS } from "@/lib/sub-limits";
+
+/**
+ * `draft.ts` is pure: no next-intl, no DOM. These tests cover its parsing and
+ * validation directly, and prove `toRequest(...)` builds exactly what
+ * `parseSettingsUpdate` (lib/settings.ts) accepts as a PUT body.
+ */
+
+const config = getConfig({});
+const view = buildSettingsView(config, [], ["claude", "deepseek"], {
+  claude: ["claude-opus-4-5", "claude-fable-5-1"],
+});
+
+function group(id: string, overrides: Partial<DraftGroup> = {}): DraftGroup {
+  return { id, color: "#3987e5", colorText: "#3987e5", hasReports: false, excluded: [], ...overrides };
+}
+
+describe("parseLimit", () => {
+  it("accepts a plain positive integer", () => {
+    expect(parseLimit("500000")).toBe(500_000);
+  });
+
+  it("strips the separators people type while entering a large number", () => {
+    expect(parseLimit("500 000")).toBe(500_000);
+    expect(parseLimit("500_000")).toBe(500_000);
+    expect(parseLimit("500.000")).toBe(500_000);
+    expect(parseLimit("500,000")).toBe(500_000);
+  });
+
+  it("rejects zero, blank, non-numeric and negative text", () => {
+    expect(parseLimit("0")).toBeNull();
+    expect(parseLimit("")).toBeNull();
+    expect(parseLimit("abc")).toBeNull();
+    expect(parseLimit("-5")).toBeNull();
+  });
+
+  it("rejects a limit above MAX_LIMIT", () => {
+    expect(parseLimit(String(MAX_LIMIT))).toBe(MAX_LIMIT);
+    expect(parseLimit(String(MAX_LIMIT + 1))).toBeNull();
+  });
+});
+
+describe("parseSharePercent", () => {
+  it("accepts 1 to 100, with or without a percent sign", () => {
+    expect(parseSharePercent("1")).toBe(1);
+    expect(parseSharePercent("50")).toBe(50);
+    expect(parseSharePercent("50 %")).toBe(50);
+    expect(parseSharePercent("100")).toBe(100);
+  });
+
+  it("rejects 0, above 100, blank and non-numeric text", () => {
+    expect(parseSharePercent("0")).toBeNull();
+    expect(parseSharePercent("101")).toBeNull();
+    expect(parseSharePercent("")).toBeNull();
+    expect(parseSharePercent("abc")).toBeNull();
+  });
+});
+
+describe("parseModelParts", () => {
+  it("splits on commas, semicolons and whitespace, lower-cased", () => {
+    expect(parseModelParts("Fable, Opus-5")).toEqual(["fable", "opus-5"]);
+    expect(parseModelParts("fable;opus-5")).toEqual(["fable", "opus-5"]);
+    expect(parseModelParts("fable opus-5")).toEqual(["fable", "opus-5"]);
+  });
+
+  it("de-duplicates parts once normalized", () => {
+    expect(parseModelParts("fable, Fable, FABLE")).toEqual(["fable"]);
+  });
+
+  it("rejects an empty or blank list", () => {
+    expect(parseModelParts("")).toBeNull();
+    expect(parseModelParts("   ")).toBeNull();
+  });
+
+  it("rejects a part that is not a valid model-id fragment", () => {
+    expect(parseModelParts("fable, $$$")).toBeNull();
+  });
+
+  it("rejects more parts than MAX_SUB_LIMIT_MODELS", () => {
+    const tooMany = Array.from({ length: MAX_SUB_LIMIT_MODELS + 1 }, (_, index) => `m${index}`).join(", ");
+    expect(parseModelParts(tooMany)).toBeNull();
+  });
+});
+
+describe("groupNameProblem", () => {
+  const groups = [group("work")];
+
+  it("allows a new, valid name", () => {
+    expect(groupNameProblem("home", groups)).toBeNull();
+  });
+
+  it("rejects an empty name", () => {
+    expect(groupNameProblem("", groups)).toEqual({ code: "group_name_rules" });
+    expect(groupNameProblem("   ", groups)).toEqual({ code: "group_name_rules" });
+  });
+
+  it("rejects a name with characters an id may not contain", () => {
+    expect(groupNameProblem("a/b", groups)).toEqual({ code: "group_name_rules" });
+  });
+
+  it("rejects a name already on the list", () => {
+    expect(groupNameProblem("work", groups)).toEqual({ code: "group_already_exists", id: "work" });
+  });
+
+  it("rejects a new group once MAX_GROUPS is reached", () => {
+    const full = Array.from({ length: MAX_GROUPS }, (_, index) => group(`g${index}`));
+    expect(groupNameProblem("one-more", full)).toEqual({ code: "max_groups_reached" });
+  });
+});
+
+describe("toRequest", () => {
+  it("builds a request parseSettingsUpdate (lib/settings.ts) accepts, from an untouched draft", () => {
+    const draft = draftFrom(view);
+    const result = toRequest(draft);
+    if (!("request" in result)) throw new Error(`expected a request, got a problem: ${JSON.stringify(result)}`);
+    expect(parseSettingsUpdate(result.request)).toMatchObject({ ok: true });
+  });
+
+  it("carries edits made on the draft through to the parsed update", () => {
+    const draft = draftFrom(view);
+    const edited: Draft = {
+      ...draft,
+      period: "monthly",
+      monthDay: 15,
+      useTokenLimits: true,
+      providers: draft.providers.map((provider) => ({ ...provider, limitText: "1 000 000" })),
+    };
+    const result = toRequest(edited);
+    if (!("request" in result)) throw new Error(`expected a request, got a problem: ${JSON.stringify(result)}`);
+    const parsed = parseSettingsUpdate(result.request);
+    if (!parsed.ok) throw new Error(`expected parseSettingsUpdate to accept it: ${parsed.errors.join("; ")}`);
+    expect(parsed.update.settings.period).toBe("monthly");
+    expect(parsed.update.settings.reset.monthDay).toBe(15);
+    expect(parsed.update.settings.limits.claude).toBe(1_000_000);
+    expect(parsed.update.settings.limits.deepseek).toBe(1_000_000);
+  });
+
+  it("reports an invalid provider limit as a DraftProblem code, not text", () => {
+    const draft = draftFrom(view);
+    const broken: Draft = {
+      ...draft,
+      useTokenLimits: true,
+      providers: draft.providers.map((provider) => ({ ...provider, limitText: "not a number" })),
+    };
+    const result = toRequest(broken);
+    expect(result).toEqual({ problem: { code: "invalid_provider_limit", label: "Claude" } });
+  });
+
+  it("reports a sub-limit without a name as a DraftProblem code", () => {
+    const draft = draftFrom(view);
+    const [claude, ...rest] = draft.providers;
+    if (!claude) throw new Error("expected a claude provider in the fixture");
+    const withUnnamedSubLimit: Draft = {
+      ...draft,
+      providers: [
+        {
+          ...claude,
+          subLimits: [
+            {
+              id: null,
+              key: "new-1",
+              name: "",
+              modelsText: "fable",
+              mode: "separate",
+              shareText: "50",
+              limitText: "100000",
+              savedShare: 50,
+              savedLimit: 100_000,
+            },
+          ],
+        },
+        ...rest,
+      ],
+    };
+    const result = toRequest(withUnnamedSubLimit);
+    expect(result).toEqual({ problem: { code: "missing_sublimit_name", label: "Claude" } });
+  });
+
+  it("rejects an invalid group colour", () => {
+    const draft = draftFrom(view);
+    const withBadColor: Draft = {
+      ...draft,
+      groups: [group("work", { colorText: "not-a-color" })],
+    };
+    const result = toRequest(withBadColor);
+    expect(result).toEqual({ problem: { code: "invalid_group_color", id: "work" } });
+  });
+
+  it("requires at least one visible account", () => {
+    const draft = draftFrom(view);
+    const allHidden: Draft = {
+      ...draft,
+      providers: draft.providers.map((provider) => ({ ...provider, visible: false })),
+    };
+    expect(toRequest(allHidden)).toEqual({ problem: { code: "at_least_one_visible_account" } });
+  });
+});

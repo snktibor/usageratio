@@ -1,0 +1,337 @@
+"use client";
+
+import { useLocale, useTranslations } from "next-intl";
+import { useEffect, useId, useRef, useState } from "react";
+import { HistoryIcon, XIcon } from "@/components/icons";
+import { StatusLine } from "@/components/status-line";
+import { FIELD, NESTED_DIALOG, QUIET_BUTTON } from "@/components/ui/classes";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Toast } from "@/components/ui/toast";
+import {
+  type ApiTokenStatus,
+  AUDIT_LIMIT,
+  type AuditEntry,
+  apiTokenProblem,
+  apiTokenStatusNote,
+  MAX_TOKEN_LENGTH,
+  MIN_TOKEN_LENGTH,
+} from "@/lib/api-token";
+import { formatDateTime, formatTimestamp } from "@/lib/format";
+
+/** How long the confirm button stays disabled after the confirmation opens. */
+const CONFIRM_DELAY_SECONDS = 5;
+
+type Load = { phase: "loading" } | { phase: "failed" } | { phase: "ready"; status: ApiTokenStatus };
+
+type AuditLoad =
+  | { phase: "loading" }
+  | { phase: "failed"; expired: boolean }
+  | { phase: "ready"; entries: AuditEntry[]; currentSession: string | null };
+
+/** Who saved or fetched the token, newest first, in a scrolling list. Mounted only while it is open. */
+function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => void }) {
+  const locale = useLocale();
+  const t = useTranslations("Settings");
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [load, setLoad] = useState<AuditLoad>({ phase: "loading" });
+  const titleId = useId();
+
+  useEffect(() => {
+    if (dialogRef.current && !dialogRef.current.open) dialogRef.current.showModal();
+    let cancelled = false;
+    fetch("/api/api-token/audit", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw response.status;
+        const payload = (await response.json()) as { entries: AuditEntry[]; currentSession: string | null };
+        if (!cancelled) setLoad({ phase: "ready", ...payload });
+      })
+      .catch((status: unknown) => {
+        if (!cancelled) setLoad({ phase: "failed", expired: status === 401 });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      aria-labelledby={titleId}
+      onClose={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      className={`w-[min(40rem,calc(100vw-2rem))] flex-col open:flex ${NESTED_DIALOG}`}
+    >
+      <header className="flex items-center justify-between gap-4 px-6 pt-5">
+        <h2 id={titleId} className="text-lg font-medium">
+          {t("audit_dialog_title")}
+        </h2>
+        <button
+          type="button"
+          onClick={() => dialogRef.current?.close()}
+          aria-label={t("close")}
+          className="-mr-2 rounded-md p-2 text-ink-3 transition-colors hover:text-ink"
+        >
+          <XIcon />
+        </button>
+      </header>
+      <p className="px-6 pt-1.5 text-sm leading-relaxed text-ink-3">
+        {t("audit_dialog_description", { limit: AUDIT_LIMIT, timeZone })}
+      </p>
+
+      <div
+        role="region"
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must be focusable so keyboard users can scroll it
+        tabIndex={0}
+        aria-label={t("audit_entries_aria")}
+        className="code-scroll mx-6 mb-6 mt-4 min-h-24 grow overflow-y-auto overscroll-contain rounded-lg border border-hairline"
+      >
+        {load.phase === "loading" ? (
+          <p className="px-4 py-4 text-sm text-ink-3">{t("loading_status")}</p>
+        ) : load.phase === "failed" ? (
+          <p className="px-4 py-4 text-sm text-ink-2">
+            {load.expired ? t("audit_session_expired") : t("audit_store_unavailable")}
+          </p>
+        ) : load.entries.length === 0 ? (
+          <p className="px-4 py-4 text-sm text-ink-3">{t("audit_no_entries")}</p>
+        ) : (
+          // biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics once list-style is none
+          <ol role="list" className="divide-y divide-hairline">
+            {load.entries.map((entry, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: a fixed newest-first snapshot; two entries can share `at`
+              <li key={`${entry.at}-${index}`} className="px-3.5 py-3 sm:px-4">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <time
+                    dateTime={new Date(entry.at).toISOString()}
+                    className="text-sm tabular-nums text-ink sm:text-base"
+                  >
+                    {formatTimestamp(entry.at, timeZone, locale)}
+                  </time>
+                  <span
+                    className={`rounded-full border px-2.5 py-0.5 text-xs ${
+                      entry.action === "revealed" ? "border-rule text-ink-2" : "border-ink-3 text-ink"
+                    }`}
+                  >
+                    {t(`audit_action_${entry.action}`)}
+                  </span>
+                </div>
+                <p className="mt-1 text-sm text-ink-2">
+                  {entry.browser ?? (entry.userAgent ? t("audit_unknown_browser") : t("audit_unknown_client"))}
+                  {entry.os && ` · ${entry.os}`}
+                  {entry.session !== null && entry.session === load.currentSession && (
+                    <span className="text-ink-3"> · {t("audit_current_browser")}</span>
+                  )}
+                </p>
+                <p className="mt-0.5 text-sm text-ink-3 wrap-anywhere">
+                  IP {entry.ip}
+                  {entry.session && <> · {t("audit_session_label", { session: entry.session })}</>}
+                </p>
+                {entry.userAgent && (
+                  <p className="mt-1 font-mono text-xs leading-relaxed text-ink-3 wrap-anywhere">{entry.userAgent}</p>
+                )}
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </dialog>
+  );
+}
+
+/**
+ * The settings panel's API-token section. The token field belongs to the
+ * panel's draft (so the panel's own save can tell it was left unsaved), but it
+ * is saved by its own button, to its own endpoint: never with the rest.
+ */
+export function TokenSection({
+  headingId,
+  value,
+  onChange,
+  timeZone,
+}: {
+  headingId: string;
+  value: string;
+  onChange: (value: string) => void;
+  timeZone: string;
+}) {
+  const locale = useLocale();
+  const t = useTranslations("Settings");
+  const [load, setLoad] = useState<Load>({ phase: "loading" });
+  const [problem, setProblem] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  /** The token waiting for the "are you sure" answer. */
+  const [pending, setPending] = useState<string | null>(null);
+  const [auditOpen, setAuditOpen] = useState(false);
+  const inputId = useId();
+  const noteId = useId();
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/api-token", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw response.status;
+        const payload = (await response.json()) as { status: ApiTokenStatus };
+        if (!cancelled) setLoad({ phase: "ready", status: payload.status });
+      })
+      .catch(() => {
+        if (!cancelled) setLoad({ phase: "failed" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const status = load.phase === "ready" ? load.status : null;
+  const noKey = status?.state === "no_key";
+  const hasStored = status?.state === "stored" || status?.state === "unreadable";
+
+  async function save(token: string) {
+    setSaving(true);
+    setProblem(null);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/api-token", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+      if (response.ok && payload) {
+        setLoad({ phase: "ready", status: payload.status as ApiTokenStatus });
+        onChange("");
+        setNotice(payload.action === "created" ? t("token_saved") : t("token_modified"));
+      } else if (response.status === 401) {
+        setProblem(t("session_expired"));
+      } else if (response.status === 500 && payload?.error === "encryption_key_missing") {
+        setLoad({ phase: "ready", status: { state: "no_key" } });
+      } else if (response.status === 400) {
+        setProblem(t("token_rejected"));
+      } else {
+        setProblem(t("store_unavailable"));
+      }
+    } catch {
+      setProblem(t("server_did_not_respond"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function requestSave() {
+    const token = value.trim();
+    const tokenProblem = apiTokenProblem(token);
+    setNotice(null);
+    setProblem(tokenProblem && t(`token_problem_${tokenProblem}`, { min: MIN_TOKEN_LENGTH, max: MAX_TOKEN_LENGTH }));
+    if (tokenProblem || noKey) return;
+    // Only a first token goes straight in; replacing one (or one whose state is unknown) asks first.
+    if (status?.state === "empty") void save(token);
+    else setPending(token);
+  }
+
+  const statusNote = status ? apiTokenStatusNote(status) : null;
+  const updatedAt = status && "updatedAt" in status ? status.updatedAt : null;
+
+  return (
+    <section aria-labelledby={headingId} className="space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <h3 id={headingId} className="font-medium">
+          {t("api_token_heading")}
+        </h3>
+        <button
+          type="button"
+          onClick={() => setAuditOpen(true)}
+          aria-haspopup="dialog"
+          className={`flex items-center gap-2 text-sm ${QUIET_BUTTON}`}
+        >
+          <HistoryIcon />
+          {t("audit_button")}
+        </button>
+      </div>
+
+      <div id={noteId} className="space-y-1.5">
+        {load.phase === "loading" ? (
+          <p className="text-sm text-ink-3">{t("loading_status")}</p>
+        ) : load.phase === "failed" ? (
+          <StatusLine tone="problem">{t("status_load_failed")}</StatusLine>
+        ) : (
+          statusNote && (
+            <StatusLine tone={statusNote.tone}>
+              {t(statusNote.key)}
+              {updatedAt !== null && <> {t("last_saved", { date: formatDateTime(updatedAt, timeZone, locale) })}</>}
+            </StatusLine>
+          )
+        )}
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <label htmlFor={inputId} className="sr-only">
+          {hasStored ? t("new_api_token_label") : t("api_token_heading")}
+        </label>
+        <input
+          id={inputId}
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          maxLength={600}
+          placeholder={hasStored ? t("new_token_placeholder") : t("server_token_placeholder")}
+          value={value}
+          disabled={noKey}
+          onChange={(event) => {
+            onChange(event.target.value);
+            setProblem(null);
+            setNotice(null);
+          }}
+          onKeyDown={(event) => {
+            // Enter saves the token; it must not submit the whole settings form.
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            requestSave();
+          }}
+          aria-describedby={noteId}
+          aria-invalid={problem !== null || undefined}
+          className={`min-w-0 grow font-mono text-sm ${FIELD}`}
+        />
+        <button
+          type="button"
+          onClick={requestSave}
+          disabled={saving || noKey || load.phase === "loading"}
+          className={`shrink-0 self-end sm:self-auto ${QUIET_BUTTON}`}
+        >
+          {saving ? t("saving") : hasStored ? t("modify_token") : t("add_token")}
+        </button>
+      </div>
+
+      <div aria-live="polite">{problem && <StatusLine tone="problem">{problem}</StatusLine>}</div>
+      {notice && (
+        <Toast onDismiss={() => setNotice(null)}>
+          <StatusLine tone="good">{notice}</StatusLine>
+        </Toast>
+      )}
+
+      <p className="text-sm text-ink-3">
+        {t.rich("api_token_explanation", {
+          code: (chunks) => <code className="text-ink-2">{chunks}</code>,
+        })}
+      </p>
+
+      {pending !== null && (
+        <ConfirmDialog
+          title={t("confirm_replace_title")}
+          body={t("confirm_replace_body", { seconds: CONFIRM_DELAY_SECONDS })}
+          cancelLabel={t("cancel")}
+          confirmLabel={(secondsLeft) =>
+            secondsLeft > 0 ? t("confirm_yes_countdown", { seconds: secondsLeft }) : t("confirm_yes")
+          }
+          countdownSeconds={CONFIRM_DELAY_SECONDS}
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            const token = pending;
+            setPending(null);
+            void save(token);
+          }}
+        />
+      )}
+      {auditOpen && <AuditDialog timeZone={timeZone} onClose={() => setAuditOpen(false)} />}
+    </section>
+  );
+}
