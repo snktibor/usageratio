@@ -150,6 +150,31 @@ describe("ccusage provider parser", () => {
     });
   });
 
+  it.each([
+    [[], {}],
+    [["auto"], {}],
+    [["auto", "60"], { intervalMinutes: 60 }],
+    [["auto", "3"], {}], // out of the server's 5-1440 range: left out
+    [["manual"], { mode: "manual" }],
+    [["manual", "60"], { mode: "manual" }], // an interval is only ever sent for "auto"
+  ])("adds mode/intervalMinutes to the payload the way report-usage-core.sh derives them: %j", (args, extra) => {
+    const payload = execFileSync(
+      "node",
+      [PARSER, "payload", "mac", "Personal", "2026-09-22T11:49:28Z", "", "", ...args],
+      {
+        input: "{}",
+        encoding: "utf8",
+      },
+    );
+    expect(JSON.parse(payload)).toEqual({
+      machineId: "mac",
+      groupId: "Personal",
+      providers: {},
+      timestamp: "2026-09-22T11:49:28Z",
+      ...extra,
+    });
+  });
+
   it("keeps a split within the server's limits and its provider's total", () => {
     const many = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`model-${i}`, i + 1]));
     const models = normalizeModelMap(

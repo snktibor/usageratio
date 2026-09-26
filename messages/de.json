@@ -175,6 +175,7 @@
     "no_usage_yet": "In diesem Zyklus gibt es noch keinen Verbrauch. Die Aufschlüsselung erscheint nach der ersten Übermittlung mit gemeldeten Token.",
     "status_active": "Aktiv",
     "status_late": "Verspätet",
+    "status_manual": "Manuell",
     "status_inactive": "Inaktiv",
     "machines": "Maschinen",
     "machine": "Maschine",

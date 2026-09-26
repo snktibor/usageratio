@@ -17,7 +17,7 @@ import {
   serializeGroupEntry,
   serializeSettings,
 } from "@/lib/settings";
-import type { UsageReport } from "@/lib/validation";
+import type { ReportMode, UsageReport } from "@/lib/validation";
 
 /**
  * Redis layout
@@ -82,6 +82,28 @@ function eventMember(
     ts: timestampMs,
     ...(entries.length > 0 && { b: Object.fromEntries(entries) }),
     ...(checkpoint && { c: 1 }),
+  });
+}
+
+/**
+ * A machine's `usage:machines` entry. `md`/`iv` are left out for the common
+ * case (mode "auto" without an interval): parseMachine below already treats a
+ * missing field as "auto"/null, the same way it must for entries written
+ * before these fields existed.
+ */
+function machineEntry(
+  groupId: string,
+  timestampMs: number,
+  tokens: number,
+  mode: ReportMode,
+  intervalMinutes: number | null,
+): string {
+  return JSON.stringify({
+    g: groupId,
+    ts: timestampMs,
+    t: tokens,
+    ...(mode !== "auto" && { md: mode }),
+    ...(intervalMinutes !== null && { iv: intervalMinutes }),
   });
 }
 
@@ -194,7 +216,13 @@ export async function storeReport(
     for (const [providerId, tokens] of providers) {
       const eventsKey = KEYS.events(providerId, report.groupId);
       const member = eventMember(report.machineId, tokens, report.timestampMs, report.models[providerId]);
-      const lastReport = JSON.stringify({ g: report.groupId, ts: report.timestampMs, t: tokens });
+      const lastReport = machineEntry(
+        report.groupId,
+        report.timestampMs,
+        tokens,
+        report.mode ?? "auto",
+        report.intervalMinutes ?? null,
+      );
       plan.add(`provider:${providerId}`, () => tx.hsetnx(KEYS.providers, providerId, now.getTime()));
       plan.add(`event:${providerId}`, () => tx.zadd(eventsKey, { nx: true }, { score: report.timestampMs, member }));
       plan.add(null, () => tx.zremrangebyscore(eventsKey, 0, oldestMs));
@@ -251,9 +279,14 @@ export interface ProviderMachine extends KnownMachine {
   providerId: string;
 }
 
+/** A finite integer of at least `min`, else `fallback`; used for the lenient fields below. */
+function finiteIntegerOr(value: unknown, min: number, fallback: number | null): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= min ? value : fallback;
+}
+
 function parseMachine(field: string, raw: string): ProviderMachine | null {
   try {
-    const { g, ts, t } = JSON.parse(raw) as Record<string, unknown>;
+    const { g, ts, t, md, iv } = JSON.parse(raw) as Record<string, unknown>;
     if (typeof g !== "string" || typeof ts !== "number" || !Number.isFinite(ts)) return null;
     const separator = field.indexOf(":");
     // A field without a "providerId:" prefix is pre-provider data: run the migration first (see the layout comment above).
@@ -261,7 +294,18 @@ function parseMachine(field: string, raw: string): ProviderMachine | null {
     const providerId = normalizeProviderId(field.slice(0, separator));
     const machineId = field.slice(separator + 1);
     if (!providerId || machineId.length === 0) return null;
-    return { providerId, machineId, groupId: g, lastSeenAt: ts, lastTokens: typeof t === "number" ? t : 0 };
+    // Lenient: an entry written before these fields existed (or a damaged one) reads as auto/null.
+    const mode: ReportMode = md === "manual" ? "manual" : "auto";
+    const intervalMinutes = finiteIntegerOr(iv, 1, null);
+    return {
+      providerId,
+      machineId,
+      groupId: g,
+      lastSeenAt: ts,
+      lastTokens: typeof t === "number" ? t : 0,
+      mode,
+      intervalMinutes,
+    };
   } catch {
     return null;
   }

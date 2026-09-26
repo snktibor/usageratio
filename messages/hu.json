@@ -175,6 +175,7 @@
     "no_usage_yet": "Ebben a ciklusban még nincs fogyasztás. A bontás az első tokeneket jelentő beküldés után jelenik meg.",
     "status_active": "Aktív",
     "status_late": "Késik",
+    "status_manual": "Kézi",
     "status_inactive": "Inaktív",
     "machines": "Gépek",
     "machine": "Gép",

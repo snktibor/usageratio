@@ -15,6 +15,7 @@ import {
 } from "@/lib/settings";
 import { measureSubLimits, type SubLimit, type SubLimitModel, splitBySubLimits } from "@/lib/sub-limits";
 import { buildTimeline, type CycleTimeline } from "@/lib/timeline";
+import type { ReportMode } from "@/lib/validation";
 
 /** The most recent report of a machine, kept even when it is silent this cycle. */
 export interface KnownMachine {
@@ -22,6 +23,15 @@ export interface KnownMachine {
   groupId: string;
   lastSeenAt: number;
   lastTokens: number;
+  /**
+   * Optional (and treated as "auto" wherever it is read) so code building a
+   * `KnownMachine` outside the store — tests, mainly — need not set it. An
+   * older stored entry, or one with no report yet this cycle, reads the
+   * same way: "auto" when unknown.
+   */
+  mode?: ReportMode;
+  /** The auto client's own reporting interval in minutes; absent/null unless `mode` is "auto". */
+  intervalMinutes?: number | null;
 }
 
 /** Everything the dashboard needs from the store. */
@@ -32,7 +42,11 @@ export interface StoreSnapshot {
   machines: KnownMachine[];
 }
 
-export type MachineHealth = "active" | "late" | "inactive";
+/**
+ * "manual" is a machine reporting on demand (lib/validation.ts ReportMode
+ * "manual"): it is never "late", since there is no schedule to miss.
+ */
+export type MachineHealth = "active" | "late" | "manual" | "inactive";
 
 /**
  * What the machines measured, and, with the token limits on, how that stands
@@ -105,9 +119,23 @@ export interface ProviderDashboardModel {
 
 const HOUR = 3_600_000;
 
-function healthOf(ageMs: number, reportIntervalMinutes: number): MachineHealth {
+/**
+ * A manual machine has no schedule to be late against: it stays "manual" for
+ * as long as a silent one is still listed at all (`inactiveMachineDays`), then
+ * "inactive". An auto machine keeps today's thresholds, against its own
+ * interval when the report carried one, else the server's default.
+ */
+function healthOf(
+  ageMs: number,
+  machine: { mode: ReportMode; intervalMinutes: number | null },
+  config: Pick<AppConfig, "reportIntervalMinutes" | "inactiveMachineDays">,
+): MachineHealth {
+  if (machine.mode === "manual") {
+    return ageMs <= config.inactiveMachineDays * 24 * HOUR ? "manual" : "inactive";
+  }
+  const intervalMinutes = machine.intervalMinutes ?? config.reportIntervalMinutes;
   // One missed report is tolerated before a machine counts as late.
-  if (ageMs <= (2 * reportIntervalMinutes + 10) * 60_000) return "active";
+  if (ageMs <= (2 * intervalMinutes + 10) * 60_000) return "active";
   if (ageMs <= 24 * HOUR) return "late";
   return "inactive";
 }
@@ -158,7 +186,11 @@ export function buildDashboard(
       limitShare: limitShareOf(s.tokens),
       reports: s.reports,
       lastSeenAt,
-      health: healthOf(nowMs - lastSeenAt, config.reportIntervalMinutes),
+      health: healthOf(
+        nowMs - lastSeenAt,
+        { mode: known?.mode ?? "auto", intervalMinutes: known?.intervalMinutes ?? null },
+        config,
+      ),
     };
   });
 
@@ -178,7 +210,11 @@ export function buildDashboard(
       limitShare: limitShareOf(0),
       reports: 0,
       lastSeenAt: m.lastSeenAt,
-      health: healthOf(nowMs - m.lastSeenAt, config.reportIntervalMinutes),
+      health: healthOf(
+        nowMs - m.lastSeenAt,
+        { mode: m.mode ?? "auto", intervalMinutes: m.intervalMinutes ?? null },
+        config,
+      ),
     });
   }
 

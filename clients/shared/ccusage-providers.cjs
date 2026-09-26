@@ -21,6 +21,9 @@ const MAX_DAYS = 32;
 const MAX_DAYS_BYTES = 48_000;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const HOUR_MS = 3_600_000;
+// The server's range for an auto client's own reporting interval (lib/validation.ts).
+const MIN_INTERVAL_MINUTES = 5;
+const MAX_INTERVAL_MINUTES = 1440;
 
 function asObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
@@ -630,7 +633,10 @@ async function main() {
     return;
   }
   if (command === "payload") {
-    const [, , , machineId, groupId, timestamp, modelFile, daysFile] = process.argv;
+    // mode/intervalMinutes: bash's report-usage-core.sh derives both from
+    // USAGERATIO_OUTPUT_MODE (see lib/validation.ts ReportMode); the PowerShell
+    // core builds its payload without this parser and sets them itself.
+    const [, , , machineId, groupId, timestamp, modelFile, daysFile, mode, intervalMinutesRaw] = process.argv;
     if (!machineId || !groupId || !timestamp) throw new Error("payload needs machineId, groupId and timestamp");
     const providers = normalizeProviderMap(parsed);
     const models = readModelFile(modelFile, providers);
@@ -638,6 +644,18 @@ async function main() {
     const payload = { machineId, groupId, timestamp, providers };
     if (Object.keys(models).length > 0) payload.models = models;
     if (Object.keys(days).length > 0) payload.days = days;
+    // "auto" (the default the server assumes when the field is absent) is left out.
+    if (mode === "manual") payload.mode = "manual";
+    else {
+      const intervalMinutes = Number(intervalMinutesRaw);
+      if (
+        Number.isInteger(intervalMinutes) &&
+        intervalMinutes >= MIN_INTERVAL_MINUTES &&
+        intervalMinutes <= MAX_INTERVAL_MINUTES
+      ) {
+        payload.intervalMinutes = intervalMinutes;
+      }
+    }
     process.stdout.write(JSON.stringify(payload));
     return;
   }

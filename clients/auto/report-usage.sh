@@ -19,4 +19,11 @@ if [ "$JITTER_MAX" != "0" ]; then
   sleep "$((RANDOM % JITTER_MAX))"
 fi
 
+# This wrapper's own schedule (the crontab entry install.sh registers is hourly);
+# the core script reports it so the dashboard's machine health can use it instead
+# of the server's default interval. USAGERATIO_INTERVAL_MINUTES already set (by
+# whoever runs this) wins.
+USAGERATIO_INTERVAL_MINUTES="${USAGERATIO_INTERVAL_MINUTES:-60}"
+export USAGERATIO_INTERVAL_MINUTES
+
 exec /bin/bash "$CORE_SCRIPT" "$@"

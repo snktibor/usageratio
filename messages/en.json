@@ -175,6 +175,7 @@
     "no_usage_yet": "No consumption in this cycle yet. The breakdown will appear after the first submission reporting tokens.",
     "status_active": "Active",
     "status_late": "Late",
+    "status_manual": "Manual",
     "status_inactive": "Inactive",
     "machines": "Machines",
     "machine": "Machine",
