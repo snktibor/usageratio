@@ -1,0 +1,7 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/snktibor/usageratio/security/policy
+    about: >-
+      Please do not report security vulnerabilities as public issues — use private vulnerability
+      reporting instead.
