@@ -16,11 +16,6 @@ test.use({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 2 });
 
 const ASSETS = "docs/assets";
 
-/** The header's "Updated HH:MM" clock: masked so a screenshot never depends on when it was taken. */
-function clockMask(page: Page): Locator[] {
-  return [page.locator('[title^="Updated "]')];
-}
-
 /**
  * app/[locale]/(dashboard)/loading.tsx streams an instant skeleton before the real
  * dashboard replaces it; `page.goto` can resolve while that skeleton is still
@@ -54,7 +49,6 @@ test("dashboard.png — the hero chart, 1280 wide", async ({ page }, testInfo) =
   await page.screenshot({
     path: `${ASSETS}/dashboard.png`,
     clip: { x: 0, y: 0, width: 1280, height: Math.ceil(box.y + box.height) },
-    mask: clockMask(page),
   });
 });
 
@@ -67,7 +61,7 @@ test.describe("full-page shots", () => {
     test.skip(testInfo.project.name !== "demo", "runs only against the demo project");
     await gotoDashboard(page);
 
-    await page.screenshot({ path: `${ASSETS}/dashboard-full.png`, fullPage: true, mask: clockMask(page) });
+    await page.screenshot({ path: `${ASSETS}/dashboard-full.png`, fullPage: true });
   });
 
   test("mobile.png — the dashboard at 390x844", async ({ page }, testInfo) => {
@@ -75,7 +69,7 @@ test.describe("full-page shots", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await gotoDashboard(page);
 
-    await page.screenshot({ path: `${ASSETS}/mobile.png`, fullPage: true, mask: clockMask(page) });
+    await page.screenshot({ path: `${ASSETS}/mobile.png`, fullPage: true });
   });
 });
 

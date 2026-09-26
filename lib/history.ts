@@ -1,4 +1,4 @@
-import { groupIntoSeries, summarizeUsage, type UsageEvent, usageOfSeriesUntil } from "@/lib/aggregate";
+import { groupIntoSeries, summarizeCost, summarizeUsage, type UsageEvent, usageOfSeriesUntil } from "@/lib/aggregate";
 import type { TokenMode } from "@/lib/config";
 import { parseOfficialPercent } from "@/lib/ground-truth";
 import { modelKey } from "@/lib/models";
@@ -40,6 +40,11 @@ export interface CycleSummary {
   end: number;
   /** Measured tokens, the provider's own (a separate sub-limit's are not among them). */
   total: number;
+  /**
+   * The API-list-price cost estimate ($) for the whole cycle, present only
+   * when at least one event of it carried one (an opt-in; lib/setup.ts COST).
+   */
+  cost?: number;
   /** The provider's token limit in that cycle; null while the token limits were off. */
   limit: number | null;
   /** The official percentage (0–100) entered for that cycle; null when none was. */
@@ -103,6 +108,7 @@ export function summarizeCycle(input: SummarizeCycleInput): CycleSummary {
   const { events, window, mode, limit, official, subLimits, archivedAt } = input;
   const split = splitBySubLimits(events, subLimits);
   const usage = summarizeUsage(split.main, window, mode);
+  const cost = summarizeCost(split.main, window);
 
   // The model breakdown looks at every report as sent, same as the live model chart: a
   // separate sub-limit's models are still worth showing here, even though they are not in `total`.
@@ -123,6 +129,7 @@ export function summarizeCycle(input: SummarizeCycleInput): CycleSummary {
     start: window.startMs,
     end: window.endMs,
     total: usage.total,
+    ...(cost.hasCost && { cost: cost.total }),
     limit,
     official,
     groups: Object.fromEntries(usage.groups.map((g) => [g.groupId, g.tokens])),
@@ -178,12 +185,11 @@ export function parseCycleSummary(raw: string): CycleSummary | null {
     return null;
   }
   if (typeof value !== "object" || value === null) return null;
-  const { v, start, end, total, limit, official, groups, machines, models, subLimits, archivedAt } = value as Record<
-    string,
-    unknown
-  >;
+  const { v, start, end, total, cost, limit, official, groups, machines, models, subLimits, archivedAt } =
+    value as Record<string, unknown>;
   if (v !== 1) return null;
   if (!isFiniteNumber(start) || !isFiniteNumber(end) || !isFiniteNumber(total)) return null;
+  if (cost !== undefined && !isFiniteNumber(cost)) return null;
   if (limit !== null && !isFiniteNumber(limit)) return null;
   if (official !== null && !isFiniteNumber(official)) return null;
   if (!isNumberRecord(groups) || !isNumberRecord(models) || !isNumberRecord(subLimits)) return null;
@@ -193,6 +199,7 @@ export function parseCycleSummary(raw: string): CycleSummary | null {
     start,
     end,
     total,
+    ...(cost !== undefined && { cost }),
     limit: limit as number | null,
     official: official as number | null,
     groups,

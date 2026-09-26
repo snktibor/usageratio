@@ -109,6 +109,38 @@ describe("summarizeCycle", () => {
     expect(summary.models).toEqual({ "claude-sonnet-4-5": 700, "claude-fable-5-1": 200 });
   });
 
+  it("gains an optional cost total once at least one event of the cycle carries one", () => {
+    const events: UsageEvent[] = [
+      { machineId: "mac", groupId: "Work", tokens: 700, ts: HOUR, costUsd: 3.5 },
+      { machineId: "pc", groupId: "Personal", tokens: 300, ts: 2 * HOUR },
+    ];
+    const summary = summarizeCycle({
+      events,
+      window: WINDOW,
+      mode: "snapshot",
+      limit: null,
+      official: null,
+      subLimits: [],
+      archivedAt: 0,
+    });
+    expect(summary.cost).toBe(3.5);
+  });
+
+  it("leaves cost out entirely when nothing in the cycle carried one", () => {
+    const events: UsageEvent[] = [{ machineId: "mac", groupId: "Work", tokens: 700, ts: HOUR }];
+    const summary = summarizeCycle({
+      events,
+      window: WINDOW,
+      mode: "snapshot",
+      limit: null,
+      official: null,
+      subLimits: [],
+      archivedAt: 0,
+    });
+    expect(summary.cost).toBeUndefined();
+    expect(summary).not.toHaveProperty("cost");
+  });
+
   it("has no machines, groups or models for an empty cycle", () => {
     const summary = summarizeCycle({
       events: [],
@@ -150,12 +182,21 @@ describe("serializeCycleSummary / parseCycleSummary", () => {
     expect(parseCycleSummary(serializeCycleSummary(withoutFigures))).toEqual(withoutFigures);
   });
 
+  it("round-trips an optional cost, and leaves it out entirely without one", () => {
+    const withCost = { ...summary, cost: 12.34 };
+    expect(parseCycleSummary(serializeCycleSummary(withCost))).toEqual(withCost);
+    const parsed = parseCycleSummary(serializeCycleSummary(summary));
+    expect(parsed).toEqual(summary);
+    expect(parsed).not.toHaveProperty("cost");
+  });
+
   it("reads damaged or foreign JSON as null rather than throwing", () => {
     expect(parseCycleSummary("not json")).toBeNull();
     expect(parseCycleSummary("null")).toBeNull();
     expect(parseCycleSummary(JSON.stringify({ ...summary, v: 2 }))).toBeNull();
     expect(parseCycleSummary(JSON.stringify({ ...summary, groups: { Work: "100" } }))).toBeNull();
     expect(parseCycleSummary(JSON.stringify({ ...summary, total: "not a number" }))).toBeNull();
+    expect(parseCycleSummary(JSON.stringify({ ...summary, cost: "not a number" }))).toBeNull();
   });
 });
 

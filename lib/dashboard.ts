@@ -1,4 +1,4 @@
-import { summarizeUsage, type UsageEvent } from "@/lib/aggregate";
+import { summarizeCost, summarizeUsage, type UsageEvent } from "@/lib/aggregate";
 import type { AppConfig, BudgetPeriod, TokenMode } from "@/lib/config";
 import { getCycle, getDaySegments, getPreviousCycle } from "@/lib/cycle";
 import { type OfficialEntryView, officialUsageField } from "@/lib/official-usage";
@@ -90,6 +90,21 @@ export interface DashboardModel {
   timeline: CycleTimeline;
   /** The provider's sub-limits (such as Claude's Fable), each as its models measured it. */
   subLimits: SubLimitModel[];
+  /**
+   * An API-list-price cost estimate for this cycle, present only when at
+   * least one event of the window carried one (an opt-in; lib/setup.ts COST).
+   * Fictional for a subscription plan (Claude Max, ChatGPT Pro...): the UI
+   * must always label it as an estimate, never a bill.
+   */
+  cost?: {
+    total: number;
+    /** groupId → dollars. */
+    byGroup: Record<string, number>;
+    /** machineId → dollars. */
+    byMachine: Record<string, number>;
+    /** modelId (without its snapshot date) → dollars. */
+    byModel: Record<string, number>;
+  };
   machines: {
     machineId: string;
     groupId: string;
@@ -227,6 +242,18 @@ export function buildDashboard(
     snapshot.events,
   );
 
+  const costSummary = summarizeCost(split.main, { startMs, endMs });
+  const cost = costSummary.hasCost
+    ? {
+        total: costSummary.total,
+        byGroup: costSummary.byGroup,
+        byMachine: costSummary.byMachine,
+        byModel: Object.fromEntries(
+          timeline.models.filter((m) => m.cost !== undefined).map((m) => [m.modelId, m.cost!]),
+        ),
+      }
+    : undefined;
+
   return {
     generatedAt: nowMs,
     tokenMode: config.tokenMode,
@@ -256,6 +283,7 @@ export function buildDashboard(
       color: colorOf.get(g.groupId) ?? NEUTRAL_COLOR,
     })),
     timeline,
+    ...(cost && { cost }),
     subLimits: measureSubLimits(
       subLimits,
       split.bySubLimit,

@@ -52,6 +52,20 @@ export const DEMO_PROVIDERS: readonly DemoProvider[] = [
 /** The providers whose days come split by clock hour: only Claude Code's, as `ccusage blocks` sees no other agent. */
 export const DEMO_HOURLY_PROVIDERS: readonly string[] = ["claude"];
 
+/**
+ * A rough API-list-price, USD per token, for the models of the two providers
+ * the demo opts into cost for (so a screenshot has something to show; ccusage
+ * itself is what the real client reads this from). DeepSeek and Gemini are
+ * left out on purpose: not every provider's client has to opt in.
+ */
+const DEMO_COST_PER_TOKEN: Record<string, number> = {
+  "claude-opus-4-5-20251101": 22.5 / 1_000_000,
+  "claude-sonnet-4-5-20250929": 6 / 1_000_000,
+  "claude-fable-5-1": 3 / 1_000_000,
+  "gpt-5-codex": 8 / 1_000_000,
+  "gpt-5-mini": 1 / 1_000_000,
+};
+
 export type DemoOs = "macos" | "windows" | "linux";
 
 export interface DemoMachine {
@@ -321,6 +335,25 @@ function addInto(target: Record<string, number>, source: Record<string, number>)
   for (const [key, amount] of Object.entries(source)) target[key] = (target[key] ?? 0) + amount;
 }
 
+/**
+ * A model split's cost ($), from DEMO_COST_PER_TOKEN; null when none of the
+ * split's models has a rate (DeepSeek, Gemini): those providers' reports
+ * simply carry no cost, the same as any client that never opted in.
+ */
+function costOfSplit(split: Record<string, number>): { total: number; byModel: Record<string, number> } | null {
+  const byModel: Record<string, number> = {};
+  let total = 0;
+  for (const [model, tokens] of Object.entries(split)) {
+    const rate = DEMO_COST_PER_TOKEN[model];
+    if (!rate) continue;
+    const cost = Math.round(tokens * rate * 10_000) / 10_000;
+    if (cost <= 0) continue;
+    byModel[model] = cost;
+    total += cost;
+  }
+  return Object.keys(byModel).length > 0 ? { total: Math.round(total * 10_000) / 10_000, byModel } : null;
+}
+
 // ── History (archived cycles) ───────────────────────────────────────────────
 
 /** How many cycles before `cycles.previous` the demo pre-archives. */
@@ -366,6 +399,9 @@ function buildDemoHistory(previousCycle: Cycle, reset: ResetConfig, seed: number
           .sort(([, a], [, b]) => b - a)
           .slice(0, HISTORY_TOP_MODELS),
       );
+      // Same rough per-model rates the live reports use, so an archived cycle's cost lines
+      // up with what it would have shown at the time (Claude, OpenAI only; see costOfSplit).
+      const cost = costOfSplit(models);
 
       const subLimits: Record<string, number> =
         provider.id === "claude"
@@ -383,6 +419,7 @@ function buildDemoHistory(previousCycle: Cycle, reset: ResetConfig, seed: number
           start: cycle.start.getTime(),
           end: cycle.end.getTime(),
           total,
+          ...(cost && { cost: cost.total }),
           limit: null, // the demo ships with the token limits switched off (see `settings` below)
           official,
           groups,
@@ -509,6 +546,8 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
     const cycle = cycleOf(moment);
     const providers: Record<string, number> = {};
     const models: Record<string, Record<string, number>> = {};
+    const costs: Record<string, number> = {};
+    const modelCosts: Record<string, Record<string, number>> = {};
     const days = new Map<
       string,
       {
@@ -539,7 +578,16 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
         }
       }
       providers[providerId] = total;
-      if (Object.keys(split).length > 0) models[providerId] = split;
+      if (Object.keys(split).length > 0) {
+        models[providerId] = split;
+        // The two providers with a demo opt-in (Claude, OpenAI): a plausible cost estimate,
+        // computed from the very same split by model rather than a whole separate reading.
+        const cost = costOfSplit(split);
+        if (cost) {
+          costs[providerId] = cost.total;
+          modelCosts[providerId] = cost.byModel;
+        }
+      }
     }
 
     const daysBody: Record<string, unknown> = {};
@@ -567,6 +615,8 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
         providers,
         ...(Object.keys(models).length > 0 && { models }),
         ...(Object.keys(daysBody).length > 0 && { days: daysBody }),
+        ...(Object.keys(costs).length > 0 && { costs }),
+        ...(Object.keys(modelCosts).length > 0 && { modelCosts }),
         timestamp: new Date(moment).toISOString(),
       },
     };

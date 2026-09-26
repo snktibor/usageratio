@@ -28,6 +28,8 @@ describe("parseUsageReport", () => {
         providers: { deepseek: 1234, claude: 5678 },
         models: {},
         days: [],
+        costs: {},
+        modelCosts: {},
         timestampMs: Date.parse("2026-09-21T10:00:00Z"),
         timestamp: "2026-09-21T10:00:00.000Z",
         mode: "auto",
@@ -141,6 +143,67 @@ describe("parseUsageReport", () => {
     ["too many models", { claude: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`model-${i}`, 1])) }],
   ])("rejects models with %s", (_, models) => {
     expect(errorsOf({ ...VALID, models })).toHaveLength(1);
+  });
+
+  it("accepts a cost estimate and its split by model, and normalizes provider/model ids", () => {
+    const result = parseUsageReport(
+      {
+        ...VALID,
+        costs: { Claude: 12.3456, deepseek: 0.5 },
+        modelCosts: { Claude: { "Claude-Opus-4-5": 10, "claude-haiku-4-5": 2.3456 } },
+      },
+      OPTIONS,
+    );
+    expect(result.ok && result.report.costs).toEqual({ claude: 12.3456, deepseek: 0.5 });
+    expect(result.ok && result.report.modelCosts).toEqual({
+      claude: { "claude-opus-4-5": 10, "claude-haiku-4-5": 2.3456 },
+    });
+  });
+
+  it("defaults costs and modelCosts to empty objects when absent (an older or opted-out client)", () => {
+    const result = parseUsageReport(VALID, OPTIONS);
+    expect(result.ok && result.report.costs).toEqual({});
+    expect(result.ok && result.report.modelCosts).toEqual({});
+  });
+
+  it("accepts a model cost split covering only part of a provider's cost", () => {
+    expect(
+      parseUsageReport({ ...VALID, costs: { claude: 12 }, modelCosts: { claude: { "claude-opus-4-5": 5 } } }, OPTIONS)
+        .ok,
+    ).toBe(true);
+  });
+
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, 1e7 + 1, "1.5", null])("rejects a cost = %j", (amount) => {
+    expect(errorsOf({ ...VALID, costs: { claude: amount } })).toHaveLength(1);
+  });
+
+  it.each([
+    ["not an object", []],
+    ["a provider not in providers", { openai: 1 }],
+    ["a duplicate provider id", { Claude: 1, claude: 2 }],
+  ])("rejects costs with %s", (_, costs) => {
+    expect(errorsOf({ ...VALID, costs })).toHaveLength(1);
+  });
+
+  it.each([
+    ["not an object", []],
+    ["a provider not in costs", { openai: { "gpt-5": 1 } }],
+    ["a provider's models not an object", { claude: 5678 }],
+    ["an invalid model id", { claude: { "bad/model": 1 } }],
+    ["a duplicate model id", { claude: { "Claude-Opus": 1, "claude-opus": 2 } }],
+    ["too many models", { claude: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`model-${i}`, 1])) }],
+    ["more cost than the provider", { claude: { "claude-opus": 12, "claude-haiku": 1 } }],
+  ])("rejects modelCosts with %s", (_, modelCosts) => {
+    expect(errorsOf({ ...VALID, costs: { claude: 12 }, modelCosts })).toHaveLength(1);
+  });
+
+  it("tolerates a model cost sum a hair past the provider's cost (rounding across many models)", () => {
+    expect(
+      parseUsageReport(
+        { ...VALID, costs: { claude: 12 }, modelCosts: { claude: { "claude-opus": 6.005, "claude-haiku": 6.005 } } },
+        OPTIONS,
+      ).ok,
+    ).toBe(true);
   });
 
   it("accepts a split by day, sorts the days and normalizes their ids", () => {

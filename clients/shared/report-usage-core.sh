@@ -114,7 +114,12 @@ read_provider_tokens() {
   cycle_providers="$(node "$CCUSAGE_PARSER" cycle-providers <"$cycle_file" 2>>"$error_file")" || return 1
   # Only the hours need the exact start: without it the days are sent whole.
   cycle_start="$(node "$CCUSAGE_PARSER" cycle-start <"$cycle_file" 2>/dev/null)" || cycle_start=""
-  ccusage_args=(daily --json --by-agent --breakdown --no-cost --since "$cycle_since" --timezone "$cycle_timezone")
+  if [ "$COST" = "1" ]; then
+    # --offline: ccusage's cached price list, so a cron job never reaches the network for pricing.
+    ccusage_args=(daily --json --by-agent --breakdown --offline --since "$cycle_since" --timezone "$cycle_timezone")
+  else
+    ccusage_args=(daily --json --by-agent --breakdown --no-cost --since "$cycle_since" --timezone "$cycle_timezone")
+  fi
   blocks_args=(blocks --json --offline --session-length 1 --since "${cycle_since//-/}" --timezone "$cycle_timezone")
 
   case "$CCUSAGE_RUNNER" in
@@ -149,6 +154,10 @@ read_provider_tokens() {
     rm -f "$WORK_DIR/models.json"
   node "$CCUSAGE_PARSER" parse-days "$cycle_providers" "${hourly_args[@]}" <"$output_file" >"$WORK_DIR/days.json" 2>/dev/null ||
     rm -f "$WORK_DIR/days.json"
+  if [ "$COST" = "1" ]; then
+    node "$CCUSAGE_PARSER" parse-costs "$cycle_providers" "${hourly_args[@]}" <"$output_file" >"$WORK_DIR/costs.json" 2>/dev/null ||
+      rm -f "$WORK_DIR/costs.json"
+  fi
   [ -n "$PROVIDERS_JSON" ]
 }
 
@@ -160,6 +169,9 @@ API_URL=""
 API_TOKEN=""
 MACHINE_ID=""
 GROUP_ID=""
+# "1": estimate cost from ccusage's own (cached, --offline) API price list. Off by
+# default: a subscription plan (Claude Max, ChatGPT Pro...) is not billed this way.
+COST=""
 if [ -d "$HOME/Library/Logs" ]; then
   LOG_FILE="$HOME/Library/Logs/usageratio.log"
 else
@@ -177,6 +189,7 @@ API_TOKEN="${USAGERATIO_API_TOKEN:-$API_TOKEN}"
 MACHINE_ID="${USAGERATIO_MACHINE_ID:-$MACHINE_ID}"
 GROUP_ID="${USAGERATIO_GROUP_ID:-$GROUP_ID}"
 LOG_FILE="${USAGERATIO_LOG_FILE:-$LOG_FILE}"
+COST="${USAGERATIO_COST:-$COST}"
 
 if [ -z "$MACHINE_ID" ]; then
   MACHINE_ID="$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || hostname)"
@@ -334,7 +347,7 @@ fi
 # ─── Payload ──────────────────────────────────────────────────────────────────
 
 TIMESTAMP="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-PAYLOAD="$(printf '%s' "$PROVIDERS_JSON" | node "$CCUSAGE_PARSER" payload "$MACHINE_ID" "$GROUP_ID" "$TIMESTAMP" "$WORK_DIR/models.json" "$WORK_DIR/days.json" "$REPORT_MODE" "$INTERVAL_MINUTES" 2>"$WORK_DIR/payload-error")" || {
+PAYLOAD="$(printf '%s' "$PROVIDERS_JSON" | node "$CCUSAGE_PARSER" payload "$MACHINE_ID" "$GROUP_ID" "$TIMESTAMP" "$WORK_DIR/models.json" "$WORK_DIR/days.json" "$REPORT_MODE" "$INTERVAL_MINUTES" "$WORK_DIR/costs.json" 2>"$WORK_DIR/payload-error")" || {
   log "ERROR: could not create the JSON payload"
   exit 3
 }

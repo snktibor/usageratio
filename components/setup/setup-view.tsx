@@ -62,6 +62,7 @@ export function SetupView({
   const [route, setRoute] = useState(initialRoute);
   const [group, setGroup] = useState(groups[0]?.id ?? "Personal");
   const [machine, setMachine] = useState("");
+  const [cost, setCost] = useState(false);
   const skipPrefsWrite = useRef(true);
   const ids = {
     group: useId(),
@@ -104,11 +105,18 @@ export function SetupView({
   }, [os, route, group, machine]);
 
   const check = checkMachineSettings(group, machine);
-  const settings = check.ok ? { apiUrl, groupId: check.groupId, machineId: check.machineId } : null;
+  const settings = check.ok ? { apiUrl, groupId: check.groupId, machineId: check.machineId, cost } : null;
   const files = packageFiles(os, mode).filter((file) => !file.zipOnly);
   const name = packageName(os, mode);
   const zipHref = settings
-    ? `/api/setup?${new URLSearchParams({ os, mode, group: settings.groupId, machine: settings.machineId, locale })}`
+    ? `/api/setup?${new URLSearchParams({
+        os,
+        mode,
+        group: settings.groupId,
+        machine: settings.machineId,
+        locale,
+        ...(cost && { cost: "1" }),
+      })}`
     : null;
 
   return (
@@ -143,6 +151,8 @@ export function SetupView({
         setGroup={setGroup}
         machine={machine}
         setMachine={setMachine}
+        cost={cost}
+        setCost={setCost}
         groups={groups}
         check={check}
         ids={ids}
@@ -175,7 +185,7 @@ export function SetupView({
           hidden={route !== "oneShot"}
           os={os}
           settings={settings}
-          draft={{ apiUrl, groupId: group.trim(), machineId: machine.trim() }}
+          draft={{ apiUrl, groupId: group.trim(), machineId: machine.trim(), cost }}
           tokenStatus={tokenStatus}
           blobs={oneShot}
         />

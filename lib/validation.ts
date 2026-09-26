@@ -40,6 +40,19 @@ export interface UsageReport {
    * for clients that do not send the split.
    */
   days: DayUsage[];
+  /**
+   * An API-list-price estimate of what the tokens would have cost, in USD,
+   * cycle-to-date: providerId → dollars. Only from a client that opted in
+   * (lib/setup.ts COST); empty `{}` otherwise, or from an older client that
+   * never sends it. Fictional for a subscription plan (Claude Max, ChatGPT
+   * Pro...) — the dashboard must label it as an estimate, never a bill.
+   */
+  costs: Record<string, number>;
+  /**
+   * `costs` split by model, like `models`: providerId → modelId → dollars.
+   * Empty for clients that do not send one, or did not opt into cost at all.
+   */
+  modelCosts: Record<string, Record<string, number>>;
   /** Event time in epoch milliseconds. */
   timestampMs: number;
   /** Event time normalized to UTC ISO 8601. */
@@ -234,6 +247,108 @@ function parseModels(
   return models;
 }
 
+// A subscription is never billed by the token, so this is generous headroom for an
+// API-list-price estimate, not a real budget: it only guards against a garbled report.
+const MAX_COST_USD = 1e7;
+// Rounding across many models' costs (each already rounded to 4 decimals by the
+// client) may push their sum a hair past the provider's own total.
+const COST_EPSILON = 0.01;
+
+function isCostAmount(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_COST_USD;
+}
+
+/**
+ * The optional `costs` object: `{ "claude": 12.3456 }`, providerId → USD,
+ * cycle-to-date. Every provider in it must be one already in `providers`.
+ */
+function parseCosts(input: unknown, providers: Record<string, number>, errors: string[]): Record<string, number> {
+  const costs: Record<string, number> = {};
+  if (input === undefined) return costs;
+  if (!isObject(input)) {
+    errors.push("costs must be a JSON object");
+    return costs;
+  }
+
+  for (const [rawProvider, amount] of Object.entries(input)) {
+    const provider = normalizeProviderId(rawProvider);
+    if (!provider || !Object.hasOwn(providers, provider)) {
+      errors.push(`costs.${rawProvider} must name a provider listed in providers`);
+    } else if (Object.hasOwn(costs, provider)) {
+      errors.push(`costs.${rawProvider} is listed twice after normalization`);
+    } else if (!isCostAmount(amount)) {
+      errors.push(`costs.${rawProvider} must be a non-negative number of at most ${MAX_COST_USD} (a JSON number)`);
+    } else {
+      costs[provider] = amount;
+    }
+  }
+  return costs;
+}
+
+/**
+ * The optional `modelCosts` object: `{ "claude": { "claude-opus-4-5": 8.5 } }`.
+ * Every provider in it must be in `costs` too, capped like `models`, and its
+ * models may not add up to more than the provider's own cost there (past a
+ * small epsilon of rounding slack).
+ */
+function parseModelCosts(
+  input: unknown,
+  costs: Record<string, number>,
+  errors: string[],
+): Record<string, Record<string, number>> {
+  const modelCosts: Record<string, Record<string, number>> = {};
+  if (input === undefined) return modelCosts;
+  if (!isObject(input)) {
+    errors.push("modelCosts must be a JSON object");
+    return modelCosts;
+  }
+
+  for (const [rawProvider, rawModels] of Object.entries(input)) {
+    const provider = normalizeProviderId(rawProvider);
+    if (!provider || !Object.hasOwn(costs, provider)) {
+      errors.push(`modelCosts.${rawProvider} must name a provider listed in costs`);
+      continue;
+    }
+    if (Object.hasOwn(modelCosts, provider)) {
+      errors.push(`modelCosts.${rawProvider} is listed twice after normalization`);
+      continue;
+    }
+    if (!isObject(rawModels)) {
+      errors.push(`modelCosts.${rawProvider} must be a JSON object`);
+      continue;
+    }
+
+    const entries = Object.entries(rawModels);
+    if (entries.length > MAX_MODELS_PER_PROVIDER) {
+      errors.push(`modelCosts.${rawProvider} may contain at most ${MAX_MODELS_PER_PROVIDER} models`);
+      continue;
+    }
+
+    const split: Record<string, number> = {};
+    let sum = 0;
+    for (const [rawModel, amount] of entries) {
+      const model = normalizeModelId(rawModel);
+      if (!model) {
+        errors.push(`model ${JSON.stringify(rawModel)} must be 1-64 letters, digits, dots, dashes or underscores`);
+      } else if (Object.hasOwn(split, model)) {
+        errors.push(`model ${JSON.stringify(rawModel)} is listed twice after normalization`);
+      } else if (!isCostAmount(amount)) {
+        errors.push(
+          `modelCosts.${rawProvider}.${rawModel} must be a non-negative number of at most ${MAX_COST_USD} (a JSON number)`,
+        );
+      } else {
+        split[model] = amount;
+        sum += amount;
+      }
+    }
+    if (sum > costs[provider]! + COST_EPSILON) {
+      errors.push(`modelCosts.${rawProvider} adds up to more cost than costs.${rawProvider}`);
+    }
+    modelCosts[provider] = split;
+  }
+  return modelCosts;
+}
+
 /**
  * A day's optional `hours`: `{ "claude": { "2026-09-21T08:00:00Z": 300 } }`,
  * each key the start of a clock hour of that day (in UTC). Every provider in
@@ -401,6 +516,8 @@ export function parseUsageReport(input: unknown, options: ParseOptions): ParseRe
   const providers = parseProviders(body.providers, "providers", errors);
   const models = parseModels(body.models, providers, errors);
   const days = parseDays(body.days, providers, options.timeZone, errors);
+  const costs = parseCosts(body.costs, providers, errors);
+  const modelCosts = parseModelCosts(body.modelCosts, costs, errors);
   const mode = parseReportMode(body.mode, errors);
   const intervalMinutes = parseIntervalMinutes(body.intervalMinutes, errors);
 
@@ -428,6 +545,8 @@ export function parseUsageReport(input: unknown, options: ParseOptions): ParseRe
       providers,
       models,
       days,
+      costs,
+      modelCosts,
       timestampMs,
       timestamp: new Date(timestampMs).toISOString(),
       mode,
