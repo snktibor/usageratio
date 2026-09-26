@@ -78,14 +78,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: shellcheck
-        run: shellcheck -S warning $(find clients -type f -name '*.sh')
+        run: find clients -type f -name '*.sh' -exec shellcheck -S warning {} +
       - name: bash -n (syntax check)
-        run: |
-          status=0
-          for f in $(find clients -type f -name '*.sh'); do
-            bash -n "$f" || status=1
-          done
-          exit $status
+        run: find clients -type f -name '*.sh' -exec bash -n {} +
 
   powershell:
     runs-on: windows-latest
