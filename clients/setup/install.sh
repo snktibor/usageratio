@@ -51,7 +51,7 @@ else
   TERMINAL_WINDOW="terminal window"
 fi
 
-SOURCE_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SOURCE_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 INSTALL_DIR="$HOME/.usageratio"
 CONFIG_FILE="$HOME/.config/usageratio/config"
 if [ "$OS" = "Darwin" ] && [ -d "$HOME/Library/Logs" ]; then
@@ -112,6 +112,7 @@ installed_setting() {
   [ -f "$CONFIG_FILE" ] || return 0
   (
     set +eu
+    # shellcheck disable=SC2034 # read back by name through ${!1} below
     API_TOKEN=""
     MACHINE_ID=""
     # shellcheck disable=SC1090

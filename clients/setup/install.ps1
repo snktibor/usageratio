@@ -30,6 +30,9 @@
 [CmdletBinding()]
 param([switch]$Relaunched)
 
+# Read inside functions below; a script-level copy keeps that explicit.
+$script:WasRelaunched = [bool]$Relaunched
+
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
@@ -49,11 +52,11 @@ if (-not $hostPath -or [IO.Path]::GetFileNameWithoutExtension($hostPath) -notin 
 # The elevated window closes when the script ends: keep it open for the summary.
 function Exit-Install {
   param([int]$Code)
-  if ($Relaunched) { [void](Read-Host 'Press Enter to close this window') }
+  if ($script:WasRelaunched) { [void](Read-Host 'Press Enter to close this window') }
   exit $Code
 }
 
-function Stop-Install {
+function Exit-InstallError {
   param([string]$Message, [int]$Code = 1)
   Write-Host "$([char]0x274c) $Message" -ForegroundColor Red
   Exit-Install $Code
@@ -69,10 +72,10 @@ function Write-Caution {
 $hasAuto = Test-Path -LiteralPath (Join-Path $sourceDir 'report-usage-auto.ps1')
 $hasManual = Test-Path -LiteralPath (Join-Path $sourceDir 'report-usage-manual.ps1')
 if ($hasAuto -and $hasManual) {
-  Stop-Install "Both report-usage-auto.ps1 and report-usage-manual.ps1 are in $sourceDir; keep the one you want." 2
+  Exit-InstallError "Both report-usage-auto.ps1 and report-usage-manual.ps1 are in $sourceDir; keep the one you want." 2
 }
 if (-not ($hasAuto -or $hasManual)) {
-  Stop-Install "report-usage-auto.ps1 or report-usage-manual.ps1 is missing from $sourceDir." 2
+  Exit-InstallError "report-usage-auto.ps1 or report-usage-manual.ps1 is missing from $sourceDir." 2
 }
 $mode = 'manual'
 if ($hasAuto) { $mode = 'auto' }
@@ -81,7 +84,7 @@ $required = @('config.json', 'report-usage-core.ps1', 'ccusage-providers.cjs')
 if ($mode -eq 'auto') { $required += 'install-task.ps1' }
 foreach ($file in $required) {
   if (-not (Test-Path -LiteralPath (Join-Path $sourceDir $file))) {
-    Stop-Install "$file is missing from $sourceDir. Every package file belongs in one folder, next to install.ps1." 2
+    Exit-InstallError "$file is missing from $sourceDir. Every package file belongs in one folder, next to install.ps1." 2
   }
 }
 
@@ -96,7 +99,7 @@ if ($mode -eq 'auto') {
       Start-Process -FilePath $hostPath -Verb RunAs `
         -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Relaunched"
     } catch {
-      Stop-Install 'Administrator rights were not granted, so nothing was installed. Run the installer again and confirm the prompt.'
+      Exit-InstallError 'Administrator rights were not granted, so nothing was installed. Run the installer again and confirm the prompt.'
     }
     exit 0
   }
@@ -105,13 +108,13 @@ if ($mode -eq 'auto') {
 try {
   $package = Get-Content -LiteralPath (Join-Path $sourceDir 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 } catch {
-  Stop-Install "config.json is not valid JSON: $($_.Exception.Message)" 2
+  Exit-InstallError "config.json is not valid JSON: $($_.Exception.Message)" 2
 }
 $apiUrl = ([string]$package.apiUrl).Trim()
 $groupId = ([string]$package.groupId).Trim()
 $machineId = ([string]$package.machineId).Trim()
-if (-not $groupId) { Stop-Install 'groupId is empty in config.json.' 2 }
-if ($apiUrl -notmatch '^https?://') { Stop-Install "apiUrl in config.json must be the server's /api/usage address." 2 }
+if (-not $groupId) { Exit-InstallError 'groupId is empty in config.json.' 2 }
+if ($apiUrl -notmatch '^https?://') { Exit-InstallError "apiUrl in config.json must be the server's /api/usage address." 2 }
 
 $existing = $null
 if (Test-Path -LiteralPath $configPath) {
@@ -132,13 +135,13 @@ if (-not $machineId) { $machineId = [Environment]::MachineName }
 # --- Requirements -------------------------------------------------------------
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-  Stop-Install 'Node.js was not found. Install it (https://nodejs.org), then run the installer again: ccusage and the reporter both need it.'
+  Exit-InstallError 'Node.js was not found. Install it (https://nodejs.org), then run the installer again: ccusage and the reporter both need it.'
 }
 
 # Windows PowerShell 5.1 on older systems does not offer TLS 1.2 by default.
 try {
   [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-} catch { }
+} catch { Write-Verbose "Older systems may not know TLS 1.2 by this name; the request will tell. ($($_.Exception.Message))" }
 
 # --- API token ----------------------------------------------------------------
 
@@ -152,7 +155,7 @@ function Test-Token {
   } catch {
     # 5.1 throws WebException, 7+ throws HttpResponseException; both expose .Response.StatusCode.
     if ($_.Exception.PSObject.Properties['Response'] -and $_.Exception.Response) {
-      try { return [int]$_.Exception.Response.StatusCode } catch { }
+      try { return [int]$_.Exception.Response.StatusCode } catch { Write-Verbose "Not every error carries a status code; 0 stands for no answer. ($($_.Exception.Message))" }
     }
     return 0
   }
@@ -170,7 +173,7 @@ function Read-Token {
 $token = ([string]$env:USAGERATIO_API_TOKEN) -replace '\s', ''
 if ($token) {
   $status = Test-Token $token
-  if ($status -eq 401) { Stop-Install 'The server rejected $env:USAGERATIO_API_TOKEN (HTTP 401).' }
+  if ($status -eq 401) { Exit-InstallError 'The server rejected $env:USAGERATIO_API_TOKEN (HTTP 401).' }
   if ($status -ne 200) { Write-Caution "The token could not be checked (HTTP $status from $apiUrl); the first report will tell." }
 } else {
   Write-Host "The API token is the server's USAGE_API_TOKEN, the same on every machine. Typing is hidden."
@@ -194,7 +197,7 @@ if ($token) {
       Write-Caution "The token could not be checked ($why). It is saved anyway; the first report will tell."
       break
     }
-    if ($attempt -ge 3) { Stop-Install 'No valid token after three tries; nothing was installed.' }
+    if ($attempt -ge 3) { Exit-InstallError 'No valid token after three tries; nothing was installed.' }
     if ($token) { Write-Caution 'The server rejected this token (HTTP 401). Try again.' }
   }
 }
@@ -230,7 +233,7 @@ try {
   }
   [IO.File]::WriteAllText($configPath, ($settings | ConvertTo-Json), (New-Object System.Text.UTF8Encoding($false)))
 } catch {
-  Stop-Install "The files could not be installed: $($_.Exception.Message)"
+  Exit-InstallError "The files could not be installed: $($_.Exception.Message)"
 }
 
 # --- First report -------------------------------------------------------------
@@ -270,7 +273,7 @@ try {
     $shortcut.Save()
   }
 } catch {
-  Stop-Install "The files are in place, but the $mode setup failed: $($_.Exception.Message)"
+  Exit-InstallError "The files are in place, but the $mode setup failed: $($_.Exception.Message)"
 }
 
 # --- Summary ------------------------------------------------------------------

@@ -30,7 +30,7 @@ umask 077
 PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 export PATH
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 CCUSAGE_PARSER="$SCRIPT_DIR/ccusage-providers.cjs"
 OUTPUT_MODE="${USAGERATIO_OUTPUT_MODE:-silent}"
 # Which ccusage runs: "global" only the installed command, "npx" only the current
