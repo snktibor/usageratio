@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { routing } from "@/i18n/routing";
 import { isAuthenticated } from "@/lib/auth";
-import { StorageNotConfiguredError } from "@/lib/redis";
+import { log } from "@/lib/log";
 import { checkMachineSettings, parseMode, parseOs } from "@/lib/setup";
 import { buildSetupZip, loadClientSources, usageEndpoint } from "@/lib/setup-package";
 
@@ -44,8 +44,7 @@ export async function GET(request: Request): Promise<Response> {
       return Response.redirect(new URL(await localePrefixedSetupPath(), request.url), 303);
     }
   } catch (error) {
-    if (error instanceof StorageNotConfiguredError) console.error(`[usageratio] ${error.message}`);
-    else console.error("[usageratio] The setup download could not check the session:", error);
+    log.error("setup_download.session_check_failed", { err: error });
     return text("Az adattár most nem érhető el, ezért a letöltés sem. Próbáld újra kicsit később.", 503);
   }
 

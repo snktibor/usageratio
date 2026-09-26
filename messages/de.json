@@ -1,6 +1,7 @@
 {
   "Common": {
-    "hello": "Hallo Welt!",
+    "demo_banner": "Demomodus: Die Daten sind synthetisch, und nichts, was du hier änderst, wird gespeichert.",
+    "demo_banner_link": "Quellcode auf GitHub",
     "language": "Sprache"
   },
   "HomePage": {
@@ -52,7 +53,6 @@
     "copy_token": "Token kopieren",
     "audit_notice": "Die Abfrage wird im Auditprotokoll gespeichert.",
     "token_on_clipboard_hidden": "Der Token befindet sich in der Zwischenablage.",
-    "provide_in_settings": " Du kannst ihn im Einstellungen-Panel des Dashboards angeben.",
     "api_token_heading": "API-Token",
     "audit_button": "Audit",
     "status_load_failed": "Der Status konnte nicht geladen werden: Der Datenspeicher ist derzeit nicht erreichbar.",
@@ -159,7 +159,6 @@
     "share": "Anteil",
     "of_quota": "Vom Kontingent",
     "machines_count": "{count} Maschinen",
-    "share_and_machines": "{share} · {count} Maschinen",
     "no_usage_yet": "In diesem Zyklus gibt es noch keinen Verbrauch. Die Aufschlüsselung erscheint nach der ersten Übermittlung mit gemeldeten Token.",
     "status_active": "Aktiv",
     "status_late": "Verspätet",

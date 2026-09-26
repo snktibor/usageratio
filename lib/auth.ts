@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { cookies, headers } from "next/headers";
+import { isDemoMode } from "@/lib/demo/mode";
+import { log } from "@/lib/log";
 import { getRedis } from "@/lib/redis";
+import { clientIp, currentCookies, isHttpsRequest } from "@/lib/request-context";
 import { safeEqual, sha256Hex } from "@/lib/security";
 
 /**
@@ -36,19 +38,6 @@ function sessionKey(sessionId: string, pin: string): string {
   return `usage:session:${sha256Hex(`${sessionId}:${pin}`)}`;
 }
 
-export async function clientIp(): Promise<string> {
-  const h = await headers();
-  // On Vercel x-forwarded-for is set by the platform and cannot be spoofed by the client.
-  const forwarded = h.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return forwarded || h.get("x-real-ip")?.trim() || "unknown";
-}
-
-async function isHttps(): Promise<boolean> {
-  if (process.env.VERCEL) return true;
-  const proto = (await headers()).get("x-forwarded-proto")?.split(",")[0]?.trim();
-  return proto === "https";
-}
-
 /** Fixed-window counter: bumps `key` and reports how long until its window ends. */
 async function countAttempt(key: string, windowSeconds: number): Promise<{ count: number; retryAfterSeconds: number }> {
   const redis = getRedis();
@@ -66,7 +55,7 @@ async function countAttempt(key: string, windowSeconds: number): Promise<{ count
 export async function attemptLogin(pin: string): Promise<LoginResult> {
   const expected = configuredPin();
   if (!expected) {
-    console.error("[usageratio] DASHBOARD_PIN is missing or is not exactly 5 digits.");
+    log.error("auth.pin_misconfigured", { rule: "DASHBOARD_PIN must be exactly 5 digits" });
     return { ok: false, reason: "misconfigured" };
   }
   // Cannot be the PIN, so it is not a guess worth counting.
@@ -99,9 +88,9 @@ export async function attemptLogin(pin: string): Promise<LoginResult> {
   tx.decr(globalKey); // a successful login is not a failed guess
   await tx.exec();
 
-  (await cookies()).set(SESSION_COOKIE, sessionId, {
+  (await currentCookies()).set(SESSION_COOKIE, sessionId, {
     httpOnly: true,
-    secure: await isHttps(),
+    secure: await isHttpsRequest(),
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_TTL_SECONDS,
@@ -111,9 +100,11 @@ export async function attemptLogin(pin: string): Promise<LoginResult> {
 
 /** True only for a live session created with the current PIN. Throws if Redis is unreachable. */
 export async function isAuthenticated(): Promise<boolean> {
+  // The demo has no PIN: everyone sees the synthetic data, nobody can change it (lib/demo/mode.ts).
+  if (isDemoMode()) return true;
   const pin = configuredPin();
   if (!pin) return false;
-  const sessionId = (await cookies()).get(SESSION_COOKIE)?.value;
+  const sessionId = (await currentCookies()).get(SESSION_COOKIE)?.value;
   if (!sessionId || !SESSION_ID_PATTERN.test(sessionId)) return false;
   return Number(await getRedis().exists(sessionKey(sessionId, pin))) === 1;
 }
@@ -123,12 +114,13 @@ export async function isAuthenticated(): Promise<boolean> {
  * a hash of the session id, never the id itself. Null without a session cookie.
  */
 export async function sessionTag(): Promise<string | null> {
-  const sessionId = (await cookies()).get(SESSION_COOKIE)?.value;
+  const sessionId = (await currentCookies()).get(SESSION_COOKIE)?.value;
   return sessionId && SESSION_ID_PATTERN.test(sessionId) ? sha256Hex(sessionId).slice(0, 8) : null;
 }
 
 export async function endSession(): Promise<void> {
-  const store = await cookies();
+  if (isDemoMode()) return;
+  const store = await currentCookies();
   const sessionId = store.get(SESSION_COOKIE)?.value;
   store.delete(SESSION_COOKIE);
   const pin = configuredPin();

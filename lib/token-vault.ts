@@ -1,4 +1,3 @@
-import { headers } from "next/headers";
 import {
   type ApiTokenStatus,
   AUDIT_LIMIT,
@@ -9,8 +8,10 @@ import {
   serializeAuditRecord,
   toAuditEntry,
 } from "@/lib/api-token";
-import { clientIp, sessionTag } from "@/lib/auth";
+import { sessionTag } from "@/lib/auth";
+import { log } from "@/lib/log";
 import { getRedis } from "@/lib/redis";
+import { clientIp, currentHeaders } from "@/lib/request-context";
 import { openSecret, parseEncryptionKey, sealSecret } from "@/lib/secret-box";
 import { safeEqual } from "@/lib/security";
 
@@ -41,9 +42,9 @@ export function encryptionKey(env: Record<string, string | undefined> = process.
   const key = parseEncryptionKey(env.TOKEN_ENCRYPTION_KEY);
   if (!key && env.TOKEN_ENCRYPTION_KEY?.trim() && !warnedKey) {
     warnedKey = true;
-    console.error(
-      "[usageratio] TOKEN_ENCRYPTION_KEY must be 32 bytes: 64 hex digits or base64 (openssl rand -base64 32).",
-    );
+    log.error("vault.bad_encryption_key", {
+      rule: "TOKEN_ENCRYPTION_KEY must be 32 bytes: 64 hex digits or base64 (openssl rand -base64 32)",
+    });
   }
   return key;
 }
@@ -88,7 +89,7 @@ export async function loadApiTokenStatus(key: Buffer | null = encryptionKey()): 
 
 /** The browser making the current request. The texts are capped: they come from the client. */
 async function currentClient(): Promise<AuditClient> {
-  const requestHeaders = await headers();
+  const requestHeaders = await currentHeaders();
   const header = (name: string, max: number) => (requestHeaders.get(name) ?? "").slice(0, max);
   return {
     userAgent: header("user-agent", 512),

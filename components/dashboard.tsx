@@ -6,6 +6,7 @@ import { DownloadIcon, GitHubIcon } from "@/components/icons";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { Link } from "@/i18n/routing";
 import type { ProviderDashboardModel } from "@/lib/dashboard";
+import { isDemoMode } from "@/lib/demo/mode";
 import { formatClock } from "@/lib/format";
 import type { SettingsView } from "@/lib/settings";
 
@@ -40,14 +41,16 @@ export async function Dashboard({
             <span className="sr-only sm:not-sr-only">{t("dashboard_setup")}</span>
           </Link>
           <SettingsDialog view={settings} />
-          <form action={logout}>
-            <button
-              type="submit"
-              className="rounded-md border border-rule px-3 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
-            >
-              {t("dashboard_logout")}
-            </button>
-          </form>
+          {!isDemoMode() && (
+            <form action={logout}>
+              <button
+                type="submit"
+                className="rounded-md border border-rule px-3 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
+              >
+                {t("dashboard_logout")}
+              </button>
+            </form>
+          )}
         </div>
       </header>
 

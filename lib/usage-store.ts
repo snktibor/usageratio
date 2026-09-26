@@ -4,6 +4,7 @@ import { reportCheckpoints } from "@/lib/days";
 import { type OfficialUsageUpdate, officialUsageField, storedEntryFor } from "@/lib/official-usage";
 import { DEFAULT_PROVIDER_ID, mergeProviderIds, normalizeProviderId } from "@/lib/providers";
 import { getRedis, toStringRecord } from "@/lib/redis";
+import { TxPlan } from "@/lib/redis-tx";
 import {
   type IndexedGroup,
   type KnownGroup,
@@ -116,20 +117,22 @@ export async function storeReport(
   const checkpoints = cycle ? reportCheckpoints(report, cycle.timeZone, Math.max(cycle.startMs, oldestMs)) : [];
 
   const tx = getRedis().multi();
-  tx.hsetnx(KEYS.groups, report.groupId, serializeGroupEntry(randomGroupColor(), now.getTime()));
+  const plan = new TxPlan();
+  plan.add("group", () =>
+    tx.hsetnx(KEYS.groups, report.groupId, serializeGroupEntry(randomGroupColor(), now.getTime())),
+  );
   const machineEntries: Record<string, string> = {};
   for (const [providerId, tokens] of providers) {
     const eventsKey = KEYS.events(providerId, report.groupId);
     const member = eventMember(report.machineId, tokens, report.timestampMs, report.models[providerId]);
     const lastReport = JSON.stringify({ g: report.groupId, ts: report.timestampMs, t: tokens });
-    tx.hsetnx(KEYS.providers, providerId, now.getTime());
-    tx.zadd(eventsKey, { nx: true }, { score: report.timestampMs, member });
-    tx.zremrangebyscore(eventsKey, 0, oldestMs);
-    tx.expire(eventsKey, (retentionDays + 1) * 86_400);
+    plan.add(`provider:${providerId}`, () => tx.hsetnx(KEYS.providers, providerId, now.getTime()));
+    plan.add(`event:${providerId}`, () => tx.zadd(eventsKey, { nx: true }, { score: report.timestampMs, member }));
+    plan.add(null, () => tx.zremrangebyscore(eventsKey, 0, oldestMs));
+    plan.add(null, () => tx.expire(eventsKey, (retentionDays + 1) * 86_400));
     machineEntries[`${providerId}:${report.machineId}`] = lastReport;
   }
-  tx.hset(KEYS.machines, machineEntries);
-  // After everything the results below are read from, so their positions stay fixed.
+  plan.add(null, () => tx.hset(KEYS.machines, machineEntries));
   for (const [providerId] of providers) {
     const members = checkpoints
       .filter((checkpoint) => checkpoint.providerId === providerId)
@@ -138,15 +141,16 @@ export async function storeReport(
         member: eventMember(report.machineId, checkpoint.tokens, checkpoint.ts, checkpoint.models, true),
       }));
     const [first, ...rest] = members;
-    if (first) tx.zadd(KEYS.events(providerId, report.groupId), { nx: true }, first, ...rest);
+    if (first) plan.add(null, () => tx.zadd(KEYS.events(providerId, report.groupId), { nx: true }, first, ...rest));
   }
   const results: unknown[] = await tx.exec();
 
-  const duplicate = providers.every((_, index) => Number(results[2 + index * 4]) === 0);
-  const newProviders = providers.flatMap(([providerId], index) =>
-    Number(results[1 + index * 4]) === 1 ? [providerId] : [],
+  // ZADD NX answers how many members were new: 0 for every provider means the very same report was stored before.
+  const duplicate = providers.every(([providerId]) => Number(plan.result(results, `event:${providerId}`)) === 0);
+  const newProviders = providers.flatMap(([providerId]) =>
+    Number(plan.result(results, `provider:${providerId}`)) === 1 ? [providerId] : [],
   );
-  return { duplicate, newGroup: Number(results[0]) === 1, newProviders };
+  return { duplicate, newGroup: Number(plan.result(results, "group")) === 1, newProviders };
 }
 
 function parseEvent(raw: unknown, groupId: string): UsageEvent | null {
@@ -295,17 +299,18 @@ export async function loadEvents(
   if (groups.length === 0) return { eventsByProvider, groups: [] };
 
   const reads = getRedis().pipeline();
+  const plan = new TxPlan();
   const requests: { providerId: string; groupId: string }[] = [];
+  const request = (providerId: string, groupId: string, key: string) => {
+    const index = requests.length;
+    plan.add(`members:${index}`, () => reads.zrange(key, sinceMs, "+inf", { byScore: true }));
+    plan.add(`exists:${index}`, () => reads.exists(key));
+    requests.push({ providerId, groupId });
+  };
   for (const providerId of providers) {
     for (const group of groups) {
-      reads.zrange(KEYS.events(providerId, group.groupId), sinceMs, "+inf", { byScore: true });
-      reads.exists(KEYS.events(providerId, group.groupId));
-      requests.push({ providerId, groupId: group.groupId });
-      if (providerId === DEFAULT_PROVIDER_ID) {
-        reads.zrange(KEYS.legacyEvents(group.groupId), sinceMs, "+inf", { byScore: true });
-        reads.exists(KEYS.legacyEvents(group.groupId));
-        requests.push({ providerId, groupId: group.groupId });
-      }
+      request(providerId, group.groupId, KEYS.events(providerId, group.groupId));
+      if (providerId === DEFAULT_PROVIDER_ID) request(providerId, group.groupId, KEYS.legacyEvents(group.groupId));
     }
   }
   const results: unknown[] = await reads.exec();
@@ -313,7 +318,7 @@ export async function loadEvents(
   const seenEvents = new Map<string, Set<string>>();
 
   requests.forEach(({ providerId, groupId }, index) => {
-    const members = results[2 * index];
+    const members = plan.result(results, `members:${index}`);
     const target = eventsByProvider[providerId];
     if (target && Array.isArray(members)) {
       const seen = seenEvents.get(providerId) ?? new Set<string>();
@@ -328,7 +333,7 @@ export async function loadEvents(
         }
       }
     }
-    if (Number(results[2 * index + 1]) === 1) activeGroups.add(groupId);
+    if (Number(plan.result(results, `exists:${index}`)) === 1) activeGroups.add(groupId);
   });
 
   return {
@@ -343,19 +348,20 @@ export async function loadGroupActivity(groups: IndexedGroup[], providerIds: str
 
   const providers = mergeProviderIds(providerIds);
   const reads = getRedis().pipeline();
+  const plan = new TxPlan();
   const requestedGroups: string[] = [];
+  const check = (groupId: string, key: string) => {
+    plan.add(`exists:${requestedGroups.length}`, () => reads.exists(key));
+    requestedGroups.push(groupId);
+  };
   for (const group of groups) {
-    for (const providerId of providers) {
-      reads.exists(KEYS.events(providerId, group.groupId));
-      requestedGroups.push(group.groupId);
-    }
-    reads.exists(KEYS.legacyEvents(group.groupId));
-    requestedGroups.push(group.groupId);
+    for (const providerId of providers) check(group.groupId, KEYS.events(providerId, group.groupId));
+    check(group.groupId, KEYS.legacyEvents(group.groupId));
   }
   const results: unknown[] = await reads.exec();
   const active = new Set<string>();
-  results.forEach((result, index) => {
-    if (Number(result) === 1) active.add(requestedGroups[index]!);
+  requestedGroups.forEach((groupId, index) => {
+    if (Number(plan.result(results, `exists:${index}`)) === 1) active.add(groupId);
   });
 
   return groups.map((group) => ({ ...group, hasReports: active.has(group.groupId) }));
@@ -379,20 +385,22 @@ export async function saveSettings(
   const redis = getRedis();
 
   const reads = redis.pipeline();
-  reads.hgetall(KEYS.groups);
+  const plan = new TxPlan();
+  plan.add("groups", () => reads.hgetall(KEYS.groups));
   const reportChecks: string[] = [];
-  for (const groupId of update.removedGroups) {
-    for (const providerId of mergeProviderIds(providerIds)) {
-      reads.exists(KEYS.events(providerId, groupId));
-      reportChecks.push(groupId);
-    }
-    reads.exists(KEYS.legacyEvents(groupId));
+  const check = (groupId: string, key: string) => {
+    plan.add(`check:${reportChecks.length}`, () => reads.exists(key));
     reportChecks.push(groupId);
+  };
+  for (const groupId of update.removedGroups) {
+    for (const providerId of mergeProviderIds(providerIds)) check(groupId, KEYS.events(providerId, groupId));
+    check(groupId, KEYS.legacyEvents(groupId));
   }
-  const [rawGroups, ...stored]: unknown[] = await reads.exec();
+  const results: unknown[] = await reads.exec();
+  const rawGroups = plan.result(results, "groups");
 
   const groupsWithReports = [
-    ...new Set(stored.flatMap((result, index) => (Number(result) === 1 ? [reportChecks[index]!] : []))),
+    ...new Set(reportChecks.filter((_, index) => Number(plan.result(results, `check:${index}`)) === 1)),
   ];
   if (groupsWithReports.length > 0) return { ok: false, groupsWithReports };
 

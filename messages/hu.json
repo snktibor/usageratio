@@ -1,6 +1,7 @@
 {
   "Common": {
-    "hello": "Szia világ!",
+    "demo_banner": "Demó mód: az adatok szintetikusak, és semmi sem mentődik, amit itt megváltoztatsz.",
+    "demo_banner_link": "Forráskód a GitHubon",
     "language": "Nyelv"
   },
   "HomePage": {
@@ -52,7 +53,6 @@
     "copy_token": "Token másolása",
     "audit_notice": "A lekérés az auditnaplóba kerül.",
     "token_on_clipboard_hidden": "A token a vágólapon.",
-    "provide_in_settings": " A dashboard Beállítások paneljén adhatod meg.",
     "api_token_heading": "API-token",
     "audit_button": "Audit",
     "status_load_failed": "Az állapot nem tölthető be: az adattár most nem érhető el.",
@@ -159,7 +159,6 @@
     "share": "Részesedés",
     "of_quota": "A keretből",
     "machines_count": "{count} gép",
-    "share_and_machines": "{share} · {count} gép",
     "no_usage_yet": "Ebben a ciklusban még nincs fogyasztás. A bontás az első tokeneket jelentő beküldés után jelenik meg.",
     "status_active": "Aktív",
     "status_late": "Késik",

@@ -4,6 +4,7 @@ import { type SetupGroup, SetupView } from "@/components/setup-view";
 import { StorageProblem } from "@/components/storage-problem";
 import type { ApiTokenStatus } from "@/lib/api-token";
 import { isAuthenticated } from "@/lib/auth";
+import { log } from "@/lib/log";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { NEUTRAL_COLOR, resolveGroupColors } from "@/lib/settings";
 import { detectOs, parseMode, parseOs, parseRoute } from "@/lib/setup";
@@ -45,7 +46,7 @@ export default async function SetupPage({
     if (await isAuthenticated()) [groups, tokenStatus] = await Promise.all([loadGroups(), loadApiTokenStatus()]);
   } catch (error) {
     storageError = error;
-    console.error("[usageratio] The setup page could not load:", error);
+    log.error("setup_page.load_failed", { err: error });
   }
 
   if (storageError) {

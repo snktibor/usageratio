@@ -1,5 +1,6 @@
 import { isAuthenticated } from "@/lib/auth";
 import { getConfig } from "@/lib/config";
+import { demoReadOnly } from "@/lib/demo/mode";
 import { storageFailure as failure, isForeignOrigin, json } from "@/lib/http";
 import { mergeProviderIds } from "@/lib/providers";
 import { buildSettingsView, parseSettingsUpdate, resolveConfig, storedProviderIds } from "@/lib/settings";
@@ -58,6 +59,8 @@ export async function GET(): Promise<Response> {
 
 export async function PUT(request: Request): Promise<Response> {
   if (isForeignOrigin(request)) return json({ error: "forbidden_origin" }, 403);
+  const readOnly = demoReadOnly();
+  if (readOnly) return readOnly;
 
   try {
     if (!(await isAuthenticated())) return json({ error: "unauthorized" }, 401);

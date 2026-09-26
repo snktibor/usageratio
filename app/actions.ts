@@ -3,6 +3,7 @@
 import { getLocale } from "next-intl/server";
 import { redirect } from "@/i18n/routing";
 import { attemptLogin, endSession, type LoginResult } from "@/lib/auth";
+import { log } from "@/lib/log";
 import { StorageNotConfiguredError } from "@/lib/redis";
 
 export interface LoginState {
@@ -20,7 +21,7 @@ export async function login(_previous: LoginState, formData: FormData): Promise<
   try {
     result = await attemptLogin(pin);
   } catch (error) {
-    console.error("[usageratio] Login could not reach the store:", error);
+    log.error("login.store_unreachable", { err: error });
     if (error instanceof StorageNotConfiguredError) {
       return {
         error:
@@ -61,7 +62,7 @@ export async function logout(): Promise<void> {
     await endSession();
   } catch (error) {
     // The cookie is already cleared; a stale Redis key simply expires.
-    console.error("[usageratio] Logout could not reach the store:", error);
+    log.error("logout.store_unreachable", { err: error });
   }
   const locale = await getLocale();
   return redirect({ href: "/", locale });

@@ -1,5 +1,6 @@
 import { isValidApiToken } from "@/lib/api-token";
 import { isAuthenticated } from "@/lib/auth";
+import { demoReadOnly } from "@/lib/demo/mode";
 import { storageFailure as failure, isForeignOrigin, json } from "@/lib/http";
 import { encryptionKey, loadApiTokenStatus, saveApiToken } from "@/lib/token-vault";
 
@@ -36,6 +37,8 @@ export async function GET(): Promise<Response> {
 
 export async function PUT(request: Request): Promise<Response> {
   if (isForeignOrigin(request)) return json({ error: "forbidden_origin" }, 403);
+  const readOnly = demoReadOnly();
+  if (readOnly) return readOnly;
 
   try {
     if (!(await isAuthenticated())) return json({ error: "unauthorized" }, 401);

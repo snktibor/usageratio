@@ -1,3 +1,4 @@
+import { log } from "@/lib/log";
 import type { SubLimit } from "@/lib/sub-limits";
 
 /**
@@ -137,7 +138,7 @@ const warned = new Set<string>();
 function warnOnce(name: string, value: string, fallback: unknown): void {
   if (warned.has(name)) return;
   warned.add(name);
-  console.warn(`[usageratio] Ignoring invalid ${name}=${JSON.stringify(value)}; using ${JSON.stringify(fallback)}.`);
+  log.warn("config.invalid_env", { name, value, fallback });
 }
 
 /**
