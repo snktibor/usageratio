@@ -9,6 +9,9 @@ import type { ProviderDashboardModel } from "@/lib/dashboard";
 import { isDemoMode } from "@/lib/demo/mode";
 import { formatClock } from "@/lib/format";
 import type { SettingsView } from "@/lib/settings";
+import { version } from "@/package.json";
+
+const REPO_URL = "https://github.com/snktibor/usageratio";
 
 export async function Dashboard({
   providers,
@@ -57,15 +60,17 @@ export async function Dashboard({
       <DashboardView providers={providers} />
 
       <footer className="mt-16 flex items-center gap-3 text-sm text-ink-3">
-        <span>{t("credit_made_by")}</span>
         <a
-          href="https://github.com/snktibor"
+          href={REPO_URL}
           target="_blank"
           rel="noreferrer"
           className="flex items-center gap-2 rounded-md border border-rule px-2.5 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
         >
           <GitHubIcon />
-          snktibor
+          {t("footer_source")}
+        </a>
+        <a href={`${REPO_URL}/releases`} target="_blank" rel="noreferrer" className="hover:text-ink-2">
+          {t("footer_version", { version })}
         </a>
       </footer>
     </div>

@@ -9,7 +9,6 @@
     "dashboard_updated_title": "Frissítve {refreshedAt}",
     "dashboard_setup": "Telepítés",
     "dashboard_logout": "Kilépés",
-    "credit_made_by": "Készítette",
     "pin_heading": "Add meg a PIN-kódot",
     "pin_description": "A tokenkeret adatai csak a helyes, 5 jegyű kód után töltődnek be.",
     "pin_checking": "Ellenőrzés…",
@@ -18,7 +17,9 @@
     "storage_unavailable_title": "Az adattár most nem érhető el",
     "storage_not_configured_desc": "Hiányzik a <code>KV_REST_API_URL</code> és a <code>KV_REST_API_TOKEN</code> környezeti változó. Kösd a Vercel-projekthez az Upstash Redis adatbázist (Storage fül), majd telepítsd újra az alkalmazást.",
     "storage_unavailable_desc": "A Redis nem válaszolt. A kliensek beküldései ilyenkor sem vesznek el végleg, a következő órában újra jelentenek. Töltsd újra az oldalt egy perc múlva.",
-    "storage_reload": "Újratöltés"
+    "storage_reload": "Újratöltés",
+    "footer_source": "Forráskód",
+    "footer_version": "v{version}"
   },
   "Settings": {
     "audit_action_created": "Hozzáadás",
@@ -341,5 +342,27 @@
     "mode_manual_macos": "Te futtatod kézzel, amikor akarod: egy sync-tokens parancsot kapsz a Terminálban.",
     "mode_auto_linux": "Létrehoz egy systemd usertimert, ami a háttérben óránként és bekapcsoláskor elküldi a jelentést.",
     "mode_manual_linux": "Te futtatod kézzel, amikor akarod: egy sync-tokens parancsot kapsz a shellben."
+  },
+  "Auth": {
+    "pin_malformed": "A PIN-kód pontosan 5 számjegy.",
+    "pin_misconfigured": "A szerveren nincs érvényes DASHBOARD_PIN beállítva (5 számjegy kell).",
+    "pin_invalid": "Hibás PIN-kód. {attemptsLeft, plural, one {Még # próbálkozásod van.} other {Még # próbálkozásod van.}}",
+    "pin_locked": "Hibás PIN-kód. Elfogytak a próbálkozások, próbáld újra {minutes, plural, one {# perc} other {# perc}} múlva.",
+    "rate_limited": "Túl sok próbálkozás. Próbáld újra {minutes, plural, one {# perc} other {# perc}} múlva.",
+    "storage_not_configured": "Az adattár nincs bekötve: hiányzik a KV_REST_API_URL és a KV_REST_API_TOKEN. Kösd a Redis adatbázist a Vercel-projekthez, majd telepítsd újra.",
+    "storage_unavailable": "Az adattár most nem érhető el, ezért a belépés sem. Próbáld újra kicsit később."
+  },
+  "Errors": {
+    "page_failed_title": "Az oldal nem tudott betölteni",
+    "page_failed_desc": "Váratlan hiba történt a megjelenítés közben. A részletek a telepítés futásidejű naplójában vannak.",
+    "error_id": "Hibaazonosító: {digest}",
+    "retry": "Újrapróbálás",
+    "not_found_title": "Az oldal nem található",
+    "not_found_desc": "Itt nincs semmi. Lehet, hogy az oldal elköltözött, vagy elgépelted a címet.",
+    "back_home": "Vissza a főoldalra",
+    "loading": "Betöltés…"
+  },
+  "Metadata": {
+    "description": "A usageratio az AI kódolóügynökök tokenfogyasztását követi gépek és csoportok szerint, heti vagy havi kerethez viszonyítva."
   }
 }

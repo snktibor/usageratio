@@ -2,14 +2,49 @@
 
 import { useTranslations } from "next-intl";
 import { useActionState, useRef } from "react";
-import { type LoginState, login } from "@/app/actions";
+import { type LoginError, type LoginState, login } from "@/app/actions";
 import { StopCircleIcon } from "@/components/icons";
+import type { Translator } from "@/lib/i18n";
 
 const INITIAL_STATE: LoginState = { error: null };
+
+/** How long an address stays locked out after its last allowed guess (lib/auth.ts). */
+const LOCKOUT_MINUTES = 15;
+
+/**
+ * The failure code from the server action, in the visitor's language.
+ *
+ * The parameter is named `tAuth`, matching the caller's variable: the
+ * messages test statically scans for `<name>("key")` calls and resolves the
+ * namespace from a `const <name> = useTranslations("Namespace")` binding
+ * found anywhere in this file — a parameter called `t` would be misread as
+ * the `HomePage` translator declared below in `PinForm`.
+ */
+function errorText(tAuth: Translator<"Auth">, error: LoginError): string {
+  switch (error.code) {
+    case "malformed":
+      return tAuth("pin_malformed");
+    case "misconfigured":
+      return tAuth("pin_misconfigured");
+    case "storage_not_configured":
+      return tAuth("storage_not_configured");
+    case "storage_unavailable":
+      return tAuth("storage_unavailable");
+    case "rate_limited":
+      return tAuth("rate_limited", { minutes: Math.max(1, Math.ceil((error.retryAfterSeconds ?? 60) / 60)) });
+    case "invalid": {
+      const attemptsLeft = error.attemptsLeft ?? 0;
+      return attemptsLeft > 0
+        ? tAuth("pin_invalid", { attemptsLeft })
+        : tAuth("pin_locked", { minutes: LOCKOUT_MINUTES });
+    }
+  }
+}
 
 /** `labelledBy`: id of the heading that names the field. `next`: where a successful login continues. */
 export function PinForm({ labelledBy, next }: { labelledBy: string; next: string }) {
   const t = useTranslations("HomePage");
+  const tAuth = useTranslations("Auth");
   const [state, formAction, pending] = useActionState(login, INITIAL_STATE);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -56,7 +91,7 @@ export function PinForm({ labelledBy, next }: { labelledBy: string; next: string
         {state.error && (
           <>
             <StopCircleIcon className="mt-0.5 shrink-0 text-critical" />
-            <span>{state.error}</span>
+            <span>{errorText(tAuth, state.error)}</span>
           </>
         )}
       </p>

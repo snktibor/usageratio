@@ -9,7 +9,6 @@
     "dashboard_updated_title": "Updated {refreshedAt}",
     "dashboard_setup": "Setup",
     "dashboard_logout": "Log out",
-    "credit_made_by": "Made by",
     "pin_heading": "Enter PIN",
     "pin_description": "Token quota data will only load after the correct 5-digit code.",
     "pin_checking": "Checking...",
@@ -18,7 +17,9 @@
     "storage_unavailable_title": "Data store is currently unavailable",
     "storage_not_configured_desc": "Missing <code>KV_REST_API_URL</code> and <code>KV_REST_API_TOKEN</code> environment variables. Connect the Upstash Redis database to your Vercel project (Storage tab), then reinstall the application.",
     "storage_unavailable_desc": "Redis did not respond. Client submissions are not permanently lost, they will report again in the next hour. Reload the page in a minute.",
-    "storage_reload": "Reload"
+    "storage_reload": "Reload",
+    "footer_source": "Source",
+    "footer_version": "v{version}"
   },
   "Settings": {
     "audit_action_created": "Added",
@@ -341,5 +342,27 @@
     "mode_manual_macos": "You run it manually whenever you want: provides a sync-tokens command in the Terminal.",
     "mode_auto_linux": "Creates a systemd user timer that sends the report hourly and at startup in the background.",
     "mode_manual_linux": "You run it manually whenever you want: provides a sync-tokens command in the shell."
+  },
+  "Auth": {
+    "pin_malformed": "The PIN must be exactly 5 digits.",
+    "pin_misconfigured": "The server has no valid DASHBOARD_PIN configured (5 digits required).",
+    "pin_invalid": "Incorrect PIN. {attemptsLeft, plural, one {# attempt left.} other {# attempts left.}}",
+    "pin_locked": "Incorrect PIN. Out of attempts, try again in {minutes, plural, one {# minute} other {# minutes}}.",
+    "rate_limited": "Too many attempts. Try again in {minutes, plural, one {# minute} other {# minutes}}.",
+    "storage_not_configured": "The data store isn't connected: missing KV_REST_API_URL and KV_REST_API_TOKEN. Connect the Redis database to the Vercel project, then reinstall.",
+    "storage_unavailable": "The data store isn't reachable right now, so login isn't either. Try again in a bit."
+  },
+  "Errors": {
+    "page_failed_title": "The page could not load",
+    "page_failed_desc": "Something went wrong while rendering. The details are in the deployment's runtime log.",
+    "error_id": "Error id: {digest}",
+    "retry": "Try again",
+    "not_found_title": "Page not found",
+    "not_found_desc": "There is nothing here. The page may have moved, or the address is mistyped.",
+    "back_home": "Back to home",
+    "loading": "Loading…"
+  },
+  "Metadata": {
+    "description": "usageratio tracks AI coding-agent token usage across machines and groups against a weekly or monthly budget."
   }
 }
