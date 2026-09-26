@@ -7,7 +7,8 @@ Redis and an Upstash-compatible REST proxy in front of it — the app only ever 
 API (`lib/redis.ts`), so this is what stands in for Upstash's own service.
 
 For everything not specific to Docker — the client protocol, the API, the Redis data model, security
-— see the [technical reference](REFERENCE.md).
+— see [clients.md](clients.md), [api.md](api.md), [data-model.md](data-model.md), and
+[security.md](security.md).
 
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
@@ -118,8 +119,8 @@ host and scheme they see in the request (or, behind a proxy, at `X-Forwarded-Hos
 `X-Forwarded-Proto`) — there's nothing Docker-specific to configure here, as long as clients can reach
 this host's port 3000 (or 443, behind HTTPS) from wherever they run.
 
-See the [technical reference's Clients section](REFERENCE.md#clients) for the installer's flags, exit
-codes, and the package-free command-line install.
+See [clients.md](clients.md) for the installer's flags, exit codes, and the package-free command-line
+install.
 
 ## Housekeeping (the daily cron)
 
