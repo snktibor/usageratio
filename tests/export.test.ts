@@ -109,19 +109,40 @@ describe("buildExportRows", () => {
       },
     ]);
   });
+
+  it("carries costUsd only for an event that has one", () => {
+    const events: UsageEvent[] = [
+      { machineId: "mac", groupId: "Work", tokens: 100, ts: HOUR, costUsd: 1.2345 },
+      { machineId: "pc", groupId: "Work", tokens: 50, ts: 2 * HOUR },
+    ];
+    const rows = buildExportRows(input({ providers: [{ id: "claude", label: "Claude", events, history: [] }] }));
+    expect(rows[0]).toMatchObject({ machineId: "mac", costUsd: 1.2345 });
+    expect(rows[1]).not.toHaveProperty("costUsd");
+  });
 });
 
 describe("buildExportCsv", () => {
   it("has the exact header row", () => {
     const csv = buildExportCsv(input());
-    expect(csv).toBe("provider,groupId,machineId,timestamp,tokens,checkpoint,models\r\n");
+    expect(csv).toBe("provider,groupId,machineId,timestamp,tokens,checkpoint,models,costUsd\r\n");
   });
 
   it("quotes a comma, a double quote and a newline per RFC 4180", () => {
     const events: UsageEvent[] = [{ machineId: "mac, home", groupId: 'Work "A"', tokens: 10, ts: HOUR }];
     const csv = buildExportCsv(input({ providers: [{ id: "claude", label: "Claude", events, history: [] }] }));
     const [, row] = csv.split("\r\n");
-    expect(row).toBe(`claude,"Work ""A""","mac, home",${new Date(HOUR).toISOString()},10,false,`);
+    expect(row).toBe(`claude,"Work ""A""","mac, home",${new Date(HOUR).toISOString()},10,false,,`);
+  });
+
+  it("leaves costUsd empty when absent, and prints it plainly when present", () => {
+    const events: UsageEvent[] = [
+      { machineId: "mac", groupId: "Work", tokens: 10, ts: HOUR, costUsd: 1.2345 },
+      { machineId: "pc", groupId: "Work", tokens: 20, ts: 2 * HOUR },
+    ];
+    const csv = buildExportCsv(input({ providers: [{ id: "claude", label: "Claude", events, history: [] }] }));
+    const [, withCost, withoutCost] = csv.split("\r\n");
+    expect(withCost?.endsWith(",false,,1.2345")).toBe(true);
+    expect(withoutCost?.endsWith(",false,,")).toBe(true);
   });
 
   it("quotes an embedded newline and encodes the model split as JSON", () => {
@@ -172,6 +193,23 @@ describe("buildExportJsonPayload", () => {
         history: [summary(0)],
       },
     ]);
+  });
+
+  it("carries costUsd in an event's JSON only when it has one", () => {
+    const payload = buildExportJsonPayload(
+      input({
+        providers: [
+          {
+            id: "claude",
+            label: "Claude",
+            events: [{ machineId: "mac", groupId: "Work", tokens: 10, ts: HOUR, costUsd: 2.5 }],
+            history: [],
+          },
+        ],
+      }),
+    );
+    expect(payload.providers[0]?.events[0]).toMatchObject({ costUsd: 2.5 });
+    expect(JSON.parse(JSON.stringify(payload)).providers[0].events[0]).toHaveProperty("costUsd", 2.5);
   });
 
   it("keeps one provider's events out of another's list", () => {

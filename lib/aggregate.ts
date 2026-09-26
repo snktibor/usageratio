@@ -10,6 +10,15 @@ export interface UsageEvent {
   /** `tokens` split by model id, when the client sent the split. */
   models?: Record<string, number>;
   /**
+   * An API-list-price estimate of `tokens`, in USD, cycle-to-date, when the
+   * client opted into cost (lib/setup.ts COST); absent otherwise, including
+   * from every older client and from a checkpoint (lib/days.ts never splits
+   * cost by day). Fictional for a subscription plan — never a real bill.
+   */
+  costUsd?: number;
+  /** `costUsd` split by model id, when the client sent one. */
+  modelCosts?: Record<string, number>;
+  /**
    * Not a report of its own: the machine's running total at the end of a day,
    * from a later report's split by day (lib/days.ts). Only snapshot mode can
    * read a running total, the other modes skip these.
@@ -157,4 +166,60 @@ export function summarizeUsage(events: UsageEvent[], window: TimeWindow, mode: T
   );
 
   return { total, groups, series };
+}
+
+// ── Cost (an opt-in, API-list-price estimate) ───────────────────────────────
+
+export interface CostSummary {
+  total: number;
+  byGroup: Record<string, number>;
+  byMachine: Record<string, number>;
+  /** True when at least one event of the window carried a cost figure at all. */
+  hasCost: boolean;
+}
+
+/**
+ * Cost ($) one series accrued from `startMs` up to each of `endsMs` (ascending,
+ * exclusive). Unlike `usageOfSeriesUntil`, this needs no token mode: ccusage's
+ * own cost figure is already a cycle-to-date running total (like tokens in
+ * "snapshot" mode always are), so a machine's highest in-window reading is
+ * its cost, whatever the provider's configured token mode. Events without a
+ * cost figure are skipped rather than treated as a reading of zero.
+ */
+export function costOfSeriesUntil(events: UsageEvent[], startMs: number, endsMs: number[]): number[] {
+  const usages: number[] = [];
+  let usage = 0;
+  for (const event of events) {
+    while (usages.length < endsMs.length && event.ts >= endsMs[usages.length]!) usages.push(usage);
+    if (usages.length === endsMs.length) break;
+    if (event.costUsd !== undefined && event.ts >= startMs) usage = Math.max(usage, event.costUsd);
+  }
+  while (usages.length < endsMs.length) usages.push(usage);
+  return usages;
+}
+
+/**
+ * The window's cost, by machine and by group, and in total; only over the
+ * machines that reported a cost figure at all in the window (a machine that
+ * never opted in is simply left out, rather than shown at $0). Mirrors
+ * `summarizeUsage`, minus the token-mode/share/report bookkeeping cost has no use for.
+ */
+export function summarizeCost(events: UsageEvent[], window: TimeWindow): CostSummary {
+  let total = 0;
+  const byGroup: Record<string, number> = {};
+  const byMachine: Record<string, number> = {};
+  let hasCost = false;
+
+  for (const series of groupIntoSeries(events)) {
+    const inWindow = series.filter((e) => e.ts >= window.startMs && e.ts < window.endMs);
+    if (!inWindow.some((e) => e.costUsd !== undefined)) continue;
+    hasCost = true;
+    const cost = costOfSeriesUntil(series, window.startMs, [window.endMs])[0]!;
+    const { machineId, groupId } = series[0]!;
+    byMachine[machineId] = (byMachine[machineId] ?? 0) + cost;
+    byGroup[groupId] = (byGroup[groupId] ?? 0) + cost;
+    total += cost;
+  }
+
+  return { total, byGroup, byMachine, hasCost };
 }

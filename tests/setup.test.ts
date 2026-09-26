@@ -122,6 +122,24 @@ describe("renderConfig", () => {
       expect(() => renderConfig("macos", { ...SETTINGS, groupId })).toThrow();
     }
   });
+
+  it("adds COST=1 to the macOS config only when the cost opt-in is on", () => {
+    expect(renderConfig("macos", { ...SETTINGS, machineId: "mac-studio" })).not.toContain("COST");
+    expect(renderConfig("macos", { ...SETTINGS, machineId: "mac-studio", cost: true })).toBe(
+      'API_URL="https://usageratio.example.com/api/usage"\nMACHINE_ID="mac-studio"\nGROUP_ID="Otthoni gép"\nCOST=1\n',
+    );
+    expect(renderConfig("macos", { ...SETTINGS, machineId: "mac-studio", cost: false })).not.toContain("COST");
+  });
+
+  it('adds "cost": true to the Windows config only when the opt-in is on', () => {
+    expect(JSON.parse(renderConfig("windows", SETTINGS))).not.toHaveProperty("cost");
+    expect(JSON.parse(renderConfig("windows", { ...SETTINGS, cost: true }))).toEqual({
+      apiUrl: SETTINGS.apiUrl,
+      machineId: "",
+      groupId: SETTINGS.groupId,
+      cost: true,
+    });
+  });
 });
 
 describe("checkMachineSettings", () => {
@@ -268,6 +286,17 @@ describe("renderOneShot", () => {
   it("is the same command on macOS and Linux", () => {
     expect(renderOneShot("linux", "global", SETTINGS, TOKEN, BLOBS)).toBe(
       renderOneShot("macos", "global", SETTINGS, TOKEN, BLOBS),
+    );
+  });
+
+  it("adds USAGERATIO_COST only when the opt-in is on", () => {
+    expect(renderOneShot("macos", "npx", SETTINGS, TOKEN, BLOBS)).not.toContain("USAGERATIO_COST");
+    expect(renderOneShot("macos", "npx", { ...SETTINGS, cost: true }, TOKEN, BLOBS)).toContain(
+      "USAGERATIO_COST=1 \\\n",
+    );
+    expect(renderOneShot("windows", "global", SETTINGS, TOKEN, BLOBS)).not.toContain("USAGERATIO_COST");
+    expect(renderOneShot("windows", "global", { ...SETTINGS, cost: true }, TOKEN, BLOBS)).toContain(
+      "    USAGERATIO_COST = '1'\n",
     );
   });
 

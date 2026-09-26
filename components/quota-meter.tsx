@@ -1,8 +1,16 @@
 import { useLocale, useTranslations } from "next-intl";
 import { CycleRuler } from "@/components/cycle-ruler";
 import { AlertTriangleIcon, CheckCircleIcon, InfoCircleIcon, StopCircleIcon } from "@/components/icons";
+import { InfoTip } from "@/components/info-tip";
 import type { DashboardModel } from "@/lib/dashboard";
-import { formatCycleMoment, formatDuration, formatHeroPercent, formatPercent, formatTokens } from "@/lib/format";
+import {
+  formatCost,
+  formatCycleMoment,
+  formatDuration,
+  formatHeroPercent,
+  formatPercent,
+  formatTokens,
+} from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
 import type { Translator } from "@/lib/i18n";
 import type { QuotaAssessment } from "@/lib/quota";
@@ -152,6 +160,15 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
           <span className="rounded-full border border-ink-3 px-3 py-1 text-sm text-ink-2">{t("official_value")}</span>
         )}
       </h1>
+
+      {model.cost && (
+        <p className="relative mt-2 flex items-center gap-1.5 text-sm text-ink-3">
+          <span>{t("cost_estimate", { amount: formatCost(model.cost.total, locale) })}</span>
+          <InfoTip label={t("cost_estimate_tooltip_aria")}>
+            <span className="block">{t("cost_estimate_tooltip")}</span>
+          </InfoTip>
+        </p>
+      )}
 
       <div className="relative mt-12">
         <span

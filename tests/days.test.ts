@@ -29,6 +29,8 @@ function report(timestamp: string, days: DayUsage[]): UsageReport {
     providers,
     models: {},
     days,
+    costs: {},
+    modelCosts: {},
     timestampMs: Date.parse(timestamp),
     timestamp,
   };

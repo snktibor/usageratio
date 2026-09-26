@@ -2,7 +2,14 @@ import { useLocale, useTranslations } from "next-intl";
 import { CalibratedNote, Swatch } from "@/components/group-breakdown";
 import { CheckCircleIcon, ClockIcon, InfoCircleIcon, MoonIcon } from "@/components/icons";
 import type { DashboardModel, MachineHealth } from "@/lib/dashboard";
-import { formatAgo, formatDateTime, formatLimitShare, formatPercent, formatTokens } from "@/lib/format";
+import {
+  formatAgo,
+  formatCostOrDash,
+  formatDateTime,
+  formatLimitShare,
+  formatPercent,
+  formatTokens,
+} from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
 
 type Machine = DashboardModel["machines"][number];
@@ -50,6 +57,7 @@ export function MachineTable({ model, view }: { model: DashboardModel; view: Das
   const t = useTranslations("Widgets");
   // No token limit and no official figure: there is no limit to take a share of.
   const hasLimitShare = view.quota !== null;
+  const hasCost = Boolean(model.cost);
 
   return (
     <section aria-labelledby="machines-heading">
@@ -76,6 +84,11 @@ export function MachineTable({ model, view }: { model: DashboardModel; view: Das
                 {hasLimitShare && t("limit_share_text", { share: formatLimitShare(machine.limitShare, locale) })}
               </span>
             </div>
+            {hasCost && (
+              <div className="mt-1 text-right text-sm tabular-nums text-ink-3">
+                {formatCostOrDash(model.cost?.byMachine[machine.machineId], locale)}
+              </div>
+            )}
             <div className="mt-2">
               <LastReport machine={machine} model={model} />
             </div>
@@ -101,6 +114,11 @@ export function MachineTable({ model, view }: { model: DashboardModel; view: Das
             {hasLimitShare && (
               <th scope="col" className="whitespace-nowrap py-2 pl-4 text-right font-normal">
                 {t("of_quota")}
+              </th>
+            )}
+            {hasCost && (
+              <th scope="col" className="py-2 pl-4 text-right font-normal">
+                {t("cost")}
               </th>
             )}
             <th scope="col" className="py-2 pl-8 font-normal">
@@ -134,6 +152,11 @@ export function MachineTable({ model, view }: { model: DashboardModel; view: Das
               </td>
               {hasLimitShare && (
                 <td className="py-3 pl-4 text-right tabular-nums">{formatLimitShare(machine.limitShare, locale)}</td>
+              )}
+              {hasCost && (
+                <td className="py-3 pl-4 text-right tabular-nums text-ink-2">
+                  {formatCostOrDash(model.cost?.byMachine[machine.machineId], locale)}
+                </td>
               )}
               <td className="py-3 pl-8">
                 <LastReport machine={machine} model={model} />

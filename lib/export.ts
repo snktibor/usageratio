@@ -68,6 +68,8 @@ export interface ExportEventRow {
   tokens: number;
   checkpoint: boolean;
   models: Record<string, number> | null;
+  /** API-list-price cost estimate ($), present only when the event carried one (an opt-in; lib/setup.ts COST). */
+  costUsd?: number;
 }
 
 /** Every provider's events of the requested cycle, one flat, deterministically ordered list. */
@@ -83,6 +85,7 @@ export function buildExportRows(input: ExportInput): ExportEventRow[] {
           tokens: event.tokens,
           checkpoint: event.checkpoint === true,
           models: event.models ?? null,
+          ...(event.costUsd !== undefined && { costUsd: event.costUsd }),
         }),
       ),
     )
@@ -95,7 +98,16 @@ export function buildExportRows(input: ExportInput): ExportEventRow[] {
     );
 }
 
-const CSV_HEADER = ["provider", "groupId", "machineId", "timestamp", "tokens", "checkpoint", "models"] as const;
+const CSV_HEADER = [
+  "provider",
+  "groupId",
+  "machineId",
+  "timestamp",
+  "tokens",
+  "checkpoint",
+  "models",
+  "costUsd",
+] as const;
 
 /** RFC 4180: a field is quoted, its own quotes doubled, only when it needs to be. */
 function csvField(value: string): string {
@@ -106,7 +118,7 @@ function csvRow(values: string[]): string {
   return values.map(csvField).join(",");
 }
 
-/** CSV of one cycle's reports, CRLF line endings, columns exactly `provider,groupId,machineId,timestamp,tokens,checkpoint,models`. */
+/** CSV of one cycle's reports, CRLF line endings, columns exactly `provider,groupId,machineId,timestamp,tokens,checkpoint,models,costUsd`. */
 export function buildExportCsv(input: ExportInput): string {
   const lines = [csvRow([...CSV_HEADER])];
   for (const row of buildExportRows(input)) {
@@ -119,6 +131,7 @@ export function buildExportCsv(input: ExportInput): string {
         String(row.tokens),
         String(row.checkpoint),
         row.models ? JSON.stringify(row.models) : "",
+        row.costUsd === undefined ? "" : String(row.costUsd),
       ]),
     );
   }

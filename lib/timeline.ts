@@ -1,4 +1,4 @@
-import { groupIntoSeries, type UsageEvent, usageOfSeriesUntil } from "@/lib/aggregate";
+import { costOfSeriesUntil, groupIntoSeries, type UsageEvent, usageOfSeriesUntil } from "@/lib/aggregate";
 import type { TokenMode } from "@/lib/config";
 import { modelKey, modelLabel } from "@/lib/models";
 
@@ -27,6 +27,8 @@ export interface ModelTimeline {
   /** Its tokens this cycle, over all groups. */
   tokens: number;
   groups: GroupSeries[];
+  /** Its API-list-price cost estimate this cycle, over all groups; undefined without a cost split naming it. */
+  cost?: number;
 }
 
 export interface CycleTimeline {
@@ -112,6 +114,34 @@ function reportsOfModel(events: UsageEvent[], key: string): UsageEvent[] {
 }
 
 /**
+ * A model's cost ($) this cycle so far, summed over every machine that named
+ * it in a split; undefined when nothing did (no client opted into cost, or
+ * none tied this particular model's cost down). Cost is always cycle-to-date
+ * snapshot semantics (lib/aggregate.ts `costOfSeriesUntil`), independent of
+ * the provider's own token mode.
+ */
+function modelCostTotal(
+  events: UsageEvent[],
+  key: string,
+  window: { startMs: number; endMs: number },
+): number | undefined {
+  let total: number | undefined;
+  for (const series of groupIntoSeries(events)) {
+    const costSeries = series.flatMap((event) => {
+      if (!event.modelCosts) return [];
+      let cost: number | undefined;
+      for (const [modelId, amount] of Object.entries(event.modelCosts)) {
+        if (modelKey(modelId) === key) cost = (cost ?? 0) + amount;
+      }
+      return cost === undefined ? [] : [{ ...event, costUsd: cost }];
+    });
+    if (costSeries.length === 0) continue;
+    total = (total ?? 0) + costOfSeriesUntil(costSeries, window.startMs, [window.endMs])[0]!;
+  }
+  return total;
+}
+
+/**
  * `events` may reach back before the cycle (counter mode's baseline);
  * `groupIds` are the groups to chart, in the order to chart them. The models
  * come from `modelEvents`: the provider's reports as sent, while `events` may
@@ -137,7 +167,8 @@ export function buildTimeline(
     .map((key) => {
       const groups = groupTimelines(reportsOfModel(modelEvents, key), groupIds, times, window, mode);
       const tokens = groups.reduce((sum, group) => sum + group.values[last]!, 0);
-      return { modelId: key, label: modelLabel(key), tokens, groups };
+      const cost = modelCostTotal(modelEvents, key, window);
+      return { modelId: key, label: modelLabel(key), tokens, groups, ...(cost !== undefined && { cost }) };
     })
     .filter((model) => model.tokens > 0)
     .sort((a, b) => b.tokens - a.tokens || a.modelId.localeCompare(b.modelId));

@@ -5,6 +5,7 @@ import { useId, useState } from "react";
 import { ChartLegend, type ChartSeries, CycleChart } from "@/components/cycle-chart";
 import { formatTokenTick, niceScale } from "@/lib/chart";
 import type { DashboardModel } from "@/lib/dashboard";
+import { formatCost } from "@/lib/format";
 import { NEUTRAL_COLOR } from "@/lib/settings";
 
 /** The token axis never shrinks below this, so a handful of tokens does not fill the chart. */
@@ -55,7 +56,7 @@ export function ModelChart({ model }: { model: DashboardModel }) {
                     className="peer sr-only"
                   />
                   <span
-                    title={m.modelId}
+                    title={m.cost !== undefined ? `${m.modelId} · ${formatCost(m.cost, locale)}` : m.modelId}
                     className="flex cursor-pointer items-baseline gap-2 rounded-full border border-rule px-3.5 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink peer-checked:border-ink peer-checked:bg-ink peer-checked:text-page peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink"
                   >
                     <span className="font-medium">{m.label}</span>

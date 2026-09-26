@@ -36,7 +36,12 @@ export const GET = withApiHandler("api/setup", async ({ request }) => {
     return apiError("invalid_payload", 400);
   }
 
-  const settings = { apiUrl: usageEndpoint(request.headers), groupId: check.groupId, machineId: check.machineId };
+  const settings = {
+    apiUrl: usageEndpoint(request.headers),
+    groupId: check.groupId,
+    machineId: check.machineId,
+    ...(params.get("cost") === "1" && { cost: true }),
+  };
   const [translate, sources] = await Promise.all([
     getTranslations({ locale, namespace: "Setup" }),
     loadClientSources(),

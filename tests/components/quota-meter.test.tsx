@@ -46,4 +46,35 @@ describe("QuotaMeter", () => {
 
     expect(screen.queryByRole("meter")).toBeNull();
   });
+
+  it("shows the cost estimate line once an event of the cycle carries one", () => {
+    const config = getConfig({});
+    const model = buildDashboard(
+      NOW,
+      config,
+      snapshot({
+        events: [{ machineId: "mac", groupId: "Work", tokens: 150_000, ts: CYCLE_START + 10 * HOUR, costUsd: 12.3456 }],
+      }),
+    );
+    const view = applyGroundTruth(model, null);
+
+    renderWithIntl(<QuotaMeter model={model} view={view} />);
+
+    expect(screen.getByText(/\$12\.35/)).toBeTruthy();
+    expect(screen.getByText(/at API list prices/)).toBeTruthy();
+  });
+
+  it("has no cost line while nothing in the cycle carries a cost figure", () => {
+    const config = getConfig({});
+    const model = buildDashboard(
+      NOW,
+      config,
+      snapshot({ events: [{ machineId: "mac", groupId: "Work", tokens: 150_000, ts: CYCLE_START + 10 * HOUR }] }),
+    );
+    const view = applyGroundTruth(model, null);
+
+    renderWithIntl(<QuotaMeter model={model} view={view} />);
+
+    expect(screen.queryByText(/at API list prices/)).toBeNull();
+  });
 });

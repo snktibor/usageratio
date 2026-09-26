@@ -346,7 +346,11 @@
     "history_cycle_column": "Ciklus",
     "history_tokens_column": "Token",
     "history_official_column": "Hivatalos",
-    "history_groups_column": "Csoportok"
+    "history_groups_column": "Csoportok",
+    "cost": "Költség",
+    "cost_estimate": "≈ {amount} API listaáron",
+    "cost_estimate_tooltip_aria": "Mit jelent ez a költségbecslés?",
+    "cost_estimate_tooltip": "Ez a ccusage saját API-árlistája alapján becsült érték, nem a tényleges számla: az olyan előfizetéses csomagoknál, mint a Claude Max vagy a ChatGPT Pro, nincs tokenenkénti díjszabás."
   },
   "Setup": {
     "title": "Telepítés",
@@ -379,6 +383,8 @@
     "machine_label": "Gép azonosítója (nem kötelező)",
     "machine_placeholder": "a számítógép neve",
     "machine_hint": "Üresen hagyva a gép neve lesz.",
+    "cost_opt_in": "Költségbecslés (API listaár)",
+    "cost_opt_in_hint": "Hozzávetőleges USD költséget ad a jelentésekhez a ccusage saját árlistája alapján. Az előfizetéses csomagoknál (Claude Max, ChatGPT Pro stb.) nem így számláznak — csak becslésként kezeld.",
     "download_zip": "Letöltés ZIP-ben",
     "zip_desc": "Kész csomag telepítővel, a fenti beállításokkal. Tokent nem tartalmaz, azt a telepítő kéri be.",
     "download_package": "Csomag letöltése",

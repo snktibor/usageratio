@@ -21,7 +21,7 @@ import { loadEvents, loadHistory, loadIndexes } from "@/lib/usage-store";
  *
  *   GET ?format=csv|json &cycle=current|previous (default "current") &provider=<id> (default: every visible provider)
  *
- * CSV columns: provider,groupId,machineId,timestamp,tokens,checkpoint,models
+ * CSV columns: provider,groupId,machineId,timestamp,tokens,checkpoint,models,costUsd
  * JSON shape: { generatedAt, timeZone, cycle: {start,end}, providers: [{ id, label, events, history }] }
  *
  * 200 ok (a file download, `Content-Disposition: attachment`) · 400 bad query ·

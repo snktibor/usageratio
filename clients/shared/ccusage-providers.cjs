@@ -33,6 +33,16 @@ function tokenNumber(value) {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
+/** A finite, non-negative cost in USD (fractional: ccusage's own price list, not a token count). */
+function costNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+/** Rounds a USD amount to 4 decimals, the precision the server stores costs at (lib/validation.ts). */
+function roundCost(amount) {
+  return Math.round(amount * 10000) / 10000;
+}
+
 function tokenTotal(value) {
   const item = asObject(value);
   if (!item) return 0;
@@ -62,6 +72,17 @@ function tokenTotal(value) {
   }
   if (!Number.isSafeInteger(total)) throw new Error("ccusage token total exceeds JavaScript's safe integer range");
   return found ? total : 0;
+}
+
+/** A row's or model breakdown's cost (USD), when ccusage reported one (only without `--no-cost`); 0 otherwise. */
+function costTotal(value) {
+  const item = asObject(value);
+  if (!item) return 0;
+  for (const key of ["totalCost", "total_cost", "cost"]) {
+    const total = costNumber(item[key]);
+    if (total !== null) return total;
+  }
+  return 0;
 }
 
 function slug(value) {
@@ -148,6 +169,21 @@ function addModel(models, provider, modelName, amount) {
   add(byModel, model, amount);
 }
 
+/** Like `add`, but for a fractional USD amount rather than a whole token count. */
+function addCost(costs, provider, amount) {
+  if (!Number.isFinite(amount) || amount < 0) throw new Error(`invalid cost for provider ${provider}`);
+  costs.set(provider, (costs.get(provider) || 0) + amount);
+}
+
+/** Like `addModel`, but for cost. */
+function addModelCost(modelCosts, provider, modelName, amount) {
+  const model = slug(modelName);
+  if (!model || amount === 0) return;
+  const byModel = modelCosts.get(provider) || new Map();
+  modelCosts.set(provider, byModel);
+  addCost(byModel, model, amount);
+}
+
 function addUsage(usage, value, inheritedSource = "") {
   const item = asObject(value);
   if (!item) return;
@@ -163,6 +199,11 @@ function addUsage(usage, value, inheritedSource = "") {
       const tokens = tokenTotal(detail);
       add(usage.providers, provider, tokens);
       addModel(usage.models, provider, modelName, tokens);
+      const cost = costTotal(detail);
+      if (cost > 0) {
+        addCost(usage.costs, provider, cost);
+        addModelCost(usage.modelCosts, provider, modelName, cost);
+      }
     }
     return;
   }
@@ -173,6 +214,11 @@ function addUsage(usage, value, inheritedSource = "") {
   add(usage.providers, provider, tokens);
   // Without a breakdown, a row's tokens belong to a model only when it used just the one.
   if (models.length === 1) addModel(usage.models, provider, models[0], tokens);
+  const cost = costTotal(item);
+  if (cost > 0) {
+    addCost(usage.costs, provider, cost);
+    if (models.length === 1) addModelCost(usage.modelCosts, provider, models[0], cost);
+  }
 }
 
 function reportRows(document) {
@@ -245,8 +291,63 @@ function normalizeModelMap(input, providers) {
   return sorted;
 }
 
+/** { provider: costUSD }, rounded to 4 decimals; only for providers already in `providers`. */
+function normalizeProviderCostMap(input, providers) {
+  const value = asObject(input) || {};
+  const costs = {};
+  for (const [rawProvider, rawCost] of Object.entries(value)) {
+    const provider = slug(rawProvider);
+    if (!provider || !Object.hasOwn(providers, provider)) continue;
+    const cost = costNumber(rawCost);
+    if (cost === null) continue;
+    costs[provider] = roundCost((costs[provider] || 0) + cost);
+  }
+  return costs;
+}
+
+/**
+ * { provider: { model: costUSD } }, cut to the same caps as normalizeModelMap; a
+ * provider's models may not add up to more than its own cost (a small epsilon
+ * covers rounding), and providers not in `costs` are dropped.
+ */
+function normalizeModelCostMap(input, costs) {
+  const value = asObject(input) || {};
+  const entries = [];
+  for (const [rawProvider, rawModels] of Object.entries(value)) {
+    const provider = slug(rawProvider);
+    if (!provider || !Object.hasOwn(costs, provider)) continue;
+    for (const [rawModel, rawCost] of Object.entries(asObject(rawModels) || {})) {
+      const model = slug(rawModel);
+      const cost = costNumber(rawCost);
+      if (model && cost !== null && cost > 0) entries.push({ provider, model, cost });
+    }
+  }
+  entries.sort((a, b) => b.cost - a.cost || a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model));
+
+  const models = {};
+  let count = 0;
+  for (const { provider, model, cost } of entries) {
+    const byModel = models[provider] || (models[provider] = {});
+    if (count === MAX_MODELS || Object.keys(byModel).length === MAX_MODELS_PER_PROVIDER) continue;
+    if (Object.hasOwn(byModel, model)) continue;
+    byModel[model] = cost;
+    count += 1;
+  }
+
+  const sorted = {};
+  for (const provider of Object.keys(models).sort()) {
+    const byModel = Object.entries(models[provider]).sort(([a], [b]) => a.localeCompare(b));
+    const total = byModel.reduce((sum, [, cost]) => sum + cost, 0);
+    // A split may not claim more cost than its provider has (a cent of rounding slack); such a split is left out whole.
+    if (byModel.length > 0 && total <= costs[provider] + 0.0001) {
+      sorted[provider] = Object.fromEntries(byModel.map(([model, cost]) => [model, roundCost(cost)]));
+    }
+  }
+  return sorted;
+}
+
 function newUsage() {
-  return { providers: new Map(), models: new Map() };
+  return { providers: new Map(), models: new Map(), costs: new Map(), modelCosts: new Map() };
 }
 
 /** One row of a report (a day of a daily report, or a row of an older format) into `usage`. */
@@ -264,6 +365,12 @@ function mergeUsage(target, part) {
     const targetModels = target.models.get(provider) || new Map();
     target.models.set(provider, targetModels);
     for (const [model, tokens] of byModel) add(targetModels, model, tokens);
+  }
+  for (const [provider, cost] of part.costs) addCost(target.costs, provider, cost);
+  for (const [provider, byModel] of part.modelCosts) {
+    const targetModels = target.modelCosts.get(provider) || new Map();
+    target.modelCosts.set(provider, targetModels);
+    for (const [model, cost] of byModel) addCost(targetModels, model, cost);
   }
 }
 
@@ -476,7 +583,10 @@ function parseCcusageUsage(input, fallbackProviders = [], hourly = null) {
   }
 
   const providers = normalizeProviderMap(Object.fromEntries(usage.providers));
-  return { providers, models: normalizeModelMap(modelObject(usage.models), providers) };
+  const models = normalizeModelMap(modelObject(usage.models), providers);
+  const costs = normalizeProviderCostMap(Object.fromEntries(usage.costs), providers);
+  const modelCosts = normalizeModelCostMap(modelObject(usage.modelCosts), costs);
+  return { providers, models, costs, modelCosts };
 }
 
 function parseCcusageProviders(input, fallbackProviders = [], hourly = null) {
@@ -569,6 +679,24 @@ function readDaysFile(path, providers) {
   }
 }
 
+/**
+ * The split saved by `parse-costs`: `{ costs, modelCosts }`. A missing or
+ * unreadable file, or one whose providers are not (all) in `providers`,
+ * only means no cost is sent at all.
+ */
+function readCostsFile(path, providers) {
+  if (!path) return { costs: {}, modelCosts: {} };
+  try {
+    const parsed = asObject(JSON.parse(fs.readFileSync(path, "utf8").replace(/^﻿/, "")));
+    if (!parsed) return { costs: {}, modelCosts: {} };
+    const costs = normalizeProviderCostMap(parsed.costs, providers);
+    const modelCosts = normalizeModelCostMap(parsed.modelCosts, costs);
+    return { costs, modelCosts };
+  } catch {
+    return { costs: {}, modelCosts: {} };
+  }
+}
+
 function cycleField(input, field) {
   const document = asObject(input);
   const cycle = asObject(document?.cycle);
@@ -624,6 +752,11 @@ async function main() {
     process.stdout.write(JSON.stringify(parseCcusageDays(parsed, hourly)));
     return;
   }
+  if (command === "parse-costs") {
+    const { costs, modelCosts } = parseCcusageUsage(parsed, fallbacks, hourly);
+    process.stdout.write(JSON.stringify({ costs, modelCosts }));
+    return;
+  }
   if (command === "validate") {
     process.stdout.write(JSON.stringify(normalizeProviderMap(parsed)));
     return;
@@ -636,14 +769,20 @@ async function main() {
     // mode/intervalMinutes: bash's report-usage-core.sh derives both from
     // USAGERATIO_OUTPUT_MODE (see lib/validation.ts ReportMode); the PowerShell
     // core builds its payload without this parser and sets them itself.
-    const [, , , machineId, groupId, timestamp, modelFile, daysFile, mode, intervalMinutesRaw] = process.argv;
+    // costsFile is appended at the end, after mode/intervalMinutes, so a caller
+    // that predates it (and every existing test) keeps working unchanged.
+    const [, , , machineId, groupId, timestamp, modelFile, daysFile, mode, intervalMinutesRaw, costsFile] =
+      process.argv;
     if (!machineId || !groupId || !timestamp) throw new Error("payload needs machineId, groupId and timestamp");
     const providers = normalizeProviderMap(parsed);
     const models = readModelFile(modelFile, providers);
     const days = readDaysFile(daysFile, providers);
+    const { costs, modelCosts } = readCostsFile(costsFile, providers);
     const payload = { machineId, groupId, timestamp, providers };
     if (Object.keys(models).length > 0) payload.models = models;
     if (Object.keys(days).length > 0) payload.days = days;
+    if (Object.keys(costs).length > 0) payload.costs = costs;
+    if (Object.keys(modelCosts).length > 0) payload.modelCosts = modelCosts;
     // "auto" (the default the server assumes when the field is absent) is left out.
     if (mode === "manual") payload.mode = "manual";
     else {
@@ -690,7 +829,9 @@ module.exports = {
   MAX_MODELS,
   MAX_MODELS_PER_PROVIDER,
   MAX_PROVIDERS,
+  normalizeModelCostMap,
   normalizeModelMap,
+  normalizeProviderCostMap,
   normalizeProviderMap,
   parseCcusageDays,
   parseCcusageProviders,

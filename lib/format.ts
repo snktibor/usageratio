@@ -31,6 +31,16 @@ export function formatLimitShare(fraction: number | null, locale: string): strin
   return fraction === null ? "–" : formatPercent(fraction, locale);
 }
 
+/** 12.3456 → "$12.35": an API-list-price cost estimate, never a real bill. */
+export function formatCost(usd: number, locale: string): string {
+  return new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(usd);
+}
+
+/** A machine's or group's cost, as formatCost; "–" when it never sent one. */
+export function formatCostOrDash(usd: number | undefined, locale: string): string {
+  return usd === undefined ? "–" : formatCost(usd, locale);
+}
+
 /** Same as formatPercent, but always with one decimal for the hero figure below 100%. */
 export function formatHeroPercent(fraction: number, locale: string): string {
   return new Intl.NumberFormat(locale, {

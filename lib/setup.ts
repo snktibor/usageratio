@@ -67,6 +67,12 @@ export interface MachineSettings {
   groupId: string;
   /** Empty: the installer keeps the id the machine already reports under, else the computer's name. */
   machineId: string;
+  /**
+   * Opt-in: estimate cost from ccusage's own (cached, `--offline`) API price
+   * list, instead of `--no-cost`. Off (undefined/false) by default — a
+   * subscription plan (Claude Max, ChatGPT Pro...) is not billed this way.
+   */
+  cost?: boolean;
 }
 
 /** What a package file is for; a `Setup.role_*` message key. */
@@ -250,13 +256,15 @@ const SHELL_UNSAFE = /["$`\\\r\n]/;
 
 /** The package's config file. The installer adds the token and writes the real one. */
 export function renderConfig(os: SetupOs, settings: MachineSettings): string {
-  const { apiUrl, machineId, groupId } = settings;
-  if (os === "windows") return `${JSON.stringify({ apiUrl, machineId, groupId }, null, 2)}\n`;
+  const { apiUrl, machineId, groupId, cost } = settings;
+  if (os === "windows") {
+    return `${JSON.stringify({ apiUrl, machineId, groupId, ...(cost && { cost: true }) }, null, 2)}\n`;
+  }
 
   for (const value of [apiUrl, machineId, groupId]) {
     if (SHELL_UNSAFE.test(value)) throw new Error(`config value cannot be written safely: ${JSON.stringify(value)}`);
   }
-  return `API_URL="${apiUrl}"\nMACHINE_ID="${machineId}"\nGROUP_ID="${groupId}"\n`;
+  return `API_URL="${apiUrl}"\nMACHINE_ID="${machineId}"\nGROUP_ID="${groupId}"\n${cost ? "COST=1\n" : ""}`;
 }
 
 export type SettingsCheck =
@@ -411,6 +419,7 @@ export function renderOneShot(
       `    USAGERATIO_GROUP_ID = ${powershellQuote(settings.groupId)}`,
       `    USAGERATIO_MACHINE_ID = ${powershellQuote(settings.machineId)}`,
       `    USAGERATIO_CCUSAGE = ${powershellQuote(runner)}`,
+      ...(settings.cost ? ["    USAGERATIO_COST = '1'"] : []),
       "    USAGERATIO_LOG_FILE = (Join-Path $dir 'usageratio.log')",
       `    USAGERATIO_API_TOKEN = ${powershellQuote(token)}`,
       "  }",
@@ -459,6 +468,7 @@ export function renderOneShot(
     "USAGERATIO_CORE",
     "USAGERATIO_OUTPUT_MODE=manual \\",
     `USAGERATIO_CCUSAGE=${runner} \\`,
+    ...(settings.cost ? ["USAGERATIO_COST=1 \\"] : []),
     'USAGERATIO_LOG_FILE="$d/usageratio.log" \\',
     `USAGERATIO_API_URL=${shellQuote(settings.apiUrl)} \\`,
     `USAGERATIO_GROUP_ID=${shellQuote(settings.groupId)} \\`,
