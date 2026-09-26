@@ -2,6 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useMemo, useState } from "react";
+import { CycleHistory } from "@/components/cycle-history";
 import { GroundTruthInput } from "@/components/ground-truth-input";
 import { GroupBreakdown } from "@/components/group-breakdown";
 import { MachineTable } from "@/components/machine-table";
@@ -15,6 +16,7 @@ import type { TokenMode } from "@/lib/config";
 import type { ProviderDashboardModel } from "@/lib/dashboard";
 import { formatDateTime, formatTokens } from "@/lib/format";
 import { applyGroundTruth, applySubLimitReading, parseOfficialPercent } from "@/lib/ground-truth";
+import type { CycleSummary } from "@/lib/history";
 
 /**
  * The last-selected provider, in a cookie rather than localStorage: read
@@ -38,10 +40,12 @@ const MODE_NOTE = {
 function ProviderView({
   selected,
   providers,
+  history,
   onProviderChange,
 }: {
   selected: ProviderDashboardModel;
   providers: ProviderDashboardModel[];
+  history: CycleSummary[];
   onProviderChange: (providerId: string) => void;
 }) {
   const locale = useLocale();
@@ -128,6 +132,7 @@ function ProviderView({
             </p>
           </section>
         )}
+        <CycleHistory model={model} history={history} />
       </main>
       <footer className="mt-16 max-w-2xl border-t border-hairline pt-6 text-sm leading-relaxed text-ink-3">
         <p>
@@ -162,7 +167,13 @@ function writeProviderCookie(providerId: string) {
  * Never rendered without a provider: components/dashboard.tsx shows the
  * empty state instead.
  */
-export function DashboardView({ providers }: { providers: ProviderDashboardModel[] }) {
+export function DashboardView({
+  providers,
+  historyByProvider,
+}: {
+  providers: ProviderDashboardModel[];
+  historyByProvider: Record<string, CycleSummary[]>;
+}) {
   const [selectedId, setSelectedId] = useState(providers[0]!.id);
 
   const selectProvider = useCallback((providerId: string) => {
@@ -171,5 +182,13 @@ export function DashboardView({ providers }: { providers: ProviderDashboardModel
   }, []);
 
   const selected = providers.find((provider) => provider.id === selectedId) ?? providers[0]!;
-  return <ProviderView key={selected.id} selected={selected} providers={providers} onProviderChange={selectProvider} />;
+  return (
+    <ProviderView
+      key={selected.id}
+      selected={selected}
+      providers={providers}
+      history={historyByProvider[selected.id] ?? []}
+      onProviderChange={selectProvider}
+    />
+  );
 }

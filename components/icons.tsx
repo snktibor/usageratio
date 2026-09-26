@@ -160,6 +160,15 @@ export function HistoryIcon({ className }: IconProps) {
   );
 }
 
+export function ExportIcon({ className }: IconProps) {
+  return (
+    <Glyph className={className}>
+      <path d="M8 9.8V2.4m0 0-3 3m3-3 3 3" />
+      <path d="M2.6 9.4v2.6c0 .7.5 1.2 1.2 1.2h8.4c.7 0 1.2-.5 1.2-1.2V9.4" />
+    </Glyph>
+  );
+}
+
 /** The GitHub mark: a solid logo, so it breaks from `Glyph`'s stroke-only style. */
 export function GitHubIcon({ className }: IconProps) {
   return (

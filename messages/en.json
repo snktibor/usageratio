@@ -26,6 +26,9 @@
     "storage_not_configured_desc": "Missing <code>KV_REST_API_URL</code> and <code>KV_REST_API_TOKEN</code> environment variables. Connect the Upstash Redis database to your Vercel project (Storage tab), then reinstall the application.",
     "storage_unavailable_desc": "Redis did not respond. Client submissions are not permanently lost, they will report again in the next hour. Reload the page in a minute.",
     "storage_reload": "Reload",
+    "export": "Export",
+    "export_csv": "CSV (.csv)",
+    "export_json": "JSON (.json)",
     "footer_source": "Source",
     "footer_version": "v{version}"
   },
@@ -305,7 +308,19 @@
     "official_save_failed_unauthorized": "Your session has expired. Reload the page and sign in again.",
     "official_save_failed_rejected": "The server rejected this value.",
     "official_save_failed_storage": "The server could not save this value. It will be retried on the next change.",
-    "official_save_failed_network": "Could not reach the server. Check your connection and try again."
+    "official_save_failed_network": "Could not reach the server. Check your connection and try again.",
+    "history_heading": "Previous cycles",
+    "history_empty": "No previous cycle has been archived yet. One is added automatically each time a new cycle begins.",
+    "history_chart_aria": "Usage of previous cycles",
+    "history_metric_note_official": "Bars show the official usage percentage entered for each cycle.",
+    "history_metric_note_limitShare": "Bars show each cycle's share of its token limit.",
+    "history_metric_note_measured": "Bars show the tokens the machines measured in each cycle.",
+    "history_value_unknown": "not recorded",
+    "history_value_column": "Value",
+    "history_cycle_column": "Cycle",
+    "history_tokens_column": "Tokens",
+    "history_official_column": "Official",
+    "history_groups_column": "Groups"
   },
   "Setup": {
     "title": "Setup",

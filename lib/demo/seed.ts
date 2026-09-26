@@ -4,7 +4,7 @@ import { isDemoMode } from "@/lib/demo/mode";
 import { ingestReport } from "@/lib/ingest";
 import { log } from "@/lib/log";
 import { getRedis } from "@/lib/redis";
-import { registerProviders, saveOfficialUsage, saveSettings } from "@/lib/usage-store";
+import { archiveCycle, registerProviders, saveOfficialUsage, saveSettings } from "@/lib/usage-store";
 
 /**
  * Writes the synthetic dataset (lib/demo/dataset.ts) into the store through
@@ -25,7 +25,7 @@ const SEEDING_LOCK_KEY = "usage:demo:seeding";
 
 /** Only the usage data. Sessions, login counters and the stored API token are never touched. */
 const DATA_KEYS = ["usage:settings", "usage:providers", "usage:groups", "usage:machines", "usage:official"];
-const DATA_KEY_PATTERNS = ["usage:events:*", "usage:demo:*"];
+const DATA_KEY_PATTERNS = ["usage:events:*", "usage:history:*", "usage:demo:*"];
 
 export interface SeedOptions {
   now: Date;
@@ -44,6 +44,8 @@ export interface SeedSummary {
   /** Reports the validator refused, with the reason; empty when the dataset is sound. */
   invalid: string[];
   official: number;
+  /** Archived cycles written (lib/history.ts); the dashboard's own lazy archiving adds more on read. */
+  history: number;
 }
 
 async function scanKeys(pattern: string): Promise<string[]> {
@@ -82,6 +84,7 @@ export async function seedStore(options: SeedOptions): Promise<SeedSummary> {
     duplicates: 0,
     invalid: [],
     official: dataset.official.length,
+    history: dataset.history.length,
   };
   if (dryRun) return summary;
 
@@ -112,6 +115,13 @@ export async function seedStore(options: SeedOptions): Promise<SeedSummary> {
   for (const entry of dataset.official) {
     const { enteredAtMs, ...update } = entry;
     await saveOfficialUsage(update, new Date(enteredAtMs));
+  }
+
+  // Pre-archived cycles (lib/demo/dataset.ts): the dashboard's own lazy archiving
+  // (app/[locale]/page.tsx) only ever reaches the cycle right before the current
+  // one, so the rest of the "Previous cycles" section is seeded directly.
+  for (const entry of dataset.history) {
+    await archiveCycle(entry.providerId, entry.summary);
   }
   return summary;
 }

@@ -2,23 +2,59 @@ import { getLocale, getTranslations } from "next-intl/server";
 import { logout } from "@/app/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { DashboardView } from "@/components/dashboard-view";
-import { DownloadIcon, GitHubIcon } from "@/components/icons";
+import { DownloadIcon, ExportIcon, GitHubIcon } from "@/components/icons";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { Link } from "@/i18n/routing";
 import type { ProviderDashboardModel } from "@/lib/dashboard";
 import { isDemoMode } from "@/lib/demo/mode";
 import { formatClock } from "@/lib/format";
+import type { CycleSummary } from "@/lib/history";
+import type { Translator } from "@/lib/i18n";
 import type { SettingsView } from "@/lib/settings";
 import { version } from "@/package.json";
 
 const REPO_URL = "https://github.com/snktibor/usageratio";
 
+/**
+ * Plain links, not a fetch: the browser's own download UI handles the
+ * `Content-Disposition: attachment` response (see app/api/export/route.ts).
+ * Exports every visible provider's current cycle; a specific provider or the
+ * previous cycle is reachable through the same endpoint's query parameters.
+ * Allowed in demo mode too: it only reads, never writes.
+ */
+function ExportMenu({ t }: { t: Translator<"HomePage"> }) {
+  return (
+    <details className="relative">
+      <summary className="flex list-none items-center gap-2 rounded-md border border-rule px-2.5 py-1.5 text-ink-2 transition-colors marker:content-none hover:border-ink-3 hover:text-ink sm:px-3 [&::-webkit-details-marker]:hidden">
+        <ExportIcon />
+        <span className="sr-only sm:not-sr-only">{t("export")}</span>
+      </summary>
+      <div className="absolute right-0 z-10 mt-2 w-40 rounded-md border border-rule bg-raised p-1.5 text-sm shadow-lg">
+        <a
+          href="/api/export?format=csv&cycle=current"
+          className="block rounded px-2.5 py-1.5 text-ink-2 transition-colors hover:bg-page hover:text-ink"
+        >
+          {t("export_csv")}
+        </a>
+        <a
+          href="/api/export?format=json&cycle=current"
+          className="block rounded px-2.5 py-1.5 text-ink-2 transition-colors hover:bg-page hover:text-ink"
+        >
+          {t("export_json")}
+        </a>
+      </div>
+    </details>
+  );
+}
+
 export async function Dashboard({
   providers,
   settings,
+  historyByProvider,
 }: {
   providers: ProviderDashboardModel[];
   settings: SettingsView;
+  historyByProvider: Record<string, CycleSummary[]>;
 }) {
   const locale = await getLocale();
   const t = await getTranslations("HomePage");
@@ -45,6 +81,7 @@ export async function Dashboard({
             <DownloadIcon />
             <span className="sr-only sm:not-sr-only">{t("dashboard_setup")}</span>
           </Link>
+          {providers.length > 0 && <ExportMenu t={t} />}
           <SettingsDialog view={settings} />
           {!isDemoMode() && (
             <form action={logout}>
@@ -60,7 +97,7 @@ export async function Dashboard({
       </header>
 
       {providers.length > 0 ? (
-        <DashboardView providers={providers} />
+        <DashboardView providers={providers} historyByProvider={historyByProvider} />
       ) : (
         <section aria-labelledby="no-providers-heading" className="mt-12 max-w-xl">
           <h2 id="no-providers-heading" className="text-xl font-medium">
