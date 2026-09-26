@@ -18,6 +18,16 @@ export default defineConfig({
     tsconfigPaths: true,
   },
   test: {
+    server: {
+      // next-intl's middleware entry re-exports next/server without a file
+      // extension; Next's own package.json has no "exports" map for it, so
+      // Node's native ESM resolver (which Vitest uses once it externalizes
+      // a package) can't find it ("Did you mean to import next/server.js?").
+      // Inlining routes it through Vite's more permissive resolver instead —
+      // needed for tests/proxy.test.ts, which imports proxy.ts's next-intl
+      // dependency.
+      deps: { inline: ["next-intl"] },
+    },
     projects: [
       {
         extends: true,
