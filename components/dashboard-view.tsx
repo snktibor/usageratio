@@ -1,7 +1,7 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { GroundTruthInput } from "@/components/ground-truth-input";
 import { GroupBreakdown } from "@/components/group-breakdown";
 import { MachineTable } from "@/components/machine-table";
@@ -16,7 +16,13 @@ import type { ProviderDashboardModel } from "@/lib/dashboard";
 import { formatDateTime, formatTokens } from "@/lib/format";
 import { applyGroundTruth, applySubLimitReading, parseOfficialPercent } from "@/lib/ground-truth";
 
-const PROVIDER_KEY = "usageratio:selected-provider";
+/**
+ * The last-selected provider, in a cookie rather than localStorage: read
+ * during SSR (see app/[locale]/page.tsx, which reorders `providers` so the
+ * selected one is first) so the very first render already shows it — no
+ * client-only effect, no flash of the wrong provider.
+ */
+export const PROVIDER_COOKIE = "usageratio_provider";
 
 const MODE_NOTE = {
   delta: "mode_note_delta",
@@ -41,7 +47,7 @@ function ProviderView({
   const locale = useLocale();
   const t = useTranslations("Dashboard");
   const model = selected.dashboard;
-  const [entry, setEntry] = useOfficialEntry(selected.id, model.cycle.startMs, selected.officialEntry);
+  const [entry, setEntry, entryStatus] = useOfficialEntry(selected.id, model.cycle.startMs, selected.officialEntry);
   const { percent, invalid } = parseOfficialPercent(entry.raw);
 
   const view = useMemo(
@@ -50,7 +56,7 @@ function ProviderView({
   );
 
   // Both the fields under the official one and the chart show them: they are worked out here, once.
-  const [subEntries, setSubEntry] = useSubLimitEntries(
+  const [subEntries, setSubEntry, subStatuses] = useSubLimitEntries(
     selected.id,
     model.cycle.startMs,
     model.subLimits.map((sub) => sub.id),
@@ -62,9 +68,14 @@ function ProviderView({
         const subEntry = subEntries.get(sub.id) ?? EMPTY_ENTRY;
         const parsed = parseOfficialPercent(subEntry.raw);
         const reading = parsed.percent === null ? null : { percent: parsed.percent, atMs: subEntry.enteredAt };
-        return { entry: subEntry, invalid: parsed.invalid, view: applySubLimitReading(model, view, sub, reading) };
+        return {
+          entry: subEntry,
+          invalid: parsed.invalid,
+          view: applySubLimitReading(model, view, sub, reading),
+          status: subStatuses.get(sub.id) ?? { status: "idle", problem: null },
+        };
       }),
-    [model, view, subEntries],
+    [model, view, subEntries, subStatuses],
   );
 
   return (
@@ -76,6 +87,7 @@ function ProviderView({
             onChange={setEntry}
             invalid={invalid}
             enteredAt={entry.enteredAt}
+            status={entryStatus}
             view={view}
             timeZone={model.timeZone}
             providerId={selected.id}
@@ -103,14 +115,16 @@ function ProviderView({
               {t("no_machines_yet")}
             </h2>
             <p className="mt-3 text-ink-2">
-              {t("setup_machines_1")}
-              <Link
-                href="/setup"
-                className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink-3"
-              >
-                {t("setup_machines_2")}
-              </Link>{" "}
-              {t("setup_machines_3")}
+              {t.rich("setup_machines", {
+                link: (chunks) => (
+                  <Link
+                    href="/setup"
+                    className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink-3"
+                  >
+                    {chunks}
+                  </Link>
+                ),
+              })}
             </p>
           </section>
         )}
@@ -131,26 +145,27 @@ function ProviderView({
   );
 }
 
-/** Provider switching stays entirely in the browser; every model arrived in the server payload. */
+function writeProviderCookie(providerId: string) {
+  try {
+    const oneYear = 60 * 60 * 24 * 365;
+    // biome-ignore lint/suspicious/noDocumentCookie: a plain preference cookie; the Cookie Store API is not available everywhere yet
+    document.cookie = `${PROVIDER_COOKIE}=${encodeURIComponent(providerId)}; path=/; max-age=${oneYear}; samesite=lax`;
+  } catch {
+    // Cookies are optional; the selection still works for this page view.
+  }
+}
+
+/**
+ * Provider switching stays entirely in the browser; every model arrived in
+ * the server payload. `providers` already has the cookie's provider first
+ * (see app/[locale]/page.tsx), so the very first render picks it correctly.
+ */
 export function DashboardView({ providers }: { providers: ProviderDashboardModel[] }) {
   const [selectedId, setSelectedId] = useState(providers[0]!.id);
 
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(PROVIDER_KEY);
-      if (stored && providers.some((provider) => provider.id === stored)) setSelectedId(stored);
-    } catch {
-      // Storage is optional; the first provider remains selected.
-    }
-  }, [providers]);
-
   const selectProvider = useCallback((providerId: string) => {
     setSelectedId(providerId);
-    try {
-      window.localStorage.setItem(PROVIDER_KEY, providerId);
-    } catch {
-      // The selection still works for this page view.
-    }
+    writeProviderCookie(providerId);
   }, []);
 
   const selected = providers.find((provider) => provider.id === selectedId) ?? providers[0]!;

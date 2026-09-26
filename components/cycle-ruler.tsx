@@ -1,6 +1,6 @@
 import { useLocale } from "next-intl";
 import type { DashboardModel } from "@/lib/dashboard";
-import { weekdayShort } from "@/lib/format";
+import { formatMonthDay, weekdayShort } from "@/lib/format";
 
 type Segment = DashboardModel["cycle"]["segments"][number];
 
@@ -22,7 +22,7 @@ function rulerLabel(
   if (width < 0.02) return null;
   const isLandmark = segment.monthDay === 1 || segment.monthDay % 5 === 0;
   const named = index === todayIndex || (isLandmark && Math.abs(index - todayIndex) !== 1);
-  return named ? `${segment.monthDay}.` : null;
+  return named ? formatMonthDay(segment.monthDay, locale) : null;
 }
 
 /** The days of the cycle, left to right across the full width: under the meter and under the charts. */

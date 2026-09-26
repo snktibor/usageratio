@@ -1,7 +1,5 @@
 /** Scales and tick text for the dashboard's line charts. Pure. */
 
-const LOCALE = "hu-HU";
-
 export interface AxisScale {
   /** Top of the axis: a whole number of steps, at least the data's maximum. */
   max: number;
@@ -22,16 +20,39 @@ export function niceScale(maxValue: number, minMax: number): AxisScale {
   return { max: count * step, step, ticks: Array.from({ length: count + 1 }, (_, index) => index * step) };
 }
 
-/** A fraction tick: "25%", or "2,5%" where the step needs the decimal. */
-export function formatPercentTick(fraction: number, step: number): string {
-  const stepPercent = step * 100;
-  const digits = Math.abs(stepPercent - Math.round(stepPercent)) < 1e-9 ? 0 : 1;
-  return new Intl.NumberFormat(LOCALE, { style: "percent", maximumFractionDigits: digits }).format(fraction);
+// One formatter per (locale, fraction-digit) pair: built once, reused on every tick redraw.
+const percentFormatters = new Map<string, Intl.NumberFormat>();
+
+function percentFormatter(locale: string, digits: number): Intl.NumberFormat {
+  const key = `${locale}:${digits}`;
+  let formatter = percentFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: digits });
+    percentFormatters.set(key, formatter);
+  }
+  return formatter;
 }
 
-const compact = new Intl.NumberFormat(LOCALE, { notation: "compact", maximumFractionDigits: 1 });
+/** A fraction tick: "25%", or "2,5%" where the step needs the decimal. */
+export function formatPercentTick(fraction: number, step: number, locale: string): string {
+  const stepPercent = step * 100;
+  const digits = Math.abs(stepPercent - Math.round(stepPercent)) < 1e-9 ? 0 : 1;
+  return percentFormatter(locale, digits).format(fraction);
+}
 
-/** A token tick: "250 E", "1,2 M". */
-export function formatTokenTick(tokens: number): string {
-  return compact.format(tokens);
+// One compact-notation formatter per locale.
+const tokenFormatters = new Map<string, Intl.NumberFormat>();
+
+function tokenFormatter(locale: string): Intl.NumberFormat {
+  let formatter = tokenFormatters.get(locale);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 });
+    tokenFormatters.set(locale, formatter);
+  }
+  return formatter;
+}
+
+/** A token tick in compact notation: "250K"/"1.2M" (en), "250 E"/"1,2 M" (hu). */
+export function formatTokenTick(tokens: number, locale: string): string {
+  return tokenFormatter(locale).format(tokens);
 }

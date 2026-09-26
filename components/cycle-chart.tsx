@@ -1,6 +1,6 @@
 "use client";
 
-import { useLocale } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { CycleRuler } from "@/components/cycle-ruler";
 import type { AxisScale } from "@/lib/chart";
@@ -90,6 +90,7 @@ export function CycleChart({
   label,
 }: CycleChartProps) {
   const locale = useLocale();
+  const t = useTranslations("Widgets");
   const plotRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [active, setActive] = useState<number | null>(null);
@@ -291,7 +292,7 @@ export function CycleChart({
         {active !== null && (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute top-0 z-10 rounded-md bg-raised px-3 py-2 text-sm shadow-lg ring-1 ring-white/10"
+            className="pointer-events-none absolute top-0 z-10 rounded-md bg-raised px-3 py-2 text-sm shadow-lg ring-1 ring-ink/10"
             style={{ maxWidth: tipRoom, ...(tipOnLeft ? { right: width - activeX + 12 } : { left: activeX + 12 }) }}
           >
             <p className="text-xs text-ink-3">{moment(times[active]!)}</p>
@@ -310,7 +311,7 @@ export function CycleChart({
         )}
 
         <p id={hintId} className="sr-only">
-          A nyilakkal lépkedhetsz az időben.
+          {t("keyboard_hint")}
         </p>
         <p aria-live="polite" className="sr-only">
           {announce && active !== null ? readout(active) : ""}
@@ -320,14 +321,14 @@ export function CycleChart({
       <CycleRuler model={model} />
 
       <details className="mt-2 text-sm">
-        <summary className="w-fit cursor-pointer text-ink-3 transition-colors hover:text-ink">Táblázatként</summary>
+        <summary className="w-fit cursor-pointer text-ink-3 transition-colors hover:text-ink">{t("as_table")}</summary>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full border-collapse text-left">
             <caption className="sr-only">{label}</caption>
             <thead>
               <tr className="text-ink-3">
                 <th scope="col" className="py-2 pr-4 font-normal">
-                  Időpont
+                  {t("time_column")}
                 </th>
                 {series.map((s) => (
                   <th key={s.id} scope="col" className="py-2 pl-4 text-right font-normal">
@@ -343,7 +344,7 @@ export function CycleChart({
               {tableRows.map((index) => (
                 <tr key={index} className="border-t border-hairline">
                   <th scope="row" className="whitespace-nowrap py-2 pr-4 font-normal text-ink-2">
-                    {index === last ? `most (${moment(times[index]!)})` : moment(times[index]!)}
+                    {index === last ? t("now_row", { moment: moment(times[index]!) }) : moment(times[index]!)}
                   </th>
                   {series.map((s) => (
                     <td key={s.id} className="py-2 pl-4 text-right">

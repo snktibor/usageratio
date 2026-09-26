@@ -1,4 +1,6 @@
+import { cookies } from "next/headers";
 import { Dashboard } from "@/components/dashboard";
+import { PROVIDER_COOKIE } from "@/components/dashboard-view";
 import { PinGate } from "@/components/pin-gate";
 import { StorageProblem } from "@/components/storage-problem";
 import { isAuthenticated } from "@/lib/auth";
@@ -62,6 +64,20 @@ async function loadDashboard(): Promise<DashboardData> {
   };
 }
 
+/**
+ * The cookie's provider first, so the dashboard renders the last-selected one
+ * from the very first paint (see components/dashboard-view.tsx: it reads the
+ * order, not the cookie, so the client and the server always agree).
+ */
+function withSelectedProviderFirst(
+  providers: ProviderDashboardModel[],
+  selectedId: string | undefined,
+): ProviderDashboardModel[] {
+  const index = selectedId ? providers.findIndex((provider) => provider.id === selectedId) : -1;
+  if (index <= 0) return providers;
+  return [providers[index]!, ...providers.slice(0, index), ...providers.slice(index + 1)];
+}
+
 export default async function Page() {
   let data: DashboardData | null = null;
   let storageError: unknown = null;
@@ -77,5 +93,10 @@ export default async function Page() {
   if (storageError) {
     return <StorageProblem notConfigured={storageError instanceof StorageNotConfiguredError} />;
   }
-  return data ? <Dashboard providers={data.providers} settings={data.settings} /> : <PinGate />;
+  if (!data) return <PinGate />;
+
+  const selectedProviderId = (await cookies()).get(PROVIDER_COOKIE)?.value;
+  return (
+    <Dashboard providers={withSelectedProviderFirst(data.providers, selectedProviderId)} settings={data.settings} />
+  );
 }
