@@ -3,26 +3,10 @@
 import { useLocale, useTranslations } from "next-intl";
 import type { Draft } from "@/components/settings/draft";
 import { FIELD } from "@/components/ui/classes";
-import { weekdayLong } from "@/lib/format";
+import { formatMonthDay, weekdayLong } from "@/lib/format";
+import { weekdayOrder } from "@/lib/week";
 
 const MONTH_DAYS = Array.from({ length: 31 }, (_, index) => index + 1);
-
-/**
- * Monday first, as the week goes in Hungary. Isolated so a locale-aware order
- * (e.g. from `Intl.Locale.weekInfo`) is a two-line change: swap the body and,
- * if it stops being a constant, drop the `readonly` return type.
- */
-function weekdayOrder(): readonly number[] {
-  return [1, 2, 3, 4, 5, 6, 0];
-}
-
-/**
- * "{day}.", today's month-day label. Isolated so a locale-aware one (e.g. an
- * ordinal via `Intl.PluralRules`) is a two-line change.
- */
-function monthDayLabel(day: number): string {
-  return `${day}.`;
-}
 
 export function ResetSection({
   titleId,
@@ -53,7 +37,8 @@ export function ResetSection({
               onChange={(event) => onPatch({ weekday: Number(event.target.value) })}
               className={`mt-1.5 block w-40 ${FIELD}`}
             >
-              {weekdayOrder().map((weekday) => (
+              {/* The week starts where the viewer's locale starts it (Monday in hu/de, Sunday in en-US). */}
+              {weekdayOrder(locale).map((weekday) => (
                 <option key={weekday} value={weekday}>
                   {weekdayLong(weekday, locale)}
                 </option>
@@ -70,7 +55,7 @@ export function ResetSection({
             >
               {MONTH_DAYS.map((day) => (
                 <option key={day} value={day}>
-                  {monthDayLabel(day)}
+                  {formatMonthDay(day, locale)}
                 </option>
               ))}
             </select>
