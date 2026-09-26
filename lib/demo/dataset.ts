@@ -176,7 +176,7 @@ export interface DemoDataset {
    * are written straight into `usage:history:{providerId}` by `seedStore`, the same
    * way lazy archiving would have left them. `cycles.previous` itself is not among
    * them: it still has real events, so the dashboard's own lazy archiving
-   * (app/[locale]/page.tsx) archives it from those on the first render, same as
+   * (app/[locale]/(dashboard)/page.tsx) archives it from those on the first render, same as
    * it would for a real deployment.
    */
   history: DemoHistoryEntry[];

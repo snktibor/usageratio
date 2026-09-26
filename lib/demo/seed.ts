@@ -118,7 +118,7 @@ export async function seedStore(options: SeedOptions): Promise<SeedSummary> {
   }
 
   // Pre-archived cycles (lib/demo/dataset.ts): the dashboard's own lazy archiving
-  // (app/[locale]/page.tsx) only ever reaches the cycle right before the current
+  // (app/[locale]/(dashboard)/page.tsx) only ever reaches the cycle right before the current
   // one, so the rest of the "Previous cycles" section is seeded directly.
   for (const entry of dataset.history) {
     await archiveCycle(entry.providerId, entry.summary);

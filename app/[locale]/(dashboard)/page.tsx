@@ -2,7 +2,6 @@ import { cookies } from "next/headers";
 import { hasLocale } from "next-intl";
 import { setRequestLocale } from "next-intl/server";
 import { Dashboard } from "@/components/dashboard";
-import { PROVIDER_COOKIE } from "@/components/dashboard-view";
 import { PinGate } from "@/components/pin-gate";
 import { StorageProblem } from "@/components/storage-problem";
 import { routing } from "@/i18n/routing";
@@ -17,6 +16,7 @@ import { type CycleSummary, officialPercentForCycle, summarizeCycle } from "@/li
 import { log } from "@/lib/log";
 import { modelKeysIn } from "@/lib/models";
 import { currentOfficialEntries } from "@/lib/official-usage";
+import { PROVIDER_COOKIE } from "@/lib/preferences";
 import { mergeProviderIds } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import {

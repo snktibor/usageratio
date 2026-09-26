@@ -545,7 +545,7 @@ export async function archiveCycle(providerId: string, summary: CycleSummary): P
 /**
  * The start of the newest archived cycle, per provider; null where nothing is
  * archived yet. One round trip: a dashboard read uses this to decide whether
- * the previous cycle still needs archiving (see app/[locale]/page.tsx).
+ * the previous cycle still needs archiving (see app/[locale]/(dashboard)/page.tsx).
  */
 export async function loadNewestArchivedStarts(providerIds: string[]): Promise<Record<string, number | null>> {
   const starts: Record<string, number | null> = {};
