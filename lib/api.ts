@@ -6,6 +6,7 @@ import { log } from "@/lib/log";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { type CookieJar, currentRequest, currentRequestId, requestIdFrom, runWithRequest } from "@/lib/request-context";
 import { safeEqual } from "@/lib/security";
+import { authenticateToken } from "@/lib/tokens";
 
 /**
  * What every route handler shares: the JSON error envelope, the body reader
@@ -38,6 +39,7 @@ export type ApiErrorCode =
   | "too_many_groups"
   | "too_many_providers"
   | "too_many_machines"
+  | "too_many_tokens"
   | "machine_mismatch"
   | "no_token"
   | "token_unreadable"
@@ -141,21 +143,37 @@ export function requireSameOrigin(request: Request): Response | null {
   return isForeignOrigin(request) ? apiError("forbidden_origin", 403) : null;
 }
 
+export interface BearerAuth {
+  /** "master" for the shared USAGE_API_TOKEN, else a per-machine token's own id (lib/tokens.ts). */
+  tokenId: string;
+  /** The token's bound machine (lib/tokens.ts `createToken`); null for the master token or an unbound one. */
+  machineId: string | null;
+}
+
 /**
- * The clients' bearer token check. A token shorter than 16 characters is a
+ * The clients' bearer token check. A missing/short USAGE_API_TOKEN is a
  * deployment mistake, answered with 500 rather than letting anything in.
+ * Tried in order: the shared master token first (`safeEqual`, constant-time —
+ * it is typed by a human, so a timing attack is worth defending against),
+ * then the per-machine tokens issued from the settings panel (lib/tokens.ts):
+ * a HGET keyed by the token's own sha256, not a comparison, so there is
+ * nothing for a timing attack to learn there either. Async since a
+ * non-master token needs a Redis round trip.
  */
-export function requireBearer(request: Request): Response | { tokenId: "master" } {
+export async function requireBearer(request: Request): Promise<Response | BearerAuth> {
   const expected = process.env.USAGE_API_TOKEN?.trim();
   if (!expected || expected.length < MIN_API_TOKEN_LENGTH) {
     log.error("api.token_misconfigured", { minLength: MIN_API_TOKEN_LENGTH });
     return apiError("server_misconfigured", 500);
   }
   const bearer = /^Bearer\s+(\S+)\s*$/i.exec(request.headers.get("authorization") ?? "");
-  if (!bearer?.[1] || !safeEqual(bearer[1], expected)) {
-    return apiError("unauthorized", 401, { scheme: "bearer" });
-  }
-  return { tokenId: "master" };
+  const presented = bearer?.[1];
+  if (!presented) return apiError("unauthorized", 401, { scheme: "bearer" });
+  if (safeEqual(presented, expected)) return { tokenId: "master", machineId: null };
+
+  const result = await authenticateToken(presented, new Date());
+  if (!result.ok) return apiError("unauthorized", 401, { scheme: "bearer" });
+  return { tokenId: result.tokenId, machineId: result.machineId };
 }
 
 /** A store that did not answer: the SDK's own errors, and the network failures under them. */
