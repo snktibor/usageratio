@@ -1,4 +1,5 @@
 import { getTranslations } from "next-intl/server";
+import { Link } from "@/i18n/routing";
 
 /** Shown instead of the dashboard when Redis is missing or unreachable. Carries no usage data. */
 export async function StorageProblem({ notConfigured }: { notConfigured: boolean }) {
@@ -21,12 +22,12 @@ export async function StorageProblem({ notConfigured }: { notConfigured: boolean
         ) : (
           <p className="mt-4 text-ink-2">{t("storage_unavailable_desc")}</p>
         )}
-        <a
+        <Link
           href="/"
           className="mt-8 inline-block rounded-md bg-ink px-4 py-2.5 font-medium text-page transition-opacity hover:opacity-90"
         >
           {t("storage_reload")}
-        </a>
+        </Link>
       </div>
     </main>
   );

@@ -1,4 +1,5 @@
 import { getTranslations } from "next-intl/server";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { PinForm } from "@/components/pin-form";
 
 /**
@@ -10,7 +11,10 @@ export async function PinGate({ next = "/" }: { next?: string }) {
 
   return (
     <main className="mx-auto w-full max-w-4xl px-5 pt-6 sm:px-8 sm:pt-8">
-      <p className="text-lg font-medium tracking-tight">usageratio</p>
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-lg font-medium tracking-tight">usageratio</p>
+        <LanguageSwitcher />
+      </div>
 
       <div className="mt-[18vh]">
         <h1 id="pin-heading" className="text-4xl font-semibold tracking-tight sm:text-5xl">

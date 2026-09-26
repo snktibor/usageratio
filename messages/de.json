@@ -9,7 +9,6 @@
     "dashboard_updated_title": "Aktualisiert {refreshedAt}",
     "dashboard_setup": "Einrichtung",
     "dashboard_logout": "Abmelden",
-    "credit_made_by": "Erstellt von",
     "pin_heading": "PIN-Code eingeben",
     "pin_description": "Die Daten des Tokenkontingents werden erst nach dem richtigen 5-stelligen Code geladen.",
     "pin_checking": "Wird geprüft…",
@@ -18,7 +17,9 @@
     "storage_unavailable_title": "Der Datenspeicher ist derzeit nicht erreichbar",
     "storage_not_configured_desc": "Die Umgebungsvariablen <code>KV_REST_API_URL</code> und <code>KV_REST_API_TOKEN</code> fehlen. Verbinde die Upstash-Redis-Datenbank mit dem Vercel-Projekt (Storage-Tab) und installiere die Anwendung anschließend neu.",
     "storage_unavailable_desc": "Redis hat nicht geantwortet. Die Einsendungen der Clients gehen dabei nicht endgültig verloren, sie melden sich in der nächsten Stunde erneut. Lade die Seite in einer Minute neu.",
-    "storage_reload": "Neu laden"
+    "storage_reload": "Neu laden",
+    "footer_source": "Quellcode",
+    "footer_version": "v{version}"
   },
   "Settings": {
     "audit_action_created": "Hinzugefügt",
@@ -341,5 +342,27 @@
     "mode_manual_macos": "Du führst es manuell aus, wann immer du willst: Du erhältst einen sync-tokens-Befehl im Terminal.",
     "mode_auto_linux": "Erstellt einen systemd-User-Timer, der den Bericht im Hintergrund stündlich und beim Start sendet.",
     "mode_manual_linux": "Du führst es manuell aus, wann immer du willst: Du erhältst einen sync-tokens-Befehl in der Shell."
+  },
+  "Auth": {
+    "pin_malformed": "Der PIN-Code muss genau 5 Ziffern haben.",
+    "pin_misconfigured": "Auf dem Server ist kein gültiger DASHBOARD_PIN eingerichtet (5 Ziffern erforderlich).",
+    "pin_invalid": "Falscher PIN-Code. {attemptsLeft, plural, one {Noch # Versuch übrig.} other {Noch # Versuche übrig.}}",
+    "pin_locked": "Falscher PIN-Code. Keine Versuche mehr, versuche es in {minutes, plural, one {# Minute} other {# Minuten}} erneut.",
+    "rate_limited": "Zu viele Versuche. Versuche es in {minutes, plural, one {# Minute} other {# Minuten}} erneut.",
+    "storage_not_configured": "Der Datenspeicher ist nicht verbunden: KV_REST_API_URL und KV_REST_API_TOKEN fehlen. Verbinde die Redis-Datenbank mit dem Vercel-Projekt und installiere die Anwendung dann neu.",
+    "storage_unavailable": "Der Datenspeicher ist gerade nicht erreichbar, daher auch die Anmeldung nicht. Versuche es gleich noch einmal."
+  },
+  "Errors": {
+    "page_failed_title": "Die Seite konnte nicht geladen werden",
+    "page_failed_desc": "Beim Rendern ist ein Fehler aufgetreten. Die Details stehen im Laufzeitprotokoll des Deployments.",
+    "error_id": "Fehler-ID: {digest}",
+    "retry": "Erneut versuchen",
+    "not_found_title": "Seite nicht gefunden",
+    "not_found_desc": "Hier gibt es nichts. Die Seite wurde vielleicht verschoben, oder die Adresse ist falsch eingegeben.",
+    "back_home": "Zurück zur Startseite",
+    "loading": "Wird geladen…"
+  },
+  "Metadata": {
+    "description": "usageratio verfolgt den Token-Verbrauch von KI-Coding-Agenten über Maschinen und Gruppen hinweg, gemessen an einem wöchentlichen oder monatlichen Budget."
   }
 }

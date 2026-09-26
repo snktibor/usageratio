@@ -4,26 +4,16 @@ import { hasLocale, useLocale, useTranslations } from "next-intl";
 import { useTransition } from "react";
 import { routing, usePathname, useRouter } from "@/i18n/routing";
 
-/** The language's own name in itself (e.g. "Deutsch", "English"), so a new
- * messages/<locale>.json needs no matching label added here. */
+/**
+ * The language's own name in itself ("Deutsch", "English", "magyar"), so a
+ * new messages/<locale>.json needs no label added here. No flags: a language
+ * is not a country.
+ */
 function localeLabel(locale: string) {
   try {
     return new Intl.DisplayNames([locale], { type: "language" }).of(locale) ?? locale;
   } catch {
     return locale;
-  }
-}
-
-/** CLDR's most likely region for the locale (e.g. "hu" -> "HU"), turned into
- * its flag emoji. A guess, not a curated choice — but needs no maintenance
- * when a new messages/<locale>.json shows up. */
-function localeFlag(locale: string) {
-  try {
-    const region = new Intl.Locale(locale).maximize().region;
-    if (!region) return "";
-    return [...region.toUpperCase()].map((char) => String.fromCodePoint(0x1f1e6 + char.charCodeAt(0) - 65)).join("");
-  } catch {
-    return "";
   }
 }
 
@@ -52,11 +42,11 @@ export function LanguageSwitcher() {
         value={locale}
         onChange={onChange}
         disabled={isPending}
-        className="rounded-md border border-rule bg-transparent px-2.5 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink focus:border-ink-3 focus:outline-none disabled:opacity-50"
+        className="rounded-md border border-rule bg-transparent px-2.5 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink disabled:opacity-50"
       >
         {routing.locales.map((loc) => (
           <option key={loc} value={loc}>
-            {[localeFlag(loc), localeLabel(loc)].filter(Boolean).join(" ")}
+            {localeLabel(loc)}
           </option>
         ))}
       </select>
