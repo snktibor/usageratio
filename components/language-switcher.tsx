@@ -1,6 +1,6 @@
 "use client";
 
-import { useLocale, useTranslations } from "next-intl";
+import { hasLocale, useLocale, useTranslations } from "next-intl";
 import { useTransition } from "react";
 import { routing, usePathname, useRouter } from "@/i18n/routing";
 
@@ -36,6 +36,7 @@ export function LanguageSwitcher() {
 
   const onChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const nextLocale = e.target.value;
+    if (!hasLocale(routing.locales, nextLocale)) return;
     startTransition(() => {
       router.replace(pathname, { locale: nextLocale });
     });

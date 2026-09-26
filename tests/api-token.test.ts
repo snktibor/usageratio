@@ -103,10 +103,10 @@ describe("a token to store", () => {
 
   it("gets a reason in Hungarian when it cannot be saved", () => {
     expect(apiTokenProblem(TOKEN)).toBeNull();
-    expect(apiTokenProblem("")).toMatch(/Írd vagy illeszd be/);
-    expect(apiTokenProblem("short")).toMatch(/legalább 16/);
-    expect(apiTokenProblem("with a space inside it")).toMatch(/szóközt/);
-    expect(apiTokenProblem("a".repeat(513))).toMatch(/legfeljebb 512/);
+    expect(apiTokenProblem("")).toBe("empty");
+    expect(apiTokenProblem("short")).toBe("too_short");
+    expect(apiTokenProblem("with a space inside it")).toBe("not_ascii");
+    expect(apiTokenProblem("a".repeat(513))).toBe("too_long");
   });
 });
 
@@ -142,8 +142,9 @@ describe("naming the browser", () => {
 
   it("names a non-browser client by its product token", () => {
     expect(describeClient("curl/8.7.1")).toEqual({ browser: "curl 8.7.1", os: null });
-    expect(describeClient("Mozilla/5.0 (compatible)")).toEqual({ browser: "Ismeretlen böngésző", os: null });
-    expect(describeClient("")).toEqual({ browser: "Ismeretlen kliens", os: null });
+    // Unknown browser and unknown client alike: the UI tells them apart by the User-Agent being empty.
+    expect(describeClient("Mozilla/5.0 (compatible)")).toEqual({ browser: null, os: null });
+    expect(describeClient("")).toEqual({ browser: null, os: null });
   });
 });
 
@@ -198,7 +199,11 @@ describe("the status note", () => {
     expect(apiTokenStatusNote({ state: "stored", updatedAt: 1, matchesServer: true }).tone).toBe("good");
     expect(apiTokenStatusNote({ state: "stored", updatedAt: 1, matchesServer: null }).tone).toBe("good");
     expect(apiTokenStatusNote({ state: "unreadable", updatedAt: 1 }).tone).toBe("problem");
-    expect(apiTokenStatusNote({ state: "no_key" }).text).toMatch(/TOKEN_ENCRYPTION_KEY/);
+    expect(apiTokenStatusNote({ state: "no_key" }).key).toBe("token_status_no_key");
+    expect(apiTokenStatusNote({ state: "stored", updatedAt: 1, matchesServer: false }).key).toBe(
+      "token_status_mismatch",
+    );
+    expect(apiTokenStatusNote({ state: "stored", updatedAt: 1, matchesServer: null }).key).toBe("token_status_stored");
     expect(apiTokenStatusNote({ state: "empty" }).tone).toBe("neutral");
   });
 });

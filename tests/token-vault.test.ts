@@ -146,7 +146,7 @@ describe("the token vault", () => {
       await withRequest(() => revealApiToken(key(), NOW));
       const [entry] = await loadAuditTrail();
       expect(entry).toMatchObject({ action: "revealed", ip: "unknown", session: null, userAgent: "", os: null });
-      expect(entry?.browser).toBe("Ismeretlen kliens"); // hardcoded Hungarian, M1 moves it to the messages
+      expect(entry?.browser).toBeNull(); // the UI says "unknown client" in its own language
     });
 
     it("keeps the token back when the audit write fails", async ({ skip }) => {

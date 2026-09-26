@@ -6,11 +6,12 @@ import { HistoryIcon, XIcon } from "@/components/icons";
 import { StatusLine } from "@/components/status-line";
 import {
   type ApiTokenStatus,
-  AUDIT_ACTION_LABEL,
   AUDIT_LIMIT,
   type AuditEntry,
   apiTokenProblem,
   apiTokenStatusNote,
+  MAX_TOKEN_LENGTH,
+  MIN_TOKEN_LENGTH,
 } from "@/lib/api-token";
 import { formatDateTime, formatTimestamp } from "@/lib/format";
 
@@ -187,11 +188,11 @@ function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => v
                       entry.action === "revealed" ? "border-rule text-ink-2" : "border-ink-3 text-ink"
                     }`}
                   >
-                    {AUDIT_ACTION_LABEL[entry.action]}
+                    {t(`audit_action_${entry.action}`)}
                   </span>
                 </div>
                 <p className="mt-1 text-sm text-ink-2">
-                  {entry.browser}
+                  {entry.browser ?? (entry.userAgent ? t("audit_unknown_browser") : t("audit_unknown_client"))}
                   {entry.os && ` · ${entry.os}`}
                   {entry.session !== null && entry.session === load.currentSession && (
                     <span className="text-ink-3"> · {t("audit_current_browser")}</span>
@@ -296,7 +297,7 @@ export function ApiTokenSettings({
     const token = value.trim();
     const tokenProblem = apiTokenProblem(token);
     setNotice(null);
-    setProblem(tokenProblem);
+    setProblem(tokenProblem && t(`token_problem_${tokenProblem}`, { min: MIN_TOKEN_LENGTH, max: MAX_TOKEN_LENGTH }));
     if (tokenProblem || noKey) return;
     // Only a first token goes straight in; replacing one (or one whose state is unknown) asks first.
     if (status?.state === "empty") void save(token);
@@ -331,7 +332,7 @@ export function ApiTokenSettings({
         ) : (
           statusNote && (
             <StatusLine tone={statusNote.tone}>
-              {statusNote.text}
+              {t(statusNote.key)}
               {updatedAt !== null && <> {t("last_saved", { date: formatDateTime(updatedAt, timeZone, locale) })}</>}
             </StatusLine>
           )

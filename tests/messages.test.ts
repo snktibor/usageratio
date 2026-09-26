@@ -40,6 +40,8 @@ const DYNAMIC_KEY_PATTERNS = [
   /^Setup\.runner_(global|npx)_desc$/,
   /^Widgets\.status_(active|late|inactive)$/,
   /^Dashboard\.mode_note_(delta|snapshot|counter)$/,
+  // lib/api-token.ts apiTokenStatusNote() hands the key over as data: `t(note.key)`.
+  /^Settings\.token_status_(no_key|empty|unreadable|mismatch|stored_matches|stored)$/,
 ];
 
 type Messages = Record<string, unknown>;

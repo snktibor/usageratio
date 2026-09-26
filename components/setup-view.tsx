@@ -265,6 +265,7 @@ function OneShotSection({
   blobs: OneShotBlobs;
 }) {
   const t = useTranslations("Setup");
+  const tSettings = useTranslations("Settings");
   const [runner, setRunner] = useState<CcusageRunner>("global");
   const available = tokenStatus.state === "stored";
   const note = apiTokenStatusNote(tokenStatus);
@@ -319,7 +320,7 @@ function OneShotSection({
         ) : null}
         {!available || note.tone === "warning" ? (
           <StatusLine tone={note.tone}>
-            {note.text}
+            {tSettings(note.key)}
             {tokenStatus.state === "empty" || tokenStatus.state === "unreadable" ? t("provide_in_settings") : ""}
           </StatusLine>
         ) : null}

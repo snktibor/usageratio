@@ -15,10 +15,13 @@ import { loadIndexes } from "@/lib/usage-store";
 // Rendered per request: the page depends on the session cookie and on the stored groups.
 export const dynamic = "force-dynamic";
 
+import { hasLocale } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { routing } from "@/i18n/routing";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
-  const locale = (await params).locale;
+  const requested = (await params).locale;
+  const locale = hasLocale(routing.locales, requested) ? requested : routing.defaultLocale;
   const t = await getTranslations({ locale, namespace: "Setup" });
   return { title: `${t("title")} · usageratio` };
 }

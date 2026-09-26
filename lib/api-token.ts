@@ -25,12 +25,6 @@ export type AuditAction = "created" | "updated" | "revealed";
 
 export const AUDIT_ACTIONS: readonly AuditAction[] = ["created", "updated", "revealed"];
 
-export const AUDIT_ACTION_LABEL: Record<AuditAction, string> = {
-  created: "Hozzáadás",
-  updated: "Módosítás",
-  revealed: "Lekérés",
-};
-
 /** The requesting browser, as the request described it. */
 export interface AuditClient {
   userAgent: string;
@@ -56,8 +50,8 @@ export interface AuditRecord extends AuditClient {
 export interface AuditEntry {
   at: number;
   action: AuditAction;
-  /** "Chrome 140" */
-  browser: string;
+  /** "Chrome 140"; null when the request named no known browser (the UI then says so, in its language). */
+  browser: string | null;
   /** "macOS"; null when the request does not tell. */
   os: string | null;
   userAgent: string;
@@ -77,16 +71,15 @@ export function isValidApiToken(value: unknown): value is string {
   );
 }
 
+/** Why a token cannot be saved; the UI shows `Settings.token_problem_<code>` with {min} and {max}. */
+export type TokenProblemCode = "empty" | "not_ascii" | "too_short" | "too_long";
+
 /** Why `value` (already trimmed) cannot be saved as the token; null when it can. */
-export function apiTokenProblem(value: string): string | null {
-  if (value === "") return "Írd vagy illeszd be a tokent.";
-  if (!TOKEN_PATTERN.test(value)) {
-    return "A token nem tartalmazhat szóközt, ékezetes vagy más nem ASCII karaktert.";
-  }
-  if (value.length < MIN_TOKEN_LENGTH) {
-    return `A token legalább ${MIN_TOKEN_LENGTH} karakter, mint a szerver USAGE_API_TOKEN-je.`;
-  }
-  if (value.length > MAX_TOKEN_LENGTH) return `A token legfeljebb ${MAX_TOKEN_LENGTH} karakter lehet.`;
+export function apiTokenProblem(value: string): TokenProblemCode | null {
+  if (value === "") return "empty";
+  if (!TOKEN_PATTERN.test(value)) return "not_ascii";
+  if (value.length < MIN_TOKEN_LENGTH) return "too_short";
+  if (value.length > MAX_TOKEN_LENGTH) return "too_long";
   return null;
 }
 
@@ -190,7 +183,7 @@ function brandFromHints(brands: string): string | null {
   return brand ? `${BRAND_NAMES[brand.name] ?? brand.name} ${brand.version}` : null;
 }
 
-function browserFromUserAgent(userAgent: string): string {
+function browserFromUserAgent(userAgent: string): string | null {
   for (const [pattern, name] of UA_BROWSERS) {
     const match = pattern.exec(userAgent);
     if (match) return `${name} ${match[1]}`;
@@ -198,11 +191,20 @@ function browserFromUserAgent(userAgent: string): string {
   // Not a browser (curl, a script): its own first product token says what it is.
   const product = /^([A-Za-z][\w.-]*)\/([\w.]+)/.exec(userAgent);
   if (product && product[1] !== "Mozilla") return `${product[1]} ${product[2]}`;
-  return userAgent ? "Ismeretlen böngésző" : "Ismeretlen kliens";
+  return null;
 }
 
-/** "Chrome 140" and "macOS", from the User-Agent and, where a Chromium browser sends them, its client hints. */
-export function describeClient(userAgent: string, brands = "", platform = ""): { browser: string; os: string | null } {
+/**
+ * "Chrome 140" and "macOS", from the User-Agent and, where a Chromium browser
+ * sends them, its client hints. `browser` is null when neither names one; the
+ * UI tells an unknown browser (a User-Agent it cannot read) from an unknown
+ * client (no User-Agent at all) by `userAgent`.
+ */
+export function describeClient(
+  userAgent: string,
+  brands = "",
+  platform = "",
+): { browser: string | null; os: string | null } {
   const hinted = platform.replace(/"/g, "").trim();
   const os =
     hinted && hinted !== "Unknown"
@@ -215,38 +217,29 @@ export function describeClient(userAgent: string, brands = "", platform = ""): {
 
 export type StatusTone = "good" | "warning" | "problem" | "neutral";
 
-/** The status in one sentence, for the settings panel and the setup page. */
-export function apiTokenStatusNote(status: ApiTokenStatus): { tone: StatusTone; text: string } {
+/** The sentence's key in the `Settings` namespace (`token_status_*`). */
+export type TokenStatusKey =
+  | "token_status_no_key"
+  | "token_status_empty"
+  | "token_status_unreadable"
+  | "token_status_mismatch"
+  | "token_status_stored_matches"
+  | "token_status_stored";
+
+/** The status as a tone and a message key, for the settings panel and the setup page. */
+export function apiTokenStatusNote(status: ApiTokenStatus): { tone: StatusTone; key: TokenStatusKey } {
   switch (status.state) {
     case "no_key":
-      return {
-        tone: "problem",
-        text:
-          "A szerveren nincs érvényes TOKEN_ENCRYPTION_KEY (32 bájt, például openssl rand -base64 32), " +
-          "ezért a token nem tárolható.",
-      };
+      return { tone: "problem", key: "token_status_no_key" };
     case "empty":
-      return { tone: "neutral", text: "Még nincs tárolt token." };
+      return { tone: "neutral", key: "token_status_empty" };
     case "unreadable":
-      return {
-        tone: "problem",
-        text:
-          "A tárolt token nem fejthető vissza: megváltozott a TOKEN_ENCRYPTION_KEY, vagy sérült az érték. " +
-          "Add meg újra.",
-      };
+      return { tone: "problem", key: "token_status_unreadable" };
     case "stored":
-      if (status.matchesServer === false) {
-        return {
-          tone: "warning",
-          text: "A tárolt token nem egyezik a szerver USAGE_API_TOKEN-jével: a telepítő el fogja utasítani.",
-        };
-      }
+      if (status.matchesServer === false) return { tone: "warning", key: "token_status_mismatch" };
       return {
         tone: "good",
-        text:
-          status.matchesServer === true
-            ? "Titkosítva tárolva, és egyezik a szerver USAGE_API_TOKEN-jével."
-            : "Titkosítva tárolva.",
+        key: status.matchesServer === true ? "token_status_stored_matches" : "token_status_stored",
       };
   }
 }

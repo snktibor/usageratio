@@ -18,11 +18,11 @@ import { applyGroundTruth, applySubLimitReading, parseOfficialPercent } from "@/
 
 const PROVIDER_KEY = "usageratio:selected-provider";
 
-const MODE_NOTE: Record<TokenMode, string> = {
+const MODE_NOTE = {
   delta: "mode_note_delta",
   snapshot: "mode_note_snapshot",
   counter: "mode_note_counter",
-};
+} as const satisfies Record<TokenMode, string>;
 
 /**
  * The part of the dashboard an official usage figure can restate. The server

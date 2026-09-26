@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { CopyError, copyText, fetchApiToken } from "@/components/clipboard";
 import { CheckCircleIcon, KeyIcon } from "@/components/icons";
@@ -13,6 +14,7 @@ type CopyState = { phase: "idle" } | { phase: "busy" } | { phase: "copied" } | {
  * the page: it is fetched from the server on the click, and that fetch is audited.
  */
 export function TokenCopyButton({ status }: { status: ApiTokenStatus }) {
+  const tSettings = useTranslations("Settings");
   const [state, setState] = useState<CopyState>({ phase: "idle" });
   const timer = useRef<number | null>(null);
 
@@ -73,7 +75,7 @@ export function TokenCopyButton({ status }: { status: ApiTokenStatus }) {
       </div>
       {!available || note.tone === "warning" ? (
         <StatusLine tone={note.tone}>
-          {note.text}
+          {tSettings(note.key)}
           {status.state === "empty" || status.state === "unreadable"
             ? " A dashboard Beállítások paneljén adhatod meg."
             : ""}
