@@ -38,8 +38,13 @@ guesses can't outrun the limit:
 **A separate, smaller global budget** (`usage:auth:global`, **30 attempts per hour**) applies only
 to requests from a browser without a "known device" cookie. Logging in successfully sets a
 365-day `usage:auth:device:{sha256(deviceId)}` cookie/key pair that exempts that browser from the
-global budget from then on — so a stranger spreading guesses across many IPs can lock out
-strangers, but never the owner's own already-trusted browser.
+global budget from then on — so a stranger spreading guesses across many IPs can use up the budget
+for unknown browsers, but never lock out the owner's own already-trusted browser.
+
+**How much that protects.** An attacker with enough IP addresses gets at most 30 guesses an hour
+through the global budget, about 21,600 a month. Against a 5-digit PIN (100,000 combinations) that
+is roughly a one-in-five chance per month of sustained attack. On a public URL, use a passphrase of
+12 or more characters instead; the guess space then dwarfs any rate limit.
 
 Login errors: `malformed` (not a legal PIN string, not even counted as a guess), `misconfigured`
 (`DASHBOARD_PIN` unset or invalid — the server logs `auth.pin_misconfigured` and refuses every
@@ -114,7 +119,8 @@ data-driven values (chart bar widths, dynamic colors); an attribute can't execut
 `img-src`/`connect-src 'self'` close off using it to exfiltrate data. `/api/csp-report`
 (unauthenticated, capped at 8 KiB, rate-limited to 20 requests/minute per IP via an in-process
 counter — a store-backed limiter isn't worth it for one best-effort endpoint) logs every violation
-as `csp.violation { documentUri, violatedDirective, blockedUri, sample }` and always answers `204`.
+as `csp.violation { documentUri, violatedDirective, blockedUri, sample }` and answers `204`
+(`413`, `415` or `429` for an oversized, mistyped or too frequent report).
 
 **`SECURITY_CSP`** (`enforce` | `report` | `off`, default `enforce`) controls the header sent:
 
@@ -173,8 +179,8 @@ its own expiry and the window resets when the key expires — no cleanup job).
 | `/api/csp-report` | 20 / minute per IP | in-process `Map`, not Redis — see [above](#content-security-policy) |
 | `POST /api/alerts/test` | 1 / 10 seconds, shared globally (not per-IP/session) | `usage:rl:alerts-test` |
 
-All of the above except the CSP report endpoint return `429 rate_limited` with
-`Retry-After`/`retryAfterSeconds`. Behind a reverse proxy or load balancer, `TRUST_PROXY` must be
+All of the above answer `429` once exceeded; the API endpoints add `rate_limited` with
+`Retry-After`/`retryAfterSeconds`, and the login form shows the wait time. Behind a reverse proxy or load balancer, `TRUST_PROXY` must be
 set correctly (`1` when a proxy you control sets `X-Forwarded-For`, `0` when the app is exposed
 directly) or every per-IP limit above can be spoofed or trivially bypassed.
 
@@ -250,10 +256,12 @@ manual `POST /api/housekeeping` (settings panel, sudo-gated unless `?dryRun=1`) 
 - `usage:tokens` entries revoked more than 90 days ago (`REVOKED_RETENTION_DAYS`);
 - `usage:api-token:audit` entries older than `AUDIT_RETENTION_DAYS`.
 
-It never touches the raw event ZSETs, which already self-prune on every write. Both entry points
-require a bearer token — `CRON_SECRET` (cron) or the dashboard session plus sudo (manual) — and
-the cron route refuses to run at all if `CRON_SECRET` is unset or under 16 characters, rather than
-accept an unauthenticated request. A run's result is also stored at `usage:housekeeping:last`.
+Its one writing step archives the cycle that just ended into `usage:history:*` (see
+[data-model.md § History](data-model.md#history-archived-cycles)). It never touches the raw event
+ZSETs, which already self-prune on every write. The cron route needs `Authorization: Bearer
+$CRON_SECRET`; the manual route needs a dashboard session, plus sudo for a real run. The cron route
+refuses to run at all if `CRON_SECRET` is unset or under 16 characters, rather than accept an
+unauthenticated request. A run's result is also stored at `usage:housekeeping:last`.
 See [self-hosting.md](self-hosting.md#housekeeping-the-daily-cron) for running it without Vercel
 Cron.
 

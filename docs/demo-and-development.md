@@ -20,8 +20,9 @@ screenshots, and end-to-end tests — never for a real deployment.
 The synthetic dataset (`lib/demo/dataset.ts`) is deterministic (seeded random, default seed 42):
 3 groups (`Work`, `Personal`, `Lab`), 4 providers (`claude`, `openai`, `deepseek`, `gemini`) each
 with realistic models, 5 machines with distinct behavior — most auto-reporting hourly on a
-weekday/weekend activity profile, one manual (stale by a few hours), one long-silent (stale by
-several days, to demonstrate the "prune inactive machines" action). Two full cycles of hourly usage
+weekday/weekend activity profile, one manual machine that last reported five hours ago (shown with
+the neutral "manual" badge, not as late), and one auto machine silent for six days (shown as late).
+Two full cycles of hourly usage
 are generated, scaled so the reference provider lands at a fixed percentage of budget, plus 6
 pre-archived older cycles written directly to the history keys (bypassing real ingestion, since
 reports that old would already be outside the normal retention window). Two providers carry a
@@ -66,7 +67,7 @@ Three Vitest projects (`vitest.config.mts`):
 - **component** (`tests/components/*.test.tsx`, jsdom) — React components rendered with the
   English messages.
 
-A few integration tests are worth knowing about specifically:
+A few tests are worth knowing about specifically:
 
 - `tests/setup-install.test.ts` runs the real `clients/setup/install.sh` end to end as a
   subprocess, against a scratch `HOME` and stand-in `crontab`/`ccusage` on `PATH` — this is why
@@ -81,8 +82,8 @@ A few integration tests are worth knowing about specifically:
 The PowerShell/bash clients have their own checks, run in CI but not by `npm run check`:
 `shellcheck` and `bash -n` over `clients/**/*.sh`, and `Invoke-ScriptAnalyzer` plus a Pester suite
 (`clients/tests/report-usage-core.Tests.ps1`, run as `Invoke-Pester clients/tests`) over the
-PowerShell scripts — both spawn the real reporter script as a subprocess against a scratch
-environment with stand-in `ccusage`/`npx`. Install [PowerShell 7+](https://github.com/PowerShell/PowerShell)
+PowerShell scripts. The Pester suite runs the real reporter against a scratch environment with
+stand-in `ccusage`/`npx`. Install [PowerShell 7+](https://github.com/PowerShell/PowerShell)
 (`pwsh`) and the `Pester`/`PSScriptAnalyzer` modules to run those locally.
 
 ## End-to-end tests

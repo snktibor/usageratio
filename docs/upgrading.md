@@ -1,90 +1,102 @@
 # Upgrading
 
-Steps for moving an existing deployment to a newer release. Most of this app upgrades with a plain
-redeploy and no other action — this page calls out the exceptions.
+Moving an existing deployment to this release. Most of it is a plain redeploy; this page lists the
+steps that are not, in the order to do them, and then every behaviour change you may notice.
 
-- [Multi-provider data (pre-provider stores only)](#multi-provider-data-pre-provider-stores-only)
-- [Time zone (settings documents with no `reset.timeZone`)](#time-zone-settings-documents-with-no-resettimezone)
-- [Rolling out or changing the CSP](#rolling-out-or-changing-the-csp)
-- [Adding `CRON_SECRET`](#adding-cron_secret)
-- [Sessions](#sessions)
-- [The PIN may now be a passphrase](#the-pin-may-now-be-a-passphrase)
-- [Client `--tokens` flag](#client---tokens-flag)
-- [Updating clients](#updating-clients)
+- [Before you deploy](#before-you-deploy)
+- [Deploy the server, then the clients](#deploy-the-server-then-the-clients)
+- [After the first deploy](#after-the-first-deploy)
+- [Behaviour changes](#behaviour-changes)
 
-## Multi-provider data (pre-provider stores only)
+## Before you deploy
 
-If the store predates multi-provider support (it only ever tracked one provider, with no
-`providerId` in its keys), run the legacy migration **before** deploying a build whose
-`lib/usage-store.ts` no longer has the old read fallback:
+**Migrate a pre-provider store.** This release removes the read fallback for stores from before
+multi-provider support, whose keys carry no provider id (`usage:events:{group}` instead of
+`usage:events:{provider}:{group}`). Run the migration against the production store first:
 
 ```bash
-node --env-file-if-exists=.env.local --import tsx scripts/migrate-legacy.ts -- --apply
+npm run migrate:legacy               # dry run: prints the plan, changes nothing
+npm run migrate:legacy -- --apply
 ```
 
-Run it without `--apply` first to see the plan; it's idempotent, so running it again (before or after
-deploying) is always safe. See [data-model.md § The legacy migration](data-model.md#the-legacy-migration)
-for exactly what it changes. If your store already has provider-prefixed keys (anything deployed in
-the last several releases), this step is a no-op and can be skipped.
+It is idempotent, so running it again is always safe, and a no-op on a store that already has
+provider-prefixed keys. See [data-model.md § The legacy migration](data-model.md#the-legacy-migration)
+for exactly what it changes.
 
-## Time zone (settings documents with no `reset.timeZone`)
+**Add the new secrets.** Set these in the project's environment variables, then deploy:
 
-A settings document saved by a much older release (`v1`/`v2`, before per-document time zones existed)
-has no `reset.timeZone` field, so the effective time zone falls back to the deploy-time
-`RESET_TIMEZONE` environment variable, or `UTC` if that's unset too — which may not be the time zone
-you actually want the cycle to reset in. After upgrading, open the settings panel and either confirm
-the time zone shown is correct or set it explicitly (this is a one-time save; it's stored from then
-on). See [configuration.md § Reset and time zone](configuration.md#reset-and-time-zone).
+| Variable | Why |
+| --- | --- |
+| `CRON_SECRET` | `vercel.json` now schedules `GET /api/cron/housekeeping` daily. Without the secret (at least 16 characters) that call answers `500` and does nothing. |
+| `SECURITY_CSP=report` | Ships the new Content Security Policy in report-only mode for the first deploy; see below. |
 
-## Rolling out or changing the CSP
+`DEMO_MODE` must never be set on a real deployment: it swaps the store for an in-memory one with
+synthetic data and disables the PIN.
 
-Deploy a first release, or any change to the Content Security Policy, with:
+## Deploy the server, then the clients
 
-```bash
-SECURITY_CSP=report
-```
+The server accepts reports from older clients unchanged. Every payload addition (`models`, `days`,
+`hours`, `costs`/`modelCosts`, `mode`, `intervalMinutes`) is optional, so an installed client keeps
+reporting after the server upgrade. It only misses the newer features (per-model charts, day and
+hour placement, the manual-machine badge, cost estimates) until it is updated. Updating a client
+is a re-run of its installer from a freshly generated Setup-page package; see
+[clients.md § Updating](clients.md#updating).
 
-Use the dashboard normally for a while, then check the logs for `csp.violation` lines — a legitimate
-resource the new policy doesn't yet allow shows up there, blocked nowhere. Fix anything real, then
-switch to `SECURITY_CSP=enforce` (or remove the variable, since that's the default) and redeploy. See
+## After the first deploy
+
+**Check the time zone.** The cycle's reset time zone now lives in the settings document, and the
+built-in default changed from `Europe/Budapest` to `UTC`. A settings document saved by an earlier
+release has no time zone, so the app falls back to the `RESET_TIMEZONE` environment variable, and
+to `UTC` when that is unset. Open the settings panel, check the zone shown under
+[Reset and time zone](configuration.md#reset-and-time-zone), and save once; from then on it is
+stored with the other settings.
+
+**Switch the CSP to enforce.** Use the dashboard and the Setup page for a while, then look for
+`csp.violation` lines in the logs. Once there are none, set `SECURITY_CSP=enforce` (or remove the
+variable: enforce is the default) and redeploy. See
 [security.md § Content Security Policy](security.md#content-security-policy).
 
-## Adding `CRON_SECRET`
+**Let housekeeping run.** The daily run prunes dead index entries, old audit rows and long-revoked
+tokens, and archives each finished cycle into the history, so the history no longer depends on
+someone opening the dashboard during the following cycle. To preview what it would do:
 
-If housekeeping (stale-entry pruning, audit-trail retention, and archiving each finished cycle into
-history) has never run because `CRON_SECRET` was never set, add it now (at least 16 characters) and
-redeploy — `vercel.json`'s cron entry calls `GET /api/cron/housekeeping` once a day automatically once
-the secret is present. Before this, a cycle's history was only archived on the first dashboard render
-after it ended; the daily cron now archives it too, whichever happens first, so history no longer
-depends on someone opening the dashboard. Self-hosting a scheduler yourself instead: see
+```bash
+curl -s -H "Authorization: Bearer $CRON_SECRET" "https://usageratio.example.com/api/cron/housekeeping?dryRun=1"
+```
+
+Self-hosting without Vercel's scheduler: see
 [self-hosting.md § Housekeeping](self-hosting.md#housekeeping-the-daily-cron).
 
-## Sessions
+## Behaviour changes
 
-Existing sessions keep working across an upgrade without any action: a session record from before
-rolling sessions existed (a bare `"1"` value) is read as freshly created and freshly seen, then
-silently upgraded to the current `{c, s}` shape the next time it's touched. Nobody is logged out by
-this change.
-
-## The PIN may now be a passphrase
-
-`DASHBOARD_PIN` has always accepted 5–64 characters; older documentation described it as a 5-digit
-code only. No change is needed to keep an existing numeric PIN working — but on a public URL,
-consider switching to a longer passphrase (12+ characters, letters and digits) for a meaningfully
-larger guess space. Changing `DASHBOARD_PIN` logs every existing session out immediately.
-
-## Client `--tokens` flag
-
-The reporter's `--tokens` flag now takes `provider=count` (e.g. `--tokens claude=1234`), naming the
-provider explicitly, rather than an older single-provider-implied form. Existing installed clients are
-unaffected unless you're scripting `--tokens` directly yourself — check
-[clients.md § Flags and exit codes](clients.md#flags-and-exit-codes) if you are.
-
-## Updating clients
-
-The server accepts reports from older clients unchanged — every payload addition (`models`, `days`,
-`hours`, `costs`/`modelCosts`, `mode`, `intervalMinutes`) has always been optional, so an older
-installed client keeps reporting correctly after a server upgrade; it just won't populate the newer
-dashboard features (per-model charts, day/hour placement, cost estimates) until it's updated too.
-Updating a client is a plain re-run of its installer from a freshly generated Setup-page package or
-checkout — see [clients.md § Updating](clients.md#updating).
+- **Login.** `DASHBOARD_PIN` now accepts 5–64 characters, so it can be a passphrase; earlier
+  releases required exactly five digits. An existing 5-digit PIN keeps working. The PIN form no
+  longer submits on the fifth digit (`DASHBOARD_PIN_AUTOSUBMIT=1` brings that back for a numeric
+  PIN). Changing `DASHBOARD_PIN` still logs every session out.
+- **Lockout.** The global lockout that anyone could trigger is gone. Failed logins are throttled
+  per IP, with escalating bans for repeat offenders, and the small global budget only applies to
+  browsers without the new `usageratio_device` cookie, so a stranger cannot lock you out of your
+  own browsers. See [security.md](security.md).
+- **Sessions.** A session now ends after 7 days without use and after 30 days at most
+  (`SESSION_IDLE_DAYS`, `SESSION_MAX_DAYS`). Existing sessions are upgraded in place on their next
+  use; nobody is logged out by the upgrade itself.
+- **Re-entering the PIN.** Revealing the stored API token, issuing or revoking per-machine tokens,
+  destructive management actions and a manual housekeeping run ask for the PIN again (valid for
+  5 minutes).
+- **Ingest limits.** `POST /api/usage` can now answer `429 rate_limited` (with `Retry-After`),
+  `422 too_many_groups|too_many_providers|too_many_machines`, and `413` for oversized bodies. The
+  clients already retry on the next scheduled run. See [api.md](api.md).
+- **Error bodies.** Every API error is `{"error": "<code>", "requestId": "…"}`; `/api/setup`
+  errors are JSON instead of plain text.
+- **Audit trail.** New entries keep a hashed IP and a `/24` (IPv6 `/48`) prefix instead of the full
+  address (`AUDIT_RAW_IP=1` keeps it). Older entries stay readable.
+- **Token vault.** The sealed API-token copy is tagged with a key id, which enables key rotation
+  through `TOKEN_ENCRYPTION_KEY_PREVIOUS`; see [security.md](security.md). Older sealed values
+  still open.
+- **Client `--tokens`.** The manual reporter's `--tokens` flag takes `provider=count` (for
+  example `--tokens claude=1234`); a bare number is refused with a hint. See
+  [clients.md § Flags and exit codes](clients.md#flags-and-exit-codes).
+- **Default language.** The default locale is now English. A browser that prefers Hungarian or
+  German is still redirected to `/hu` or `/de`.
+- **No phantom provider.** A fresh install no longer shows an empty DeepSeek account; the
+  dashboard shows a setup hint until the first report arrives.

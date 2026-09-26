@@ -65,8 +65,8 @@ deployment.
 ## First login
 
 Open the deployed URL and enter the PIN or passphrase. A correct login starts a session cookie
-that lasts 30 days by default, refreshed while active — see [security.md](security.md) for the
-exact mechanics.
+that ends after 7 days without use and after 30 days at most (both configurable) — see
+[security.md](security.md) for the exact mechanics.
 
 ## Installing the first client
 
@@ -98,10 +98,11 @@ curl -i -X POST https://usageratio.example.com/api/usage \
   -d "{\"machineId\":\"probe\",\"groupId\":\"Test\",\"providers\":{\"claude\":1},\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
 ```
 
-`201` is the expected response (`200` if you run it twice — the second one is a no-op duplicate).
-The test provider and group show up on the dashboard and in the settings panel; delete the `Test`
-group once you're done (it has no real reports to protect it from a clean delete). See
-[api.md](api.md) for the full report schema and every response code.
+`201` is the expected response (resending the exact same body answers `200`, a no-op duplicate).
+The probe shows up on the dashboard and in the settings panel. Delete the `Test` group from the
+settings panel once you're done: it now holds a report, so the panel asks you to confirm a force
+delete and to re-enter your PIN. See [api.md](api.md) for the full report schema and every
+response code.
 
 ## Running it locally
 
