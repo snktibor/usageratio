@@ -285,6 +285,21 @@ export async function loadIndexes(): Promise<StoreIndexes> {
   };
 }
 
+/**
+ * Records `providerIds` as first seen at `atMs` (one millisecond apart, in
+ * order) unless they are already known. The provider list and the dashboard's
+ * default account follow first-seen order; the demo seed uses this to list its
+ * accounts in its own order.
+ */
+export async function registerProviders(providerIds: string[], atMs: number): Promise<void> {
+  if (providerIds.length === 0) return;
+  const tx = getRedis().multi();
+  providerIds.forEach((providerId, index) => {
+    tx.hsetnx(KEYS.providers, providerId, atMs + index);
+  });
+  await tx.exec();
+}
+
 /** The stored settings document alone. */
 export async function loadRawSettings(): Promise<string | null> {
   return toRawDocument(await getRedis().get(KEYS.settings));

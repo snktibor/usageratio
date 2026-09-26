@@ -185,7 +185,10 @@ function SubLimitRow({ model, state, onChange: setEntry, providerLabel }: RowPro
         ) : quota ? (
           <span>
             <strong className="font-medium text-ink">
-              {formatHeroPercent(quota.usedFraction, locale)} {t("consumed")} {statusLabel(quota, t)}
+              {t("sublimit_consumed_status", {
+                percent: formatHeroPercent(quota.usedFraction, locale),
+                status: statusLabel(quota, t),
+              })}
             </strong>
             {paceNote(subView, model, t, locale)} {sourceNote(subView, providerLabel, t, locale)}
           </span>

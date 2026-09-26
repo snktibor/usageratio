@@ -62,8 +62,7 @@ function paceSentence(
       : t("no_tokens_left");
   }
   if (total === 0) {
-    const period = model.period === "monthly" ? t("monthly_adjective") : t("weekly_adjective");
-    return t("full_quota_available", { period });
+    return t("full_quota_available", { period: model.period });
   }
   if (pace.earlyBurn) {
     return t("first_day_burn", {
@@ -128,7 +127,6 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
   const showRemaining = tokenQuota !== null && model.showRemaining;
   const style = quota ? STATUS_STYLE[quota.status] : UNKNOWN_STYLE;
   const StatusIcon = style.icon;
-  const period = model.period === "monthly" ? t("monthly_adjective") : t("weekly_adjective");
   const fillPercent = quota ? Math.min(1, quota.usedFraction) * 100 : 0;
   const nowFraction = model.cycle.elapsedFraction;
   const nowAlign = nowFraction < 0.05 ? "translate-x-0" : nowFraction > 0.95 ? "-translate-x-full" : "-translate-x-1/2";
@@ -140,7 +138,7 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
         {quota ? (
           <>
             <span className="hero-figure">{formatHeroPercent(quota.usedFraction, locale)}</span>
-            <span className="text-xl text-ink-2 sm:text-2xl">{t("quota_consumed", { period })}</span>
+            <span className="text-xl text-ink-2 sm:text-2xl">{t("quota_consumed", { period: model.period })}</span>
           </>
         ) : (
           <>
@@ -212,7 +210,7 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
               {t("token_count", { count: formatTokens(tokenQuota.total, locale) })}
             </dd>
             <dd className="text-sm text-ink-3">
-              {t("of_token_limit", { period, tokens: formatTokens(tokenQuota.limit, locale) })}
+              {t("of_token_limit", { period: model.period, tokens: formatTokens(tokenQuota.limit, locale) })}
             </dd>
           </div>
         ) : (
