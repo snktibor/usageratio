@@ -467,11 +467,9 @@ export function renderOneShot(
 
 /**
  * The instructions that travel inside the ZIP, for whoever opens the folder
- * later. Its translator parameter is named `translate`, not `t`: the scanner
- * in tests/messages.test.ts resolves a bare `t(...)` call to a namespace by
- * finding a `useTranslations`/`getTranslations` binding elsewhere in the same
- * file, which a pure lib module never has. `Setup.readme_*` and `Setup.role_*`
- * are covered by DYNAMIC_KEY_PATTERNS there instead.
+ * later, in the language of the request (app/api/setup/route.ts builds the
+ * translator). tests/messages.test.ts checks every key used here through the
+ * `Translator<"Setup">` annotation.
  */
 export function renderReadme(
   os: SetupOs,

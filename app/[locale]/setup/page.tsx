@@ -1,7 +1,10 @@
 import { headers } from "next/headers";
+import { hasLocale } from "next-intl";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { PinGate } from "@/components/pin-gate";
 import { type SetupGroup, SetupView } from "@/components/setup/setup-view";
 import { StorageProblem } from "@/components/storage-problem";
+import { routing } from "@/i18n/routing";
 import type { ApiTokenStatus } from "@/lib/api-token";
 import { isAuthenticated } from "@/lib/auth";
 import { log } from "@/lib/log";
@@ -14,10 +17,6 @@ import { loadIndexes } from "@/lib/usage-store";
 
 // Rendered per request: the page depends on the session cookie and on the stored groups.
 export const dynamic = "force-dynamic";
-
-import { hasLocale } from "next-intl";
-import { getTranslations } from "next-intl/server";
-import { routing } from "@/i18n/routing";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const requested = (await params).locale;
@@ -36,10 +35,15 @@ async function loadGroups(): Promise<SetupGroup[]> {
 }
 
 export default async function SetupPage({
+  params,
   searchParams,
 }: {
+  params: Promise<{ locale: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const { locale } = await params;
+  if (hasLocale(routing.locales, locale)) setRequestLocale(locale);
+
   let groups: SetupGroup[] | null = null;
   let tokenStatus: ApiTokenStatus = { state: "empty" };
   let storageError: unknown = null;
@@ -57,14 +61,14 @@ export default async function SetupPage({
   }
   if (!groups) return <PinGate next="/setup" />;
 
-  const [params, requestHeaders, sources] = await Promise.all([searchParams, headers(), loadClientSources()]);
+  const [query, requestHeaders, sources] = await Promise.all([searchParams, headers(), loadClientSources()]);
   return (
     <SetupView
       initialOs={
-        parseOs(params.os) ?? detectOs(requestHeaders.get("user-agent"), requestHeaders.get("sec-ch-ua-platform"))
+        parseOs(query.os) ?? detectOs(requestHeaders.get("user-agent"), requestHeaders.get("sec-ch-ua-platform"))
       }
-      initialMode={parseMode(params.mode) ?? "auto"}
-      initialRoute={parseRoute(params.route) ?? "zip"}
+      initialMode={parseMode(query.mode) ?? "auto"}
+      initialRoute={parseRoute(query.route) ?? "zip"}
       apiUrl={usageEndpoint(requestHeaders)}
       groups={groups}
       sources={sources}

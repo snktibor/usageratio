@@ -382,7 +382,7 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
     [current, factorFor(current, DEMO_TARGETS.currentCycleShare)],
   ]);
 
-  const usage = DEMO_MACHINES.map((machine, machineIndex) => {
+  const usage = DEMO_MACHINES.map((_machine, machineIndex) => {
     const byProvider = new Map<string, HourSeries>();
     for (const [providerId, series] of raw[machineIndex]!) {
       const provider = DEMO_PROVIDERS.find((candidate) => candidate.id === providerId);

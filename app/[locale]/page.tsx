@@ -1,8 +1,11 @@
 import { cookies } from "next/headers";
+import { hasLocale } from "next-intl";
+import { setRequestLocale } from "next-intl/server";
 import { Dashboard } from "@/components/dashboard";
 import { PROVIDER_COOKIE } from "@/components/dashboard-view";
 import { PinGate } from "@/components/pin-gate";
 import { StorageProblem } from "@/components/storage-problem";
+import { routing } from "@/i18n/routing";
 import { isAuthenticated } from "@/lib/auth";
 import { currentTime } from "@/lib/clock";
 import { getConfig } from "@/lib/config";
@@ -78,7 +81,10 @@ function withSelectedProviderFirst(
   return [providers[index]!, ...providers.slice(0, index), ...providers.slice(index + 1)];
 }
 
-export default async function Page() {
+export default async function Page({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  if (hasLocale(routing.locales, locale)) setRequestLocale(locale);
+
   let data: DashboardData | null = null;
   let storageError: unknown = null;
 

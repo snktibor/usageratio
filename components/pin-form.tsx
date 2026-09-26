@@ -12,13 +12,8 @@ const INITIAL_STATE: LoginState = { error: null };
 const LOCKOUT_MINUTES = 15;
 
 /**
- * The failure code from the server action, in the visitor's language.
- *
- * The parameter is named `tAuth`, matching the caller's variable: the
- * messages test statically scans for `<name>("key")` calls and resolves the
- * namespace from a `const <name> = useTranslations("Namespace")` binding
- * found anywhere in this file — a parameter called `t` would be misread as
- * the `HomePage` translator declared below in `PinForm`.
+ * The failure code from the server action, in the visitor's language. Named
+ * `tAuth` like the caller's variable: `t` is the `HomePage` translator in this file.
  */
 function errorText(tAuth: Translator<"Auth">, error: LoginError): string {
   switch (error.code) {
