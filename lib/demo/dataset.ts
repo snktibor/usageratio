@@ -1,5 +1,6 @@
 import { DEFAULT_RESET, type ResetConfig } from "@/lib/config";
 import { type Cycle, getCycle, getDayEnd, getDaySegments, getDayStart, getPreviousCycle } from "@/lib/cycle";
+import { type CycleSummary, HISTORY_TOP_MODELS } from "@/lib/history";
 import type { OfficialUsageUpdate } from "@/lib/official-usage";
 import { PRESET_COLORS, type SettingsUpdate } from "@/lib/settings";
 
@@ -168,6 +169,22 @@ export interface DemoDataset {
   /** Oldest first; a machine's reports are in order among themselves. */
   reports: DemoReport[];
   official: DemoOfficialEntry[];
+  /**
+   * A handful of cycles before `cycles.previous`, already archived (lib/history.ts):
+   * the real reports going that far back are never generated (there is nothing for
+   * `ingestReport` to store, they would already be outside RETENTION_DAYS), so these
+   * are written straight into `usage:history:{providerId}` by `seedStore`, the same
+   * way lazy archiving would have left them. `cycles.previous` itself is not among
+   * them: it still has real events, so the dashboard's own lazy archiving
+   * (app/[locale]/page.tsx) archives it from those on the first render, same as
+   * it would for a real deployment.
+   */
+  history: DemoHistoryEntry[];
+}
+
+export interface DemoHistoryEntry {
+  providerId: string;
+  summary: CycleSummary;
 }
 
 export interface DemoOptions {
@@ -208,6 +225,11 @@ enum Salt {
   DayJitter = 2,
   ModelJitter = 3,
   ManualSchedule = 4,
+  HistoryShare = 5,
+  HistoryGroup = 6,
+  HistoryOfficial = 7,
+  HistorySubLimit = 8,
+  HistoryMachines = 9,
 }
 
 // ── Local time ───────────────────────────────────────────────────────────────
@@ -297,6 +319,82 @@ function splitModels(tokens: number, weights: Record<string, number>): Record<st
 
 function addInto(target: Record<string, number>, source: Record<string, number>): void {
   for (const [key, amount] of Object.entries(source)) target[key] = (target[key] ?? 0) + amount;
+}
+
+// ── History (archived cycles) ───────────────────────────────────────────────
+
+/** How many cycles before `cycles.previous` the demo pre-archives. */
+const DEMO_HISTORY_CYCLES = 6;
+
+/** Which providers have an official percentage typed in a given past cycle, for variety. */
+function hasOfficialFigure(providerId: string, cycleIndex: number): boolean {
+  if (providerId === "deepseek") return false; // never: shows the "measured tokens" fallback in the chart
+  if (providerId === "claude") return true; // always
+  if (providerId === "openai") return cycleIndex % 2 === 0; // sometimes: a mix of recorded and "not recorded" bars
+  return cycleIndex % 3 !== 0; // gemini: mostly
+}
+
+/**
+ * A handful of plausible archived cycles before `previousCycle`, so the
+ * "Previous cycles" section has something to show without waiting for real
+ * dashboard reads to build up history (lazy archiving only ever reaches one
+ * cycle back at a time; see lib/history.ts). Deterministic: reuses the same
+ * seeded noise as the rest of the dataset, and the same `splitModels` integer
+ * split for the groups' and models' shares of each cycle's total.
+ */
+function buildDemoHistory(previousCycle: Cycle, reset: ResetConfig, seed: number): DemoHistoryEntry[] {
+  const entries: DemoHistoryEntry[] = [];
+  let cycle = previousCycle;
+  for (let cycleIndex = 1; cycleIndex <= DEMO_HISTORY_CYCLES; cycleIndex += 1) {
+    cycle = getPreviousCycle(cycle, reset);
+    for (const [providerIndex, provider] of DEMO_PROVIDERS.entries()) {
+      const share = 0.4 + 0.55 * noise(seed, providerIndex, cycleIndex, Salt.HistoryShare);
+      const total = Math.max(0, Math.round(provider.limit * share));
+
+      // "Lab" never counts openai's usage (see the demo settings' excludedProviders below).
+      const eligibleGroups = DEMO_GROUPS.filter((group) => provider.id !== "openai" || group.id !== "Lab");
+      const groupWeights = Object.fromEntries(
+        eligibleGroups.map((group, groupIndex) => [
+          group.id,
+          0.3 + noise(seed, providerIndex, cycleIndex, groupIndex, Salt.HistoryGroup),
+        ]),
+      );
+      const groups = splitModels(total, groupWeights);
+
+      const models = Object.fromEntries(
+        Object.entries(splitModels(total, provider.models))
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, HISTORY_TOP_MODELS),
+      );
+
+      const subLimits: Record<string, number> =
+        provider.id === "claude"
+          ? { fable: Math.round(total * (0.15 + 0.2 * noise(seed, providerIndex, cycleIndex, Salt.HistorySubLimit))) }
+          : {};
+
+      const official = hasOfficialFigure(provider.id, cycleIndex)
+        ? Math.round((40 + 65 * noise(seed, providerIndex, cycleIndex, Salt.HistoryOfficial)) * 10) / 10
+        : null;
+
+      entries.push({
+        providerId: provider.id,
+        summary: {
+          v: 1,
+          start: cycle.start.getTime(),
+          end: cycle.end.getTime(),
+          total,
+          limit: null, // the demo ships with the token limits switched off (see `settings` below)
+          official,
+          groups,
+          machines: 2 + Math.floor(noise(seed, providerIndex, cycleIndex, Salt.HistoryMachines) * 3),
+          models,
+          subLimits,
+          archivedAt: cycle.end.getTime(),
+        },
+      });
+    }
+  }
+  return entries;
 }
 
 // ── The dataset ──────────────────────────────────────────────────────────────
@@ -507,5 +605,7 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
     { providerId: "claude", subLimitId: "fable", raw: "48", cycleStartMs, enteredAtMs: nowMs - 2 * HOUR_MS },
   ];
 
-  return { timeZone, reset, cycles: { current, previous }, settings, reports, official };
+  const history = buildDemoHistory(previous, reset, seed);
+
+  return { timeZone, reset, cycles: { current, previous }, settings, reports, official, history };
 }

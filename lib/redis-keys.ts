@@ -23,6 +23,12 @@
  *   usage:housekeeping:last  STRING {"at": ms, "report": HousekeepingReport} — the last run of
  *                                   lib/housekeeping.ts (see app/api/cron/housekeeping/route.ts)
  *
+ *   usage:history:{providerId}   ZSET  score = cycle start (epoch ms), member = a CycleSummary
+ *                                       (JSON, see lib/history.ts), kept for the newest
+ *                                       HISTORY_RETENTION cycles. Written lazily on a dashboard
+ *                                       read, once the cycle right before the current one falls
+ *                                       out of the events' retention window (app/[locale]/page.tsx).
+ *
  * One time-ordered set per provider/group makes all filters native commands:
  * provider and group are in the key, a period is a score range. The reset
  * therefore needs no job and deletes nothing — the cycle is just the lower
@@ -60,6 +66,7 @@ export const KEYS = {
   machines: "usage:machines",
   officialUsage: "usage:official",
   events: (providerId: string, groupId: string) => `usage:events:${providerId}:${groupId}`,
+  history: (providerId: string) => `usage:history:${providerId}`,
   apiToken: "usage:api-token",
   apiTokenAudit: "usage:api-token:audit",
   housekeepingLast: "usage:housekeeping:last",

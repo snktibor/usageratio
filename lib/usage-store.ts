@@ -2,6 +2,7 @@ import type { UsageEvent } from "@/lib/aggregate";
 import { MAX_MACHINES } from "@/lib/config";
 import type { KnownMachine } from "@/lib/dashboard";
 import { reportCheckpoints } from "@/lib/days";
+import { type CycleSummary, HISTORY_RETENTION, parseCycleSummary, serializeCycleSummary } from "@/lib/history";
 import { type OfficialUsageUpdate, officialUsageField, storedEntryFor } from "@/lib/official-usage";
 import { MAX_PROVIDERS, mergeProviderIds, normalizeProviderId } from "@/lib/providers";
 import { getRedis, toStringRecord } from "@/lib/redis";
@@ -519,4 +520,72 @@ export async function saveOfficialUsage(update: OfficialUsageUpdate, now: Date):
   const stored = storedEntryFor(update, now.getTime());
   if (stored === null) await getRedis().hdel(KEYS.officialUsage, field);
   else await getRedis().hset(KEYS.officialUsage, { [field]: stored });
+}
+
+// ── History (archived cycles) ────────────────────────────────────────────────
+// See lib/history.ts for what a summary holds and how it is built; the reads and
+// writes below only move the already-built JSON in and out of the ZSET.
+
+/**
+ * Archives one cycle's summary for `providerId`: `ZADD NX` (so a render that
+ * loses a race with another one is a harmless no-op) then, in the same
+ * transaction, trims the set to the newest HISTORY_RETENTION entries.
+ * Returns whether this call is the one that actually wrote it.
+ */
+export async function archiveCycle(providerId: string, summary: CycleSummary): Promise<boolean> {
+  const key = KEYS.history(providerId);
+  const tx = getRedis().multi();
+  const plan = new TxPlan();
+  plan.add("added", () => tx.zadd(key, { nx: true }, { score: summary.start, member: serializeCycleSummary(summary) }));
+  plan.add(null, () => tx.zremrangebyrank(key, 0, -(HISTORY_RETENTION + 1)));
+  const results: unknown[] = await tx.exec();
+  return Number(plan.result(results, "added")) === 1;
+}
+
+/**
+ * The start of the newest archived cycle, per provider; null where nothing is
+ * archived yet. One round trip: a dashboard read uses this to decide whether
+ * the previous cycle still needs archiving (see app/[locale]/page.tsx).
+ */
+export async function loadNewestArchivedStarts(providerIds: string[]): Promise<Record<string, number | null>> {
+  const starts: Record<string, number | null> = {};
+  if (providerIds.length === 0) return starts;
+
+  const reads = getRedis().pipeline();
+  const plan = new TxPlan();
+  for (const providerId of providerIds) {
+    plan.add(`newest:${providerId}`, () => reads.zrange(KEYS.history(providerId), -1, -1, { withScores: true }));
+  }
+  const results: unknown[] = await reads.exec();
+
+  for (const providerId of providerIds) {
+    const raw = plan.result(results, `newest:${providerId}`);
+    const score = Array.isArray(raw) && raw.length >= 2 ? Number(raw[1]) : NaN;
+    starts[providerId] = Number.isFinite(score) ? score : null;
+  }
+  return starts;
+}
+
+/** Up to HISTORY_RETENTION archived cycles per provider, newest first. One round trip. */
+export async function loadHistory(providerIds: string[]): Promise<Record<string, CycleSummary[]>> {
+  const history: Record<string, CycleSummary[]> = {};
+  if (providerIds.length === 0) return history;
+
+  const reads = getRedis().pipeline();
+  const plan = new TxPlan();
+  for (const providerId of providerIds) {
+    plan.add(`entries:${providerId}`, () =>
+      reads.zrange(KEYS.history(providerId), 0, HISTORY_RETENTION - 1, { rev: true }),
+    );
+  }
+  const results: unknown[] = await reads.exec();
+
+  for (const providerId of providerIds) {
+    const raw = plan.result(results, `entries:${providerId}`);
+    const members = Array.isArray(raw) ? raw : [];
+    history[providerId] = members
+      .map((member) => parseCycleSummary(String(member)))
+      .filter((summary): summary is CycleSummary => summary !== null);
+  }
+  return history;
 }
