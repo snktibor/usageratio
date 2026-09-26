@@ -32,3 +32,6 @@ i18n/locales.generated.ts
 npm-debug.log*
 dev.log
 dev.pid
+
+# Claude Code agent worktrees (local only)
+/.claude/worktrees/
