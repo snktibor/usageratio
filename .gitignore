@@ -22,6 +22,8 @@ i18n/locales.generated.ts
 /coverage/
 /playwright-report/
 /test-results/
+# saved login session for the e2e "real"/"mobile" projects (e2e/auth.setup.ts) — regenerated every run
+/e2e/.auth/
 
 # local tooling
 .impeccable/
