@@ -1,7 +1,7 @@
 import { getConfig, type TokenMode } from "@/lib/config";
 import { getCycle } from "@/lib/cycle";
 import { resolveConfig } from "@/lib/settings";
-import { loadRawSettings, storeReport } from "@/lib/usage-store";
+import { loadRawSettings, type StoreReportRefusal, storeReport } from "@/lib/usage-store";
 import { parseUsageReport, type UsageReport } from "@/lib/validation";
 
 /**
@@ -21,6 +21,8 @@ import { parseUsageReport, type UsageReport } from "@/lib/validation";
 
 export type IngestResult =
   | { ok: false; errors: string[] }
+  /** Refused before writing anything: a registry cap (lib/usage-store.ts) would be exceeded. */
+  | { ok: false; refused: StoreReportRefusal; limit: number }
   | {
       ok: true;
       report: UsageReport;
@@ -62,6 +64,8 @@ export async function ingestReport(body: unknown, now: Date): Promise<IngestResu
   };
 
   const stored = await storeReport(parsed.report, now, config.retentionDays, reportCycle);
+  if (!stored.ok) return stored;
+
   const cycle = reset && getCycle(now, reset);
-  return { ok: true, report: parsed.report, ...stored, cycle, tokenMode: config.tokenMode };
+  return { report: parsed.report, ...stored, cycle, tokenMode: config.tokenMode };
 }

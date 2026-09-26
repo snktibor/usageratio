@@ -229,9 +229,15 @@ describe("the application's store code on the memory store", () => {
     const now = new Date(T0 + 1000);
     const cycle = { timeZone: "Europe/Budapest", startMs: T0 - 86_400_000 };
     const first = await storeReport(report({}), now, 70, cycle);
-    expect(first).toEqual({ duplicate: false, newGroup: true, newProviders: ["claude", "deepseek"], heartbeat: false });
+    expect(first).toEqual({
+      ok: true,
+      duplicate: false,
+      newGroup: true,
+      newProviders: ["claude", "deepseek"],
+      heartbeat: false,
+    });
     const second = await storeReport(report({}), now, 70, cycle);
-    expect(second).toEqual({ duplicate: true, newGroup: false, newProviders: [], heartbeat: false });
+    expect(second).toEqual({ ok: true, duplicate: true, newGroup: false, newProviders: [], heartbeat: false });
 
     const store = getMemoryStoreForTests()!;
     expect(store.keys()).toEqual([

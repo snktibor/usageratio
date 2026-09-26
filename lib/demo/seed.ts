@@ -101,9 +101,8 @@ export async function seedStore(options: SeedOptions): Promise<SeedSummary> {
   for (const report of dataset.reports) {
     const result = await ingestReport(report.body, new Date(report.timestampMs));
     if (!result.ok) {
-      summary.invalid.push(
-        `${report.machineId} @ ${new Date(report.timestampMs).toISOString()}: ${result.errors.join("; ")}`,
-      );
+      const reason = "errors" in result ? result.errors.join("; ") : `too many ${result.refused.split("_")[2]}`;
+      summary.invalid.push(`${report.machineId} @ ${new Date(report.timestampMs).toISOString()}: ${reason}`);
       continue;
     }
     if (result.duplicate) summary.duplicates += 1;

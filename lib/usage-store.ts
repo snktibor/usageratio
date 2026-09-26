@@ -1,13 +1,15 @@
 import type { UsageEvent } from "@/lib/aggregate";
+import { MAX_MACHINES } from "@/lib/config";
 import type { KnownMachine } from "@/lib/dashboard";
 import { reportCheckpoints } from "@/lib/days";
 import { type OfficialUsageUpdate, officialUsageField, storedEntryFor } from "@/lib/official-usage";
-import { mergeProviderIds, normalizeProviderId } from "@/lib/providers";
+import { MAX_PROVIDERS, mergeProviderIds, normalizeProviderId } from "@/lib/providers";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import { TxPlan } from "@/lib/redis-tx";
 import {
   type IndexedGroup,
   type KnownGroup,
+  MAX_GROUPS,
   parseGroupEntry,
   randomGroupColor,
   type SettingsUpdate,
@@ -101,6 +103,59 @@ function parseModelSplit(raw: unknown): Record<string, number> | null {
   return split;
 }
 
+export type StoreReportRefusal = "too_many_groups" | "too_many_providers" | "too_many_machines";
+
+export type StoreReportResult =
+  | { ok: true; duplicate: boolean; newGroup: boolean; newProviders: string[]; heartbeat: boolean }
+  | { ok: false; refused: StoreReportRefusal; limit: number };
+
+/**
+ * The registry caps, checked in one pipeline before the write below: refuses
+ * a report that would register a group, provider or machine past MAX_GROUPS,
+ * MAX_PROVIDERS or MAX_MACHINES. Read here, not inside the write's MULTI, so
+ * two first reports racing each other can each see room and both get
+ * written — the caps bound runaway growth, they are not an exact invariant
+ * (see lib/config.ts MAX_MACHINES).
+ */
+async function checkRegistryCaps(report: UsageReport, heartbeat: boolean): Promise<StoreReportRefusal | null> {
+  const providers = Object.entries(report.providers);
+  const redis = getRedis();
+  const caps = redis.pipeline();
+  const plan = new TxPlan();
+  plan.add("groupCount", () => caps.hlen(KEYS.groups));
+  plan.add("groupExists", () => caps.hexists(KEYS.groups, report.groupId));
+  if (!heartbeat) {
+    plan.add("providerCount", () => caps.hlen(KEYS.providers));
+    for (const [providerId] of providers) {
+      plan.add(`providerExists:${providerId}`, () => caps.hexists(KEYS.providers, providerId));
+    }
+    plan.add("machineCount", () => caps.hlen(KEYS.machines));
+    for (const [providerId] of providers) {
+      plan.add(`machineExists:${providerId}`, () => caps.hexists(KEYS.machines, `${providerId}:${report.machineId}`));
+    }
+  }
+  const results: unknown[] = await caps.exec();
+
+  const groupCount = Number(plan.result(results, "groupCount"));
+  const groupExists = Number(plan.result(results, "groupExists")) === 1;
+  if (!groupExists && groupCount >= MAX_GROUPS) return "too_many_groups";
+  if (heartbeat) return null;
+
+  const providerCount = Number(plan.result(results, "providerCount"));
+  const newProviderCount = providers.filter(
+    ([providerId]) => Number(plan.result(results, `providerExists:${providerId}`)) === 0,
+  ).length;
+  if (providerCount + newProviderCount > MAX_PROVIDERS) return "too_many_providers";
+
+  const machineCount = Number(plan.result(results, "machineCount"));
+  const newMachineCount = providers.filter(
+    ([providerId]) => Number(plan.result(results, `machineExists:${providerId}`)) === 0,
+  ).length;
+  if (machineCount + newMachineCount > MAX_MACHINES) return "too_many_machines";
+
+  return null;
+}
+
 /**
  * Persists one report, and the checkpoints of its split by day inside its
  * cycle (`cycle`: the time zone the clients split the days in, and the start
@@ -113,15 +168,25 @@ function parseModelSplit(raw: unknown): Record<string, number> | null {
  * still registered — so the machine's group shows up on the settings panel —
  * but no provider or machine row is invented for it, since there is nothing
  * to name one after; `heartbeat` comes back true and `duplicate` false.
+ *
+ * Refuses (`ok: false`) instead of writing anything when the report would
+ * register a new group, provider or machine past its cap; see
+ * `checkRegistryCaps` above.
  */
 export async function storeReport(
   report: UsageReport,
   now: Date,
   retentionDays: number,
   cycle: { timeZone: string; startMs: number } | null,
-): Promise<{ duplicate: boolean; newGroup: boolean; newProviders: string[]; heartbeat: boolean }> {
+): Promise<StoreReportResult> {
   const providers = Object.entries(report.providers);
   const heartbeat = providers.length === 0;
+
+  const refused = await checkRegistryCaps(report, heartbeat);
+  if (refused === "too_many_groups") return { ok: false, refused, limit: MAX_GROUPS };
+  if (refused === "too_many_providers") return { ok: false, refused, limit: MAX_PROVIDERS };
+  if (refused === "too_many_machines") return { ok: false, refused, limit: MAX_MACHINES };
+
   const oldestMs = now.getTime() - retentionDays * DAY_MS;
   const checkpoints =
     cycle && !heartbeat ? reportCheckpoints(report, cycle.timeZone, Math.max(cycle.startMs, oldestMs)) : [];
@@ -165,7 +230,7 @@ export async function storeReport(
     : providers.flatMap(([providerId]) =>
         Number(plan.result(results, `provider:${providerId}`)) === 1 ? [providerId] : [],
       );
-  return { duplicate, newGroup: Number(plan.result(results, "group")) === 1, newProviders, heartbeat };
+  return { ok: true, duplicate, newGroup: Number(plan.result(results, "group")) === 1, newProviders, heartbeat };
 }
 
 function parseEvent(raw: unknown, groupId: string): UsageEvent | null {
