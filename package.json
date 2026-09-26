@@ -54,6 +54,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
+    "brand": "node scripts/brand/render.mjs",
     "seed": "node --env-file-if-exists=.env.local --import tsx scripts/seed.ts",
     "migrate:legacy": "node --env-file-if-exists=.env.local --import tsx scripts/migrate-legacy.ts",
     "redis:up": "docker compose -f docker-compose.dev.yml up -d",

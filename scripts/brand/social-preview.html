@@ -1,0 +1,179 @@
+<!doctype html>
+<!--
+  Source for docs/assets/social-preview.png (GitHub "social preview" image,
+  Settings -> General -> Social preview: 1280x640).
+
+  Rendered by scripts/brand/render.mjs with headless Chrome — regenerate with
+  `npm run brand` after editing this file. Not served by the app; a plain
+  local file so it can use the real @font-face without any of next/og's
+  (satori's) layout constraints.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      @font-face {
+        font-family: "Instrument Sans";
+        src: url("../../assets/fonts/InstrumentSans-Regular.ttf") format("truetype");
+        font-weight: 400;
+      }
+      @font-face {
+        font-family: "Instrument Sans";
+        src: url("../../assets/fonts/InstrumentSans-SemiBold.ttf") format("truetype");
+        font-weight: 600;
+      }
+      @font-face {
+        font-family: "Instrument Sans";
+        src: url("../../assets/fonts/InstrumentSans-Bold.ttf") format("truetype");
+        font-weight: 700;
+      }
+
+      :root {
+        --page: #1a1a19;
+        --rule: #383835;
+        --ink: #f4f3ef;
+        --ink-2: #c3c2b7;
+        --ink-3: #9a9891;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 1280px;
+        height: 640px;
+        background: var(--page);
+        font-family: "Instrument Sans", sans-serif;
+        overflow: hidden;
+      }
+
+      .card {
+        display: flex;
+        width: 1280px;
+        height: 640px;
+      }
+
+      .left {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: flex-start;
+        width: 472px;
+        flex-shrink: 0;
+        padding: 0 56px;
+      }
+
+      .mark {
+        width: 76px;
+        height: 76px;
+        border-radius: 17px;
+        background: var(--page);
+        border: 1.5px solid rgba(154, 152, 145, 0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .mark .grid {
+        position: relative;
+        width: 47.5px;
+        height: 33.25px;
+      }
+
+      .mark .track,
+      .mark .fill,
+      .mark .tick {
+        position: absolute;
+      }
+
+      .mark .track {
+        left: 0;
+        top: 9.5px;
+        width: 47.5px;
+        height: 14.25px;
+        background: var(--rule);
+      }
+
+      .mark .fill {
+        left: 0;
+        top: 9.5px;
+        width: 28.5px;
+        height: 14.25px;
+        background: var(--ink);
+      }
+
+      .mark .tick {
+        left: 33.25px;
+        top: 0;
+        width: 4.75px;
+        height: 33.25px;
+        background: var(--ink);
+      }
+
+      .wordmark {
+        margin-top: 28px;
+        font-size: 64px;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        line-height: 1;
+        color: var(--ink);
+      }
+
+      .tagline {
+        margin-top: 20px;
+        font-size: 22px;
+        font-weight: 400;
+        line-height: 1.4;
+        color: var(--ink-2);
+      }
+
+      .seam {
+        width: 1px;
+        flex-shrink: 0;
+        background: var(--rule);
+      }
+
+      .right {
+        position: relative;
+        flex: 1;
+        height: 640px;
+        overflow: hidden;
+        background: var(--page);
+      }
+
+      .right img {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: 50% 62%;
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="left">
+        <div class="mark">
+          <div class="grid">
+            <div class="track"></div>
+            <div class="fill"></div>
+            <div class="tick"></div>
+          </div>
+        </div>
+        <div class="wordmark">usageratio</div>
+        <div class="tagline">Every machine&rsquo;s AI token budget,<br />in one dashboard.</div>
+      </div>
+      <div class="seam"></div>
+      <div class="right">
+        <img src="../../docs/assets/dashboard.png" alt="" />
+      </div>
+    </div>
+  </body>
+</html>
