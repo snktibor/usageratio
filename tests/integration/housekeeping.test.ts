@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET as cronHousekeeping } from "@/app/api/cron/housekeeping/route";
 import { POST as postHousekeeping } from "@/app/api/housekeeping/route";
 import { getRedis } from "@/lib/redis";
+import { sha256Hex } from "@/lib/security";
 import { useRedis } from "../helpers/redis-fixture";
+import { seedSession } from "../helpers/session";
 
 const CRON_SECRET = "0123456789abcdef0123456789abcdef";
 
@@ -89,5 +91,28 @@ describe("POST /api/housekeeping", () => {
     expect((await response.json()).error).toBe("unauthorized");
     // Refused before touching the store.
     expect(await getRedis().hexists("usage:providers", "orphan")).toBe(1);
+  });
+
+  it("reports on a dry run with the session alone, but deletes only after a fresh PIN confirmation (sudo)", async () => {
+    vi.stubEnv("DASHBOARD_PIN", "12345");
+    vi.stubEnv("DEMO_MODE", "");
+    const cookie = await seedSession("12345");
+    const sessionId = cookie.split("=")[1]!;
+    const request = (search = "") =>
+      new Request(`http://localhost/api/housekeeping${search}`, {
+        method: "POST",
+        headers: { cookie, origin: "http://localhost", host: "localhost" },
+      });
+
+    expect((await postHousekeeping(request("?dryRun=1"))).status).toBe(200);
+
+    const refused = await postHousekeeping(request());
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).error).toBe("sudo_required");
+
+    await getRedis().set(`usage:session:${sha256Hex(`${sessionId}:12345`)}:sudo`, "1", { ex: 300 });
+    const allowed = await postHousekeeping(request());
+    expect(allowed.status).toBe(200);
+    expect((await allowed.json()).report).toBeDefined();
   });
 });

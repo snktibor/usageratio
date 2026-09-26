@@ -1,4 +1,5 @@
-import { json, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { hasSudo } from "@/lib/auth";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { runHousekeeping } from "@/lib/housekeeping";
 
@@ -7,15 +8,15 @@ import { runHousekeeping } from "@/lib/housekeeping";
  * trigger, behind the dashboard's PIN session. Runs the same pruning as the
  * daily cron (see app/api/cron/housekeeping/route.ts and lib/housekeeping.ts).
  *
- * TODO(auth): once the sudo flow lands, require it here too — this only
- * deletes index entries nothing still points to, but it is still a mutating
- * admin action and should sit behind the same gate as the other sudo routes.
+ * A real run deletes (only index entries nothing points to any more), so it
+ * needs a fresh PIN confirmation (sudo, POST /api/auth/sudo); a dry run only
+ * reports and needs the session alone.
  *
  *   ?dryRun=1 → the same report, nothing is deleted
  *
  *   → { "report": HousekeepingReport }
  *
- * 200 ok · 401 no session · 403 foreign origin or demo_read_only
+ * 200 ok · 401 no session · 403 foreign origin, demo_read_only or sudo_required
  */
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ export const POST = withApiHandler("api/housekeeping", async ({ request, url }) 
   if (sessionError) return sessionError;
 
   const dryRun = url.searchParams.get("dryRun") === "1";
+  if (!dryRun && !(await hasSudo())) return apiError("sudo_required", 403);
   const report = await runHousekeeping(new Date(), { dryRun });
   return json({ report }, 200);
 });

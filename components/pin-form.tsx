@@ -82,7 +82,7 @@ export function PinForm({
               formRef.current?.requestSubmit();
             }
           }}
-          className="block w-full min-w-0 grow rounded-md border border-rule bg-raised px-4 py-3 text-3xl tracking-[0.5em] text-ink placeholder:text-rule"
+          className={`block w-full min-w-0 grow rounded-md border border-rule bg-raised px-4 py-3 text-ink placeholder:text-rule ${numeric ? "text-3xl tracking-[0.5em]" : "text-lg"}`}
         />
         {!numeric && (
           <button

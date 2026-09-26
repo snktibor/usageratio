@@ -34,6 +34,7 @@ export type ApiErrorCode =
   | "storage_unavailable"
   | "internal_error"
   | "sudo_required"
+  | "sudo_invalid"
   | "too_many_groups"
   | "too_many_providers"
   | "too_many_machines"

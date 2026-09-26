@@ -1,6 +1,5 @@
 import { apiError, json, readJsonBody, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
 import { grantSudo, pinShape } from "@/lib/auth";
-import { currentRequestId } from "@/lib/request-context";
 
 /**
  * GET/POST /api/auth/sudo — sudo mode: a 5-minute grant on top of the
@@ -15,13 +14,9 @@ import { currentRequestId } from "@/lib/request-context";
  * 503 Redis down
  */
 
-/** `{ error: "sudo_invalid" }`, matching apiError's envelope without widening the shared ApiErrorCode union. */
+/** A wrong (or impossible) PIN: 401 `sudo_invalid`, with the guesses left when the limiter counted it. */
 function sudoInvalid(attemptsLeft?: number): Response {
-  const requestId = currentRequestId();
-  return json(
-    { error: "sudo_invalid", ...(requestId && { requestId }), ...(attemptsLeft !== undefined && { attemptsLeft }) },
-    401,
-  );
+  return apiError("sudo_invalid", 401, attemptsLeft === undefined ? {} : { attemptsLeft });
 }
 
 export const GET = withApiHandler("api/auth/sudo", async () => {
