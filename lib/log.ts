@@ -1,11 +1,20 @@
-import { currentRequestId } from "@/lib/request-context";
-
 /**
  * Structured logging: one JSON object per line in production (what Vercel's
  * log drains and `vercel logs` index), a readable line in development. Every
- * line carries the current request id when there is one (lib/request-context.ts),
- * and any field whose name smells like a secret is redacted before it is written.
+ * line carries the current request id when there is one, and any field whose
+ * name smells like a secret is redacted before it is written.
+ *
+ * No imports: modules the browser bundle also reaches (lib/config.ts, through
+ * lib/settings.ts) log with it. The request id comes from lib/request-context.ts,
+ * which registers itself here when it loads on the server.
  */
+
+let requestIdSource: () => string | null = () => null;
+
+/** lib/request-context.ts hands over how to read the current request's id. */
+export function setRequestIdSource(source: () => string | null): void {
+  requestIdSource = source;
+}
 
 export type Level = "debug" | "info" | "warn" | "error";
 
@@ -108,7 +117,7 @@ export function createLogger(options: LoggerOptions = {}): Logger {
   function make(bindings: Fields): Logger {
     const emit = (lineLevel: Level, msg: string, fields?: Fields): void => {
       if (LEVELS[lineLevel] < threshold) return;
-      const requestId = currentRequestId();
+      const requestId = requestIdSource();
       const merged: Record<string, unknown> = { ...bindings, ...fields };
       if (requestId && merged.requestId === undefined) merged.requestId = requestId;
       if (merged.err !== undefined) merged.err = errorFields(merged.err);
