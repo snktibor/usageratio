@@ -1,5 +1,5 @@
-import { isAuthenticated, sessionTag } from "@/lib/auth";
-import { storageFailure as failure, json } from "@/lib/http";
+import { json, requireSession, withApiHandler } from "@/lib/api";
+import { sessionTag } from "@/lib/auth";
 import { loadAuditTrail } from "@/lib/token-vault";
 
 /**
@@ -13,11 +13,8 @@ import { loadAuditTrail } from "@/lib/token-vault";
  *
  * 200 ok · 401 no session · 503 Redis down
  */
-export async function GET(): Promise<Response> {
-  try {
-    if (!(await isAuthenticated())) return json({ error: "unauthorized" }, 401);
-    return json({ entries: await loadAuditTrail(), currentSession: await sessionTag() }, 200);
-  } catch (error) {
-    return failure(error, "The API token audit");
-  }
-}
+export const GET = withApiHandler("api/api-token/audit", async () => {
+  const unauthorized = await requireSession();
+  if (unauthorized) return unauthorized;
+  return json({ entries: await loadAuditTrail(), currentSession: await sessionTag() }, 200);
+});

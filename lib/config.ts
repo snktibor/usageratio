@@ -84,6 +84,29 @@ export const INACTIVE_MACHINE_DAYS = 35;
 /** Reports timestamped further in the future than this are rejected. */
 export const MAX_CLOCK_SKEW_MINUTES = 10;
 
+/**
+ * The registry caps `storeReport` (lib/usage-store.ts) refuses to grow past:
+ * MAX_GROUPS (lib/settings.ts) and MAX_PROVIDERS (lib/providers.ts) are the
+ * other two. A concurrent first report of two never-seen machines (or groups,
+ * or providers) can overshoot its cap by a few — the check reads the count
+ * before the write, not inside its transaction — this is anti-bloat, not an
+ * invariant the dashboard depends on.
+ */
+export const MAX_MACHINES = 200;
+
+/**
+ * POST /api/usage: hits per token+machine and the deployment-wide total,
+ * both per hour (app/api/usage/route.ts).
+ */
+export const INGEST_RATE_LIMIT_PER_MACHINE = 60;
+export const INGEST_RATE_LIMIT_GLOBAL = 600;
+
+/** GET /api/usage: cycle lookups per token, per hour. */
+export const CYCLE_RATE_LIMIT_PER_TOKEN = 120;
+
+/** Failed Bearer tokens per IP, per minute, on either method of /api/usage. */
+export const UNAUTH_RATE_LIMIT_PER_IP = 60;
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type TokenMode = "delta" | "snapshot" | "counter";
