@@ -1,0 +1,26 @@
+{
+  "daily": [
+    {
+      "date": "2026-01-05",
+      "agents": [
+        {
+          "agent": "claude",
+          "modelBreakdowns": [
+            {
+              "modelName": "claude-sonnet-4-5-20250929",
+              "inputTokens": 1200,
+              "outputTokens": 340,
+              "cacheCreationTokens": 50,
+              "cacheReadTokens": 900
+            }
+          ]
+        },
+        {
+          "agent": "codex",
+          "modelsUsed": ["gpt-5-codex"],
+          "totalTokens": 500
+        }
+      ]
+    }
+  ]
+}
