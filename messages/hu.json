@@ -26,6 +26,9 @@
     "storage_not_configured_desc": "Hiányzik a <code>KV_REST_API_URL</code> és a <code>KV_REST_API_TOKEN</code> környezeti változó. Kösd a Vercel-projekthez az Upstash Redis adatbázist (Storage fül), majd telepítsd újra az alkalmazást.",
     "storage_unavailable_desc": "A Redis nem válaszolt. A kliensek beküldései ilyenkor sem vesznek el végleg, a következő órában újra jelentenek. Töltsd újra az oldalt egy perc múlva.",
     "storage_reload": "Újratöltés",
+    "export": "Exportálás",
+    "export_csv": "CSV (.csv)",
+    "export_json": "JSON (.json)",
     "footer_source": "Forráskód",
     "footer_version": "v{version}"
   },
@@ -270,7 +273,19 @@
     "official_save_failed_unauthorized": "A munkameneted lejárt. Töltsd újra az oldalt, és jelentkezz be újra.",
     "official_save_failed_rejected": "A szerver elutasította ezt az értéket.",
     "official_save_failed_storage": "A szerver nem tudta menteni ezt az értéket. A következő módosításnál újra próbáljuk.",
-    "official_save_failed_network": "Nem sikerült elérni a szervert. Ellenőrizd a kapcsolatot, és próbáld újra."
+    "official_save_failed_network": "Nem sikerült elérni a szervert. Ellenőrizd a kapcsolatot, és próbáld újra.",
+    "history_heading": "Korábbi ciklusok",
+    "history_empty": "Még nincs archivált korábbi ciklus. Minden új ciklus kezdetekor automatikusan bekerül egy.",
+    "history_chart_aria": "Korábbi ciklusok fogyasztása",
+    "history_metric_note_official": "Az oszlopok az egyes ciklusokhoz megadott hivatalos fogyasztási százalékot mutatják.",
+    "history_metric_note_limitShare": "Az oszlopok azt mutatják, az egyes ciklusok mekkora hányadát használták el a tokenkeretnek.",
+    "history_metric_note_measured": "Az oszlopok a gépek által az egyes ciklusokban mért tokeneket mutatják.",
+    "history_value_unknown": "nincs rögzítve",
+    "history_value_column": "Érték",
+    "history_cycle_column": "Ciklus",
+    "history_tokens_column": "Token",
+    "history_official_column": "Hivatalos",
+    "history_groups_column": "Csoportok"
   },
   "Setup": {
     "title": "Telepítés",

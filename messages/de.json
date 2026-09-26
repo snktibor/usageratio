@@ -26,6 +26,9 @@
     "storage_not_configured_desc": "Die Umgebungsvariablen <code>KV_REST_API_URL</code> und <code>KV_REST_API_TOKEN</code> fehlen. Verbinde die Upstash-Redis-Datenbank mit dem Vercel-Projekt (Storage-Tab) und installiere die Anwendung anschließend neu.",
     "storage_unavailable_desc": "Redis hat nicht geantwortet. Die Einsendungen der Clients gehen dabei nicht endgültig verloren, sie melden sich in der nächsten Stunde erneut. Lade die Seite in einer Minute neu.",
     "storage_reload": "Neu laden",
+    "export": "Export",
+    "export_csv": "CSV (.csv)",
+    "export_json": "JSON (.json)",
     "footer_source": "Quellcode",
     "footer_version": "v{version}"
   },
@@ -270,7 +273,19 @@
     "official_save_failed_unauthorized": "Deine Sitzung ist abgelaufen. Lade die Seite neu und melde dich erneut an.",
     "official_save_failed_rejected": "Der Server hat diesen Wert abgelehnt.",
     "official_save_failed_storage": "Der Server konnte diesen Wert nicht speichern. Bei der nächsten Änderung wird es erneut versucht.",
-    "official_save_failed_network": "Der Server konnte nicht erreicht werden. Überprüfe deine Verbindung und versuche es erneut."
+    "official_save_failed_network": "Der Server konnte nicht erreicht werden. Überprüfe deine Verbindung und versuche es erneut.",
+    "history_heading": "Frühere Zyklen",
+    "history_empty": "Es wurde noch kein früherer Zyklus archiviert. Mit jedem neuen Zyklus kommt automatisch einer hinzu.",
+    "history_chart_aria": "Verbrauch früherer Zyklen",
+    "history_metric_note_official": "Die Balken zeigen den für jeden Zyklus eingegebenen offiziellen Verbrauchsprozentsatz.",
+    "history_metric_note_limitShare": "Die Balken zeigen, welchen Anteil ihres Tokenkontingents die einzelnen Zyklen genutzt haben.",
+    "history_metric_note_measured": "Die Balken zeigen die von den Geräten in jedem Zyklus gemessenen Token.",
+    "history_value_unknown": "nicht erfasst",
+    "history_value_column": "Wert",
+    "history_cycle_column": "Zyklus",
+    "history_tokens_column": "Token",
+    "history_official_column": "Offiziell",
+    "history_groups_column": "Gruppen"
   },
   "Setup": {
     "title": "Einrichtung",
