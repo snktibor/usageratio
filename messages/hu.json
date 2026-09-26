@@ -393,6 +393,10 @@
     "token_on_clipboard": "Token a vágólapon",
     "token_on_clipboard_hidden": "A token a vágólapon.",
     "audit_notice": "A lekérés az auditnaplóba kerül.",
+    "sudo_prompt": "Erősítsd meg a PIN-koddal, hogy az elkövetkező 5 percben másolhasd a tokent.",
+    "sudo_unlock": "Feloldás",
+    "sudo_unlocking": "Feloldás…",
+    "sudo_error_generic": "A PIN-kód megerősítése nem sikerült. Próbáld újra.",
     "file_save_label": "Mentés",
     "file_installed_label": "Végleges helye",
     "file_not_installed": "nem települ, csak egyszer fut",
@@ -401,13 +405,14 @@
     "packed_note": "‹{name}, tömörítve: {lines} sor base64›"
   },
   "Auth": {
-    "pin_malformed": "A PIN-kód pontosan 5 számjegy.",
-    "pin_misconfigured": "A szerveren nincs érvényes DASHBOARD_PIN beállítva (5 számjegy kell).",
+    "pin_malformed": "A PIN-kód vagy jelmondat 5–64 karakter hosszú lehet.",
+    "pin_misconfigured": "A szerveren nincs érvényes DASHBOARD_PIN beállítva (5–64 karakter; ha csak számjegyekből áll, numerikus billentyűzet jelenik meg).",
     "pin_invalid": "Hibás PIN-kód. {attemptsLeft, plural, one {Még # próbálkozásod van.} other {Még # próbálkozásod van.}}",
-    "pin_locked": "Hibás PIN-kód. Elfogytak a próbálkozások, próbáld újra {minutes, plural, one {# perc} other {# perc}} múlva.",
     "rate_limited": "Túl sok próbálkozás. Próbáld újra {minutes, plural, one {# perc} other {# perc}} múlva.",
     "storage_not_configured": "Az adattár nincs bekötve: hiányzik a KV_REST_API_URL és a KV_REST_API_TOKEN. Kösd a Redis adatbázist a Vercel-projekthez, majd telepítsd újra.",
-    "storage_unavailable": "Az adattár most nem érhető el, ezért a belépés sem. Próbáld újra kicsit később."
+    "storage_unavailable": "Az adattár most nem érhető el, ezért a belépés sem. Próbáld újra kicsit később.",
+    "pin_show": "Mutat",
+    "pin_hide": "Elrejt"
   },
   "Errors": {
     "page_failed_title": "Az oldal nem tudott betölteni",

@@ -7,6 +7,7 @@ import { CommandBlock } from "@/components/code-block";
 import { InfoTip } from "@/components/info-tip";
 import { panelId, tabId } from "@/components/setup/route-tabs";
 import { Segmented } from "@/components/setup/steps";
+import { SudoUnlock } from "@/components/setup/sudo-unlock";
 import { StatusLine } from "@/components/status-line";
 import { type ApiTokenStatus, apiTokenStatusNote } from "@/lib/api-token";
 import {
@@ -46,6 +47,7 @@ export function OneShotRoute({
   const tSettings = useTranslations("Settings");
   const headingId = panelId(tabsId, "oneShot");
   const [runner, setRunner] = useState<CcusageRunner>("global");
+  const [sudoRequired, setSudoRequired] = useState(false);
   const available = tokenStatus.state === "stored";
   const note = apiTokenStatusNote(tokenStatus);
   const packedNote = (name: string, blob: string) => t("packed_note", { name, lines: blob.split("\n").length });
@@ -101,7 +103,9 @@ export function OneShotRoute({
             label={t("one_shot_command")}
             resolve={build}
             disabled={!settings || !available}
+            onProblem={(_message, code) => setSudoRequired(code === "sudo_required")}
           />
+          {sudoRequired && <SudoUnlock onUnlocked={() => setSudoRequired(false)} />}
           {!settings ? (
             <p className="text-sm text-ink-3">{t("fix_group_machine")}</p>
           ) : available ? (

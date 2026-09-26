@@ -2,7 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { Fragment, type RefObject, useEffect, useRef, useState } from "react";
-import { CopyError, copyText } from "@/components/clipboard";
+import { CopyError, type CopyErrorCode, copyText } from "@/components/clipboard";
 import { CheckCircleIcon, CopyIcon } from "@/components/icons";
 import { StatusLine } from "@/components/status-line";
 
@@ -28,7 +28,8 @@ type CopyState = "idle" | "busy" | "copied" | "selected";
  * origin, a denied permission), it selects the shown code instead, so the
  * keyboard shortcut finishes the job. A `text` built at the click (one that
  * fetches a secret) is never stood in for by the shown code: its problem goes
- * to `onProblem` instead.
+ * to `onProblem` instead, with the code alongside the translated message so a
+ * caller that cares (sudo mode) can tell `sudo_required` apart from the rest.
  */
 function CopyButton({
   text,
@@ -42,7 +43,7 @@ function CopyButton({
   /** What is copied, for screen readers: "install.sh contents". */
   label: string;
   disabled?: boolean;
-  onProblem?: (message: string | null) => void;
+  onProblem?: (message: string | null, code: CopyErrorCode | null) => void;
 }) {
   const t = useTranslations("Setup");
   const tCommon = useTranslations("Common");
@@ -61,12 +62,14 @@ function CopyButton({
     if (typeof text === "function") {
       if (timer.current !== null) window.clearTimeout(timer.current);
       setState("busy");
-      onProblem?.(null);
+      onProblem?.(null, null);
       try {
         await copyText(text());
       } catch (error) {
         setState("idle");
-        onProblem?.(t(`copy_problem_${error instanceof CopyError ? error.code : "generic"}`));
+        const code: CopyErrorCode = error instanceof CopyError ? error.code : "generic";
+        // sudo_required has no text of its own: the caller shows the unlock form instead.
+        onProblem?.(code === "sudo_required" ? null : t(`copy_problem_${code}`), code);
         return;
       }
     } else {
@@ -129,22 +132,29 @@ function CopyButton({
  *
  * With `resolve`, the shown command is only a preview: the button copies what
  * `resolve` builds at the click (a command with a secret in it), and a failed
- * build is told under the block.
+ * build is told under the block. `onProblem`, when given, also hears about it
+ * (with the code) — the setup route uses it to show the sudo unlock form.
  */
 export function CommandBlock({
   command,
   label,
   resolve,
   disabled = false,
+  onProblem,
 }: {
   command: string;
   label: string;
   resolve?: () => Promise<string>;
   disabled?: boolean;
+  onProblem?: (message: string | null, code: CopyErrorCode | null) => void;
 }) {
   const tCommon = useTranslations("Common");
   const code = useRef<HTMLElement>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const handleProblem = (message: string | null, problemCode: CopyErrorCode | null) => {
+    setProblem(message);
+    onProblem?.(message, problemCode);
+  };
   const block = (
     <div className="flex flex-col gap-2 rounded-md border border-rule bg-raised py-1.5 pl-4 pr-1.5 sm:flex-row sm:items-start sm:gap-3">
       {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: role and aria-label are set together, only when the block scrolls */}
@@ -157,7 +167,13 @@ export function CommandBlock({
         <code ref={code}>{command}</code>
       </pre>
       <div className="self-end sm:self-auto">
-        <CopyButton text={resolve ?? command} target={code} label={label} disabled={disabled} onProblem={setProblem} />
+        <CopyButton
+          text={resolve ?? command}
+          target={code}
+          label={label}
+          disabled={disabled}
+          onProblem={handleProblem}
+        />
       </div>
     </div>
   );

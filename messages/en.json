@@ -393,6 +393,10 @@
     "token_on_clipboard": "Token on clipboard",
     "token_on_clipboard_hidden": "The token is on the clipboard.",
     "audit_notice": "The request is logged in the audit trail.",
+    "sudo_prompt": "Confirm with your PIN to copy the token for the next 5 minutes.",
+    "sudo_unlock": "Unlock",
+    "sudo_unlocking": "Unlocking…",
+    "sudo_error_generic": "Could not confirm the PIN. Try again.",
     "file_save_label": "Save",
     "file_installed_label": "Final location",
     "file_not_installed": "not installed, runs once",
@@ -401,13 +405,14 @@
     "packed_note": "‹{name}, packed: {lines} lines of base64›"
   },
   "Auth": {
-    "pin_malformed": "The PIN must be exactly 5 digits.",
-    "pin_misconfigured": "The server has no valid DASHBOARD_PIN configured (5 digits required).",
+    "pin_malformed": "The PIN or passphrase must be 5 to 64 characters.",
+    "pin_misconfigured": "The server has no valid DASHBOARD_PIN configured (5 to 64 characters; digits only keeps the numeric keypad).",
     "pin_invalid": "Incorrect PIN. {attemptsLeft, plural, one {# attempt left.} other {# attempts left.}}",
-    "pin_locked": "Incorrect PIN. Out of attempts, try again in {minutes, plural, one {# minute} other {# minutes}}.",
     "rate_limited": "Too many attempts. Try again in {minutes, plural, one {# minute} other {# minutes}}.",
     "storage_not_configured": "The data store isn't connected: missing KV_REST_API_URL and KV_REST_API_TOKEN. Connect the Redis database to the Vercel project, then reinstall.",
-    "storage_unavailable": "The data store isn't reachable right now, so login isn't either. Try again in a bit."
+    "storage_unavailable": "The data store isn't reachable right now, so login isn't either. Try again in a bit.",
+    "pin_show": "Show",
+    "pin_hide": "Hide"
   },
   "Errors": {
     "page_failed_title": "The page could not load",

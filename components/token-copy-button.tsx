@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { CopyError, type CopyErrorCode, copyText, fetchApiToken } from "@/components/clipboard";
 import { CheckCircleIcon, KeyIcon } from "@/components/icons";
+import { SudoUnlock } from "@/components/setup/sudo-unlock";
 import { StatusLine } from "@/components/status-line";
 import { type ApiTokenStatus, apiTokenStatusNote } from "@/lib/api-token";
 
@@ -67,7 +68,11 @@ export function TokenCopyButton({ status }: { status: ApiTokenStatus }) {
       </div>
       <div aria-live="polite">
         {state.phase === "failed" ? (
-          <StatusLine tone="problem">{t(`copy_problem_${state.code}`)}</StatusLine>
+          state.code === "sudo_required" ? (
+            <SudoUnlock onUnlocked={() => setState({ phase: "idle" })} />
+          ) : (
+            <StatusLine tone="problem">{t(`copy_problem_${state.code}`)}</StatusLine>
+          )
         ) : state.phase === "copied" ? (
           <span className="sr-only">{t("token_on_clipboard_hidden")}</span>
         ) : null}
