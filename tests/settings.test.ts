@@ -42,6 +42,13 @@ const MONTHLY: UsageSettings = {
       { id: "opus", name: "Opus", models: ["opus-5", "opus-4"], mode: "share", sharePercent: 30, limit: 2_000_000 },
     ],
   },
+  alerts: {
+    webhookUrl: "https://hooks.example.com/alerts",
+    thresholds: [25, 50, 90],
+    perProvider: false,
+    format: "slack",
+    locale: "hu",
+  },
 };
 
 describe("isValidTimeZone", () => {
@@ -66,6 +73,7 @@ describe("stored settings", () => {
       hiddenProviders: [],
       excludedProviders: {},
       subLimits: {},
+      alerts: { webhookUrl: null, thresholds: [50, 80, 100], perProvider: true, format: "generic", locale: "en" },
     });
     expect(parseStoredSettings(null, DEFAULTS)).toEqual(DEFAULTS);
     expect(resolveConfig(config, null)).toEqual({
@@ -88,6 +96,7 @@ describe("stored settings", () => {
       hiddenProviders: [],
       excludedProviders: {},
       subLimits: {},
+      alerts: DEFAULTS.alerts,
     });
   });
 
@@ -146,6 +155,7 @@ describe("stored settings", () => {
       hiddenProviders: [],
       excludedProviders: {},
       subLimits: {},
+      alerts: DEFAULTS.alerts,
     });
   });
 
@@ -164,6 +174,8 @@ describe("stored settings", () => {
       hiddenProviders: [],
       excludedProviders: {},
       subLimits: {},
+      // No `alerts` in the document either (it predates the field): it parses to off.
+      alerts: DEFAULTS.alerts,
     });
     expect(resolveConfig(config, raw).showRemaining).toBe(true);
   });
@@ -249,6 +261,39 @@ describe("stored settings", () => {
     });
   });
 
+  it("round-trips alerts, and a document without one parses to off", () => {
+    expect(parseStoredSettings(JSON.stringify(MONTHLY), DEFAULTS).alerts).toEqual(MONTHLY.alerts);
+    const { alerts: _alerts, ...withoutAlerts } = MONTHLY;
+    expect(parseStoredSettings(JSON.stringify(withoutAlerts), DEFAULTS).alerts).toEqual(DEFAULTS.alerts);
+    expect(DEFAULTS.alerts.webhookUrl).toBeNull();
+  });
+
+  it("reads alerts field by field: what does not hold up keeps its default", () => {
+    const raw = JSON.stringify({
+      ...MONTHLY,
+      alerts: {
+        webhookUrl: "http://not-https.example.com",
+        thresholds: [200, -1, "x"],
+        perProvider: "yes",
+        format: "teams",
+        locale: "xx",
+      },
+    });
+    expect(parseStoredSettings(raw, DEFAULTS).alerts).toEqual(DEFAULTS.alerts);
+  });
+
+  it("keeps an allowed webhook URL and rejects a disallowed one", () => {
+    const allowed = JSON.stringify({ ...MONTHLY, alerts: { ...MONTHLY.alerts, webhookUrl: "https://example.com/x" } });
+    expect(parseStoredSettings(allowed, DEFAULTS).alerts.webhookUrl).toBe("https://example.com/x");
+    const blocked = JSON.stringify({ ...MONTHLY, alerts: { ...MONTHLY.alerts, webhookUrl: "https://localhost/x" } });
+    expect(parseStoredSettings(blocked, DEFAULTS).alerts.webhookUrl).toBeNull();
+  });
+
+  it("dedupes and sorts stored thresholds", () => {
+    const raw = JSON.stringify({ ...MONTHLY, alerts: { ...MONTHLY.alerts, thresholds: [90, 50, 90, 25] } });
+    expect(parseStoredSettings(raw, DEFAULTS).alerts.thresholds).toEqual([25, 50, 90]);
+  });
+
   it("never fail on a corrupt document", () => {
     for (const raw of ["", "not json", "null", "42", '"weekly"', "[]", '{"limit":0}', '{"limit":1.5}', '{"reset":7}']) {
       expect(parseStoredSettings(raw, DEFAULTS)).toEqual(DEFAULTS);
@@ -278,6 +323,13 @@ describe("parseSettingsUpdate", () => {
         },
       ],
       deepseek: [],
+    },
+    alerts: {
+      webhookUrl: "https://hooks.example.com/alerts",
+      thresholds: [90, 25, 50, 25],
+      perProvider: false,
+      format: "slack",
+      locale: "hu",
     },
     groups: [
       { id: " Work ", color: "#3987E5" },
@@ -310,7 +362,7 @@ describe("parseSettingsUpdate", () => {
   it("defaults nothing: every budget field is required", () => {
     const result = parseSettingsUpdate({});
     expect(result.ok).toBe(false);
-    expect(!result.ok && result.errors).toHaveLength(12);
+    expect(!result.ok && result.errors).toHaveLength(13);
     expect(!result.ok && result.errors).toContain(
       `hiddenProviders must be an array of at most ${MAX_PROVIDERS} provider ids`,
     );
@@ -391,6 +443,20 @@ describe("parseSettingsUpdate", () => {
       "a sub-limit without a token limit",
       { ...valid, subLimits: { claude: [{ ...valid.subLimits.Claude[0], limit: undefined }] } },
     ],
+    ["alerts that are not an object", { ...valid, alerts: null }],
+    ["a webhook URL that is not https", { ...valid, alerts: { ...valid.alerts, webhookUrl: "http://example.com" } }],
+    ["a webhook URL pointed at localhost", { ...valid, alerts: { ...valid.alerts, webhookUrl: "https://localhost" } }],
+    [
+      "a webhook URL with credentials",
+      { ...valid, alerts: { ...valid.alerts, webhookUrl: "https://user:pass@example.com" } },
+    ],
+    ["an empty thresholds list", { ...valid, alerts: { ...valid.alerts, thresholds: [] } }],
+    ["more than 5 thresholds", { ...valid, alerts: { ...valid.alerts, thresholds: [1, 2, 3, 4, 5, 6] } }],
+    ["a threshold of 0", { ...valid, alerts: { ...valid.alerts, thresholds: [0] } }],
+    ["a threshold above 100", { ...valid, alerts: { ...valid.alerts, thresholds: [101] } }],
+    ["a non-boolean perProvider", { ...valid, alerts: { ...valid.alerts, perProvider: "true" } }],
+    ["an unknown alert format", { ...valid, alerts: { ...valid.alerts, format: "teams" } }],
+    ["an unsupported alert locale", { ...valid, alerts: { ...valid.alerts, locale: "xx" } }],
     ["groups that are not a list", { ...valid, groups: { Work: "#3987e5" } }],
     ["a group id with a slash", { ...valid, groups: [{ id: "a/b", color: "#3987e5" }] }],
     ["an empty group id", { ...valid, groups: [{ id: "  ", color: "#3987e5" }] }],

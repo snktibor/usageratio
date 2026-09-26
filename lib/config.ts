@@ -52,6 +52,38 @@ export const DEFAULT_RESET: ResetConfig = {
  */
 export const DEFAULT_SHOW_REMAINING = true;
 
+/** How an alert webhook's message is shaped; see lib/alerts.ts and lib/webhook.ts. */
+export type AlertsFormat = "generic" | "slack" | "discord";
+
+/**
+ * The settings panel's threshold-alerts section (lib/alerts.ts): a webhook
+ * message the first time a provider's usage in the current cycle crosses one
+ * of `thresholds`. A seed like the ones above: `webhookUrl: null` is off, and
+ * that is what every settings document saved before this feature existed
+ * resolves to (see lib/settings.ts `parseStoredSettings`).
+ */
+export interface AlertsConfig {
+  /** Null: alerts are off. https only; see lib/webhook.ts `isAllowedWebhookUrl`. */
+  webhookUrl: string | null;
+  /** Percent of the budget, 1-100; at most 5, sorted ascending, unique. */
+  thresholds: number[];
+  /** True: every provider alerts on its own budget, hidden ones included. False: only the ones shown on the dashboard. */
+  perProvider: boolean;
+  format: AlertsFormat;
+  /** The language the webhook's message is written in (an IANA-free tag next-intl already validates: see routing.locales). */
+  locale: string;
+}
+
+export const DEFAULT_ALERTS_THRESHOLDS: readonly number[] = [50, 80, 100];
+
+export const DEFAULT_ALERTS: AlertsConfig = {
+  webhookUrl: null,
+  thresholds: [...DEFAULT_ALERTS_THRESHOLDS],
+  perProvider: true,
+  format: "generic",
+  locale: "en",
+};
+
 /**
  * How each value in a report's `providers` snapshot is interpreted. Reports are stored raw,
  * so this can be changed at any time and the dashboard re-reads history
@@ -141,6 +173,8 @@ export interface AppConfig {
   excludedProviders: Record<string, string[]>;
   /** providerId → its sub-limits, such as Claude's Fable: see lib/sub-limits.ts. */
   subLimits: Record<string, SubLimit[]>;
+  /** Threshold webhook alerts; see lib/alerts.ts. */
+  alerts: AlertsConfig;
   tokenMode: TokenMode;
   reportIntervalMinutes: number;
   retentionDays: number;
@@ -225,6 +259,7 @@ export function getConfig(env: Record<string, string | undefined> = process.env)
     hiddenProviders: [],
     excludedProviders: {},
     subLimits: {},
+    alerts: { ...DEFAULT_ALERTS, thresholds: [...DEFAULT_ALERTS.thresholds] },
     tokenMode,
     reportIntervalMinutes: REPORT_INTERVAL_MINUTES,
     retentionDays: RETENTION_DAYS,

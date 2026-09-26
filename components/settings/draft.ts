@@ -1,5 +1,12 @@
-import type { BudgetPeriod } from "@/lib/config";
-import { MAX_GROUPS, MAX_LIMIT, normalizeHexColor, type SettingsView, suggestGroupColor } from "@/lib/settings";
+import type { AlertsFormat, BudgetPeriod } from "@/lib/config";
+import {
+  MAX_ALERT_THRESHOLDS,
+  MAX_GROUPS,
+  MAX_LIMIT,
+  normalizeHexColor,
+  type SettingsView,
+  suggestGroupColor,
+} from "@/lib/settings";
 import {
   MAX_SUB_LIMIT_MODELS,
   normalizeModelPart,
@@ -9,6 +16,7 @@ import {
   subLimitIdFor,
 } from "@/lib/sub-limits";
 import { parseId } from "@/lib/validation";
+import { isAllowedWebhookUrl } from "@/lib/webhook";
 
 /**
  * The settings form's draft: its state, and the pure parsing/validation that
@@ -58,6 +66,15 @@ export interface DraftProvider {
   subLimits: DraftSubLimit[];
 }
 
+/** The alerts section's draft: the webhook URL as typed; empty means alerts are off. */
+export interface AlertsDraft {
+  webhookUrl: string;
+  thresholds: number[];
+  perProvider: boolean;
+  format: AlertsFormat;
+  locale: string;
+}
+
 /** The form's state: strings as typed, validated only when saving. */
 export interface Draft {
   period: BudgetPeriod;
@@ -75,6 +92,7 @@ export interface Draft {
   newGroupName: string;
   /** The API-token field: saved by its own button, never with the rest. */
   apiToken: string;
+  alerts: AlertsDraft;
 }
 
 export interface SettingsRequest {
@@ -86,6 +104,13 @@ export interface SettingsRequest {
   hiddenProviders: string[];
   excludedProviders: Record<string, string[]>;
   subLimits: Record<string, SubLimit[]>;
+  alerts: {
+    webhookUrl: string | null;
+    thresholds: number[];
+    perProvider: boolean;
+    format: AlertsFormat;
+    locale: string;
+  };
   groups: { id: string; color: string }[];
   removedGroups: string[];
 }
@@ -107,7 +132,9 @@ export type DraftProblem =
   | { code: "invalid_sublimit_limit"; name: string }
   | { code: "group_name_rules" }
   | { code: "group_already_exists"; id: string }
-  | { code: "max_groups_reached" };
+  | { code: "max_groups_reached" }
+  | { code: "invalid_alert_webhook" }
+  | { code: "alerts_need_at_least_one_threshold" };
 
 export function draftFrom(view: SettingsView): Draft {
   const { period, useTokenLimits, limits, reset, showRemaining, hiddenProviders, excludedProviders, subLimits } =
@@ -147,6 +174,13 @@ export function draftFrom(view: SettingsView): Draft {
     removed: [],
     newGroupName: "",
     apiToken: "",
+    alerts: {
+      webhookUrl: view.settings.alerts.webhookUrl ?? "",
+      thresholds: [...view.settings.alerts.thresholds],
+      perProvider: view.settings.alerts.perProvider,
+      format: view.settings.alerts.format,
+      locale: view.settings.alerts.locale,
+    },
   };
 }
 
@@ -218,6 +252,13 @@ export function subLimitsRequest(
   return { list };
 }
 
+/** Adds or removes `value` from a sorted, deduped threshold list; a chip past MAX_ALERT_THRESHOLDS is ignored. */
+export function toggleAlertThreshold(thresholds: number[], value: number): number[] {
+  if (thresholds.includes(value)) return thresholds.filter((t) => t !== value);
+  if (thresholds.length >= MAX_ALERT_THRESHOLDS) return thresholds;
+  return [...thresholds, value].sort((a, b) => a - b);
+}
+
 /** Why `name` cannot be added as a group; null when it can. */
 export function groupNameProblem(name: string, groups: DraftGroup[]): DraftProblem | null {
   const errors: string[] = [];
@@ -283,6 +324,16 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
     if (result.list.length > 0) subLimits[provider.id] = result.list;
   }
 
+  // An empty field turns alerts off; a non-empty one must pass the same allow-list the server enforces.
+  const trimmedWebhook = draft.alerts.webhookUrl.trim();
+  const webhookUrl = trimmedWebhook === "" ? null : trimmedWebhook;
+  if (webhookUrl !== null && !isAllowedWebhookUrl(webhookUrl)) {
+    return { problem: { code: "invalid_alert_webhook" } };
+  }
+  if (draft.alerts.thresholds.length === 0) {
+    return { problem: { code: "alerts_need_at_least_one_threshold" } };
+  }
+
   return {
     request: {
       period: draft.period,
@@ -302,6 +353,13 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
         draft.groups.filter((group) => group.excluded.length > 0).map((group) => [group.id, group.excluded]),
       ),
       subLimits,
+      alerts: {
+        webhookUrl,
+        thresholds: [...draft.alerts.thresholds].sort((a, b) => a - b),
+        perProvider: draft.alerts.perProvider,
+        format: draft.alerts.format,
+        locale: draft.alerts.locale,
+      },
       groups: draft.groups.map(({ id, color }) => ({ id, color })),
       removedGroups: draft.removed.map((group) => group.id),
     },

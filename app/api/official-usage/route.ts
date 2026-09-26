@@ -1,6 +1,8 @@
+import { checkOfficialUsageAlerts } from "@/lib/alerts";
 import { apiError, json, readJsonBody, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { parseOfficialUsageUpdate } from "@/lib/official-usage";
+import { defer } from "@/lib/request-context";
 import { saveOfficialUsage } from "@/lib/usage-store";
 
 /**
@@ -39,7 +41,11 @@ export const PUT = withApiHandler("api/official-usage", async ({ request }) => {
   if (!parsed.ok) return apiError("invalid_payload", 400, { details: parsed.errors });
 
   const enteredAt = Date.now();
-  await saveOfficialUsage(parsed.update, new Date(enteredAt));
+  const now = new Date(enteredAt);
+  await saveOfficialUsage(parsed.update, now);
+
+  // Threshold alerts (lib/alerts.ts): the only signal while the token limits are off.
+  defer(() => checkOfficialUsageAlerts(parsed.update, now));
 
   return json({ ok: true, enteredAt }, 200);
 });

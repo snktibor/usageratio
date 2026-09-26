@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { StopCircleIcon, XIcon } from "@/components/icons";
 import { AccountsSection } from "@/components/settings/sections/accounts-section";
+import { AlertsSection } from "@/components/settings/sections/alerts-section";
 import { BudgetSection } from "@/components/settings/sections/budget-section";
 import { GroupsSection } from "@/components/settings/sections/groups-section";
 import { LanguageSection } from "@/components/settings/sections/language-section";
@@ -89,6 +90,13 @@ export function SettingsForm({ view, titleId, onClose }: { view: SettingsView; t
         />
 
         <MachinesSection titleId={titleId} groups={draft.groups} onManaged={actions.refresh} />
+
+        <AlertsSection
+          titleId={titleId}
+          alerts={draft.alerts}
+          useTokenLimits={draft.useTokenLimits}
+          onPatch={actions.patchAlerts}
+        />
 
         <TokenSection
           headingId={`${titleId}-token`}

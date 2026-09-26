@@ -37,5 +37,9 @@ export function problemText(t: Translator<"Settings">, problem: DraftProblem): s
       return t("group_already_exists", { id: problem.id });
     case "max_groups_reached":
       return t("max_groups_reached", { maxGroups: MAX_GROUPS });
+    case "invalid_alert_webhook":
+      return t("invalid_alert_webhook");
+    case "alerts_need_at_least_one_threshold":
+      return t("alerts_need_at_least_one_threshold");
   }
 }

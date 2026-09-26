@@ -47,7 +47,8 @@ export type ApiErrorCode =
   | "machine_exists"
   | "group_exists"
   | "group_has_events"
-  | "provider_has_events";
+  | "provider_has_events"
+  | "webhook_failed";
 
 export const MIN_API_TOKEN_LENGTH = 16;
 

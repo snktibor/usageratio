@@ -190,7 +190,31 @@
     "manage_machines_prune_button": "Remove {count} silent machines",
     "manage_machines_prune_confirm_title": "Remove silent machines?",
     "manage_machines_prune_confirm_body": "This removes the index entry of every machine silent for more than {days} days ({count} now). Their stored reports are not affected.",
-    "manage_machines_pruned_toast": "Removed {count} silent machines."
+    "manage_machines_pruned_toast": "Removed {count} silent machines.",
+    "alerts_heading": "Alerts",
+    "alerts_explanation_measured": "A webhook message fires the first time this cycle's measured usage crosses one of the thresholds below.",
+    "alerts_explanation_official": "A webhook message fires the first time the official percentage typed on the dashboard crosses one of the thresholds below.",
+    "alerts_webhook_label": "Webhook URL",
+    "alerts_webhook_placeholder": "https://…",
+    "alerts_webhook_invalid": "Enter an https URL that is not a local or private address.",
+    "alerts_format_label": "Message format",
+    "alerts_format_generic": "Generic JSON",
+    "alerts_format_slack": "Slack",
+    "alerts_format_discord": "Discord",
+    "alerts_thresholds_label": "Thresholds",
+    "alerts_threshold_chip": "{value}%",
+    "alerts_per_provider_label": "Alert every account on its own",
+    "alerts_per_provider_explanation": "On: a hidden account can still send an alert. Off: only the accounts shown on the dashboard do.",
+    "alerts_locale_label": "Alert language",
+    "alerts_test_button": "Send test",
+    "alerts_test_sending": "Sending…",
+    "alerts_test_sent": "Test message sent.",
+    "alerts_test_failed": "Could not send the test message. Check the URL and try again.",
+    "invalid_alert_webhook": "Enter an https webhook URL that is not a local or private address, or clear the field to turn alerts off.",
+    "alerts_need_at_least_one_threshold": "Choose at least one threshold."
+  },
+  "Alerts": {
+    "threshold_text": "{label} has used {threshold}% of its budget (currently at {used}%); the cycle ends {end}."
   },
   "Dashboard": {
     "mode_note_delta": "Submitted token counts are added together (delta mode).",
