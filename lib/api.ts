@@ -3,7 +3,7 @@ import { isAuthenticated } from "@/lib/auth";
 import { isForeignOrigin } from "@/lib/http";
 import { log } from "@/lib/log";
 import { StorageNotConfiguredError } from "@/lib/redis";
-import { currentRequestId, requestIdFrom, runWithRequest } from "@/lib/request-context";
+import { type CookieJar, currentRequest, currentRequestId, requestIdFrom, runWithRequest } from "@/lib/request-context";
 import { safeEqual } from "@/lib/security";
 
 /**
@@ -25,6 +25,7 @@ export type ApiErrorCode =
   | "unreadable_body"
   | "invalid_json"
   | "invalid_payload"
+  | "invalid_token"
   | "rate_limited"
   | "server_misconfigured"
   | "encryption_key_missing"
@@ -159,6 +160,45 @@ function isStorageUnavailable(error: unknown): boolean {
   return error instanceof TypeError && /fetch failed/i.test(error.message);
 }
 
+/** `name=value` pairs of a `Cookie` request header, percent-decoded where that succeeds. */
+function parseCookieHeader(header: string): Map<string, string> {
+  const cookies = new Map<string, string>();
+  for (const pair of header.split(";")) {
+    const separator = pair.indexOf("=");
+    if (separator < 0) continue;
+    const name = pair.slice(0, separator).trim();
+    if (!name) continue;
+    const raw = pair.slice(separator + 1).trim();
+    try {
+      cookies.set(name, decodeURIComponent(raw));
+    } catch {
+      cookies.set(name, raw);
+    }
+  }
+  return cookies;
+}
+
+function cookiesNotWritable(action: "set" | "delete"): never {
+  throw new Error(`route handlers cannot ${action} cookies here`);
+}
+
+/**
+ * A read-only cookie jar parsed straight from the request's own `Cookie`
+ * header: every route this wraps only ever reads a session (`requireSession`),
+ * never sets one, so `set`/`delete` throw rather than silently doing nothing.
+ */
+function requestCookieJar(request: Request): CookieJar {
+  const parsed = parseCookieHeader(request.headers.get("cookie") ?? "");
+  return {
+    get: (name) => {
+      const value = parsed.get(name);
+      return value === undefined ? undefined : { value };
+    },
+    set: () => cookiesNotWritable("set"),
+    delete: () => cookiesNotWritable("delete"),
+  };
+}
+
 function withRequestId(response: Response, requestId: string): Response {
   // A Response.redirect() has immutable headers: copy before adding the id.
   const headers = new Headers(response.headers);
@@ -173,10 +213,20 @@ export interface ApiContext {
 }
 
 /**
- * Wraps a route handler: opens the request context (id, route, headers),
- * times the call, logs it, echoes the id in `x-request-id`, and maps what the
- * handler throws — a store that is not connected or not answering is a 503
- * the clients retry, anything else a 500 that is logged with its stack.
+ * Wraps a route handler: opens the request context (id, route, headers, a
+ * cookie jar), times the call, logs it, echoes the id in `x-request-id`, and
+ * maps what the handler throws — a store that is not connected or not
+ * answering is a 503 the clients retry, anything else a 500 that is logged
+ * with its stack.
+ *
+ * The cookie jar is read-only, parsed from this request's own `Cookie`
+ * header — these routes only ever read a session (see lib/request-context.ts
+ * `currentCookies`), so this needs no `next/headers` request scope and is
+ * exercised the same way in a test as in production. Nesting rule: if an
+ * outer `runWithRequest` context already carries a jar (tests that wrap the
+ * call themselves, e.g. to inject a writable fake one), that outer jar and
+ * its headers are kept as they are, rather than replaced by a fresh one
+ * built from this request.
  */
 export function withApiHandler(
   name: string,
@@ -185,7 +235,12 @@ export function withApiHandler(
   return (request) => {
     const requestId = requestIdFrom(request.headers);
     const started = performance.now();
-    return runWithRequest({ requestId, route: name, headers: request.headers }, async () => {
+    const outer = currentRequest();
+    const context =
+      outer?.cookies !== undefined
+        ? { ...outer, requestId, route: name }
+        : { requestId, route: name, headers: request.headers, cookies: requestCookieJar(request) };
+    return runWithRequest(context, async () => {
       let response: Response;
       try {
         response = await handler({ request, requestId, url: new URL(request.url) });

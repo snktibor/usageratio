@@ -1,7 +1,6 @@
 import { getTranslations } from "next-intl/server";
-import { apiError } from "@/lib/api";
+import { apiError, withApiHandler } from "@/lib/api";
 import { isAuthenticated } from "@/lib/auth";
-import { storageFailure as failure } from "@/lib/http";
 import { requestLocale } from "@/lib/request-locale";
 import { checkMachineSettings, parseMode, parseOs } from "@/lib/setup";
 import { buildSetupZip, loadClientSources, usageEndpoint } from "@/lib/setup-package";
@@ -22,17 +21,11 @@ import { buildSetupZip, loadClientSources, usageEndpoint } from "@/lib/setup-pac
  * 200 application/zip · 303 no session · 400 bad parameters · 503 Redis down
  */
 
-const storageFailure = (error: unknown) => failure(error, "The setup download");
-
-export async function GET(request: Request): Promise<Response> {
+export const GET = withApiHandler("api/setup", async ({ request }) => {
   const locale = await requestLocale(request);
 
-  try {
-    if (!(await isAuthenticated())) {
-      return Response.redirect(new URL(`/${locale}/setup`, request.url), 303);
-    }
-  } catch (error) {
-    return storageFailure(error);
+  if (!(await isAuthenticated())) {
+    return Response.redirect(new URL(`/${locale}/setup`, request.url), 303);
   }
 
   const params = new URL(request.url).searchParams;
@@ -56,4 +49,4 @@ export async function GET(request: Request): Promise<Response> {
       "Cache-Control": "no-store",
     },
   });
-}
+});

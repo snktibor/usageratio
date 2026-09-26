@@ -2,7 +2,8 @@ import { errors as upstash } from "@upstash/redis";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiError, json, readJsonBody, requireBearer, requireSameOrigin, withApiHandler } from "@/lib/api";
 import { StorageNotConfiguredError } from "@/lib/redis";
-import { runWithRequest } from "@/lib/request-context";
+import { currentCookies, runWithRequest } from "@/lib/request-context";
+import { fakeCookieJar, withRequest } from "./helpers/request";
 
 const URL = "http://localhost:3000/api/usage";
 
@@ -239,5 +240,56 @@ describe("withApiHandler", () => {
       String(call[0]),
     );
     expect(logged.some((line) => line.includes("api.request") && line.includes("api/test"))).toBe(true);
+  });
+
+  describe("cookies", () => {
+    it("reads a session cookie parsed straight from the request's own Cookie header", async () => {
+      const handler = withApiHandler("api/test", async () => {
+        const value = (await currentCookies()).get("usageratio_session")?.value ?? null;
+        return json({ value }, 200);
+      });
+      const response = await handler(get({ cookie: "usageratio_session=abc123; other=1" }));
+      expect(await response.json()).toEqual({ value: "abc123" });
+    });
+
+    it("answers null for a cookie that was not sent", async () => {
+      const handler = withApiHandler("api/test", async () => {
+        const value = (await currentCookies()).get("usageratio_session")?.value ?? null;
+        return json({ value }, 200);
+      });
+      expect(await (await handler(get())).json()).toEqual({ value: null });
+    });
+
+    it("throws a clear error rather than silently doing nothing for set or delete", async () => {
+      const setHandler = withApiHandler("api/test", async () => {
+        (await currentCookies()).set("x", "1");
+        return json({}, 200);
+      });
+      const setResponse = await setHandler(get());
+      expect(setResponse.status).toBe(500);
+      expect((await setResponse.json()).error).toBe("internal_error");
+
+      const deleteHandler = withApiHandler("api/test", async () => {
+        (await currentCookies()).delete("x");
+        return json({}, 200);
+      });
+      expect((await deleteHandler(get())).status).toBe(500);
+    });
+
+    it("keeps an outer runWithRequest's jar and headers instead of a fresh one from the request", async () => {
+      const jar = fakeCookieJar({ usageratio_session: "outer-value" });
+      const handler = withApiHandler("api/test", async () => {
+        const cookies = await currentCookies();
+        // The outer jar is writable: this would throw on the request-derived read-only jar.
+        cookies.set("written", "1");
+        return json({ value: cookies.get("usageratio_session")?.value ?? null }, 200);
+      });
+      const response = await withRequest(() => handler(get({ cookie: "usageratio_session=inner-value" })), {
+        cookies: jar,
+        headers: { "x-outer": "1" },
+      });
+      expect(await response.json()).toEqual({ value: "outer-value" });
+      expect(jar.sets).toEqual([{ name: "written", value: "1", options: undefined }]);
+    });
   });
 });
