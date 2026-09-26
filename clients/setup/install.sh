@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# usageratio client installer for macOS.
+# usageratio client installer for macOS and Linux.
 #
 #   bash install.sh
 #
@@ -39,10 +39,22 @@ case "${1:-}" in
     ;;
 esac
 
+# Everything below reads the same on both OSes; only a handful of spots (the log
+# location, the machine id fallback, the extra PATH candidates, cron's
+# availability and a couple of strings naming the terminal app) differ.
+OS="$(uname -s)"
+if [ "$OS" = "Darwin" ]; then
+  TERMINAL_NAME="Terminal"
+  TERMINAL_WINDOW="Terminal window"
+else
+  TERMINAL_NAME="a terminal"
+  TERMINAL_WINDOW="terminal window"
+fi
+
 SOURCE_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 INSTALL_DIR="$HOME/.usageratio"
 CONFIG_FILE="$HOME/.config/usageratio/config"
-if [ -d "$HOME/Library/Logs" ]; then
+if [ "$OS" = "Darwin" ] && [ -d "$HOME/Library/Logs" ]; then
   LOG_FILE="$HOME/Library/Logs/usageratio.log"
 else
   LOG_FILE="$HOME/.usageratio.log"
@@ -117,7 +129,11 @@ if [ -z "$MACHINE_ID" ]; then
   MACHINE_ID="$EXISTING_MACHINE_ID"
 fi
 if [ -z "$MACHINE_ID" ]; then
-  MACHINE_ID="$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || hostname)"
+  if [ "$OS" = "Darwin" ]; then
+    MACHINE_ID="$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || hostname)"
+  else
+    MACHINE_ID="$(hostname -s 2>/dev/null || hostname)"
+  fi
 fi
 
 # ─── Requirements ─────────────────────────────────────────────────────────────
@@ -127,11 +143,17 @@ NODE_BIN="$(command -v node 2>/dev/null || true)"
 [ -n "$NODE_BIN" ] ||
   fail "Node.js was not found. Install it (https://nodejs.org), then run install.sh again: ccusage and the reporter both need it."
 
-# cron starts jobs with a bare PATH. The reporter adds the usual Homebrew and npm
-# locations itself; a node from anywhere else (nvm, volta) gets a PATH line in the config.
+# cron starts jobs with a bare PATH. The reporter adds the usual Homebrew (macOS)
+# or system (Linux) and npm locations itself; a node from anywhere else (nvm,
+# volta) gets a PATH line in the config.
+if [ "$OS" = "Darwin" ]; then
+  KNOWN_PATH=":/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:/usr/bin:/bin:/usr/sbin:/sbin:"
+else
+  KNOWN_PATH=":/usr/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:/usr/bin:/bin:/usr/sbin:/sbin:"
+fi
 EXTRA_PATH=""
 NODE_DIR="$(dirname "$NODE_BIN")"
-case ":/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:/usr/bin:/bin:/usr/sbin:/sbin:" in
+case "$KNOWN_PATH" in
   *":$NODE_DIR:"*) ;;
   *) EXTRA_PATH="$NODE_DIR" ;;
 esac
@@ -165,7 +187,7 @@ if [ -n "$TOKEN" ]; then
   [ "$status" -ne 1 ] || fail "The server rejected USAGERATIO_API_TOKEN (HTTP 401)."
   [ "$status" -eq 0 ] || warn "The token could not be checked ($VERIFY_DETAIL); the first report will tell."
 else
-  [ -t 0 ] || fail "There is no terminal to ask for the API token: run install.sh in Terminal, or set USAGERATIO_API_TOKEN."
+  [ -t 0 ] || fail "There is no terminal to ask for the API token: run install.sh in $TERMINAL_NAME, or set USAGERATIO_API_TOKEN."
   say "The API token is the server's USAGE_API_TOKEN, the same on every machine. Typing is hidden."
   attempt=0
   while :; do
@@ -238,7 +260,9 @@ mv -f "$CONFIG_FILE.tmp.$$" "$CONFIG_FILE"
 
 say "Sending a first report as $MACHINE_ID in group $GROUP_ID (the first run may download ccusage)…"
 REPORT_STATUS=0
-/bin/bash "$INSTALL_DIR/$MODE/report-usage.sh" || REPORT_STATUS=$?
+# The very first report goes out right away: no point spreading it over the
+# jitter window the hourly cron runs use (see clients/auto/report-usage.sh).
+USAGERATIO_JITTER_MAX=0 /bin/bash "$INSTALL_DIR/$MODE/report-usage.sh" || REPORT_STATUS=$?
 if [ "$REPORT_STATUS" -eq 0 ]; then
   if [ "$MODE" = "auto" ]; then
     say "✅ First report sent."
@@ -251,19 +275,27 @@ fi
 # ─── Schedule or shortcut ─────────────────────────────────────────────────────
 
 if [ "$MODE" = "auto" ]; then
+  if [ "$OS" != "Darwin" ]; then
+    command -v crontab >/dev/null 2>&1 ||
+      fail "crontab was not found. Install a cron package first (e.g. 'sudo apt install cron' or 'sudo dnf install cronie', then 'sudo systemctl enable --now cron' / 'crond'), then run install.sh again."
+  fi
   CRON_LINE="0 * * * * /bin/bash \"$INSTALL_DIR/auto/report-usage.sh\" >/dev/null 2>&1"
   if ! {
     { crontab -l 2>/dev/null || true; } | grep -v '/\.usageratio/auto/report-usage\.sh' || true
     printf '%s\n' "$CRON_LINE"
   } | crontab -; then
-    fail "The cron job could not be saved. If macOS asks whether Terminal may administer the computer, allow it, then run install.sh again."
+    if [ "$OS" = "Darwin" ]; then
+      fail "The cron job could not be saved. If macOS asks whether Terminal may administer the computer, allow it, then run install.sh again."
+    else
+      fail "The cron job could not be saved. Make sure the cron service is running (e.g. 'sudo systemctl status cron'), then run install.sh again."
+    fi
   fi
 else
   ALIAS_LINE="alias sync-tokens='/bin/bash \"\$HOME/.usageratio/manual/report-usage.sh\"'"
   case "$(basename "${SHELL:-}")" in
     zsh) RC_FILE="$HOME/.zshrc" ;;
     bash)
-      if [ "$(uname -s)" = "Darwin" ]; then RC_FILE="$HOME/.bash_profile"; else RC_FILE="$HOME/.bashrc"; fi
+      if [ "$OS" = "Darwin" ]; then RC_FILE="$HOME/.bash_profile"; else RC_FILE="$HOME/.bashrc"; fi
       ;;
     *) RC_FILE="" ;;
   esac
@@ -288,8 +320,8 @@ say "   Scripts:  $INSTALL_DIR/$MODE, $INSTALL_DIR/shared"
 say "   Settings: $CONFIG_FILE"
 say "   Log:      $LOG_FILE"
 if [ "$MODE" = "auto" ]; then
-  say "   It reports every hour, on the hour (cron)."
+  say "   It reports every hour, a few minutes past the hour by design (cron)."
 elif [ -n "$RC_FILE" ]; then
-  say "   Open a new Terminal window, then report with: sync-tokens"
+  say "   Open a new $TERMINAL_WINDOW, then report with: sync-tokens"
 fi
 say "   $SOURCE_DIR is no longer needed; you can delete it."

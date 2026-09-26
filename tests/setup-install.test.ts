@@ -6,17 +6,19 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createTranslator } from "next-intl";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { SetupMode } from "@/lib/setup";
+import type { SetupMode, SetupOs } from "@/lib/setup";
 import { buildSetupZip, loadClientSources } from "@/lib/setup-package";
 import en from "@/messages/en.json";
 import { readZip } from "./read-zip";
 
 /**
- * Runs the macOS installer end to end, the way a downloaded ZIP is used: unpack
- * it anywhere, `bash install.sh`. HOME is a scratch folder; crontab, scutil and
- * ccusage are stand-ins on PATH; the server is a local stub of /api/usage.
- * A `node` stand-in outside the usual places also exercises the PATH line the
- * installer writes for cron.
+ * Runs the shared macOS/Linux installer (clients/setup/install.sh, which
+ * branches on `uname -s`) end to end, the way a downloaded ZIP is used: unpack
+ * it anywhere, `bash install.sh`. HOME is a scratch folder; crontab and ccusage
+ * are stand-ins on PATH, along with whichever tool the OS uses for its machine
+ * name (scutil on macOS, hostname on Linux); the server is a local stub of
+ * /api/usage. A `node` stand-in outside the usual places also exercises the
+ * PATH line the installer writes for cron.
  */
 
 const TOKEN = "0123456789abcdef0123456789abcdef";
@@ -76,126 +78,170 @@ function run(cwd: string, env: Record<string, string>): Promise<{ code: number; 
   });
 }
 
+interface OsCase {
+  os: SetupOs;
+  label: string;
+  /** install.sh branches on `uname -s`; the tests run on macOS, so both cases stub it. */
+  unameOutput: string;
+  /** Stands in for the tool the installer asks for the machine's default name. */
+  hostTool: string;
+  hostMachineId: string;
+  renamedMachineId: string;
+  /** SHELL the manual mode's alias line is written for. */
+  shell: string;
+  rcFile: string;
+  /** Set only where the installer must not fall back to this file (bash on Linux: .bashrc, not .bash_profile). */
+  otherRcFile?: string;
+}
+
+const OS_CASES: OsCase[] = [
+  {
+    os: "macos",
+    label: "install.sh (macOS)",
+    unameOutput: "Darwin",
+    hostTool: "scutil",
+    hostMachineId: "test-mac",
+    renamedMachineId: "renamed-mac",
+    shell: "/bin/zsh",
+    rcFile: ".zshrc",
+  },
+  {
+    os: "linux",
+    label: "install.sh (Linux)",
+    unameOutput: "Linux",
+    hostTool: "hostname",
+    hostMachineId: "test-linux",
+    renamedMachineId: "renamed-linux",
+    shell: "/bin/bash",
+    rcFile: ".bashrc",
+    otherRcFile: ".bash_profile",
+  },
+];
+
 // Each case starts bash, curl and node several times: far above the default 5 s on a busy machine.
-describe.skipIf(process.platform === "win32")("install.sh", { timeout: 60_000 }, () => {
-  let scratch: string;
-  let home: string;
-  let bin: string;
-  let stub: Stub;
+describe.skipIf(process.platform === "win32").each(OS_CASES)(
+  "$label",
+  { timeout: 60_000 },
+  ({ os, unameOutput, hostTool, hostMachineId, renamedMachineId, shell, rcFile, otherRcFile }) => {
+    let scratch: string;
+    let home: string;
+    let bin: string;
+    let stub: Stub;
 
-  function env(extra: Record<string, string> = {}): Record<string, string> {
-    return { HOME: home, PATH: `${bin}:/usr/bin:/bin`, SHELL: "/bin/zsh", LANG: "en_US.UTF-8", ...extra };
-  }
-
-  function tool(name: string, script: string) {
-    writeFileSync(path.join(bin, name), `#!/bin/sh\n${script}\n`, { mode: 0o755 });
-  }
-
-  /** Unpacks a freshly built package into its own folder, as Archive Utility would. */
-  async function unpack(mode: SetupMode, groupId: string, machineId = ""): Promise<string> {
-    const { bytes } = buildSetupZip(
-      "macos",
-      mode,
-      { apiUrl: stub.url, groupId, machineId },
-      await loadClientSources(),
-      t,
-    );
-    const folder = mkdtempSync(path.join(scratch, `package-${mode}-`));
-    for (const entry of readZip(bytes)) writeFileSync(path.join(folder, entry.name), entry.data, { mode: entry.mode });
-    return folder;
-  }
-
-  beforeEach(async () => {
-    scratch = mkdtempSync(path.join(tmpdir(), "usageratio-setup-"));
-    home = path.join(scratch, "home");
-    bin = path.join(scratch, "tools");
-    mkdirSync(home);
-    mkdirSync(bin);
-    tool("node", `exec "${process.execPath}" "$@"`);
-    tool("ccusage", `cat <<'JSON'\n${JSON.stringify(CCUSAGE_REPORT)}\nJSON`);
-    tool("scutil", "echo test-mac");
-    tool("crontab", 'if [ "$1" = "-l" ]; then cat "$HOME/crontab.txt" 2>/dev/null; else cat >"$HOME/crontab.txt"; fi');
-    stub = await startServer();
-  });
-
-  afterEach(async () => {
-    await new Promise((resolve) => stub.server.close(resolve));
-    rmSync(scratch, { recursive: true, force: true });
-  });
-
-  it("installs the auto reporter, schedules it and sends a first report", async () => {
-    const result = await run(await unpack("auto", "Otthoni gép"), env({ USAGERATIO_API_TOKEN: TOKEN }));
-
-    expect(result.stderr).toBe("");
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain("usageratio is installed (auto) as test-mac in group Otthoni gép.");
-    for (const file of ["auto/report-usage.sh", "shared/report-usage-core.sh", "shared/ccusage-providers.cjs"]) {
-      expect(statSync(path.join(home, ".usageratio", file)).mode & 0o777, file).toBe(0o700);
+    function env(extra: Record<string, string> = {}): Record<string, string> {
+      return { HOME: home, PATH: `${bin}:/usr/bin:/bin`, SHELL: shell, LANG: "en_US.UTF-8", ...extra };
     }
 
-    const configFile = path.join(home, ".config/usageratio/config");
-    expect(statSync(configFile).mode & 0o777).toBe(0o600);
-    const config = readFileSync(configFile, "utf8");
-    expect(config).toContain(`API_URL='${stub.url}'`);
-    expect(config).toContain(`API_TOKEN='${TOKEN}'`);
-    expect(config).toContain("MACHINE_ID='test-mac'");
-    expect(config).toContain("GROUP_ID='Otthoni gép'");
-    expect(config).toContain(`PATH='${bin}':"$PATH"`);
+    function tool(name: string, script: string) {
+      writeFileSync(path.join(bin, name), `#!/bin/sh\n${script}\n`, { mode: 0o755 });
+    }
 
-    expect(readFileSync(path.join(home, "crontab.txt"), "utf8")).toBe(
-      `0 * * * * /bin/bash "${home}/.usageratio/auto/report-usage.sh" >/dev/null 2>&1\n`,
-    );
-    expect(stub.reports).toEqual([
-      expect.objectContaining({ machineId: "test-mac", groupId: "Otthoni gép", providers: { claude: 1234 } }),
-    ]);
-  });
+    /** Unpacks a freshly built package into its own folder, as a file manager would. */
+    async function unpack(mode: SetupMode, groupId: string, machineId = ""): Promise<string> {
+      const { bytes } = buildSetupZip(os, mode, { apiUrl: stub.url, groupId, machineId }, await loadClientSources(), t);
+      const folder = mkdtempSync(path.join(scratch, `package-${mode}-`));
+      for (const entry of readZip(bytes))
+        writeFileSync(path.join(folder, entry.name), entry.data, { mode: entry.mode });
+      return folder;
+    }
 
-  it("installs the manual reporter behind a sync-tokens alias, once", async () => {
-    const folder = await unpack("manual", "Work");
-    const first = await run(folder, env({ USAGERATIO_API_TOKEN: TOKEN }));
-    const second = await run(folder, env({ USAGERATIO_API_TOKEN: TOKEN }));
+    beforeEach(async () => {
+      scratch = mkdtempSync(path.join(tmpdir(), `usageratio-setup-${os}-`));
+      home = path.join(scratch, "home");
+      bin = path.join(scratch, "tools");
+      mkdirSync(home);
+      mkdirSync(bin);
+      tool("node", `exec "${process.execPath}" "$@"`);
+      tool("ccusage", `cat <<'JSON'\n${JSON.stringify(CCUSAGE_REPORT)}\nJSON`);
+      tool("uname", `echo ${unameOutput}`);
+      tool(hostTool, `echo ${hostMachineId}`);
+      tool(
+        "crontab",
+        'if [ "$1" = "-l" ]; then cat "$HOME/crontab.txt" 2>/dev/null; else cat >"$HOME/crontab.txt"; fi',
+      );
+      stub = await startServer();
+    });
 
-    expect([first.code, second.code]).toEqual([0, 0]);
-    expect(first.stdout).toContain("✅ Sync successful: 1 providers sent.");
-    const aliases = readFileSync(path.join(home, ".zshrc"), "utf8")
-      .split("\n")
-      .filter((line) => line.startsWith("alias sync-tokens="));
-    expect(aliases).toEqual([`alias sync-tokens='/bin/bash "$HOME/.usageratio/manual/report-usage.sh"'`]);
-    expect(existsSync(path.join(home, "crontab.txt"))).toBe(false);
-  });
+    afterEach(async () => {
+      await new Promise((resolve) => stub.server.close(resolve));
+      rmSync(scratch, { recursive: true, force: true });
+    });
 
-  it("keeps the machine id in use when reinstalled, unless the package names one", async () => {
-    await run(await unpack("auto", "Work"), env({ USAGERATIO_API_TOKEN: TOKEN }));
-    tool("scutil", "echo renamed-mac");
-    await run(await unpack("auto", "Work"), env({ USAGERATIO_API_TOKEN: TOKEN }));
-    const configFile = path.join(home, ".config/usageratio/config");
-    expect(readFileSync(configFile, "utf8")).toContain("MACHINE_ID='test-mac'");
+    it("installs the auto reporter, schedules it and sends a first report", async () => {
+      const result = await run(await unpack("auto", "Otthoni gép"), env({ USAGERATIO_API_TOKEN: TOKEN }));
 
-    await run(await unpack("auto", "Work", "studio"), env({ USAGERATIO_API_TOKEN: TOKEN }));
-    expect(readFileSync(configFile, "utf8")).toContain("MACHINE_ID='studio'");
-    expect(readFileSync(path.join(home, "crontab.txt"), "utf8").split("\n").filter(Boolean)).toHaveLength(1);
-  });
+      expect(result.stderr).toBe("");
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain(`usageratio is installed (auto) as ${hostMachineId} in group Otthoni gép.`);
+      for (const file of ["auto/report-usage.sh", "shared/report-usage-core.sh", "shared/ccusage-providers.cjs"]) {
+        expect(statSync(path.join(home, ".usageratio", file)).mode & 0o777, file).toBe(0o700);
+      }
 
-  it("installs nothing when the server rejects the token", async () => {
-    const result = await run(await unpack("auto", "Work"), env({ USAGERATIO_API_TOKEN: "wrong-token-wrong-token" }));
+      const configFile = path.join(home, ".config/usageratio/config");
+      expect(statSync(configFile).mode & 0o777).toBe(0o600);
+      const config = readFileSync(configFile, "utf8");
+      expect(config).toContain(`API_URL='${stub.url}'`);
+      expect(config).toContain(`API_TOKEN='${TOKEN}'`);
+      expect(config).toContain(`MACHINE_ID='${hostMachineId}'`);
+      expect(config).toContain("GROUP_ID='Otthoni gép'");
+      expect(config).toContain(`PATH='${bin}':"$PATH"`);
 
-    expect(result.code).toBe(1);
-    expect(result.stderr).toContain("rejected");
-    expect(existsSync(path.join(home, ".usageratio"))).toBe(false);
-    expect(stub.reports).toEqual([]);
-  });
+      expect(readFileSync(path.join(home, "crontab.txt"), "utf8")).toBe(
+        `0 * * * * /bin/bash "${home}/.usageratio/auto/report-usage.sh" >/dev/null 2>&1\n`,
+      );
+      expect(stub.reports).toEqual([
+        expect.objectContaining({ machineId: hostMachineId, groupId: "Otthoni gép", providers: { claude: 1234 } }),
+      ]);
+    });
 
-  it("refuses to ask for a token without a terminal", async () => {
-    const result = await run(await unpack("auto", "Work"), env());
-    expect(result.code).toBe(1);
-    expect(result.stderr).toContain("USAGERATIO_API_TOKEN");
-  });
+    it("installs the manual reporter behind a sync-tokens alias, once", async () => {
+      const folder = await unpack("manual", "Work");
+      const first = await run(folder, env({ USAGERATIO_API_TOKEN: TOKEN }));
+      const second = await run(folder, env({ USAGERATIO_API_TOKEN: TOKEN }));
 
-  it("names a file missing from the package", async () => {
-    const folder = await unpack("auto", "Work");
-    rmSync(path.join(folder, "report-usage-core.sh"));
-    const result = await run(folder, env({ USAGERATIO_API_TOKEN: TOKEN }));
-    expect(result.code).toBe(2);
-    expect(result.stderr).toContain("report-usage-core.sh is missing");
-  });
-});
+      expect([first.code, second.code]).toEqual([0, 0]);
+      expect(first.stdout).toContain("✅ Sync successful: 1 providers sent.");
+      const aliases = readFileSync(path.join(home, rcFile), "utf8")
+        .split("\n")
+        .filter((line) => line.startsWith("alias sync-tokens="));
+      expect(aliases).toEqual([`alias sync-tokens='/bin/bash "$HOME/.usageratio/manual/report-usage.sh"'`]);
+      expect(existsSync(path.join(home, "crontab.txt"))).toBe(false);
+      if (otherRcFile) expect(existsSync(path.join(home, otherRcFile))).toBe(false);
+    });
+
+    it("keeps the machine id in use when reinstalled, unless the package names one", async () => {
+      await run(await unpack("auto", "Work"), env({ USAGERATIO_API_TOKEN: TOKEN }));
+      tool(hostTool, `echo ${renamedMachineId}`);
+      await run(await unpack("auto", "Work"), env({ USAGERATIO_API_TOKEN: TOKEN }));
+      const configFile = path.join(home, ".config/usageratio/config");
+      expect(readFileSync(configFile, "utf8")).toContain(`MACHINE_ID='${hostMachineId}'`);
+
+      await run(await unpack("auto", "Work", "studio"), env({ USAGERATIO_API_TOKEN: TOKEN }));
+      expect(readFileSync(configFile, "utf8")).toContain("MACHINE_ID='studio'");
+      expect(readFileSync(path.join(home, "crontab.txt"), "utf8").split("\n").filter(Boolean)).toHaveLength(1);
+    });
+
+    it("installs nothing when the server rejects the token", async () => {
+      const result = await run(await unpack("auto", "Work"), env({ USAGERATIO_API_TOKEN: "wrong-token-wrong-token" }));
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("rejected");
+      expect(existsSync(path.join(home, ".usageratio"))).toBe(false);
+      expect(stub.reports).toEqual([]);
+    });
+
+    it("refuses to ask for a token without a terminal", async () => {
+      const result = await run(await unpack("auto", "Work"), env());
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("USAGERATIO_API_TOKEN");
+    });
+
+    it("names a file missing from the package", async () => {
+      const folder = await unpack("auto", "Work");
+      rmSync(path.join(folder, "report-usage-core.sh"));
+      const result = await run(folder, env({ USAGERATIO_API_TOKEN: TOKEN }));
+      expect(result.code).toBe(2);
+      expect(result.stderr).toContain("report-usage-core.sh is missing");
+    });
+  },
+);

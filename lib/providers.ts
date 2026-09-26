@@ -2,7 +2,14 @@ export const MAX_PROVIDERS = 20;
 
 const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 
-const PROVIDER_LABELS: Record<string, string> = {
+/**
+ * Display labels for known provider ids, including a couple of aliases
+ * (`anthropic`, `google`) that never come out of the client's provider
+ * registry (clients/shared/ccusage-providers.cjs) but may still show up from
+ * an older report or a manual --providers override. Every id that registry
+ * can return needs an entry here; tests/client-parser.test.ts checks that.
+ */
+export const PROVIDER_LABELS: Record<string, string> = {
   anthropic: "Claude",
   claude: "Claude",
   deepseek: "DeepSeek",

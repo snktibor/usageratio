@@ -46,6 +46,57 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $parserPath = Join-Path $PSScriptRoot 'ccusage-providers.cjs'
+# The ccusage version npx runs; keep equal to lib/setup.ts CCUSAGE_VERSION (tests/setup.test.ts
+# checks it). USAGERATIO_CCUSAGE_VERSION overrides it; "latest" is an explicit opt-in.
+$ccusageVersion = $env:USAGERATIO_CCUSAGE_VERSION
+if (-not $ccusageVersion) { $ccusageVersion = '20.0.24' }
+
+# The ccusage command(s) to try, in order, for USAGERATIO_CCUSAGE: "global" only the
+# installed command, "npx" only the current package through npx, anything else (the
+# default) the installed one first with npx as its fallback. Mirrors run_ccusage in
+# report-usage-core.sh. Throws when nothing the mode allows is on PATH.
+function Get-CcusageAttempts {
+  $mode = $env:USAGERATIO_CCUSAGE
+  $global = $null
+  if ($mode -ne 'npx') {
+    $global = Get-Command ccusage.cmd -ErrorAction SilentlyContinue
+    if (-not $global) { $global = Get-Command ccusage -ErrorAction SilentlyContinue }
+  }
+  $npx = $null
+  if ($mode -ne 'global') {
+    $npx = Get-Command npx.cmd -ErrorAction SilentlyContinue
+    if (-not $npx) { $npx = Get-Command npx -ErrorAction SilentlyContinue }
+  }
+  if ($mode -eq 'global' -and -not $global) { throw 'Node.js/ccusage was not found in PATH.' }
+  if ($mode -eq 'npx' -and -not $npx) { throw 'Node.js/npx was not found in PATH.' }
+  if ($mode -ne 'global' -and $mode -ne 'npx' -and -not $global -and -not $npx) {
+    throw 'Neither ccusage nor npx was found in PATH.'
+  }
+  # Built as one array and returned through Write-Output -NoEnumerate: a bare `return` of a
+  # single-item array unwraps it back to a lone object, and $attempts.Count would then count
+  # a hashtable's keys instead of the number of attempts.
+  $attempts = @()
+  if ($global) { $attempts += @{ Exe = $global.Source; Prefix = @() } }
+  if ($npx) { $attempts += @{ Exe = $npx.Source; Prefix = @('--yes', "ccusage@$ccusageVersion") } }
+  Write-Output $attempts -NoEnumerate
+}
+
+# Runs ccusage with the given arguments, trying every attempt in order until one exits 0;
+# returns its stdout, or $null when every attempt failed. $ErrorFile (when given) collects
+# every attempt's stderr, appended; without it stderr is discarded (an optional read).
+function Invoke-Ccusage {
+  param([array]$Attempts, [string[]]$CcusageArgs, [string]$ErrorFile = '')
+  foreach ($attempt in $Attempts) {
+    $fullArgs = $attempt.Prefix + $CcusageArgs
+    if ($ErrorFile) {
+      $raw = & $attempt.Exe @fullArgs 2>> $ErrorFile | Out-String
+    } else {
+      $raw = & $attempt.Exe @fullArgs 2> $null | Out-String
+    }
+    if ($LASTEXITCODE -eq 0) { return $raw }
+  }
+  return $null
+}
 
 function Read-ProviderTokens {
   param([string]$SinceDate, [string]$TimeZone, [string]$FallbackProviders, [string]$CycleStart)
@@ -54,18 +105,8 @@ function Read-ProviderTokens {
   }
 
   $node = Get-Command node -ErrorAction SilentlyContinue
-  # USAGERATIO_CCUSAGE=global runs the installed ccusage; anything else the current package through npx.
-  if ($env:USAGERATIO_CCUSAGE -eq 'global') {
-    $ccusage = Get-Command ccusage.cmd -ErrorAction SilentlyContinue
-    if (-not $ccusage) { $ccusage = Get-Command ccusage -ErrorAction SilentlyContinue }
-    if (-not $node -or -not $ccusage) { throw 'Node.js/ccusage was not found in PATH.' }
-    $ccusagePrefix = @()
-  } else {
-    $ccusage = Get-Command npx.cmd -ErrorAction SilentlyContinue
-    if (-not $ccusage) { $ccusage = Get-Command npx -ErrorAction SilentlyContinue }
-    if (-not $node -or -not $ccusage) { throw 'Node.js/npx was not found in PATH.' }
-    $ccusagePrefix = @('--yes', 'ccusage@latest')
-  }
+  if (-not $node) { throw 'Node.js was not found in PATH.' }
+  $attempts = Get-CcusageAttempts
 
   $errorFile = Join-Path ([IO.Path]::GetTempPath()) ("usageratio-ccusage-{0}.log" -f [Guid]::NewGuid())
   $blocksFile = Join-Path ([IO.Path]::GetTempPath()) ("usageratio-blocks-{0}.json" -f [Guid]::NewGuid())
@@ -76,21 +117,21 @@ function Read-ProviderTokens {
   try {
     # Claude Code's usage by clock hour, read before the daily report so the hours
     # never run ahead of the days. Optional: without it the days are sent whole.
-    $blocksArgs = $ccusagePrefix + @('blocks', '--json', '--offline', '--session-length', '1', '--since', ($SinceDate -replace '-', ''), '--timezone', $TimeZone)
+    $blocksArgs = @('blocks', '--json', '--offline', '--session-length', '1', '--since', ($SinceDate -replace '-', ''), '--timezone', $TimeZone)
     try {
-      $blocksRaw = & $ccusage.Source @blocksArgs 2> $null | Out-String
-      if ($LASTEXITCODE -eq 0 -and $blocksRaw) { [IO.File]::WriteAllText($blocksFile, $blocksRaw) }
+      $blocksRaw = Invoke-Ccusage -Attempts $attempts -CcusageArgs $blocksArgs
+      if ($blocksRaw) { [IO.File]::WriteAllText($blocksFile, $blocksRaw) }
     } catch { }
     $hourlyArgs = @()
     if ($CycleStart -and (Test-Path -LiteralPath $blocksFile)) { $hourlyArgs = @($blocksFile, $CycleStart, $TimeZone) }
     # Windows PowerShell 5.1 drops an empty argument, which would shift the ones after it.
     if (-not $FallbackProviders) { $FallbackProviders = ',' }
 
-    $ccusageArgs = $ccusagePrefix + @('daily', '--json', '--by-agent', '--breakdown', '--no-cost', '--since', $SinceDate, '--timezone', $TimeZone)
-    $raw = & $ccusage.Source @ccusageArgs 2> $errorFile | Out-String
-    if ($LASTEXITCODE -ne 0) {
+    $ccusageArgs = @('daily', '--json', '--by-agent', '--breakdown', '--no-cost', '--since', $SinceDate, '--timezone', $TimeZone)
+    $raw = Invoke-Ccusage -Attempts $attempts -CcusageArgs $ccusageArgs -ErrorFile $errorFile
+    if (-not $raw) {
       $details = if (Test-Path -LiteralPath $errorFile) { Get-Content -LiteralPath $errorFile -Raw } else { '' }
-      throw "ccusage exited with code $LASTEXITCODE. $details"
+      throw "ccusage could not be run. $details"
     }
     $providersJson = $raw | & $node.Source $parserPath parse $FallbackProviders @hourlyArgs 2>> $errorFile
     if ($LASTEXITCODE -ne 0 -or -not $providersJson) {
@@ -245,6 +286,20 @@ if ($modelsJson -and $modelsJson.Trim() -ne '{}') {
 }
 if ($daysJson -and $daysJson.Trim() -ne '{}') {
   try { $report.days = $daysJson | ConvertFrom-Json } catch { }
+}
+# The report's own mode/interval (lib/validation.ts ReportMode): "manual" for
+# -OutputMode Manual (clients/manual/report-usage.ps1, and the one-shot report),
+# "auto" otherwise (clients/auto/report-usage.ps1, which sets
+# USAGERATIO_INTERVAL_MINUTES to match its scheduled task). Health on the
+# dashboard treats a manual machine differently: it is never "late", since it
+# has no schedule to miss. "auto" (the server's default when absent) is left out.
+if ($OutputMode -eq 'Manual') {
+  $report.mode = 'manual'
+} else {
+  $intervalMinutes = 0
+  if ([int]::TryParse($env:USAGERATIO_INTERVAL_MINUTES, [ref]$intervalMinutes) -and $intervalMinutes -ge 5 -and $intervalMinutes -le 1440) {
+    $report.intervalMinutes = $intervalMinutes
+  }
 }
 # The split by day and hour nests six levels deep; ConvertTo-Json stops at two by default.
 $payload = $report | ConvertTo-Json -Compress -Depth 8

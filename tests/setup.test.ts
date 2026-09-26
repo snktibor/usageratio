@@ -4,6 +4,7 @@ import { createTranslator } from "next-intl";
 import { describe, expect, it } from "vitest";
 import { locales } from "@/i18n/locales.generated";
 import {
+  CCUSAGE_VERSION,
   CLIENT_SOURCES,
   checkMachineSettings,
   DEFAULT_API_URL,
@@ -59,6 +60,13 @@ describe("setup package contents", () => {
         if (file.source) expect(CLIENT_SOURCES).toContain(file.source);
       }
     }
+  });
+
+  it("pins the same ccusage version in both reporter cores and lib/setup.ts", () => {
+    const shell = readFileSync("clients/shared/report-usage-core.sh", "utf8");
+    const powershell = readFileSync("clients/shared/report-usage-core.ps1", "utf8");
+    expect(shell).toContain(`CCUSAGE_VERSION="\${USAGERATIO_CCUSAGE_VERSION:-${CCUSAGE_VERSION}}"`);
+    expect(powershell).toContain(`if (-not $ccusageVersion) { $ccusageVersion = '${CCUSAGE_VERSION}' }`);
   });
 
   it("keeps the Windows scripts plain ASCII: Windows PowerShell 5.1 reads BOM-less files as ANSI", () => {
@@ -200,7 +208,7 @@ describe("buildSetupZip", () => {
     expect(byName.get("config")!.data.toString("utf8")).not.toMatch(/TOKEN/i);
   });
 
-  it("packs executable Linux scripts with the Linux installer, sharing the macOS reporter", async () => {
+  it("packs executable Linux scripts, sharing the macOS installer and reporter", async () => {
     const sources = await loadClientSources();
     const { fileName, bytes } = buildSetupZip("linux", "auto", SETTINGS, sources, t);
     const entries = readZip(bytes);
@@ -208,7 +216,7 @@ describe("buildSetupZip", () => {
     expect(fileName).toBe("usageratio-linux-auto.zip");
     const byName = new Map(entries.map((entry) => [entry.name, entry]));
     expect(byName.get("install.sh")!.mode).toBe(0o755);
-    expect(byName.get("install.sh")!.data.toString("utf8")).toBe(sources["clients/setup/install-linux.sh"]);
+    expect(byName.get("install.sh")!.data.toString("utf8")).toBe(sources["clients/setup/install.sh"]);
     expect(byName.get("report-usage-auto.sh")!.data.toString("utf8")).toBe(sources["clients/auto/report-usage.sh"]);
     for (const entry of entries) expect(entry.data.includes("\r\n"), entry.name).toBe(false);
   });

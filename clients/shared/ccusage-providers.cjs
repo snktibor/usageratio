@@ -21,6 +21,9 @@ const MAX_DAYS = 32;
 const MAX_DAYS_BYTES = 48_000;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const HOUR_MS = 3_600_000;
+// The server's range for an auto client's own reporting interval (lib/validation.ts).
+const MIN_INTERVAL_MINUTES = 5;
+const MAX_INTERVAL_MINUTES = 1440;
 
 function asObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
@@ -71,18 +74,32 @@ function slug(value) {
     .slice(0, 64);
 }
 
+/**
+ * The recognized providers, in matching order: the first whose `test` matches
+ * the (already lowercased) model/vendor text wins. Order is precedence — keep
+ * it the way it is unless a provider's name would otherwise be shadowed by an
+ * earlier one's pattern (this mirrors the if-chain providerFrom() used to be).
+ * Every id here needs a display label in lib/providers.ts PROVIDER_LABELS;
+ * tests/client-parser.test.ts checks that.
+ */
+const PROVIDERS = [
+  { id: "deepseek", test: /deepseek/ },
+  { id: "claude", test: /claude|anthropic/ },
+  { id: "openai", test: /openai|chatgpt|codex|gpt[-_. ]?\d|(^|[^a-z])o[134]($|[-_. ])/ },
+  { id: "gemini", test: /gemini|google[-_. /]?(ai)?/ },
+  { id: "xai", test: /grok|xai|x-ai/ },
+  { id: "qwen", test: /qwen|alibaba/ },
+  { id: "kimi", test: /kimi|moonshot/ },
+  { id: "mistral", test: /mistral|codestral/ },
+  { id: "meta", test: /llama|meta[-_. /]?ai/ },
+];
+
 /** Prefer the actual model vendor; use the collecting agent only as fallback. */
 function providerFrom(value, fallback = "") {
   const text = String(value ?? "").toLowerCase();
-  if (/deepseek/.test(text)) return "deepseek";
-  if (/claude|anthropic/.test(text)) return "claude";
-  if (/openai|chatgpt|codex|gpt[-_. ]?\d|(^|[^a-z])o[134]($|[-_. ])/i.test(text)) return "openai";
-  if (/gemini|google[-_. /]?(ai)?/.test(text)) return "gemini";
-  if (/grok|xai|x-ai/.test(text)) return "xai";
-  if (/qwen|alibaba/.test(text)) return "qwen";
-  if (/kimi|moonshot/.test(text)) return "kimi";
-  if (/mistral|codestral/.test(text)) return "mistral";
-  if (/llama|meta[-_. /]?ai/.test(text)) return "meta";
+  for (const provider of PROVIDERS) {
+    if (provider.test.test(text)) return provider.id;
+  }
 
   const source = slug(fallback || value);
   const aliases = {
@@ -616,7 +633,10 @@ async function main() {
     return;
   }
   if (command === "payload") {
-    const [, , , machineId, groupId, timestamp, modelFile, daysFile] = process.argv;
+    // mode/intervalMinutes: bash's report-usage-core.sh derives both from
+    // USAGERATIO_OUTPUT_MODE (see lib/validation.ts ReportMode); the PowerShell
+    // core builds its payload without this parser and sets them itself.
+    const [, , , machineId, groupId, timestamp, modelFile, daysFile, mode, intervalMinutesRaw] = process.argv;
     if (!machineId || !groupId || !timestamp) throw new Error("payload needs machineId, groupId and timestamp");
     const providers = normalizeProviderMap(parsed);
     const models = readModelFile(modelFile, providers);
@@ -624,6 +644,18 @@ async function main() {
     const payload = { machineId, groupId, timestamp, providers };
     if (Object.keys(models).length > 0) payload.models = models;
     if (Object.keys(days).length > 0) payload.days = days;
+    // "auto" (the default the server assumes when the field is absent) is left out.
+    if (mode === "manual") payload.mode = "manual";
+    else {
+      const intervalMinutes = Number(intervalMinutesRaw);
+      if (
+        Number.isInteger(intervalMinutes) &&
+        intervalMinutes >= MIN_INTERVAL_MINUTES &&
+        intervalMinutes <= MAX_INTERVAL_MINUTES
+      ) {
+        payload.intervalMinutes = intervalMinutes;
+      }
+    }
     process.stdout.write(JSON.stringify(payload));
     return;
   }
@@ -654,11 +686,16 @@ if (require.main === module) {
 }
 
 module.exports = {
+  MAX_DAYS,
+  MAX_MODELS,
+  MAX_MODELS_PER_PROVIDER,
+  MAX_PROVIDERS,
   normalizeModelMap,
   normalizeProviderMap,
   parseCcusageDays,
   parseCcusageProviders,
   parseCcusageUsage,
+  PROVIDERS,
   providerFrom,
   tokenTotal,
 };

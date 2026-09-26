@@ -30,6 +30,8 @@ describe("parseUsageReport", () => {
         days: [],
         timestampMs: Date.parse("2026-09-21T10:00:00Z"),
         timestamp: "2026-09-21T10:00:00.000Z",
+        mode: "auto",
+        intervalMinutes: null,
       },
     });
   });
@@ -245,5 +247,43 @@ describe("parseUsageReport", () => {
 
   it("ignores unknown extra fields", () => {
     expect(parseUsageReport({ ...VALID, hostname: "x", extra: { a: 1 } }, OPTIONS).ok).toBe(true);
+  });
+
+  it("defaults mode to auto and intervalMinutes to null when both are absent", () => {
+    const result = parseUsageReport(VALID, OPTIONS);
+    expect(result.ok && result.report.mode).toBe("auto");
+    expect(result.ok && result.report.intervalMinutes).toBeNull();
+  });
+
+  it("accepts an explicit mode and, for auto, an interval within range", () => {
+    const manual = parseUsageReport({ ...VALID, mode: "manual" }, OPTIONS);
+    expect(manual.ok && manual.report.mode).toBe("manual");
+    expect(manual.ok && manual.report.intervalMinutes).toBeNull();
+
+    const auto = parseUsageReport({ ...VALID, mode: "auto", intervalMinutes: 30 }, OPTIONS);
+    expect(auto.ok && auto.report.mode).toBe("auto");
+    expect(auto.ok && auto.report.intervalMinutes).toBe(30);
+
+    for (const intervalMinutes of [5, 1440]) {
+      const boundary = parseUsageReport({ ...VALID, mode: "auto", intervalMinutes }, OPTIONS);
+      expect(boundary.ok && boundary.report.intervalMinutes, String(intervalMinutes)).toBe(intervalMinutes);
+    }
+  });
+
+  it.each(["Auto", "AUTO", "", "silent", 1, null])("rejects an invalid mode: %j", (mode) => {
+    expect(errorsOf({ ...VALID, mode })).toHaveLength(1);
+  });
+
+  it.each([4, 1441, 0, -5, 1.5, Number.NaN, "60", null])(
+    "rejects an intervalMinutes outside 5-1440 or not a whole number: %j",
+    (intervalMinutes) => {
+      expect(errorsOf({ ...VALID, intervalMinutes })).toHaveLength(1);
+    },
+  );
+
+  it("accepts intervalMinutes sent alongside mode manual (unused, but not an error)", () => {
+    const result = parseUsageReport({ ...VALID, mode: "manual", intervalMinutes: 60 }, OPTIONS);
+    expect(result.ok && result.report.mode).toBe("manual");
+    expect(result.ok && result.report.intervalMinutes).toBe(60);
   });
 });
