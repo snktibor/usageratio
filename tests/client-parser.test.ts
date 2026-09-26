@@ -31,6 +31,13 @@ describe("ccusage provider parser", () => {
     expect(normalizeProviderMap({ OpenAI: 12, Claude: 8 })).toEqual({ claude: 8, openai: 12 });
   });
 
+  it("accepts an empty provider map: a heartbeat when there is nothing to report and no fallback either", () => {
+    expect(normalizeProviderMap({})).toEqual({});
+    // No rows, and no fallback providers to zero out: {} goes out rather than an error.
+    expect(parseCcusageProviders({ daily: [] })).toEqual({});
+    expect(parseCcusageUsage({ daily: [] })).toEqual({ providers: {}, models: {} });
+  });
+
   it("splits unified daily rows by model vendor and falls back to the agent", () => {
     expect(
       parseCcusageProviders({
@@ -108,6 +115,19 @@ describe("ccusage provider parser", () => {
       ],
     });
     expect(usage).toEqual({ providers: { openai: 14 }, models: { openai: { "gpt-5-codex": 10 } } });
+  });
+
+  it("builds a heartbeat payload (providers: {}) when there is nothing to report", () => {
+    const payload = execFileSync("node", [PARSER, "payload", "mac", "Personal", "2026-09-22T11:49:28Z"], {
+      input: "{}",
+      encoding: "utf8",
+    });
+    expect(JSON.parse(payload)).toEqual({
+      machineId: "mac",
+      groupId: "Personal",
+      providers: {},
+      timestamp: "2026-09-22T11:49:28Z",
+    });
   });
 
   it("keeps a split within the server's limits and its provider's total", () => {

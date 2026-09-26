@@ -25,6 +25,7 @@ export interface HourUsage {
 export interface UsageReport {
   machineId: string;
   groupId: string;
+  /** Empty (`{}`) is a heartbeat: a fresh machine with nothing to report yet. */
   providers: Record<string, number>;
   /**
    * The providers' tokens split by model: providerId → modelId → tokens. Empty
@@ -120,7 +121,12 @@ function isCalendarDate(value: string): boolean {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
-/** A `{ provider: tokens }` object, found in the body under the name `field`. */
+/**
+ * A `{ provider: tokens }` object, found in the body under the name `field`.
+ * Empty (`{}`) is accepted: a heartbeat from a fresh machine with nothing to
+ * report yet (lib/ingest.ts / lib/usage-store.ts `storeReport` register its
+ * group and nothing else for it).
+ */
 function parseProviders(input: unknown, field: string, errors: string[]): Record<string, number> {
   const providers: Record<string, number> = {};
   if (!isObject(input)) {
@@ -128,8 +134,8 @@ function parseProviders(input: unknown, field: string, errors: string[]): Record
     return providers;
   }
   const entries = Object.entries(input);
-  if (entries.length < 1 || entries.length > MAX_PROVIDERS) {
-    errors.push(`${field} must contain between 1 and ${MAX_PROVIDERS} entries`);
+  if (entries.length > MAX_PROVIDERS) {
+    errors.push(`${field} must contain at most ${MAX_PROVIDERS} entries`);
   }
   for (const [rawProvider, tokens] of entries) {
     const provider = normalizeProviderId(rawProvider);

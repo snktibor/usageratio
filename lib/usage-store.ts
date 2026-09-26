@@ -2,7 +2,7 @@ import type { UsageEvent } from "@/lib/aggregate";
 import type { KnownMachine } from "@/lib/dashboard";
 import { reportCheckpoints } from "@/lib/days";
 import { type OfficialUsageUpdate, officialUsageField, storedEntryFor } from "@/lib/official-usage";
-import { DEFAULT_PROVIDER_ID, mergeProviderIds, normalizeProviderId } from "@/lib/providers";
+import { mergeProviderIds, normalizeProviderId } from "@/lib/providers";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import { TxPlan } from "@/lib/redis-tx";
 import {
@@ -45,8 +45,11 @@ import type { UsageReport } from "@/lib/validation";
  * moment. Every later report sends the same days again, so these are no-ops
  * too, until a day's total changes.
  *
- * Pre-provider keys (`usage:events:{groupId}` and plain machine hash fields)
- * are still read as DeepSeek data, so the refactor does not hide history.
+ * Pre-provider data (a bare `usage:events:{groupId}` set, and `usage:machines`
+ * fields without a `providerId:` prefix, both from before providers existed)
+ * is no longer read here. Run `npm run migrate:legacy -- --apply`
+ * (lib/migrate-legacy.ts) against the store once, before deploying a build
+ * without this fallback, to fold it under the "deepseek" provider.
  *
  * The groups are a hash of their own rather than a list inside the settings
  * document because the machines all report at the top of the hour: a group
@@ -62,7 +65,6 @@ const KEYS = {
   machines: "usage:machines",
   officialUsage: "usage:official",
   events: (providerId: string, groupId: string) => `usage:events:${providerId}:${groupId}`,
-  legacyEvents: (groupId: string) => `usage:events:${groupId}`,
 };
 
 const DAY_MS = 86_400_000;
@@ -105,52 +107,65 @@ function parseModelSplit(raw: unknown): Record<string, number> | null {
  * of the cycle the report falls in; null stores the report alone).
  * `duplicate` is true when the identical report was already stored;
  * `newGroup` when its group was unknown and got registered with a random colour.
+ *
+ * An empty `providers` snapshot (`{}`) is a heartbeat: a fresh machine with
+ * nothing to report yet (see lib/validation.ts `parseProviders`). Its group is
+ * still registered — so the machine's group shows up on the settings panel —
+ * but no provider or machine row is invented for it, since there is nothing
+ * to name one after; `heartbeat` comes back true and `duplicate` false.
  */
 export async function storeReport(
   report: UsageReport,
   now: Date,
   retentionDays: number,
   cycle: { timeZone: string; startMs: number } | null,
-): Promise<{ duplicate: boolean; newGroup: boolean; newProviders: string[] }> {
+): Promise<{ duplicate: boolean; newGroup: boolean; newProviders: string[]; heartbeat: boolean }> {
   const providers = Object.entries(report.providers);
+  const heartbeat = providers.length === 0;
   const oldestMs = now.getTime() - retentionDays * DAY_MS;
-  const checkpoints = cycle ? reportCheckpoints(report, cycle.timeZone, Math.max(cycle.startMs, oldestMs)) : [];
+  const checkpoints =
+    cycle && !heartbeat ? reportCheckpoints(report, cycle.timeZone, Math.max(cycle.startMs, oldestMs)) : [];
 
   const tx = getRedis().multi();
   const plan = new TxPlan();
   plan.add("group", () =>
     tx.hsetnx(KEYS.groups, report.groupId, serializeGroupEntry(randomGroupColor(), now.getTime())),
   );
-  const machineEntries: Record<string, string> = {};
-  for (const [providerId, tokens] of providers) {
-    const eventsKey = KEYS.events(providerId, report.groupId);
-    const member = eventMember(report.machineId, tokens, report.timestampMs, report.models[providerId]);
-    const lastReport = JSON.stringify({ g: report.groupId, ts: report.timestampMs, t: tokens });
-    plan.add(`provider:${providerId}`, () => tx.hsetnx(KEYS.providers, providerId, now.getTime()));
-    plan.add(`event:${providerId}`, () => tx.zadd(eventsKey, { nx: true }, { score: report.timestampMs, member }));
-    plan.add(null, () => tx.zremrangebyscore(eventsKey, 0, oldestMs));
-    plan.add(null, () => tx.expire(eventsKey, (retentionDays + 1) * 86_400));
-    machineEntries[`${providerId}:${report.machineId}`] = lastReport;
-  }
-  plan.add(null, () => tx.hset(KEYS.machines, machineEntries));
-  for (const [providerId] of providers) {
-    const members = checkpoints
-      .filter((checkpoint) => checkpoint.providerId === providerId)
-      .map((checkpoint) => ({
-        score: checkpoint.ts,
-        member: eventMember(report.machineId, checkpoint.tokens, checkpoint.ts, checkpoint.models, true),
-      }));
-    const [first, ...rest] = members;
-    if (first) plan.add(null, () => tx.zadd(KEYS.events(providerId, report.groupId), { nx: true }, first, ...rest));
+  if (!heartbeat) {
+    const machineEntries: Record<string, string> = {};
+    for (const [providerId, tokens] of providers) {
+      const eventsKey = KEYS.events(providerId, report.groupId);
+      const member = eventMember(report.machineId, tokens, report.timestampMs, report.models[providerId]);
+      const lastReport = JSON.stringify({ g: report.groupId, ts: report.timestampMs, t: tokens });
+      plan.add(`provider:${providerId}`, () => tx.hsetnx(KEYS.providers, providerId, now.getTime()));
+      plan.add(`event:${providerId}`, () => tx.zadd(eventsKey, { nx: true }, { score: report.timestampMs, member }));
+      plan.add(null, () => tx.zremrangebyscore(eventsKey, 0, oldestMs));
+      plan.add(null, () => tx.expire(eventsKey, (retentionDays + 1) * 86_400));
+      machineEntries[`${providerId}:${report.machineId}`] = lastReport;
+    }
+    plan.add(null, () => tx.hset(KEYS.machines, machineEntries));
+    for (const [providerId] of providers) {
+      const members = checkpoints
+        .filter((checkpoint) => checkpoint.providerId === providerId)
+        .map((checkpoint) => ({
+          score: checkpoint.ts,
+          member: eventMember(report.machineId, checkpoint.tokens, checkpoint.ts, checkpoint.models, true),
+        }));
+      const [first, ...rest] = members;
+      if (first) plan.add(null, () => tx.zadd(KEYS.events(providerId, report.groupId), { nx: true }, first, ...rest));
+    }
   }
   const results: unknown[] = await tx.exec();
 
   // ZADD NX answers how many members were new: 0 for every provider means the very same report was stored before.
-  const duplicate = providers.every(([providerId]) => Number(plan.result(results, `event:${providerId}`)) === 0);
-  const newProviders = providers.flatMap(([providerId]) =>
-    Number(plan.result(results, `provider:${providerId}`)) === 1 ? [providerId] : [],
-  );
-  return { duplicate, newGroup: Number(plan.result(results, "group")) === 1, newProviders };
+  const duplicate =
+    !heartbeat && providers.every(([providerId]) => Number(plan.result(results, `event:${providerId}`)) === 0);
+  const newProviders = heartbeat
+    ? []
+    : providers.flatMap(([providerId]) =>
+        Number(plan.result(results, `provider:${providerId}`)) === 1 ? [providerId] : [],
+      );
+  return { duplicate, newGroup: Number(plan.result(results, "group")) === 1, newProviders, heartbeat };
 }
 
 function parseEvent(raw: unknown, groupId: string): UsageEvent | null {
@@ -183,8 +198,10 @@ function parseMachine(field: string, raw: string): ProviderMachine | null {
     const { g, ts, t } = JSON.parse(raw) as Record<string, unknown>;
     if (typeof g !== "string" || typeof ts !== "number" || !Number.isFinite(ts)) return null;
     const separator = field.indexOf(":");
-    const providerId = separator < 0 ? DEFAULT_PROVIDER_ID : normalizeProviderId(field.slice(0, separator));
-    const machineId = separator < 0 ? field : field.slice(separator + 1);
+    // A field without a "providerId:" prefix is pre-provider data: run the migration first (see the layout comment above).
+    if (separator < 0) return null;
+    const providerId = normalizeProviderId(field.slice(0, separator));
+    const machineId = field.slice(separator + 1);
     if (!providerId || machineId.length === 0) return null;
     return { providerId, machineId, groupId: g, lastSeenAt: ts, lastTokens: typeof t === "number" ? t : 0 };
   } catch {
@@ -310,7 +327,6 @@ export async function loadEvents(
   for (const providerId of providers) {
     for (const group of groups) {
       request(providerId, group.groupId, KEYS.events(providerId, group.groupId));
-      if (providerId === DEFAULT_PROVIDER_ID) request(providerId, group.groupId, KEYS.legacyEvents(group.groupId));
     }
   }
   const results: unknown[] = await reads.exec();
@@ -356,7 +372,6 @@ export async function loadGroupActivity(groups: IndexedGroup[], providerIds: str
   };
   for (const group of groups) {
     for (const providerId of providers) check(group.groupId, KEYS.events(providerId, group.groupId));
-    check(group.groupId, KEYS.legacyEvents(group.groupId));
   }
   const results: unknown[] = await reads.exec();
   const active = new Set<string>();
@@ -394,7 +409,6 @@ export async function saveSettings(
   };
   for (const groupId of update.removedGroups) {
     for (const providerId of mergeProviderIds(providerIds)) check(groupId, KEYS.events(providerId, groupId));
-    check(groupId, KEYS.legacyEvents(groupId));
   }
   const results: unknown[] = await reads.exec();
   const rawGroups = plan.result(results, "groups");
