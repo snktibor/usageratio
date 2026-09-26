@@ -1,6 +1,6 @@
 import { isValidApiToken } from "@/lib/api-token";
 import { isAuthenticated } from "@/lib/auth";
-import { isForeignOrigin, json, storageFailure as failure } from "@/lib/http";
+import { storageFailure as failure, isForeignOrigin, json } from "@/lib/http";
 import { encryptionKey, loadApiTokenStatus, saveApiToken } from "@/lib/token-vault";
 
 /**

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+  type AuditRecord,
   apiTokenProblem,
   apiTokenStatusNote,
   describeClient,
@@ -8,7 +9,6 @@ import {
   parseAuditRecord,
   serializeAuditRecord,
   toAuditEntry,
-  type AuditRecord,
 } from "@/lib/api-token";
 import { openSecret, parseEncryptionKey, sealSecret } from "@/lib/secret-box";
 
@@ -97,7 +97,7 @@ describe("a token to store", () => {
     expect(isValidApiToken("a".repeat(513))).toBe(false);
     expect(isValidApiToken("abcdefgh ijklmnopq")).toBe(false);
     expect(isValidApiToken("árvíztűrőtükörfúrógép")).toBe(false);
-    expect(isValidApiToken(12345678901234567)).toBe(false);
+    expect(isValidApiToken(1234567890123456)).toBe(false);
     expect(isValidApiToken(null)).toBe(false);
   });
 

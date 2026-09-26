@@ -1,10 +1,11 @@
-import { ChartLegend, CycleChart, type ChartSeries } from "@/components/cycle-chart";
+import { useLocale, useTranslations } from "next-intl";
+import { ChartLegend, type ChartSeries, CycleChart } from "@/components/cycle-chart";
 import { formatPercentTick, niceScale } from "@/lib/chart";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatHeroPercent } from "@/lib/format";
-import { subLimitTimeline, type DashboardView, type SubLimitView } from "@/lib/ground-truth";
+import { type DashboardView, type SubLimitView, subLimitTimeline } from "@/lib/ground-truth";
 import { NEUTRAL_COLOR } from "@/lib/settings";
-import { useTranslations, useLocale } from "next-intl";
+
 /** The percentage axis never shrinks below this: a quiet start of the cycle stays low on the chart. */
 const MIN_AXIS_FRACTION = 0.1;
 

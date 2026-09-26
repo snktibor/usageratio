@@ -1,12 +1,12 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { useId, useState } from "react";
-import { ChartLegend, CycleChart, type ChartSeries } from "@/components/cycle-chart";
+import { ChartLegend, type ChartSeries, CycleChart } from "@/components/cycle-chart";
 import { formatTokenTick, niceScale } from "@/lib/chart";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatTokens } from "@/lib/format";
 import { NEUTRAL_COLOR } from "@/lib/settings";
-import { useTranslations, useLocale } from "next-intl";
 
 /** The token axis never shrinks below this, so a handful of tokens does not fill the chart. */
 const MIN_AXIS_TOKENS = 1_000;

@@ -1,11 +1,11 @@
 "use client";
 
+import { useLocale } from "next-intl";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { CycleRuler } from "@/components/cycle-ruler";
 import type { AxisScale } from "@/lib/chart";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatCycleMoment } from "@/lib/format";
-import { useLocale } from "next-intl";
 
 export interface ChartSeries {
   id: string;
@@ -140,7 +140,7 @@ export function CycleChart({
   }
 
   const readout = (index: number) =>
-    `${moment(times[index]!)}: ` + series.map((s) => `${s.label} ${formatValue(s.values[index]!)}`).join(", ");
+    `${moment(times[index]!)}: ${series.map((s) => `${s.label} ${formatValue(s.values[index]!)}`).join(", ")}`;
 
   const pointAt = (clientX: number) => {
     const plot = plotRef.current;
@@ -189,6 +189,7 @@ export function CycleChart({
         role="group"
         aria-label={label}
         aria-describedby={hintId}
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: the plot is keyboard-operated (arrow keys move the crosshair)
         tabIndex={0}
         onPointerMove={(event) => pointAt(event.clientX)}
         onPointerDown={(event) => pointAt(event.clientX)}

@@ -1,9 +1,9 @@
 import { cookies } from "next/headers";
+import { routing } from "@/i18n/routing";
 import { isAuthenticated } from "@/lib/auth";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { checkMachineSettings, parseMode, parseOs } from "@/lib/setup";
 import { buildSetupZip, loadClientSources, usageEndpoint } from "@/lib/setup-package";
-import { routing } from "@/i18n/routing";
 
 /**
  * GET /api/setup?os=macos|linux|windows&mode=auto|manual&group=Work&machine=win-desktop

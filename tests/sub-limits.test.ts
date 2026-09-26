@@ -7,10 +7,10 @@ import {
   measureSubLimits,
   normalizeModelPart,
   normalizeSubLimitName,
+  type SubLimit,
   splitBySubLimits,
   subLimitIdFor,
   subLimitOf,
-  type SubLimit,
 } from "@/lib/sub-limits";
 import { sampleTimes } from "@/lib/timeline";
 

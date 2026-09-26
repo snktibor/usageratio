@@ -1,13 +1,13 @@
-import { Link } from "@/i18n/routing";
+import { getLocale, getTranslations } from "next-intl/server";
 import { logout } from "@/app/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { DashboardView } from "@/components/dashboard-view";
 import { DownloadIcon, GitHubIcon } from "@/components/icons";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { Link } from "@/i18n/routing";
 import type { ProviderDashboardModel } from "@/lib/dashboard";
 import { formatClock } from "@/lib/format";
 import type { SettingsView } from "@/lib/settings";
-import { getTranslations, getLocale } from "next-intl/server";
 
 export async function Dashboard({
   providers,

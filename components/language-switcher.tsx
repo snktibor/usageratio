@@ -1,8 +1,8 @@
 "use client";
 
-import { useTransition } from "react";
-import { routing, useRouter, usePathname } from "@/i18n/routing";
 import { useLocale, useTranslations } from "next-intl";
+import { useTransition } from "react";
+import { routing, usePathname, useRouter } from "@/i18n/routing";
 
 /** The language's own name in itself (e.g. "Deutsch", "English"), so a new
  * messages/<locale>.json needs no matching label added here. */

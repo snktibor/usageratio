@@ -1,5 +1,5 @@
 import { isAuthenticated } from "@/lib/auth";
-import { isForeignOrigin, json, storageFailure as failure } from "@/lib/http";
+import { storageFailure as failure, isForeignOrigin, json } from "@/lib/http";
 import { encryptionKey, revealApiToken } from "@/lib/token-vault";
 
 /**

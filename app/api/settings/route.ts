@@ -1,6 +1,6 @@
 import { isAuthenticated } from "@/lib/auth";
 import { getConfig } from "@/lib/config";
-import { isForeignOrigin, json, storageFailure as failure } from "@/lib/http";
+import { storageFailure as failure, isForeignOrigin, json } from "@/lib/http";
 import { mergeProviderIds } from "@/lib/providers";
 import { buildSettingsView, parseSettingsUpdate, resolveConfig, storedProviderIds } from "@/lib/settings";
 import { loadGroupActivity, loadIndexes, saveSettings } from "@/lib/usage-store";

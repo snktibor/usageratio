@@ -1,6 +1,6 @@
+import { useLocale } from "next-intl";
 import type { DashboardModel } from "@/lib/dashboard";
 import { weekdayShort } from "@/lib/format";
-import { useLocale } from "next-intl";
 
 type Segment = DashboardModel["cycle"]["segments"][number];
 

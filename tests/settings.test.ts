@@ -9,10 +9,10 @@ import {
   MAX_GROUPS,
   NEUTRAL_COLOR,
   normalizeHexColor,
+  PRESET_COLORS,
   parseGroupEntry,
   parseSettingsUpdate,
   parseStoredSettings,
-  PRESET_COLORS,
   randomGroupColor,
   resolveConfig,
   resolveGroupColors,
@@ -20,8 +20,8 @@ import {
   serializeSettings,
   settingsFromConfig,
   suggestGroupColor,
-  visibleProviderIds,
   type UsageSettings,
+  visibleProviderIds,
 } from "@/lib/settings";
 
 const config = getConfig({});

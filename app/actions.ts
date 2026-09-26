@@ -2,7 +2,7 @@
 
 import { getLocale } from "next-intl/server";
 import { redirect } from "@/i18n/routing";
-import { attemptLogin, endSession } from "@/lib/auth";
+import { attemptLogin, endSession, type LoginResult } from "@/lib/auth";
 import { StorageNotConfiguredError } from "@/lib/redis";
 
 export interface LoginState {
@@ -16,7 +16,7 @@ const AFTER_LOGIN = new Set(["/", "/setup"]);
 export async function login(_previous: LoginState, formData: FormData): Promise<LoginState> {
   const pin = String(formData.get("pin") ?? "").trim();
 
-  let result;
+  let result: LoginResult;
   try {
     result = await attemptLogin(pin);
   } catch (error) {

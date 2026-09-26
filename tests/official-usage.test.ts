@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   currentOfficialEntries,
-  officialUsageField,
   OFFICIAL_USAGE_RAW_MAX_LENGTH,
+  officialUsageField,
   parseOfficialUsageUpdate,
   serializeOfficialEntry,
   storedEntryFor,

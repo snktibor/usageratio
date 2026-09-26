@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { renderOneShot, type CcusageRunner } from "@/lib/setup";
+import { type CcusageRunner, renderOneShot } from "@/lib/setup";
 import { loadClientSources, oneShotBlobs } from "@/lib/setup-package";
 
 /**

@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { copyText, CopyError, fetchApiToken } from "@/components/clipboard";
+import { CopyError, copyText, fetchApiToken } from "@/components/clipboard";
 import { CheckCircleIcon, KeyIcon } from "@/components/icons";
 import { StatusLine } from "@/components/status-line";
-import { apiTokenStatusNote, type ApiTokenStatus } from "@/lib/api-token";
+import { type ApiTokenStatus, apiTokenStatusNote } from "@/lib/api-token";
 
 type CopyState = { phase: "idle" } | { phase: "busy" } | { phase: "copied" } | { phase: "failed"; message: string };
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useTranslations, useLocale } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 
 import { useId } from "react";
 import { AlertTriangleIcon, CheckCircleIcon, InfoCircleIcon, StopCircleIcon } from "@/components/icons";
@@ -106,7 +106,7 @@ function unknownNote(
   subView: SubLimitView,
   providerLabel: string,
   t: ReturnType<typeof useTranslations>,
-  locale: string,
+  _locale: string,
 ): string {
   const { sub } = subView;
   if (!sub.hasSplit) {
@@ -232,7 +232,6 @@ export function SubLimitMeters({
   onChange: (subLimitId: string, raw: string) => void;
   providerLabel: string;
 }) {
-  const locale = useLocale();
   const t = useTranslations("Widgets");
   if (subLimits.length === 0) return null;
   const hasSeparate = model.subLimits.some((sub) => sub.shareCap === null);

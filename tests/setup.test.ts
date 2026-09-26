@@ -6,12 +6,12 @@ import {
   checkMachineSettings,
   DEFAULT_API_URL,
   detectOs,
+  type MachineSettings,
   packageFiles,
   renderConfig,
   renderOneShot,
   SETUP_MODES,
   SETUP_OSES,
-  type MachineSettings,
 } from "@/lib/setup";
 import { buildSetupZip, loadClientSources, oneShotBlobs, usageEndpoint } from "@/lib/setup-package";
 import { readZip } from "./read-zip";
@@ -53,6 +53,7 @@ describe("setup package contents", () => {
 
   it("keeps the Windows scripts plain ASCII: Windows PowerShell 5.1 reads BOM-less files as ANSI", () => {
     for (const source of CLIENT_SOURCES.filter((path) => /\.(ps1|cmd)$/.test(path))) {
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: only printable ASCII, tab, CR and LF may appear
       expect(readFileSync(source, "utf8"), source).toMatch(/^[\x09\x0a\x0d\x20-\x7e]*$/);
     }
   });

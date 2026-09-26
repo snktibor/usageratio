@@ -1,10 +1,10 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { useId } from "react";
 import { StopCircleIcon } from "@/components/icons";
 import { formatDateTime, formatFactor, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
-import { useTranslations, useLocale } from "next-intl";
 
 interface GroundTruthInputProps {
   /** The field's text, exactly as typed. */

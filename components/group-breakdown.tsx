@@ -1,7 +1,8 @@
+import { useLocale, useTranslations } from "next-intl";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatLimitShare, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
-import { useTranslations, useLocale } from "next-intl";
+
 type Group = DashboardModel["groups"][number];
 
 /** `color` is the group's "#rrggbb": it comes from the settings, so it cannot be a Tailwind class. */
@@ -42,6 +43,7 @@ function ShareBar({ groups }: { groups: Group[] }) {
           <div
             key={group.groupId}
             role="img"
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: focusable so keyboard users reach each segment's tooltip
             tabIndex={0}
             aria-label={`${group.groupId}: ${formatTokens(group.tokens, locale)} token, ${formatPercent(group.share, locale)}`}
             className={`group/segment relative h-full min-w-1 transition-[filter] hover:brightness-125 focus-visible:brightness-125 ${isLast ? "rounded-r-[4px]" : ""}`}

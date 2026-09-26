@@ -1,9 +1,10 @@
+import { useLocale, useTranslations } from "next-intl";
 import { CalibratedNote, Swatch } from "@/components/group-breakdown";
 import { CheckCircleIcon, ClockIcon, MoonIcon } from "@/components/icons";
 import type { DashboardModel, MachineHealth } from "@/lib/dashboard";
 import { formatAgo, formatDateTime, formatLimitShare, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
-import { useTranslations, useLocale } from "next-intl";
+
 type Machine = DashboardModel["machines"][number];
 
 const HEALTH_ICON: Record<MachineHealth, { icon: typeof CheckCircleIcon; iconColor: string }> = {

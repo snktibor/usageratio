@@ -1,17 +1,17 @@
 import type { UsageEvent } from "@/lib/aggregate";
 import type { KnownMachine } from "@/lib/dashboard";
 import { reportCheckpoints } from "@/lib/days";
-import { officialUsageField, storedEntryFor, type OfficialUsageUpdate } from "@/lib/official-usage";
+import { type OfficialUsageUpdate, officialUsageField, storedEntryFor } from "@/lib/official-usage";
 import { DEFAULT_PROVIDER_ID, mergeProviderIds, normalizeProviderId } from "@/lib/providers";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import {
-  parseGroupEntry,
-  randomGroupColor,
-  serializeGroupEntry,
-  serializeSettings,
   type IndexedGroup,
   type KnownGroup,
+  parseGroupEntry,
+  randomGroupColor,
   type SettingsUpdate,
+  serializeGroupEntry,
+  serializeSettings,
 } from "@/lib/settings";
 import type { UsageReport } from "@/lib/validation";
 

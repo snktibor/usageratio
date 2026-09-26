@@ -1,7 +1,6 @@
-import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { PinGate } from "@/components/pin-gate";
-import { SetupView, type SetupGroup } from "@/components/setup-view";
+import { type SetupGroup, SetupView } from "@/components/setup-view";
 import { StorageProblem } from "@/components/storage-problem";
 import type { ApiTokenStatus } from "@/lib/api-token";
 import { isAuthenticated } from "@/lib/auth";

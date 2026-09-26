@@ -1,46 +1,41 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
-import { Link } from "@/i18n/routing";
 import { fetchApiToken } from "@/components/clipboard";
 import { BreakablePath, CommandBlock, FileBlock } from "@/components/code-block";
 import { ArrowLeftIcon, DownloadIcon, StopCircleIcon } from "@/components/icons";
-import { useTranslations } from "next-intl";
 import { InfoTip } from "@/components/info-tip";
 import { StatusLine } from "@/components/status-line";
 import { TokenCopyButton } from "@/components/token-copy-button";
-import { apiTokenStatusNote, type ApiTokenStatus } from "@/lib/api-token";
+import { Link } from "@/i18n/routing";
+import { type ApiTokenStatus, apiTokenStatusNote } from "@/lib/api-token";
 import {
   CCUSAGE_RUNNERS,
+  type CcusageRunner,
+  type ClientSources,
   checkMachineSettings,
   folderCommand,
   INSTALL_ROUTES,
   INSTALLED_CONFIG,
+  type InstallRoute,
   installerCommand,
   LOG_FILE,
-  MODE_LABEL,
-  MODE_SUMMARY,
+  type MachineSettings,
+  type OneShotBlobs,
   OS_LABEL,
   packageFiles,
   packageName,
   parseRoute,
   renderConfig,
   renderOneShot,
-  ROUTE_LABEL,
-  RUNNER_LABEL,
-  RUNNER_SUMMARY,
-  saveCommand,
   SETUP_MODES,
   SETUP_OSES,
-  uninstallCommand,
-  zipInstallCommand,
-  type CcusageRunner,
-  type ClientSources,
-  type InstallRoute,
-  type MachineSettings,
-  type OneShotBlobs,
   type SetupMode,
   type SetupOs,
+  saveCommand,
+  uninstallCommand,
+  zipInstallCommand,
 } from "@/lib/setup";
 
 export interface SetupGroup {
@@ -74,6 +69,7 @@ function readSetupPrefs(): SetupPrefs | null {
 function writeSetupPrefs(prefs: { os: SetupOs; route: InstallRoute; group: string; machine: string }) {
   try {
     const oneYear = 60 * 60 * 24 * 365;
+    // biome-ignore lint/suspicious/noDocumentCookie: a plain preference cookie; the Cookie Store API is not available everywhere yet
     document.cookie = `${SETUP_PREFS_COOKIE}=${encodeURIComponent(JSON.stringify(prefs))}; path=/; max-age=${oneYear}; samesite=lax`;
   } catch {
     // Cookies are optional; the selection still works for this page view.
@@ -477,7 +473,7 @@ export function SetupView({
               className={`mt-1.5 block w-full ${FIELD}`}
             />
             {groups.length > 0 && (
-              <div className="mt-2.5 flex flex-wrap gap-2" aria-label={t("existing_groups")}>
+              <div role="group" className="mt-2.5 flex flex-wrap gap-2" aria-label={t("existing_groups")}>
                 {groups.map((known) => (
                   <button
                     key={known.id}
@@ -529,6 +525,7 @@ export function SetupView({
           id={panelId(ids.tabs, "zip")}
           aria-labelledby={tabId(ids.tabs, "zip")}
           hidden={route !== "zip"}
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: WAI-ARIA tabs pattern, the panel takes focus after its tab
           tabIndex={0}
           className="mt-8"
         >
@@ -561,6 +558,7 @@ export function SetupView({
             </div>
             {!zipHref && <p className="mt-3 text-sm text-ink-3">Előbb javítsd a csoportot vagy a gép azonosítóját.</p>}
 
+            {/* biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics once list-style is none */}
             <ol role="list" className="mt-8 max-w-2xl space-y-6">
               {unix ? (
                 <>
@@ -608,6 +606,7 @@ export function SetupView({
           id={panelId(ids.tabs, "manual")}
           aria-labelledby={tabId(ids.tabs, "manual")}
           hidden={route !== "manual"}
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: WAI-ARIA tabs pattern, the panel takes focus after its tab
           tabIndex={0}
           className="mt-8"
         >
@@ -617,6 +616,7 @@ export function SetupView({
             </h2>
             <p className="mt-2 max-w-2xl text-ink-2">{t("copy_desc", { count: files.length })}</p>
 
+            {/* biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics once list-style is none */}
             <ol role="list" className="mt-8 space-y-10">
               <Step number={1}>
                 <p className="max-w-2xl">{unix ? t("manual_step_1_unix") : t("manual_step_1_win")}</p>
@@ -624,16 +624,12 @@ export function SetupView({
               </Step>
               <Step number={2}>
                 <p className="max-w-2xl">
-                  {os === "linux" ? (
-                    <>{t.rich("manual_step_2_linux", { Code: (chunks: any) => <Code>{chunks}</Code> })}</>
-                  ) : (
-                    <>
-                      {t.rich("manual_step_2_win_mac", {
+                  {os === "linux"
+                    ? t.rich("manual_step_2_linux", { Code: (chunks: any) => <Code>{chunks}</Code> })
+                    : t.rich("manual_step_2_win_mac", {
                         os,
                         strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong>,
                       })}
-                    </>
-                  )}
                 </p>
                 <div className="space-y-4 pt-1">
                   {files.map((file) => (
@@ -663,6 +659,7 @@ export function SetupView({
           id={panelId(ids.tabs, "oneShot")}
           aria-labelledby={tabId(ids.tabs, "oneShot")}
           hidden={route !== "oneShot"}
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: WAI-ARIA tabs pattern, the panel takes focus after its tab
           tabIndex={0}
           className="mt-8"
         >
@@ -693,7 +690,7 @@ export function SetupView({
               mac: INSTALLED_CONFIG.macos,
               win: INSTALLED_CONFIG.windows,
               Code: (chunks: any) => <Code>{chunks}</Code>,
-              BreakablePath: (chunks: any) => <BreakablePath path={INSTALLED_CONFIG.windows} />,
+              BreakablePath: (_chunks: any) => <BreakablePath path={INSTALLED_CONFIG.windows} />,
               strong: (chunks: any) => <strong className="font-medium text-ink">{chunks}</strong>,
             })}
           </dd>

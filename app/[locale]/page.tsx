@@ -9,7 +9,7 @@ import { modelKeysIn } from "@/lib/models";
 import { currentOfficialEntries } from "@/lib/official-usage";
 import { mergeProviderIds } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
-import { buildSettingsView, resolveConfig, storedProviderIds, type SettingsView } from "@/lib/settings";
+import { buildSettingsView, resolveConfig, type SettingsView, storedProviderIds } from "@/lib/settings";
 import { loadEvents, loadIndexes } from "@/lib/usage-store";
 
 // Rendered per request: the page depends on the session cookie and on live data.

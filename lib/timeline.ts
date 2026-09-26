@@ -1,4 +1,4 @@
-import { groupIntoSeries, usageOfSeriesUntil, type UsageEvent } from "@/lib/aggregate";
+import { groupIntoSeries, type UsageEvent, usageOfSeriesUntil } from "@/lib/aggregate";
 import type { TokenMode } from "@/lib/config";
 import { modelKey, modelLabel } from "@/lib/models";
 

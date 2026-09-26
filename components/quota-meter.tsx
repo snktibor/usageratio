@@ -1,10 +1,11 @@
+import { useLocale, useTranslations } from "next-intl";
 import { CycleRuler } from "@/components/cycle-ruler";
 import { AlertTriangleIcon, CheckCircleIcon, InfoCircleIcon, StopCircleIcon } from "@/components/icons";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatCycleMoment, formatDuration, formatHeroPercent, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
 import type { QuotaAssessment } from "@/lib/quota";
-import { useTranslations, useLocale } from "next-intl";
+
 /** Fill carries severity; the track is a dimmer step of the same colour. */
 const STATUS_STYLE = {
   good: { fill: "bg-ink", track: "bg-rule", icon: CheckCircleIcon, iconColor: "text-good" },
@@ -25,7 +26,7 @@ const STATUS_STYLE = {
 /** No token limit and no official reading: nothing tells how much of the budget is gone. */
 const UNKNOWN_STYLE = { fill: "bg-ink", track: "bg-rule", icon: InfoCircleIcon, iconColor: "text-ink-3" } as const;
 
-export function statusLabel(quota: QuotaAssessment, t: any, locale: string): string {
+export function statusLabel(quota: QuotaAssessment, t: any, _locale: string): string {
   if (quota.status === "critical") return t("pace_running_out");
   if (quota.pace.earlyBurn) return t("pace_early_burn");
   if (quota.status === "warning") {

@@ -1,11 +1,11 @@
 "use client";
 
-import { useRouter } from "@/i18n/routing";
-import { useTranslations, useLocale } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
 import { ApiTokenSettings } from "@/components/api-token-settings";
-import { LanguageSwitcher } from "@/components/language-switcher";
 import { CheckIcon, PlusIcon, SlidersIcon, StopCircleIcon, XIcon } from "@/components/icons";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { useRouter } from "@/i18n/routing";
 import type { BudgetPeriod } from "@/lib/config";
 import { formatTokens, weekdayLong } from "@/lib/format";
 import { modelLabel } from "@/lib/models";
@@ -14,8 +14,8 @@ import {
   MAX_LIMIT,
   normalizeHexColor,
   PRESET_COLORS,
-  suggestGroupColor,
   type SettingsView,
+  suggestGroupColor,
 } from "@/lib/settings";
 import {
   MAX_SUB_LIMIT_MODELS,
@@ -23,9 +23,9 @@ import {
   MAX_SUB_LIMITS,
   normalizeModelPart,
   normalizeSubLimitName,
-  subLimitIdFor,
   type SubLimit,
   type SubLimitMode,
+  subLimitIdFor,
 } from "@/lib/sub-limits";
 import { parseId } from "@/lib/validation";
 
@@ -865,9 +865,9 @@ function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId:
 
           <p className="text-sm text-ink-3">
             {t("cycle_start_explanation_1", { timeZone: view.timeZone })}
-            {draft.period === "monthly" && draft.monthDay > 28 && (
-              <>{t("cycle_start_explanation_2", { monthDay: draft.monthDay })}</>
-            )}
+            {draft.period === "monthly" &&
+              draft.monthDay > 28 &&
+              t("cycle_start_explanation_2", { monthDay: draft.monthDay })}
           </p>
         </section>
 

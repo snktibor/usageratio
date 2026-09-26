@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getConfig } from "@/lib/config";
 import { buildDashboard, buildProviderDashboards, type StoreSnapshot } from "@/lib/dashboard";
-import { NEUTRAL_COLOR, PRESET_COLORS, type KnownGroup } from "@/lib/settings";
+import { type KnownGroup, NEUTRAL_COLOR, PRESET_COLORS } from "@/lib/settings";
 
 const HOUR = 3_600_000;
 // The token limits are off by default; most of these cases are about measuring against one.

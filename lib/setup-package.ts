@@ -3,14 +3,14 @@ import path from "node:path";
 import { gzipSync } from "node:zlib";
 import {
   CLIENT_SOURCES,
+  type ClientSources,
   DEFAULT_API_URL,
+  type MachineSettings,
+  type OneShotBlobs,
   packageFiles,
   packageName,
   renderConfig,
   renderReadme,
-  type ClientSources,
-  type MachineSettings,
-  type OneShotBlobs,
   type SetupMode,
   type SetupOs,
 } from "@/lib/setup";

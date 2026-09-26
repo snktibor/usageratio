@@ -1,5 +1,5 @@
-import { PinForm } from "@/components/pin-form";
 import { getTranslations } from "next-intl/server";
+import { PinForm } from "@/components/pin-form";
 
 /**
  * The only thing an unauthenticated visitor ever receives: no usage data is rendered here.
