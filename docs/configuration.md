@@ -81,10 +81,14 @@ deleted or renamed group id recreates that group on its next report.
 
 ### Machines management
 
-Lists every known machine (its group, provider, and last-seen time), with inline rename and
-delete. A **remove inactive machines** action appears once any machine has gone silent for more
-than 35 days, and clears them from the list in one action (their stored reports are unaffected —
-this only removes the machine from the index; see [data-model.md](data-model.md)).
+Lists every known machine once (its group, the providers it reports for, and when it last
+reported), with inline rename and delete. The index keeps one entry per provider and machine, so a
+rename or delete runs on each of the machine's providers in turn: a rename onto an id that one of
+them already uses is refused before anything changes, and if a request fails half way the panel
+says which providers were done and which were not. A **remove inactive machines** action appears
+once any machine has gone silent for more than 35 days, and clears them from the list in one
+action (their stored reports are unaffected — this only removes the machine from the index; see
+[data-model.md](data-model.md)).
 
 ### Alerts
 
