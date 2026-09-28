@@ -28,13 +28,17 @@ export function TokenCopyButton({ status }: { status: ApiTokenStatus }) {
     [],
   );
 
+  function copied() {
+    setState({ phase: "copied" });
+    timer.current = window.setTimeout(() => setState({ phase: "idle" }), 2500);
+  }
+
   async function copy() {
     if (timer.current !== null) window.clearTimeout(timer.current);
     setState({ phase: "busy" });
     try {
       await copyText(fetchApiToken());
-      setState({ phase: "copied" });
-      timer.current = window.setTimeout(() => setState({ phase: "idle" }), 2500);
+      copied();
     } catch (error) {
       setState({ phase: "failed", code: error instanceof CopyError ? error.code : "generic" });
     }
@@ -69,7 +73,11 @@ export function TokenCopyButton({ status }: { status: ApiTokenStatus }) {
       <div aria-live="polite">
         {state.phase === "failed" ? (
           state.code === "sudo_required" ? (
-            <SudoUnlock onUnlocked={() => setState({ phase: "idle" })} />
+            <SudoUnlock
+              copy={fetchApiToken}
+              onUnlocked={copied}
+              onCopyFailed={(code) => setState({ phase: "failed", code })}
+            />
           ) : (
             <StatusLine tone="problem">{t(`copy_problem_${state.code}`)}</StatusLine>
           )

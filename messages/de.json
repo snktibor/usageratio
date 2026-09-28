@@ -510,6 +510,7 @@
     "audit_notice": "Die Abfrage wird im Auditprotokoll gespeichert.",
     "sudo_prompt": "Bestätige mit deinem PIN-Code, um den Token für die nächsten 5 Minuten zu kopieren.",
     "sudo_unlock": "Freischalten",
+    "sudo_unlock_copy": "Freischalten und kopieren",
     "sudo_unlocking": "Freischalten…",
     "sudo_error_generic": "Der PIN-Code konnte nicht bestätigt werden. Versuche es erneut.",
     "file_save_label": "Speichern",

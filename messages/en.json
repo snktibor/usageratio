@@ -510,6 +510,7 @@
     "audit_notice": "The request is logged in the audit trail.",
     "sudo_prompt": "Confirm with your PIN to copy the token for the next 5 minutes.",
     "sudo_unlock": "Unlock",
+    "sudo_unlock_copy": "Unlock and copy",
     "sudo_unlocking": "Unlocking…",
     "sudo_error_generic": "Could not confirm the PIN. Try again.",
     "file_save_label": "Save",
