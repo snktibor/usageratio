@@ -128,6 +128,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      # playwright.config.ts starts `next start`, which needs a production build.
+      - run: npm run build
       - run: npm run e2e
       - name: Upload playwright report
         if: failure()
