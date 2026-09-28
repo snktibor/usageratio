@@ -19,6 +19,8 @@ export function problemText(t: Translator<"Settings">, problem: DraftProblem): s
       return t("invalid_provider_limit", { label: problem.label });
     case "reset_time_format_error":
       return t("reset_time_format_error");
+    case "invalid_time_zone":
+      return t("timezone_invalid");
     case "invalid_group_color":
       return t("invalid_group_color", { id: problem.id });
     case "missing_sublimit_name":

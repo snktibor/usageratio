@@ -7,6 +7,7 @@ import {
   parseLimit,
   parseModelParts,
   parseSharePercent,
+  parseTimeZone,
   toggleAlertThreshold,
   toRequest,
 } from "@/components/settings/draft";
@@ -96,6 +97,20 @@ describe("parseModelParts", () => {
   });
 });
 
+describe("parseTimeZone", () => {
+  it("accepts a zone Intl knows, in its canonical spelling", () => {
+    expect(parseTimeZone("Europe/Budapest")).toBe("Europe/Budapest");
+    expect(parseTimeZone(" europe/budapest ")).toBe("Europe/Budapest");
+    expect(parseTimeZone("UTC")).toBe("UTC");
+  });
+
+  it("rejects a half-typed or unknown zone", () => {
+    for (const text of ["", "  ", "Europe/Buda", "Mars/Olympus_Mons"]) {
+      expect(parseTimeZone(text)).toBeNull();
+    }
+  });
+});
+
 describe("groupNameProblem", () => {
   const groups = [group("work")];
 
@@ -147,6 +162,17 @@ describe("toRequest", () => {
     expect(parsed.update.settings.reset.monthDay).toBe(15);
     expect(parsed.update.settings.limits.claude).toBe(1_000_000);
     expect(parsed.update.settings.limits.deepseek).toBe(1_000_000);
+  });
+
+  it("refuses to save a time zone that is not a known one", () => {
+    const draft = draftFrom(view);
+    expect(toRequest({ ...draft, timeZone: "Europe/Buda" })).toEqual({ problem: { code: "invalid_time_zone" } });
+  });
+
+  it("saves a typed time zone in its canonical spelling", () => {
+    const result = toRequest({ ...draftFrom(view), timeZone: "europe/budapest" });
+    if (!("request" in result)) throw new Error(`expected a request, got a problem: ${JSON.stringify(result)}`);
+    expect(result.request.reset.timeZone).toBe("Europe/Budapest");
   });
 
   it("reports an invalid provider limit as a DraftProblem code, not text", () => {
