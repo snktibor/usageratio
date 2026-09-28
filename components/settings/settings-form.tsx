@@ -23,6 +23,7 @@ export function SettingsForm({ view, titleId, onClose }: { view: SettingsView; t
   const t = useTranslations("Settings");
   const { draft, actions, problem, saving } = useSettingsForm(view, onClose);
   const [deletedProviderIds, setDeletedProviderIds] = useState<string[]>([]);
+  const [machineIds, setMachineIds] = useState<string[]>([]);
   const listedProviders = draft.providers.filter((provider) => !deletedProviderIds.includes(provider.id));
   const visibleProviders = draft.providers.filter((provider) => provider.visible);
 
@@ -93,7 +94,12 @@ export function SettingsForm({ view, titleId, onClose }: { view: SettingsView; t
           onManaged={actions.refresh}
         />
 
-        <MachinesSection titleId={titleId} groups={draft.groups} onManaged={actions.refresh} />
+        <MachinesSection
+          titleId={titleId}
+          groups={draft.groups}
+          onManaged={actions.refresh}
+          onMachineIds={setMachineIds}
+        />
 
         <AlertsSection
           titleId={titleId}
@@ -109,7 +115,12 @@ export function SettingsForm({ view, titleId, onClose }: { view: SettingsView; t
           timeZone={view.timeZone}
         />
 
-        <TokensSection titleId={titleId} timeZone={view.timeZone} onManaged={actions.refresh} />
+        <TokensSection
+          titleId={titleId}
+          timeZone={view.timeZone}
+          knownMachines={machineIds}
+          onManaged={actions.refresh}
+        />
 
         <DangerSection
           titleId={titleId}

@@ -51,17 +51,18 @@ async function errorCode(response: Response): Promise<string | null> {
 export function TokensSection({
   titleId,
   timeZone,
+  knownMachines,
   onManaged,
 }: {
   titleId: string;
   timeZone: string;
+  /** The machines that have reported, to bind a new token to (from the Machines section's list). */
+  knownMachines: string[];
   onManaged: () => void;
 }) {
   const locale = useLocale();
   const t = useTranslations("Settings");
   const [load, setLoad] = useState<Load>({ phase: "loading" });
-  /** The machines that have reported, to bind a new token to; empty until loaded (or if that fails). */
-  const [knownMachines, setKnownMachines] = useState<string[]>([]);
   const [label, setLabel] = useState("");
   /** "" = any machine. */
   const [machineId, setMachineId] = useState("");
@@ -87,18 +88,6 @@ export function TokensSection({
   }
 
   useEffect(reload, []);
-
-  useEffect(() => {
-    fetch("/api/machines", { cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) return;
-        const payload = (await response.json()) as { machines: { machineId: string }[] };
-        // One entry per machine: the index lists a machine once per provider it reports.
-        const ids = [...new Set(payload.machines.map((machine) => machine.machineId))];
-        setKnownMachines(ids.sort((a, b) => a.localeCompare(b)));
-      })
-      .catch(() => {});
-  }, []);
 
   const tokens = load.phase === "ready" ? load.tokens : [];
 
