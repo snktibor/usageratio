@@ -29,6 +29,7 @@
     "export": "Exportálás",
     "export_csv": "CSV (.csv)",
     "export_json": "JSON (.json)",
+    "credit_made_by": "Készítette",
     "footer_source": "Forráskód",
     "footer_version": "v{version}"
   },

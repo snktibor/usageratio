@@ -118,14 +118,18 @@ export async function Dashboard({
         </section>
       )}
 
-      <footer className="mt-16 flex items-center gap-3 text-sm text-ink-3">
+      <footer className="mt-16 flex flex-wrap items-center gap-3 text-sm text-ink-3">
+        <span>{t("credit_made_by")}</span>
         <a
-          href={REPO_URL}
+          href="https://github.com/snktibor"
           target="_blank"
           rel="noreferrer"
           className="flex items-center gap-2 rounded-md border border-rule px-2.5 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
         >
           <GitHubIcon />
+          snktibor
+        </a>
+        <a href={REPO_URL} target="_blank" rel="noreferrer" className="hover:text-ink-2">
           {t("footer_source")}
         </a>
         <a href={`${REPO_URL}/releases`} target="_blank" rel="noreferrer" className="hover:text-ink-2">
