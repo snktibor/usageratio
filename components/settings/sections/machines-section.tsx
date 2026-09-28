@@ -54,10 +54,13 @@ export function MachinesSection({
   titleId,
   groups,
   onManaged,
+  onMachineIds,
 }: {
   titleId: string;
   groups: DraftGroup[];
   onManaged: () => void;
+  /** Every machine id on the list, sorted, each time the list changes: the token section binds tokens to them. */
+  onMachineIds?: (ids: string[]) => void;
 }) {
   const locale = useLocale();
   const t = useTranslations("Settings");
@@ -90,6 +93,10 @@ export function MachinesSection({
   const rows = useMemo(() => machineRows(entries), [entries]);
   const now = Date.now();
   const silentCount = rows.filter((row) => now - row.lastSeenAt > INACTIVE_MS).length;
+
+  useEffect(() => {
+    if (load.phase === "ready") onMachineIds?.(rows.map((row) => row.machineId).sort((a, b) => a.localeCompare(b)));
+  }, [load.phase, rows, onMachineIds]);
 
   function updateEntries(change: (machines: MachineEntry[]) => MachineEntry[]) {
     setLoad((current) =>

@@ -100,19 +100,24 @@ describe("MachinesSection", () => {
 
   it("renames every provider's entry of the machine", async () => {
     const onManaged = vi.fn();
+    const onMachineIds = vi.fn();
     const fetchMock = mockFetch(
       jsonResponse({ machines: [MACHINE, { ...MACHINE, providerId: "openai" }] }),
       jsonResponse({ ok: true }),
       jsonResponse({ ok: true }),
     );
-    renderWithIntl(<MachinesSection titleId="settings" groups={GROUPS} onManaged={onManaged} />);
+    renderWithIntl(
+      <MachinesSection titleId="settings" groups={GROUPS} onManaged={onManaged} onMachineIds={onMachineIds} />,
+    );
 
     fireEvent.click(await screen.findByText("mac-1"));
+    expect(onMachineIds).toHaveBeenLastCalledWith(["mac-1"]);
     const input = screen.getByLabelText(/rename.*mac-1/i) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "studio" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(await screen.findByText("studio")).not.toBeNull();
+    expect(onMachineIds).toHaveBeenLastCalledWith(["studio"]);
     expect(fetchMock.mock.calls.slice(1).map((call) => [call[0], call[1].method])).toEqual([
       ["/api/machines/claude/mac-1", "PATCH"],
       ["/api/machines/openai/mac-1", "PATCH"],
