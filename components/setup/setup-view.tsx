@@ -73,7 +73,7 @@ export function SetupView({
     notes: useId(),
   };
 
-  // Restores the client's last group/machine/tab, and its last os when the URL didn't ask for one explicitly.
+  // Restores the client's last group/machine/tab/cost choice, and its last os when the URL didn't ask for one explicitly.
   // Runs before the effect below rewrites the address, so it still sees the address the page was opened with.
   useEffect(() => {
     const saved = readSetupPrefs();
@@ -88,6 +88,7 @@ export function SetupView({
       }
       if (saved.group) setGroup(saved.group);
       if (saved.machine) setMachine(saved.machine);
+      if (typeof saved.cost === "boolean") setCost(saved.cost);
     }
   }, []);
 
@@ -101,8 +102,8 @@ export function SetupView({
       skipPrefsWrite.current = false;
       return;
     }
-    writeSetupPrefs({ os, route, group, machine });
-  }, [os, route, group, machine]);
+    writeSetupPrefs({ os, route, group, machine, cost });
+  }, [os, route, group, machine, cost]);
 
   const check = checkMachineSettings(group, machine);
   const settings = check.ok ? { apiUrl, groupId: check.groupId, machineId: check.machineId, cost } : null;
