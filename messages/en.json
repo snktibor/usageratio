@@ -29,6 +29,7 @@
     "export": "Export",
     "export_csv": "CSV (.csv)",
     "export_json": "JSON (.json)",
+    "credit_made_by": "Made by",
     "footer_source": "Source",
     "footer_version": "v{version}"
   },
