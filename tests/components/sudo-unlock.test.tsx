@@ -38,10 +38,12 @@ function mockClipboard(): { write: ReturnType<typeof vi.fn>; written: () => Prom
   return { write, written: async () => (await items[0]!.data["text/plain"]!).text() };
 }
 
-function submitPin(pin: string) {
+/** Types the PIN, then confirms it with the button (or Enter in the field). */
+function submitPin(pin: string, how: "click" | "enter" = "click") {
   const input = document.getElementById("sudo-pin") as HTMLInputElement;
   fireEvent.change(input, { target: { value: pin } });
-  fireEvent.submit(input.form!);
+  if (how === "enter") fireEvent.keyDown(input, { key: "Enter" });
+  else fireEvent.click(screen.getByRole("button", { name: /^Unlock/ }));
 }
 
 describe("SudoUnlock", () => {
@@ -104,6 +106,26 @@ describe("SudoUnlock", () => {
 
     await waitFor(() => expect(onCopyFailed).toHaveBeenCalledWith("no_token"));
     expect(onUnlocked).not.toHaveBeenCalled();
+  });
+
+  it("inside another form (the settings dialog): no nested form, and Enter does not submit the outer one", async () => {
+    mockSudo(new Response(null, { status: 204 }));
+    const outerSubmit = vi.fn((event: React.FormEvent) => event.preventDefault());
+    const onUnlocked = vi.fn();
+    const { container } = renderWithIntl(
+      <form onSubmit={outerSubmit}>
+        <SudoUnlock onUnlocked={onUnlocked} />
+      </form>,
+    );
+
+    // Chromium stops a nested form's submit at the outer form, before React sees it: the browser would then submit the PIN natively.
+    expect(container.querySelectorAll("form form")).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Unlock" }).getAttribute("type")).toBe("button");
+
+    submitPin("24680", "enter");
+
+    await waitFor(() => expect(onUnlocked).toHaveBeenCalledTimes(1));
+    expect(outerSubmit).not.toHaveBeenCalled();
   });
 
   it("without copy: only unlocks", async () => {

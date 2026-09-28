@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { CopyError, type CopyErrorCode, copyText } from "@/components/clipboard";
 import { StatusLine } from "@/components/status-line";
 
@@ -29,13 +29,18 @@ function useNumericHint(): boolean {
 class SudoRefused extends Error {}
 
 /**
- * Sudo mode's unlock form: shown wherever an action or a copy failed with
+ * Sudo mode's unlock prompt: shown wherever an action or a copy failed with
  * `sudo_required`. Confirming the PIN grants the 5-minute window.
  *
- * With `copy` (token-copy-button.tsx, the one-shot route's command copy), the
- * submit also finishes the copy: `copyText` is started inside the submit, on
- * a promise that first unlocks and then builds the text, so the clipboard
- * write stays within the user's gesture, as Safari requires.
+ * Not a <form>: in the settings dialog it sits inside the settings <form>, and
+ * Chromium stops a nested form's submit event at the outer form, before React
+ * sees it, so the browser would submit the PIN as a GET to the page's own URL.
+ * The button's click and Enter in the field both confirm instead.
+ *
+ * With `copy` (token-copy-button.tsx, the one-shot route's command copy),
+ * confirming also finishes the copy: `copyText` is started inside that click
+ * or keypress, on a promise that first unlocks and then builds the text, so
+ * the clipboard write stays within the user's gesture, as Safari requires.
  */
 export function SudoUnlock({
   onUnlocked,
@@ -55,6 +60,7 @@ export function SudoUnlock({
   const [pin, setPin] = useState("");
   const [reveal, setReveal] = useState(false);
   const [state, setState] = useState<UnlockState>({ phase: "idle" });
+  const labelId = useId();
 
   /** POST /api/auth/sudo; rejects with a SudoRefused when the PIN is not accepted. */
   async function unlock(): Promise<void> {
@@ -86,10 +92,10 @@ export function SudoUnlock({
     throw new SudoRefused(t("sudo_error_generic"));
   }
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function confirm() {
+    if (state.phase === "busy" || pin.length === 0) return;
     setState({ phase: "busy" });
-    // No await before copyText: the clipboard write has to start inside this submit.
+    // No await before copyText: the clipboard write has to start inside this click or keypress.
     const unlocked = unlock();
     const done = copy ? copyText(unlocked.then(copy)) : unlocked;
     done.then(
@@ -111,23 +117,26 @@ export function SudoUnlock({
   }
 
   return (
-    <form onSubmit={submit} className="space-y-2.5 rounded-md border border-rule bg-raised p-3.5">
-      <label htmlFor="sudo-pin" className="block text-sm text-ink-2">
+    <div role="group" aria-labelledby={labelId} className="space-y-2.5 rounded-md border border-rule bg-raised p-3.5">
+      <label id={labelId} htmlFor="sudo-pin" className="block text-sm text-ink-2">
         {t("sudo_prompt")}
       </label>
       <div className="flex items-center gap-2">
         <input
           id="sudo-pin"
-          name="pin"
           type={numeric || !reveal ? "password" : "text"}
           inputMode={numeric ? "numeric" : undefined}
           autoComplete="current-password"
-          minLength={5}
-          required
           value={pin}
           onChange={(event) => {
             const value = event.currentTarget.value;
             setPin(numeric ? value.replace(/\D/g, "") : value);
+          }}
+          onKeyDown={(event) => {
+            // Enter confirms the PIN; it must not submit a form around this prompt (the settings dialog's).
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            confirm();
           }}
           className="min-w-0 grow rounded-md border border-rule bg-page px-3 py-1.5 text-ink"
         />
@@ -141,7 +150,8 @@ export function SudoUnlock({
           </button>
         )}
         <button
-          type="submit"
+          type="button"
+          onClick={confirm}
           disabled={state.phase === "busy" || pin.length === 0}
           className="shrink-0 rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-page transition-opacity hover:opacity-90 disabled:opacity-60"
         >
@@ -149,6 +159,6 @@ export function SudoUnlock({
         </button>
       </div>
       <div aria-live="polite">{state.phase === "error" && <StatusLine tone="problem">{state.message}</StatusLine>}</div>
-    </form>
+    </div>
   );
 }
