@@ -51,9 +51,9 @@ sub-limit a model with more than one matching fragment falls into.
 For a weekly budget, the day of the week the cycle restarts; for monthly, the day of the month
 (1–31) — a value past the end of a shorter month falls back to that month's last day. Both a
 weekly and a monthly choice are always kept, so switching the period back restores the previous
-one. The reset time (`HH:MM`) and time zone are also set here; the time zone list comes from the
-browser's own `Intl.supportedValuesOf("timeZone")`, with a shortcut to match the browser's
-detected zone.
+one. The reset time (`HH:MM`) and time zone are also set here. The time zone is a searchable field
+whose suggestions come from the browser's own `Intl.supportedValuesOf("timeZone")`, the browser's
+detected zone first (with a shortcut to use it); a zone the browser does not know cannot be saved.
 
 **Official percentage**: a machine's own measurement doesn't always exactly match a provider's own
 official usage figure, but their proportions hold. Typing (or dragging the slider to) a percentage

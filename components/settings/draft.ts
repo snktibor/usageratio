@@ -1,4 +1,4 @@
-import type { AlertsFormat, BudgetPeriod } from "@/lib/config";
+import { type AlertsFormat, type BudgetPeriod, isValidTimeZone } from "@/lib/config";
 import {
   MAX_ALERT_THRESHOLDS,
   MAX_GROUPS,
@@ -124,6 +124,7 @@ export type DraftProblem =
   | { code: "at_least_one_visible_account" }
   | { code: "invalid_provider_limit"; label: string }
   | { code: "reset_time_format_error" }
+  | { code: "invalid_time_zone" }
   | { code: "invalid_group_color"; id: string }
   | { code: "missing_sublimit_name"; label: string }
   | { code: "duplicate_sublimit_name"; label: string; name: string }
@@ -190,6 +191,13 @@ export function parseLimit(text: string): number | null {
   if (!/^\d{1,13}$/.test(digits)) return null;
   const limit = Number(digits);
   return limit >= 1 && limit <= MAX_LIMIT ? limit : null;
+}
+
+/** " europe/budapest" → "Europe/Budapest"; null unless Intl knows the zone, the same check the server makes. */
+export function parseTimeZone(text: string): string | null {
+  const trimmed = text.trim();
+  if (trimmed === "" || !isValidTimeZone(trimmed)) return null;
+  return new Intl.DateTimeFormat("en-US", { timeZone: trimmed }).resolvedOptions().timeZone;
 }
 
 /** "30", "30 %" → 30; null unless a whole percentage from 1 to 100. */
@@ -312,6 +320,9 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
   const time = /^([01]\d|2[0-3]):([0-5]\d)/.exec(draft.time);
   if (!time) return { problem: { code: "reset_time_format_error" } };
 
+  const timeZone = parseTimeZone(draft.timeZone);
+  if (timeZone === null) return { problem: { code: "invalid_time_zone" } };
+
   const invalid = draft.groups.find((group) => normalizeHexColor(group.colorText) === null);
   if (invalid) {
     return { problem: { code: "invalid_group_color", id: invalid.id } };
@@ -344,7 +355,7 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
         monthDay: draft.monthDay,
         hour: Number(time[1]),
         minute: Number(time[2]),
-        timeZone: draft.timeZone,
+        timeZone,
       },
       showRemaining: draft.showRemaining,
       hiddenProviders: draft.providers.filter((provider) => !provider.visible).map((provider) => provider.id),
