@@ -42,7 +42,7 @@ export function SettingsDialog({ view }: { view: SettingsView }) {
           if (event.target === event.currentTarget) setOpen(false);
         }}
         aria-labelledby={titleId}
-        className="m-auto max-h-[calc(100dvh-2rem)] w-[min(34rem,calc(100vw-2rem))] overflow-y-auto overscroll-contain rounded-xl border border-rule bg-raised text-base text-ink shadow-2xl backdrop:bg-black/60"
+        className="m-auto max-h-[calc(100dvh-2rem)] w-[min(48rem,calc(100vw-2rem))] overflow-y-auto overscroll-contain rounded-xl border border-rule bg-raised text-base text-ink shadow-2xl backdrop:bg-black/60"
       >
         {open && <SettingsForm view={view} titleId={titleId} onClose={() => dialogRef.current?.close()} />}
       </dialog>
