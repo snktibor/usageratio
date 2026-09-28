@@ -86,7 +86,9 @@ this only removes the machine from the index; see [data-model.md](data-model.md)
 ### Alerts
 
 An optional webhook message the first time a provider's usage in the current cycle crosses one of
-up to 5 percentage thresholds (50, 80 and 100% by default; 25, 75 and 90 are one click away).
+up to 20 percentage thresholds (50, 80 and 100% by default). A threshold is added by typing a whole
+percentage (1–100) and pressing **Add**; the list stays sorted, a repeated value is dropped, and
+each one has its own remove button.
 Each threshold fires at most once per provider per cycle. Fields:
 webhook URL (must be `https`, and can't point at a private/loopback/link-local address — the same
 allow-list a self-hosted deployment's own network is protected by, see

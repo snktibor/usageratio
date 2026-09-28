@@ -231,6 +231,12 @@
     "alerts_format_discord": "Discord",
     "alerts_thresholds_label": "Thresholds",
     "alerts_threshold_chip": "{value}%",
+    "alerts_thresholds_empty": "No thresholds yet: add at least one.",
+    "alerts_threshold_add": "Add",
+    "alerts_threshold_add_aria": "New threshold, in percent",
+    "alerts_threshold_remove_aria": "Remove the {value}% threshold",
+    "alerts_threshold_invalid": "Enter a whole number from 1 to 100.",
+    "alerts_threshold_max": "At most {max} thresholds can be set.",
     "alerts_per_provider_label": "Alert every account on its own",
     "alerts_per_provider_explanation": "On: a hidden account can still send an alert. Off: only the accounts shown on the dashboard do.",
     "alerts_locale_label": "Alert language",
@@ -239,7 +245,7 @@
     "alerts_test_sent": "Test message sent.",
     "alerts_test_failed": "Could not send the test message. Check the URL and try again.",
     "invalid_alert_webhook": "Enter an https webhook URL that is not a local or private address, or clear the field to turn alerts off.",
-    "alerts_need_at_least_one_threshold": "Choose at least one threshold."
+    "alerts_need_at_least_one_threshold": "Add at least one threshold."
   },
   "Alerts": {
     "threshold_text": "{label} has used {threshold}% of its budget (currently at {used}%); the cycle ends {end}."

@@ -69,7 +69,10 @@ export interface DraftProvider {
 /** The alerts section's draft: the webhook URL as typed; empty means alerts are off. */
 export interface AlertsDraft {
   webhookUrl: string;
+  /** Sorted, each value once. */
   thresholds: number[];
+  /** The "add a threshold" field, as typed. */
+  newThreshold: string;
   perProvider: boolean;
   format: AlertsFormat;
   locale: string;
@@ -135,6 +138,8 @@ export type DraftProblem =
   | { code: "group_already_exists"; id: string }
   | { code: "max_groups_reached" }
   | { code: "invalid_alert_webhook" }
+  | { code: "invalid_alert_threshold" }
+  | { code: "max_alert_thresholds_reached" }
   | { code: "alerts_need_at_least_one_threshold" };
 
 export function draftFrom(view: SettingsView): Draft {
@@ -178,6 +183,7 @@ export function draftFrom(view: SettingsView): Draft {
     alerts: {
       webhookUrl: view.settings.alerts.webhookUrl ?? "",
       thresholds: [...view.settings.alerts.thresholds],
+      newThreshold: "",
       perProvider: view.settings.alerts.perProvider,
       format: view.settings.alerts.format,
       locale: view.settings.alerts.locale,
@@ -260,11 +266,20 @@ export function subLimitsRequest(
   return { list };
 }
 
-/** Adds or removes `value` from a sorted, deduped threshold list; a chip past MAX_ALERT_THRESHOLDS is ignored. */
-export function toggleAlertThreshold(thresholds: number[], value: number): number[] {
-  if (thresholds.includes(value)) return thresholds.filter((t) => t !== value);
-  if (thresholds.length >= MAX_ALERT_THRESHOLDS) return thresholds;
-  return [...thresholds, value].sort((a, b) => a - b);
+/**
+ * The threshold list with the typed percentage added, kept sorted; a value
+ * already on it is dropped rather than repeated. A problem when the text is no
+ * whole number from 1 to 100, or the list already holds MAX_ALERT_THRESHOLDS.
+ */
+export function withAlertThreshold(
+  thresholds: number[],
+  text: string,
+): { thresholds: number[] } | { problem: DraftProblem } {
+  const value = parseSharePercent(text);
+  if (value === null) return { problem: { code: "invalid_alert_threshold" } };
+  if (thresholds.includes(value)) return { thresholds };
+  if (thresholds.length >= MAX_ALERT_THRESHOLDS) return { problem: { code: "max_alert_thresholds_reached" } };
+  return { thresholds: [...thresholds, value].sort((a, b) => a - b) };
 }
 
 /** Why `name` cannot be added as a group; null when it can. */
@@ -341,7 +356,14 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
   if (webhookUrl !== null && !isAllowedWebhookUrl(webhookUrl)) {
     return { problem: { code: "invalid_alert_webhook" } };
   }
-  if (draft.alerts.thresholds.length === 0) {
+  // A value left in the "add" field was meant to be added: do not lose it silently.
+  let thresholds = draft.alerts.thresholds;
+  if (draft.alerts.newThreshold.trim() !== "") {
+    const added = withAlertThreshold(thresholds, draft.alerts.newThreshold);
+    if ("problem" in added) return added;
+    thresholds = added.thresholds;
+  }
+  if (thresholds.length === 0) {
     return { problem: { code: "alerts_need_at_least_one_threshold" } };
   }
 
@@ -366,7 +388,7 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
       subLimits,
       alerts: {
         webhookUrl,
-        thresholds: [...draft.alerts.thresholds].sort((a, b) => a - b),
+        thresholds: [...thresholds].sort((a, b) => a - b),
         perProvider: draft.alerts.perProvider,
         format: draft.alerts.format,
         locale: draft.alerts.locale,
