@@ -181,6 +181,8 @@ Describe 'the fake ccusage/npx used above' {
     }
 
     It 'the npx shim always fails, so the ccusage fallback path is never silently skipped' {
+        # The shim's stderr line would be a terminating error on Windows PowerShell 5.1 (see Invoke-Core).
+        $ErrorActionPreference = 'Continue'
         & $script:NpxPath '--yes' 'ccusage@latest' 'daily' 2>&1 | Out-Null
 
         $LASTEXITCODE | Should -Be 1
