@@ -12,14 +12,17 @@ seed the settings panel's initial values). This page covers both.
 Opened from the dashboard header (visible only when signed in). Saves with `PUT /api/settings`
 (see [api.md](api.md)); most changes take effect immediately, with no redeploy or reinstall.
 
-### Accounts
+### Providers
 
-A toggle per detected provider/account controls whether it appears on the dashboard and in the
-account picker. At least one account must stay visible — the last visible one's toggle is
-disabled. Hiding an account doesn't stop the server storing its reports: re-enabling it brings its
-history back. A hidden account can also be deleted outright, together with its reports, machines
-and settings (`DELETE /api/providers/[provider]`); if it still has reports, the panel asks you to
-confirm a force delete and to re-enter the PIN.
+A provider is an AI tool the machines report usage for (Claude Code, Codex/OpenAI, …); the
+dashboard's picker calls them AI accounts. A toggle per detected provider controls whether it
+appears on the dashboard and in that picker. At least one provider must stay visible — the last
+visible one's toggle is disabled. Hiding a provider doesn't stop the server storing its reports:
+re-enabling it brings its history back.
+
+A hidden provider can also be deleted outright, together with its reports, machines and settings
+(`DELETE /api/providers/[provider]`), from the **Danger zone** block at the bottom of the panel; if
+it still has reports, the panel asks you to confirm a force delete and to re-enter the PIN.
 
 ### Budget and token limits
 
