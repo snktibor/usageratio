@@ -25,7 +25,8 @@
 
 BeforeAll {
     $script:OnWindows = $PSVersionTable.PSVersion.Major -le 5 -or $IsWindows
-    $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' '..')).Path
+    # Nested: Windows PowerShell 5.1's Join-Path takes a single child path.
+    $script:RepoRoot = (Resolve-Path (Join-Path (Join-Path $PSScriptRoot '..') '..')).Path
     $script:CorePath = Join-Path $script:RepoRoot 'clients/shared/report-usage-core.ps1'
     $script:FixturesPath = Join-Path $PSScriptRoot 'fixtures'
     # The exact host (powershell.exe or pwsh) running this Pester suite, so the
@@ -94,13 +95,27 @@ BeforeAll {
     # the real exit code (if run via -Command/-EncodedCommand). -File is the
     # one invocation mode where `exit N` reliably becomes the process's own
     # exit code, which is what $LASTEXITCODE below then captures.
+    #
+    # Windows PowerShell 5.1 needs two workarounds that pwsh does not:
+    # - it passes a native argument's embedded double quotes through
+    #   unescaped, so '{"claude":1}' would reach the child as {claude:1};
+    #   they are escaped by hand there.
+    # - it turns every redirected stderr line of a native command into an
+    #   error record, which the `stop` preference GitHub Actions sets makes
+    #   terminating; a powershell.exe child with redirected output can write
+    #   progress to stderr as CLIXML. So the preference is relaxed here, and
+    #   Output keeps stdout only.
     function Invoke-Core {
         param([string[]]$Arguments)
+        $ErrorActionPreference = 'Continue'
+        if ($PSVersionTable.PSVersion.Major -le 5) {
+            $Arguments = @($Arguments | ForEach-Object { $_ -replace '"', '\"' })
+        }
         $exeArgs = @('-NoProfile', '-NoLogo', '-NonInteractive', '-File', $script:CorePath) + $Arguments
         $output = & $script:HostExe @exeArgs 2>&1
         [PSCustomObject]@{
             ExitCode = $LASTEXITCODE
-            Output   = ($output | Out-String)
+            Output   = ($output | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | Out-String)
         }
     }
 }
