@@ -17,7 +17,6 @@ import { formatDateTime } from "@/lib/format";
  * for token generation.
  */
 const MAX_LABEL_LENGTH = 64;
-const MAX_MACHINE_LENGTH = 64;
 const MAX_TOKENS = 100;
 /** How long the revoke confirm button stays disabled after opening. */
 const CONFIRM_DELAY_SECONDS = 3;
@@ -61,7 +60,10 @@ export function TokensSection({
   const locale = useLocale();
   const t = useTranslations("Settings");
   const [load, setLoad] = useState<Load>({ phase: "loading" });
+  /** The machines that have reported, to bind a new token to; empty until loaded (or if that fails). */
+  const [knownMachines, setKnownMachines] = useState<string[]>([]);
   const [label, setLabel] = useState("");
+  /** "" = any machine. */
   const [machineId, setMachineId] = useState("");
   const [creating, setCreating] = useState(false);
   const [createProblem, setCreateProblem] = useState<string | null>(null);
@@ -85,6 +87,18 @@ export function TokensSection({
   }
 
   useEffect(reload, []);
+
+  useEffect(() => {
+    fetch("/api/machines", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const payload = (await response.json()) as { machines: { machineId: string }[] };
+        // One entry per machine: the index lists a machine once per provider it reports.
+        const ids = [...new Set(payload.machines.map((machine) => machine.machineId))];
+        setKnownMachines(ids.sort((a, b) => a.localeCompare(b)));
+      })
+      .catch(() => {});
+  }, []);
 
   const tokens = load.phase === "ready" ? load.tokens : [];
 
@@ -127,8 +141,7 @@ export function TokensSection({
       setCreateProblem(t("tokens_label_problem", { max: MAX_LABEL_LENGTH }));
       return;
     }
-    const trimmedMachine = machineId.trim();
-    void performCreate(trimmedLabel, trimmedMachine.length > 0 ? trimmedMachine : null);
+    void performCreate(trimmedLabel, machineId === "" ? null : machineId);
   }
 
   async function performRevoke(token: MachineTokenView) {
@@ -224,50 +237,48 @@ export function TokensSection({
         </div>
       )}
 
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <label htmlFor={labelInputId} className="sr-only">
-          {t("tokens_label_aria")}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+        <label htmlFor={labelInputId} className="block min-w-0 grow">
+          <span className="text-sm text-ink-3">{t("tokens_label_field")}</span>
+          <input
+            id={labelInputId}
+            type="text"
+            autoComplete="off"
+            maxLength={MAX_LABEL_LENGTH}
+            placeholder={t("tokens_new_label_placeholder")}
+            value={label}
+            onChange={(event) => {
+              setLabel(event.target.value);
+              setCreateProblem(null);
+            }}
+            onKeyDown={(event) => {
+              // Enter creates the token; it must not submit the whole settings form.
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              requestCreate();
+            }}
+            className={`mt-1.5 block w-full min-w-0 ${FIELD}`}
+          />
         </label>
-        <input
-          id={labelInputId}
-          type="text"
-          autoComplete="off"
-          maxLength={MAX_LABEL_LENGTH}
-          placeholder={t("tokens_new_label_placeholder")}
-          value={label}
-          onChange={(event) => {
-            setLabel(event.target.value);
-            setCreateProblem(null);
-          }}
-          onKeyDown={(event) => {
-            // Enter creates the token; it must not submit the whole settings form.
-            if (event.key !== "Enter") return;
-            event.preventDefault();
-            requestCreate();
-          }}
-          className={`min-w-0 grow ${FIELD}`}
-        />
-        <label htmlFor={machineInputId} className="sr-only">
-          {t("tokens_machine_aria")}
+        <label htmlFor={machineInputId} className="block min-w-0 sm:w-56">
+          <span className="text-sm text-ink-3">{t("tokens_machine_field")}</span>
+          <select
+            id={machineInputId}
+            value={machineId}
+            onChange={(event) => {
+              setMachineId(event.target.value);
+              setCreateProblem(null);
+            }}
+            className={`mt-1.5 block w-full min-w-0 ${FIELD}`}
+          >
+            <option value="">{t("tokens_any_machine")}</option>
+            {knownMachines.map((id) => (
+              <option key={id} value={id}>
+                {id}
+              </option>
+            ))}
+          </select>
         </label>
-        <input
-          id={machineInputId}
-          type="text"
-          autoComplete="off"
-          maxLength={MAX_MACHINE_LENGTH}
-          placeholder={t("tokens_new_machine_placeholder")}
-          value={machineId}
-          onChange={(event) => {
-            setMachineId(event.target.value);
-            setCreateProblem(null);
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter") return;
-            event.preventDefault();
-            requestCreate();
-          }}
-          className={`min-w-0 sm:w-48 ${FIELD}`}
-        />
         <button
           type="button"
           onClick={requestCreate}

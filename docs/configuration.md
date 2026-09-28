@@ -107,7 +107,8 @@ provider.
 The bottom of the panel holds a copy of `USAGE_API_TOKEN` for the Setup page's *Copy token* button
 (add/replace it here; replacing requires a confirmation), and a separate list of **per-machine
 tokens** that can be issued and revoked individually as an alternative to the shared master token
-(see [security.md](security.md#per-machine-tokens)). An **Audit** button shows who added, changed,
+(see [security.md](security.md#per-machine-tokens)). A new token gets a label and either works for
+any machine or is bound to one picked from the machines that have already reported. An **Audit** button shows who added, changed,
 or revealed the stored master-token copy, and from where. See [security.md](security.md) for the
 underlying encryption and audit mechanics.
 
