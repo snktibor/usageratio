@@ -28,7 +28,8 @@ test.describe("logged out", () => {
 
 test("the dashboard has no horizontal overflow", async ({ page }) => {
   await page.goto("/en");
-  await expect(page.getByText("No machine has reported to this account yet")).toBeVisible();
+  // Not the empty-dashboard text: login.spec.ts posts a report to the same in-memory store, in parallel.
+  await expect(page.getByRole("button", { name: "Log out" })).toBeVisible();
   expect(await hasNoHorizontalOverflow(page)).toBe(true);
 });
 
