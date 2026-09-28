@@ -231,6 +231,12 @@
     "alerts_format_discord": "Discord",
     "alerts_thresholds_label": "Schwellen",
     "alerts_threshold_chip": "{value}%",
+    "alerts_thresholds_empty": "Noch keine Schwellen: füge mindestens eine hinzu.",
+    "alerts_threshold_add": "Hinzufügen",
+    "alerts_threshold_add_aria": "Neue Schwelle in Prozent",
+    "alerts_threshold_remove_aria": "Schwelle {value}% entfernen",
+    "alerts_threshold_invalid": "Gib eine ganze Zahl von 1 bis 100 ein.",
+    "alerts_threshold_max": "Es sind höchstens {max} Schwellen möglich.",
     "alerts_per_provider_label": "Jeden Anbieter einzeln warnen lassen",
     "alerts_per_provider_explanation": "An: Auch ein ausgeblendeter Anbieter kann eine Warnung senden. Aus: nur die auf dem Dashboard angezeigten Anbieter.",
     "alerts_locale_label": "Sprache der Warnung",
@@ -239,7 +245,7 @@
     "alerts_test_sent": "Testnachricht gesendet.",
     "alerts_test_failed": "Die Testnachricht konnte nicht gesendet werden. Prüfe die URL und versuche es erneut.",
     "invalid_alert_webhook": "Gib eine https-Webhook-URL ein, die keine lokale oder private Adresse ist, oder leere das Feld, um Warnungen auszuschalten.",
-    "alerts_need_at_least_one_threshold": "Wähle mindestens eine Schwelle."
+    "alerts_need_at_least_one_threshold": "Füge mindestens eine Schwelle hinzu."
   },
   "Alerts": {
     "threshold_text": "{label} hat {threshold}% seines Kontingents verbraucht (aktuell bei {used}%); der Zyklus endet am {end}."

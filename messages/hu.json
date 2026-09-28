@@ -231,6 +231,12 @@
     "alerts_format_discord": "Discord",
     "alerts_thresholds_label": "Küszöbök",
     "alerts_threshold_chip": "{value}%",
+    "alerts_thresholds_empty": "Még nincs küszöb: adj meg legalább egyet.",
+    "alerts_threshold_add": "Hozzáadás",
+    "alerts_threshold_add_aria": "Új küszöb, százalékban",
+    "alerts_threshold_remove_aria": "A(z) {value}%-os küszöb törlése",
+    "alerts_threshold_invalid": "Adj meg egy egész számot 1 és 100 között.",
+    "alerts_threshold_max": "Legfeljebb {max} küszöb adható meg.",
     "alerts_per_provider_label": "Minden szolgáltató önállóan riasszon",
     "alerts_per_provider_explanation": "Be: egy elrejtett szolgáltató is küldhet riasztást. Ki: csak a dashboardon látható szolgáltatók.",
     "alerts_locale_label": "Riasztás nyelve",
@@ -239,7 +245,7 @@
     "alerts_test_sent": "Teszt üzenet elküldve.",
     "alerts_test_failed": "A teszt üzenetet nem sikerült elküldeni. Ellenőrizd az URL-t, és próbáld újra.",
     "invalid_alert_webhook": "Adj meg egy https webhook URL-t, ami nem helyi vagy privát cím, vagy törld a mezőt a riasztások kikapcsolásához.",
-    "alerts_need_at_least_one_threshold": "Válassz ki legalább egy küszöböt."
+    "alerts_need_at_least_one_threshold": "Adj meg legalább egy küszöböt."
   },
   "Alerts": {
     "threshold_text": "A(z) {label} elhasználta a kerete {threshold}%-át (jelenleg {used}%-nál tart); a ciklus itt ér véget: {end}."

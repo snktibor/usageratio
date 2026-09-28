@@ -2,19 +2,17 @@
 
 import { useTranslations } from "next-intl";
 import { useId, useState } from "react";
-import type { AlertsDraft } from "@/components/settings/draft";
-import { toggleAlertThreshold } from "@/components/settings/draft";
+import { PlusIcon, XIcon } from "@/components/icons";
+import { type AlertsDraft, withAlertThreshold } from "@/components/settings/draft";
+import { problemText } from "@/components/settings/problem-text";
 import { StatusLine } from "@/components/status-line";
 import { FIELD, QUIET_BUTTON } from "@/components/ui/classes";
 import { Segmented } from "@/components/ui/segmented";
 import { Toast } from "@/components/ui/toast";
-import { ToggleChip } from "@/components/ui/toggle-chip";
 import { routing } from "@/i18n/routing";
 import type { AlertsFormat } from "@/lib/config";
+import { MAX_ALERT_THRESHOLDS } from "@/lib/settings";
 import { isAllowedWebhookUrl } from "@/lib/webhook";
-
-/** Thresholds offered even before they are saved; whatever is already stored is offered too. */
-const PRESET_THRESHOLDS = [25, 50, 75, 80, 90, 100];
 
 const FORMATS: AlertsFormat[] = ["generic", "slack", "discord"];
 
@@ -41,13 +39,26 @@ export function AlertsSection({
   const t = useTranslations("Settings");
   const webhookId = useId();
   const formatName = useId();
+  const thresholdId = useId();
+  const [thresholdProblem, setThresholdProblem] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [testProblem, setTestProblem] = useState<string | null>(null);
   const [testNotice, setTestNotice] = useState<string | null>(null);
 
   const trimmedUrl = alerts.webhookUrl.trim();
   const urlProblem = trimmedUrl !== "" && !isAllowedWebhookUrl(trimmedUrl);
-  const thresholdOptions = [...new Set([...PRESET_THRESHOLDS, ...alerts.thresholds])].sort((a, b) => a - b);
+  const thresholdsFull = alerts.thresholds.length >= MAX_ALERT_THRESHOLDS;
+
+  function addThreshold() {
+    if (alerts.newThreshold.trim() === "") return;
+    const result = withAlertThreshold(alerts.thresholds, alerts.newThreshold);
+    if ("problem" in result) {
+      setThresholdProblem(problemText(t, result.problem));
+      return;
+    }
+    setThresholdProblem(null);
+    onPatch({ thresholds: result.thresholds, newThreshold: "" });
+  }
 
   async function sendTest() {
     if (trimmedUrl === "" || urlProblem) {
@@ -117,16 +128,77 @@ export function AlertsSection({
 
       <fieldset>
         <legend className="text-sm text-ink-3">{t("alerts_thresholds_label")}</legend>
-        <div className="mt-1.5 flex flex-wrap gap-2">
-          {thresholdOptions.map((threshold) => (
-            <ToggleChip
-              key={threshold}
-              checked={alerts.thresholds.includes(threshold)}
-              onChange={() => onPatch({ thresholds: toggleAlertThreshold(alerts.thresholds, threshold) })}
-            >
-              {t("alerts_threshold_chip", { value: threshold })}
-            </ToggleChip>
-          ))}
+        {alerts.thresholds.length > 0 ? (
+          // biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics once list-style is none
+          <ul role="list" className="mt-1.5 flex flex-wrap gap-2">
+            {alerts.thresholds.map((threshold) => (
+              <li
+                key={threshold}
+                className="flex items-center rounded-full border border-rule py-0.5 pl-3 pr-0.5 text-sm tabular-nums text-ink"
+              >
+                {t("alerts_threshold_chip", { value: threshold })}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setThresholdProblem(null);
+                    onPatch({ thresholds: alerts.thresholds.filter((other) => other !== threshold) });
+                  }}
+                  aria-label={t("alerts_threshold_remove_aria", { value: threshold })}
+                  title={t("alerts_threshold_remove_aria", { value: threshold })}
+                  className="ml-0.5 rounded-full p-1.5 text-ink-3 transition-colors hover:text-ink"
+                >
+                  <XIcon className="size-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-1.5 text-sm text-ink-3">{t("alerts_thresholds_empty")}</p>
+        )}
+        <div className="mt-3 flex items-center gap-2">
+          <label htmlFor={thresholdId} className="sr-only">
+            {t("alerts_threshold_add_aria")}
+          </label>
+          <input
+            id={thresholdId}
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={100}
+            step={1}
+            placeholder="80"
+            value={alerts.newThreshold}
+            disabled={thresholdsFull}
+            onChange={(event) => {
+              setThresholdProblem(null);
+              onPatch({ newThreshold: event.target.value });
+            }}
+            onKeyDown={(event) => {
+              // Enter adds the value; it must not submit the whole settings form.
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              addThreshold();
+            }}
+            aria-invalid={thresholdProblem !== null || undefined}
+            className={`w-24 tabular-nums ${FIELD}`}
+          />
+          <span className="text-ink-3">%</span>
+          <button
+            type="button"
+            onClick={addThreshold}
+            disabled={thresholdsFull}
+            className={`flex items-center gap-2 ${QUIET_BUTTON}`}
+          >
+            <PlusIcon />
+            {t("alerts_threshold_add")}
+          </button>
+        </div>
+        <div aria-live="polite" className="mt-2">
+          {thresholdProblem ? (
+            <StatusLine tone="problem">{thresholdProblem}</StatusLine>
+          ) : thresholdsFull ? (
+            <p className="text-sm text-ink-3">{t("alerts_threshold_max", { max: MAX_ALERT_THRESHOLDS })}</p>
+          ) : null}
         </div>
       </fieldset>
 
