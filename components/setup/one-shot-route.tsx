@@ -2,7 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { useState } from "react";
-import { fetchApiToken } from "@/components/clipboard";
+import { type CopyErrorCode, fetchApiToken } from "@/components/clipboard";
 import { CommandBlock } from "@/components/code-block";
 import { InfoTip } from "@/components/info-tip";
 import { panelId, tabId } from "@/components/setup/route-tabs";
@@ -45,9 +45,12 @@ export function OneShotRoute({
 }) {
   const t = useTranslations("Setup");
   const tSettings = useTranslations("Settings");
+  const tCommon = useTranslations("Common");
   const headingId = panelId(tabsId, "oneShot");
   const [runner, setRunner] = useState<CcusageRunner>("global");
   const [sudoRequired, setSudoRequired] = useState(false);
+  /** How the copy made by the PIN form ended; the copy button shows its own. */
+  const [pinCopy, setPinCopy] = useState<"copied" | Exclude<CopyErrorCode, "sudo_required"> | null>(null);
   const available = tokenStatus.state === "stored";
   const note = apiTokenStatusNote(tokenStatus);
   const packedNote = (name: string, blob: string) => t("packed_note", { name, lines: blob.split("\n").length });
@@ -103,9 +106,31 @@ export function OneShotRoute({
             label={t("one_shot_command")}
             resolve={build}
             disabled={!settings || !available}
-            onProblem={(_message, code) => setSudoRequired(code === "sudo_required")}
+            onProblem={(_message, code) => {
+              setSudoRequired(code === "sudo_required");
+              setPinCopy(null);
+            }}
           />
-          {sudoRequired && <SudoUnlock onUnlocked={() => setSudoRequired(false)} />}
+          {sudoRequired && (
+            <SudoUnlock
+              copy={build}
+              onUnlocked={() => {
+                setSudoRequired(false);
+                setPinCopy("copied");
+              }}
+              onCopyFailed={(code) => {
+                setSudoRequired(code === "sudo_required");
+                setPinCopy(code === "sudo_required" ? null : code);
+              }}
+            />
+          )}
+          <div aria-live="polite">
+            {pinCopy === "copied" ? (
+              <StatusLine tone="good">{tCommon("copied_aria", { label: t("one_shot_command") })}</StatusLine>
+            ) : pinCopy ? (
+              <StatusLine tone="problem">{t(`copy_problem_${pinCopy}`)}</StatusLine>
+            ) : null}
+          </div>
           {!settings ? (
             <p className="text-sm text-ink-3">{t("fix_group_machine")}</p>
           ) : available ? (

@@ -31,7 +31,10 @@ test("downloading the ZIP for macOS/auto includes install.sh and config", async 
   expect(download.suggestedFilename()).toBe("usageratio-macos-auto.zip");
 });
 
-test("copying the stored API token asks for the PIN (sudo) first", async ({ page, context }) => {
+test("copying the stored API token asks for the PIN (sudo), and the PIN itself finishes the copy", async ({
+  page,
+  context,
+}) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
 
   // Store a token directly through the API (the session cookie rides along on page.request).
@@ -51,10 +54,10 @@ test("copying the stored API token asks for the PIN (sudo) first", async ({ page
   const unlockForm = page.locator("#sudo-pin");
 
   await unlockForm.fill(REAL_PIN);
-  await page.getByRole("button", { name: "Unlock" }).click();
+  await page.getByRole("button", { name: "Unlock and copy" }).click();
   await expect(unlockForm).toBeHidden();
 
-  await copyButton.click();
+  // No second click on the copy button: the PIN submit was the copy.
   await expect(page.getByText("Token on clipboard")).toBeVisible();
 
   const clipboard = await page.evaluate(() => navigator.clipboard.readText());

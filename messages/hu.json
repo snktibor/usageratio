@@ -510,6 +510,7 @@
     "audit_notice": "A lekérés az auditnaplóba kerül.",
     "sudo_prompt": "Erősítsd meg a PIN-koddal, hogy az elkövetkező 5 percben másolhasd a tokent.",
     "sudo_unlock": "Feloldás",
+    "sudo_unlock_copy": "Feloldás és másolás",
     "sudo_unlocking": "Feloldás…",
     "sudo_error_generic": "A PIN-kód megerősítése nem sikerült. Próbáld újra.",
     "file_save_label": "Mentés",
