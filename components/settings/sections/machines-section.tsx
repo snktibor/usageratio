@@ -15,13 +15,21 @@ import { formatAgo } from "@/lib/format";
 import { type MachineEntry, type MachineRow, machineRows, renameConflicts } from "@/lib/machine-rows";
 import { providerLabel } from "@/lib/providers";
 
-/** How long the delete/prune confirm buttons stay disabled after opening. */
+/** How long the delete/merge/prune confirm buttons stay disabled after opening. */
 const CONFIRM_DELAY_SECONDS = 3;
 const INACTIVE_MS = INACTIVE_MACHINE_DAYS * 24 * 60 * 60 * 1000;
 
 type Load = { phase: "loading" } | { phase: "failed" } | { phase: "ready"; machines: MachineEntry[] };
-/** A delete resumes with the entries it has not removed yet. */
-type SudoRetry = { kind: "delete"; machineId: string; entries: MachineEntry[] } | { kind: "prune" };
+/** A merge of `row` into the machine called `to`, which keeps its name and `groupId`. */
+type PendingMerge = { row: MachineRow; to: string; groupId: string };
+/** A delete or merge resumes with the entries it has not done yet. */
+type SudoRetry =
+  | { kind: "delete"; machineId: string; entries: MachineEntry[] }
+  | { kind: "merge"; merge: PendingMerge; entries: MachineEntry[] }
+  | { kind: "prune" };
+/** The body of PATCH /api/machines/[provider]/[machine]. */
+type Move = { id?: string; group?: string; merge?: true };
+type MoveOutcome = { done: MachineEntry[]; failure: { entry: MachineEntry; error: string | null } | null };
 
 async function errorCode(response: Response): Promise<string | null> {
   const payload = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -40,13 +48,32 @@ function providerList(providerIds: string[]): string {
   return providerIds.map(providerLabel).join(", ");
 }
 
+/** Sends `move` for each entry in turn, stopping at the first failure. */
+async function patchEntries(entries: MachineEntry[], move: Move): Promise<MoveOutcome> {
+  const done: MachineEntry[] = [];
+  for (const entry of entries) {
+    const response = await fetch(entryUrl(entry), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(move),
+    }).catch(() => null);
+    if (response?.ok) {
+      done.push(entry);
+      continue;
+    }
+    return { done, failure: { entry, error: response ? await errorCode(response) : null } };
+  }
+  return { done, failure: null };
+}
+
 /**
  * The settings panel's Machines section: one row per machine (lib/machine-rows.ts),
- * tagged with the providers it reports for, with an inline rename and a
- * delete button per row, and a bulk "remove N silent machines" action. A
- * rename or delete runs on every provider's entry of the machine, one
- * request each, and stops at the first failure; when that leaves the
- * machine half done, it says so and reloads the list. Fetches its own data
+ * tagged with the providers it reports for, with an inline rename, a group
+ * picker and a delete button per row, and a bulk "remove N silent machines"
+ * action. Renaming onto another machine's name offers to merge the two
+ * (lib/machine-merge.ts). Every action runs on each provider's entry of the
+ * machine, one request each, and stops at the first failure; when that leaves
+ * the machine half done, it says so and reloads the list. Fetches its own data
  * (GET /api/machines) independently of the panel's draft, the same way
  * TokenSection owns the API token's status.
  */
@@ -67,10 +94,11 @@ export function MachinesSection({
   const tWidgets = useTranslations("Widgets");
   const [load, setLoad] = useState<Load>({ phase: "loading" });
   const [editing, setEditing] = useState<{ key: string; value: string } | null>(null);
-  const [renaming, setRenaming] = useState(false);
+  const [moving, setMoving] = useState(false);
   const [rowProblem, setRowProblem] = useState<{ key: string; message: string } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<MachineRow | null>(null);
   const [pendingPrune, setPendingPrune] = useState(false);
+  const [pendingMerge, setPendingMerge] = useState<PendingMerge | null>(null);
   const [sudoRetry, setSudoRetry] = useState<SudoRetry | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -105,44 +133,49 @@ export function MachinesSection({
   }
 
   function cancelEdit() {
-    if (!renaming) setEditing(null);
+    if (!moving) setEditing(null);
+  }
+
+  /** What to say when a move was refused outright. */
+  function moveProblem(failure: NonNullable<MoveOutcome["failure"]>, move: Move): string {
+    switch (failure.error) {
+      case "machine_exists":
+        return t("manage_machines_rename_exists", {
+          id: move.id ?? "",
+          providers: providerLabel(failure.entry.providerId),
+        });
+      case "invalid_payload":
+        return t("manage_machines_rename_invalid");
+      case "group_not_found":
+        return t("manage_machines_group_not_saved", { group: move.group ?? "" });
+      case "merge_unsupported":
+        return t("manage_machines_merge_unsupported");
+      default:
+        return t("manage_machines_action_failed");
+    }
   }
 
   async function commitEdit(row: MachineRow) {
-    if (!editing || editing.key !== row.machineId || renaming) return;
+    if (!editing || editing.key !== row.machineId || moving) return;
     const newId = editing.value.trim();
     if (newId === row.machineId || newId.length === 0) {
       setEditing(null);
       return;
     }
-    // Refused for one provider means refused for all: nothing is renamed rather than half of it.
-    const conflicts = renameConflicts(entries, row, newId);
-    if (conflicts.length > 0) {
-      setRowProblem({
-        key: row.machineId,
-        message: t("manage_machines_rename_exists", { id: newId, providers: providerList(conflicts) }),
-      });
+    // Onto a name another machine already has: that is a merge, which asks first.
+    if (renameConflicts(entries, row, newId).length > 0) {
+      const target = rows.find((candidate) => candidate.machineId === newId);
+      setEditing(null);
+      setRowProblem(null);
+      setPendingMerge({ row, to: newId, groupId: target?.groupIds[0] ?? row.groupIds[0] ?? "" });
       return;
     }
 
-    setRenaming(true);
+    setMoving(true);
     setProblem(null);
-    const done: string[] = [];
-    let failure: { entry: MachineEntry; error: string | null } | null = null;
-    for (const entry of row.entries) {
-      const response = await fetch(entryUrl(entry), {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: newId }),
-      }).catch(() => null);
-      if (response?.ok) {
-        done.push(entry.providerId);
-        continue;
-      }
-      failure = { entry, error: response ? await errorCode(response) : null };
-      break;
-    }
-    setRenaming(false);
+    const move: Move = { id: newId };
+    const { done, failure } = await patchEntries(row.entries, move);
+    setMoving(false);
 
     if (!failure) {
       setEditing(null);
@@ -158,15 +191,7 @@ export function MachinesSection({
     }
 
     if (done.length === 0) {
-      setRowProblem({
-        key: row.machineId,
-        message:
-          failure.error === "machine_exists"
-            ? t("manage_machines_rename_exists", { id: newId, providers: providerLabel(failure.entry.providerId) })
-            : failure.error === "invalid_payload"
-              ? t("manage_machines_rename_invalid")
-              : t("manage_machines_action_failed"),
-      });
+      setRowProblem({ key: row.machineId, message: moveProblem(failure, move) });
       return;
     }
 
@@ -177,12 +202,75 @@ export function MachinesSection({
       t("manage_machines_rename_partial", {
         from: row.machineId,
         to: newId,
-        done: providerList(done),
+        done: providerList(done.map((entry) => entry.providerId)),
         failed: providerList(row.entries.slice(done.length).map((entry) => entry.providerId)),
       }),
     );
     reload();
     onManaged();
+  }
+
+  async function changeGroup(row: MachineRow, groupId: string) {
+    if (moving || groupId.length === 0) return;
+    setMoving(true);
+    setProblem(null);
+    setRowProblem(null);
+    const move: Move = { group: groupId };
+    const { done, failure } = await patchEntries(row.entries, move);
+    setMoving(false);
+
+    if (!failure) {
+      updateEntries((machines) =>
+        machines.map((machine) =>
+          row.entries.some((entry) => sameEntry(entry, machine)) ? { ...machine, groupId } : machine,
+        ),
+      );
+      setToast(t("manage_machines_group_moved_toast", { id: row.machineId, group: groupId }));
+      onManaged();
+      return;
+    }
+    if (done.length === 0) {
+      setRowProblem({ key: row.machineId, message: moveProblem(failure, move) });
+      return;
+    }
+    setProblem(
+      t("manage_machines_move_partial", {
+        id: row.machineId,
+        done: providerList(done.map((entry) => entry.providerId)),
+        failed: providerList(row.entries.slice(done.length).map((entry) => entry.providerId)),
+      }),
+    );
+    reload();
+    onManaged();
+  }
+
+  async function performMerge(merge: PendingMerge, toMerge: MachineEntry[]) {
+    setMoving(true);
+    setProblem(null);
+    const move: Move = { id: merge.to, group: merge.groupId, merge: true };
+    const { done, failure } = await patchEntries(toMerge, move);
+    setMoving(false);
+
+    if (!failure) {
+      setToast(t("manage_machines_merged_toast", { from: merge.row.machineId, to: merge.to }));
+    } else if (failure.error === "sudo_required") {
+      setSudoRetry({ kind: "merge", merge, entries: toMerge.slice(done.length) });
+    } else if (done.length === 0) {
+      setProblem(moveProblem(failure, move));
+    } else {
+      setProblem(
+        t("manage_machines_move_partial", {
+          id: merge.row.machineId,
+          done: providerList(done.map((entry) => entry.providerId)),
+          failed: providerList(toMerge.slice(done.length).map((entry) => entry.providerId)),
+        }),
+      );
+    }
+    // A merge reshapes both rows: show the list as the store now has it.
+    if (done.length > 0) {
+      reload();
+      onManaged();
+    }
   }
 
   async function performDelete(machineId: string, toDelete: MachineEntry[]) {
@@ -265,7 +353,7 @@ export function MachinesSection({
                       type="text"
                       value={editing.value}
                       maxLength={64}
-                      readOnly={renaming}
+                      readOnly={moving}
                       onChange={(event) => setEditing({ key, value: event.target.value })}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
@@ -293,12 +381,27 @@ export function MachinesSection({
                       {row.machineId}
                     </button>
                   )}
-                  {row.groupIds.map((groupId) => (
-                    <span key={groupId} className="flex shrink-0 items-center gap-1.5 text-sm text-ink-3">
-                      <Swatch color={groupById.get(groupId)?.color ?? "#6b6a65"} />
-                      <span className="wrap-anywhere">{groupId}</span>
-                    </span>
-                  ))}
+                  <span className="flex shrink-0 items-center gap-1.5 text-sm text-ink-3">
+                    <Swatch color={groupById.get(row.groupIds[0] ?? "")?.color ?? "#6b6a65"} />
+                    <select
+                      value={row.groupIds.length === 1 ? row.groupIds[0] : ""}
+                      disabled={moving}
+                      onChange={(event) => void changeGroup(row, event.target.value)}
+                      aria-label={t("manage_machines_group_aria", { id: row.machineId })}
+                      className="w-32 rounded-md border border-rule bg-page px-2 py-1 text-sm text-ink-2 disabled:opacity-50"
+                    >
+                      {row.groupIds.length > 1 && (
+                        <option value="" disabled>
+                          {row.groupIds.join(" + ")}
+                        </option>
+                      )}
+                      {[...new Set([...groups.map((group) => group.id), ...row.groupIds])].map((groupId) => (
+                        <option key={groupId} value={groupId}>
+                          {groupId}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
                   <time dateTime={new Date(row.lastSeenAt).toISOString()} className="shrink-0 text-sm text-ink-3">
                     {formatAgo(row.lastSeenAt, now, locale, tWidgets("now"))}
                   </time>
@@ -351,6 +454,7 @@ export function MachinesSection({
               const retry = sudoRetry;
               setSudoRetry(null);
               if (retry.kind === "delete") void performDelete(retry.machineId, retry.entries);
+              else if (retry.kind === "merge") void performMerge(retry.merge, retry.entries);
               else void performPrune();
             }}
           />
@@ -382,6 +486,29 @@ export function MachinesSection({
             const row = pendingDelete;
             setPendingDelete(null);
             void performDelete(row.machineId, row.entries);
+          }}
+        />
+      )}
+
+      {pendingMerge && (
+        <ConfirmDialog
+          title={t("manage_machines_merge_title", { from: pendingMerge.row.machineId, to: pendingMerge.to })}
+          body={t("manage_machines_merge_body", {
+            from: pendingMerge.row.machineId,
+            to: pendingMerge.to,
+            group: pendingMerge.groupId,
+          })}
+          cancelLabel={t("cancel")}
+          confirmLabel={(secondsLeft) =>
+            secondsLeft > 0 ? t("confirm_yes_countdown", { seconds: secondsLeft }) : t("confirm_yes")
+          }
+          danger
+          countdownSeconds={CONFIRM_DELAY_SECONDS}
+          onCancel={() => setPendingMerge(null)}
+          onConfirm={() => {
+            const merge = pendingMerge;
+            setPendingMerge(null);
+            void performMerge(merge, merge.row.entries);
           }}
         />
       )}

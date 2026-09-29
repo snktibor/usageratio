@@ -70,6 +70,8 @@ The full `ApiErrorCode` union (`lib/api.ts`):
 | `not_found` | 404 | No such resource (machine, token, group, provider). |
 | `demo_read_only` | 403 | Demo mode refuses every write. |
 | `machine_exists` / `group_exists` | 409 | Rename target already in use. |
+| `merge_unsupported` | 409 | A machine merge outside snapshot token mode. |
+| `group_not_found` | 404 | A machine move to a group that does not exist (yet). |
 | `group_has_events` / `provider_has_events` | 409 | Delete without `?force=1` on something with stored data. |
 | `webhook_failed` | 502 | The test-alert webhook call itself failed; `status`/`detail` explain. |
 
@@ -305,10 +307,16 @@ never again. See [clients.md](clients.md#per-machine-tokens-vs-the-master-token)
 ## Machines
 
 - **`GET /api/machines`** (session) → `{ "machines": [{providerId, machineId, groupId, lastSeenAt, lastTokens}] }`. `401` no session · `503` Redis down.
-- **`PATCH /api/machines/[provider]/[machine]`** (session, same-origin) `{ "id": "new-machine-id" }` →
+- **`PATCH /api/machines/[provider]/[machine]`** (session, same-origin) `{ "id"?: "new-machine-id",
+  "group"?: "group-id", "merge"?: true }` (at least one of `id`/`group`) renames the machine, moves it
+  to another existing group, or both, with all its stored reports. Onto an id the provider already
+  uses it answers `409 machine_exists`, unless `merge` is set (**needs sudo**): the two histories are
+  then combined day by day, counting each day as the identity that saw more of it (snapshot mode
+  only, else `409 merge_unsupported`). →
   `200 { "ok": true, "affected": {events, machines, groups} }`. `400` invalid id/body · `401` no
-  session · `403` foreign origin or demo mode · `404` no such machine · `409 machine_exists` ·
-  `413`/`415` bad body · `503` Redis down.
+  session · `403` foreign origin, demo mode, or (merge) no sudo grant · `404 not_found` (no such
+  machine) or `group_not_found` · `409 machine_exists` / `merge_unsupported` · `413`/`415` bad body ·
+  `503` Redis down.
 - **`DELETE /api/machines/[provider]/[machine]`** (session **+ sudo**, same-origin) — same response
   shape. `403` also covers "no sudo grant" · `404` no such machine.
 - **`POST /api/machines/prune`** (session + sudo, same-origin) — removes every machine silent longer

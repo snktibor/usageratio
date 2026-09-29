@@ -1,17 +1,23 @@
+import type { UsageEvent } from "@/lib/aggregate";
+import type { ResetConfig, TokenMode } from "@/lib/config";
+import { getCycle, getDaySegments } from "@/lib/cycle";
+import { carryOver, type MergeCycle, type MergeUnit } from "@/lib/machine-merge";
 import { getRedis } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
 import { randomGroupColor, serializeGroupEntry } from "@/lib/settings";
-import { loadIndexes, loadRawSettings } from "@/lib/usage-store";
+import { eventMember, loadIndexes, loadRawSettings, parseEvent } from "@/lib/usage-store";
 
 /**
- * Renaming, merging and deleting the things the dashboard auto-registers:
+ * Renaming, moving, merging and deleting the things the dashboard auto-registers:
  * machines, groups and providers. Nothing here runs on the hot report path
  * (lib/usage-store.ts `storeReport`); these are the settings panel's manual
  * "manage" actions, gated by session + sudo at the route layer
  * (app/api/machines, app/api/groups, app/api/providers).
  *
- * No machine merge exists: two snapshot series combined would be read back as
- * a max, not a sum, silently losing tokens. A group merge is fine — its ZSETs
+ * A machine merge combines two snapshot histories day by day, through a
+ * carry-over series (lib/machine-merge.ts): read back as one series they
+ * would be a max, losing tokens, and as two a sum, counting some twice. A
+ * group merge is fine as it is — its ZSETs
  * are unioned with MAX per member, which is exactly how a snapshot's history
  * is already read (lib/aggregate.ts) — so two groups that both reported the
  * same machine at the same moment collapse into one identical entry instead
@@ -29,7 +35,26 @@ export interface Affected {
 
 const NO_CHANGE: Affected = { events: 0, machines: 0, groups: 0 };
 
-export type RenameMachineResult = { ok: true; affected: Affected } | { ok: false; reason: "not_found" | "exists" };
+export type MoveMachineResult =
+  | { ok: true; affected: Affected }
+  | { ok: false; reason: "not_found" | "group_not_found" | "exists" | "unsupported_mode" };
+
+export interface MoveMachineOptions {
+  /** Combine with a machine that already has the new id, instead of refusing (`exists`). */
+  merge: boolean;
+  mode: TokenMode;
+  reset: ResetConfig;
+  retentionDays: number;
+  now: Date;
+}
+
+interface MoveUnit {
+  groupId: string;
+  machineId: string;
+  key: string;
+  raw: { member: ParsedMember; event: UsageEvent }[];
+  carried: { member: ParsedMember; event: UsageEvent }[];
+}
 export type DeleteResult = { ok: true; affected: Affected } | { ok: false; reason: "not_found" };
 export type RenameGroupResult = { ok: true; affected: Affected } | { ok: false; reason: "not_found" | "exists" };
 export type DeleteWithEventsResult =
@@ -86,54 +111,146 @@ function rewriteMemberMachineId(raw: string, newMachineId: string): string {
 }
 
 /**
- * Renames one machine, for one provider only: its own events key is per
- * provider+group, so a machine reporting to several providers is renamed
- * provider by provider (the route loops when a caller wants all of them).
- * Rewrites its members in every group's events key of this provider and moves
- * its `usage:machines` field. Refuses (`exists`) onto an id already used by
- * this provider — see the module comment on why there is no merge.
+ * Moves one machine (one provider: the route loops when a caller wants all of
+ * them) to a new id, a new group, or both. Everything the machine stored for
+ * this provider, in whichever groups, ends up in the new group's events key
+ * under the new id, and its `usage:machines` field moves with it.
+ *
+ * Onto an id already in use (`exists` unless `merge`), and whenever the
+ * machine's history is spread over several groups, the histories are
+ * combined: the one that stays (the target's own in the new group, else the
+ * one reported to last) is kept as it is, and the rest become its carry-over
+ * (lib/machine-merge.ts) — day by day, whichever saw more. Snapshot mode only
+ * (`unsupported_mode` otherwise); a plain move works in every mode.
  */
-export async function renameMachine(
+export async function moveMachine(
   providerId: string,
   machineId: string,
-  newMachineId: string,
-): Promise<RenameMachineResult> {
+  target: { machineId?: string; groupId?: string },
+  options: MoveMachineOptions,
+): Promise<MoveMachineResult> {
   const indexes = await loadIndexes();
-  const machine = indexes.machines.find((m) => m.providerId === providerId && m.machineId === machineId);
-  if (!machine) return { ok: false, reason: "not_found" };
-  if (machineId === newMachineId) return { ok: true, affected: NO_CHANGE };
-  const collides = indexes.machines.some((m) => m.providerId === providerId && m.machineId === newMachineId);
-  if (collides) return { ok: false, reason: "exists" };
+  const source = indexes.machines.find((m) => m.providerId === providerId && m.machineId === machineId);
+  if (!source) return { ok: false, reason: "not_found" };
+  const newMachineId = target.machineId ?? machineId;
+  const renamed = newMachineId !== machineId;
+  const existing = renamed
+    ? indexes.machines.find((m) => m.providerId === providerId && m.machineId === newMachineId)
+    : undefined;
+  const newGroupId = target.groupId ?? existing?.groupId ?? source.groupId;
+  if (!indexes.groups.some((group) => group.groupId === newGroupId)) return { ok: false, reason: "group_not_found" };
 
   const groupIds = indexes.groups.map((group) => group.groupId);
   const keys = groupIds.map((groupId) => KEYS.events(providerId, groupId));
   const membersByKey = await readMembersForKeys(keys);
 
+  // One unit per group and machine id: the machine's own history there, and its carry-over.
+  const units: MoveUnit[] = [];
+  groupIds.forEach((groupId, index) => {
+    for (const id of renamed ? [machineId, newMachineId] : [machineId]) {
+      const unit: MoveUnit = { groupId, machineId: id, key: keys[index]!, raw: [], carried: [] };
+      for (const member of membersByKey.get(unit.key) ?? []) {
+        if (member.machineId !== id) continue;
+        const event = parseEvent(member.raw, groupId);
+        if (event) (event.carried ? unit.carried : unit.raw).push({ member, event });
+      }
+      if (unit.raw.length + unit.carried.length > 0) units.push(unit);
+    }
+  });
+
+  const targetTaken = existing !== undefined || units.some((unit) => unit.machineId === newMachineId && renamed);
+  if (targetTaken && !options.merge) return { ok: false, reason: "exists" };
+  if (!renamed && newGroupId === source.groupId && units.every((unit) => unit.groupId === newGroupId)) {
+    return { ok: true, affected: NO_CHANGE };
+  }
+  if (units.length > 1 && options.mode !== "snapshot") return { ok: false, reason: "unsupported_mode" };
+
+  const latestRaw = (unit: MoveUnit) => Math.max(-Infinity, ...unit.raw.map(({ event }) => event.ts));
+  const base =
+    units.find((unit) => unit.machineId === newMachineId && unit.groupId === newGroupId) ??
+    [...units].sort((a, b) => latestRaw(b) - latestRaw(a))[0];
+
+  const destKey = KEYS.events(providerId, newGroupId);
+  // The members that leave their place: all of them, but the base's own reports when they already sit where they belong.
+  const baseStays = base?.key === destKey && base.machineId === newMachineId;
+  const removals = units.map((unit) => ({
+    key: unit.key,
+    members: unit === base && baseStays ? (units.length > 1 ? unit.carried : []) : [...unit.raw, ...unit.carried],
+  }));
+  const additions: { score: number; member: string }[] = [];
+  if (base && !baseStays) {
+    const kept = units.length > 1 ? base.raw : [...base.raw, ...base.carried];
+    for (const { member } of kept) {
+      additions.push({ score: member.score, member: rewriteMemberMachineId(member.raw, newMachineId) });
+    }
+  }
+  if (base && units.length > 1) {
+    const toUnit = (unit: MoveUnit): MergeUnit => ({
+      raw: unit.raw.map(({ event }) => event),
+      carried: unit.carried.map(({ event }) => event),
+    });
+    const others = units.filter((unit) => unit !== base).map(toUnit);
+    const earliestMs = Math.min(
+      ...units.flatMap((unit) => [...unit.raw, ...unit.carried].map(({ event }) => event.ts)),
+    );
+    for (const point of carryOver(toUnit(base), others, mergeCycles(earliestMs, options), options.now.getTime())) {
+      additions.push({
+        score: point.ts,
+        member: eventMember(newMachineId, point.tokens, point.ts, point.models, point.costUsd, undefined, true, true),
+      });
+    }
+  }
+
   const tx = getRedis().multi();
   let eventsTouched = 0;
-  for (const key of keys) {
-    const matches = (membersByKey.get(key) ?? []).filter((entry) => entry.machineId === machineId);
-    if (matches.length === 0) continue;
-    eventsTouched += matches.length;
-    tx.zrem(key, ...matches.map((entry) => entry.raw));
-    const additions = matches.map((entry) => ({
-      score: entry.score,
-      member: rewriteMemberMachineId(entry.raw, newMachineId),
-    }));
-    const [first, ...rest] = additions as [{ score: number; member: string }, ...{ score: number; member: string }[]];
-    tx.zadd(key, first, ...rest);
+  for (const removal of removals) {
+    if (removal.members.length === 0) continue;
+    eventsTouched += removal.members.length;
+    const [first, ...rest] = removal.members.map(({ member }) => member.raw) as [string, ...string[]];
+    tx.zrem(removal.key, first, ...rest);
   }
-  tx.hdel(KEYS.machines, `${providerId}:${machineId}`);
+  if (additions.length > 0) {
+    const [first, ...rest] = additions as [{ score: number; member: string }, ...{ score: number; member: string }[]];
+    tx.zadd(destKey, first, ...rest);
+    tx.expire(destKey, (options.retentionDays + 1) * 86_400);
+  }
+
+  // The index keeps whichever of the two entries reported last, now under the new id and group.
+  const newest = existing && existing.lastSeenAt > source.lastSeenAt ? existing : source;
+  if (renamed) tx.hdel(KEYS.machines, `${providerId}:${machineId}`);
   tx.hset(KEYS.machines, {
     [`${providerId}:${newMachineId}`]: JSON.stringify({
-      g: machine.groupId,
-      ts: machine.lastSeenAt,
-      t: machine.lastTokens,
+      g: newGroupId,
+      ts: newest.lastSeenAt,
+      t: newest.lastTokens,
+      ...(newest.mode === "manual" && { md: "manual" }),
+      ...(newest.intervalMinutes != null && { iv: newest.intervalMinutes }),
     }),
   });
   await tx.exec();
 
-  return { ok: true, affected: { events: eventsTouched, machines: 1, groups: 0 } };
+  const groupsLeft = new Set(units.map((unit) => unit.groupId).filter((groupId) => groupId !== newGroupId));
+  if (source.groupId !== newGroupId) groupsLeft.add(source.groupId);
+  return {
+    ok: true,
+    affected: { events: eventsTouched, machines: existing ? 2 : 1, groups: groupsLeft.size },
+  };
+}
+
+/** Every cycle (under the current reset settings) from the one holding `earliestMs` to the running one. */
+function mergeCycles(earliestMs: number, { reset, now }: MoveMachineOptions): MergeCycle[] {
+  const cycles: MergeCycle[] = [];
+  let cycle = getCycle(new Date(earliestMs), reset);
+  // A year of weekly cycles is 53; retention keeps far less, the bound is only a safety net.
+  for (let i = 0; i < 400 && cycle.start.getTime() <= now.getTime(); i += 1) {
+    cycles.push({
+      startMs: cycle.start.getTime(),
+      endMs: cycle.end.getTime(),
+      dayEndsMs: getDaySegments(cycle, reset.timeZone).map((segment) => segment.end.getTime()),
+    });
+    cycle = getCycle(cycle.end, reset);
+  }
+  return cycles;
 }
 
 /** Deletes one machine (one provider): its `usage:machines` field and every member naming it, in every group's events key of this provider. */

@@ -24,6 +24,12 @@ export interface UsageEvent {
    * read a running total, the other modes skip these.
    */
   checkpoint?: boolean;
+  /**
+   * Part of a merged machine's carry-over (lib/machine-merge.ts): a running
+   * total of its own, next to the machine's reports, always a checkpoint too.
+   * It is a series of its own, summed with the machine's other one.
+   */
+  carried?: boolean;
 }
 
 /** `startMs` inclusive, `endMs` exclusive. */
@@ -100,7 +106,8 @@ function usageOfSeries(events: UsageEvent[], window: TimeWindow, mode: TokenMode
 }
 
 /**
- * Reports split into series: one per group and machine, each sorted by time.
+ * Reports split into series: one per group and machine (and a merged
+ * machine's carry-over apart from its reports), each sorted by time.
  * Of two readings at the same moment the larger comes last, so snapshot mode
  * reads it: a day's checkpoint sent again after a late log write, or a
  * report made right at midnight next to that day's checkpoint.
@@ -108,7 +115,7 @@ function usageOfSeries(events: UsageEvent[], window: TimeWindow, mode: TokenMode
 export function groupIntoSeries(events: UsageEvent[]): UsageEvent[][] {
   const bySeries = new Map<string, UsageEvent[]>();
   for (const event of events) {
-    const key = JSON.stringify([event.groupId, event.machineId]);
+    const key = JSON.stringify([event.groupId, event.machineId, event.carried === true]);
     const list = bySeries.get(key);
     if (list) list.push(event);
     else bySeries.set(key, [event]);
@@ -124,7 +131,8 @@ export function groupIntoSeries(events: UsageEvent[]): UsageEvent[][] {
  * them as the baseline.
  */
 export function summarizeUsage(events: UsageEvent[], window: TimeWindow, mode: TokenMode): UsageSummary {
-  const series: SeriesUsage[] = [];
+  // A merged machine's carry-over is a series of its own, but the same row: keyed by group and machine only.
+  const byMachine = new Map<string, SeriesUsage>();
   for (const list of groupIntoSeries(events)) {
     const inWindow = list.filter(
       (e) => e.ts >= window.startMs && e.ts < window.endMs && (!e.checkpoint || mode === "snapshot"),
@@ -132,15 +140,26 @@ export function summarizeUsage(events: UsageEvent[], window: TimeWindow, mode: T
     const last = inWindow[inWindow.length - 1];
     if (!last) continue;
     const reports = inWindow.filter((e) => !e.checkpoint);
-    series.push({
+    const tokens = usageOfSeries(list, window, mode);
+    const lastReportAt = reports[reports.length - 1]?.ts ?? null;
+    const key = JSON.stringify([last.groupId, last.machineId]);
+    const known = byMachine.get(key);
+    if (known) {
+      known.tokens += tokens;
+      known.reports += reports.length;
+      if (lastReportAt !== null) known.lastReportAt = Math.max(known.lastReportAt ?? lastReportAt, lastReportAt);
+      continue;
+    }
+    byMachine.set(key, {
       machineId: last.machineId,
       groupId: last.groupId,
-      tokens: usageOfSeries(list, window, mode),
+      tokens,
       share: 0,
       reports: reports.length,
-      lastReportAt: reports[reports.length - 1]?.ts ?? null,
+      lastReportAt,
     });
   }
+  const series = [...byMachine.values()];
 
   const total = series.reduce((sum, s) => sum + s.tokens, 0);
 

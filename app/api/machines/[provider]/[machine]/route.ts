@@ -1,24 +1,29 @@
 import { apiError, json, readJsonBody, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
 import { hasSudo } from "@/lib/auth";
+import { getConfig } from "@/lib/config";
 import { demoReadOnly } from "@/lib/demo/mode";
-import { deleteMachine, renameMachine } from "@/lib/manage-store";
+import { deleteMachine, moveMachine } from "@/lib/manage-store";
 import { normalizeProviderId } from "@/lib/providers";
+import { resolveConfig } from "@/lib/settings";
+import { loadRawSettings } from "@/lib/usage-store";
 import { parseId } from "@/lib/validation";
 
 /**
- * /api/machines/[provider]/[machine] — rename or delete one machine's index
- * entry and its stored reports. Behind the dashboard's session; DELETE also
- * needs a fresh sudo grant (POST /api/auth/sudo within the last 5 minutes),
- * since it drops reports for good. No merge: renaming onto an id already used
- * by this provider is refused rather than combined — two snapshot series
- * merged would be read as a max, not a sum, silently losing tokens (see
- * lib/manage-store.ts).
+ * /api/machines/[provider]/[machine] — move (rename, regroup, merge) or delete
+ * one machine's index entry and its stored reports. Behind the dashboard's
+ * session; a merge and a DELETE also need a fresh sudo grant (POST
+ * /api/auth/sudo within the last 5 minutes), since both drop reports for
+ * good. A move onto an id this provider already uses is refused unless
+ * `merge` is set; the merge then combines the two histories day by day (see
+ * lib/manage-store.ts `moveMachine`).
  *
- *   PATCH { "id": "new-machine-id" } → { "ok": true, "affected": { events, machines, groups } }
- *   DELETE                            → { "ok": true, "affected": { events, machines, groups } }
+ *   PATCH { "id"?: "new-machine-id", "group"?: "group-id", "merge"?: true }
+ *         → { "ok": true, "affected": { events, machines, groups } }
+ *   DELETE → { "ok": true, "affected": { events, machines, groups } }
  *
- * 200 ok · 400 invalid id/body · 401 no session · 403 foreign origin, demo mode, or (DELETE) no sudo grant ·
- * 404 no such machine · 409 machine_exists (PATCH only) · 413/415 bad body (PATCH) · 503 Redis down
+ * 200 ok · 400 invalid id/body · 401 no session · 403 foreign origin, demo mode, or (merge, DELETE) no sudo grant ·
+ * 404 not_found (no such machine) or group_not_found · 409 machine_exists, or merge_unsupported outside snapshot mode (PATCH only) ·
+ * 413/415 bad body (PATCH) · 503 Redis down
  */
 
 const MAX_BODY_BYTES = 1024;
@@ -32,13 +37,19 @@ function parseSegments(raw: Params): { providerId: string; machineId: string } |
   return providerId && errors.length === 0 ? { providerId, machineId } : null;
 }
 
-function parseRenameBody(value: unknown): { id: string } | { errors: string[] } {
+function parseMoveBody(value: unknown): { id?: string; group?: string; merge: boolean } | { errors: string[] } {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return { errors: ["body must be a JSON object"] };
   }
+  const body = value as Record<string, unknown>;
   const errors: string[] = [];
-  const id = parseId((value as Record<string, unknown>).id, "id", errors);
-  return errors.length > 0 ? { errors } : { id };
+  const id = body.id === undefined ? undefined : parseId(body.id, "id", errors);
+  const group = body.group === undefined ? undefined : parseId(body.group, "group", errors);
+  if (id === undefined && group === undefined) errors.push("id or group is required");
+  if (body.merge !== undefined && typeof body.merge !== "boolean") errors.push("merge must be true or false");
+  return errors.length > 0
+    ? { errors }
+    : { ...(id !== undefined && { id }), ...(group !== undefined && { group }), merge: body.merge === true };
 }
 
 export async function PATCH(request: Request, context: { params: Promise<Params> }): Promise<Response> {
@@ -56,15 +67,28 @@ export async function PATCH(request: Request, context: { params: Promise<Params>
 
     const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES });
     if (!body.ok) return body.response;
-    const parsed = parseRenameBody(body.value);
+    const parsed = parseMoveBody(body.value);
     if ("errors" in parsed) return apiError("invalid_payload", 400, { details: parsed.errors });
+    if (parsed.merge && !(await hasSudo())) return apiError("sudo_required", 403);
 
-    const result = await renameMachine(segments.providerId, segments.machineId, parsed.id);
-    if (!result.ok)
-      return apiError(
-        result.reason === "exists" ? "machine_exists" : "not_found",
-        result.reason === "exists" ? 409 : 404,
-      );
+    const config = resolveConfig(getConfig(), await loadRawSettings());
+    const result = await moveMachine(
+      segments.providerId,
+      segments.machineId,
+      { machineId: parsed.id, groupId: parsed.group },
+      {
+        merge: parsed.merge,
+        mode: config.tokenMode,
+        reset: config.reset,
+        retentionDays: config.retentionDays,
+        now: new Date(),
+      },
+    );
+    if (!result.ok) {
+      if (result.reason === "exists") return apiError("machine_exists", 409);
+      if (result.reason === "unsupported_mode") return apiError("merge_unsupported", 409);
+      return apiError(result.reason === "group_not_found" ? "group_not_found" : "not_found", 404);
+    }
     return json({ ok: true, affected: result.affected }, 200);
   })(request);
 }
