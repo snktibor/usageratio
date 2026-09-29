@@ -208,6 +208,7 @@
     "manage_provider_delete_failed": "Das hat nicht funktioniert. Versuche es gleich noch einmal.",
     "manage_clients_note": "Ein Client, der noch mit dem alten Namen oder der alten Gruppe eingerichtet ist, berichtet beim nächsten Lauf wieder dorthin: Ändere es auch auf der Maschine.",
     "manage_machines_heading": "Maschinen",
+    "manage_sudo_prompt": "Bestätige das mit deiner PIN. In den nächsten 5 Minuten fragt es nicht erneut.",
     "manage_machines_load_failed": "Die Maschinen konnten nicht geladen werden.",
     "manage_machines_empty": "Noch keine Maschine hat berichtet.",
     "manage_machines_providers_aria": "Anbieter, für die sie berichtet",

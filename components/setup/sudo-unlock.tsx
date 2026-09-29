@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { CopyError, type CopyErrorCode, copyText } from "@/components/clipboard";
 import { StatusLine } from "@/components/status-line";
 
@@ -46,6 +46,8 @@ export function SudoUnlock({
   onUnlocked,
   copy,
   onCopyFailed,
+  prompt,
+  autoFocus = false,
 }: {
   /** After the PIN is accepted; with `copy`, once the text is on the clipboard too. */
   onUnlocked: () => void;
@@ -53,6 +55,10 @@ export function SudoUnlock({
   copy?: () => Promise<string>;
   /** A copy that failed after the PIN was accepted. */
   onCopyFailed?: (code: CopyErrorCode) => void;
+  /** What the PIN confirms, instead of the default (the token copy). */
+  prompt?: string;
+  /** Scrolls the prompt into view and puts the cursor in the PIN field once it appears. */
+  autoFocus?: boolean;
 }) {
   const t = useTranslations("Setup");
   const tAuth = useTranslations("Auth");
@@ -61,6 +67,13 @@ export function SudoUnlock({
   const [reveal, setReveal] = useState(false);
   const [state, setState] = useState<UnlockState>({ phase: "idle" });
   const labelId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    inputRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    inputRef.current?.focus({ preventScroll: true });
+  }, [autoFocus]);
 
   /** POST /api/auth/sudo; rejects with a SudoRefused when the PIN is not accepted. */
   async function unlock(): Promise<void> {
@@ -119,10 +132,11 @@ export function SudoUnlock({
   return (
     <div role="group" aria-labelledby={labelId} className="space-y-2.5 rounded-md border border-rule bg-raised p-3.5">
       <label id={labelId} htmlFor="sudo-pin" className="block text-sm text-ink-2">
-        {t("sudo_prompt")}
+        {prompt ?? t("sudo_prompt")}
       </label>
       <div className="flex items-center gap-2">
         <input
+          ref={inputRef}
           id="sudo-pin"
           type={numeric || !reveal ? "password" : "text"}
           inputMode={numeric ? "numeric" : undefined}
