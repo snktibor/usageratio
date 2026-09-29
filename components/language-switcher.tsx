@@ -17,7 +17,12 @@ function localeLabel(locale: string) {
   }
 }
 
-export function LanguageSwitcher() {
+/**
+ * `confirmLeave`: asked before the switch, which reloads the page in the new
+ * language; it calls `proceed` once the switch may go ahead (the settings
+ * page asks first when there are unsaved changes).
+ */
+export function LanguageSwitcher({ confirmLeave }: { confirmLeave?: (proceed: () => void) => void } = {}) {
   const t = useTranslations("Common");
   const locale = useLocale();
   const router = useRouter();
@@ -27,9 +32,12 @@ export function LanguageSwitcher() {
   const onChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const nextLocale = e.target.value;
     if (!hasLocale(routing.locales, nextLocale)) return;
-    startTransition(() => {
-      router.replace(pathname, { locale: nextLocale });
-    });
+    const proceed = () =>
+      startTransition(() => {
+        router.replace(pathname, { locale: nextLocale });
+      });
+    if (confirmLeave) confirmLeave(proceed);
+    else proceed();
   };
 
   return (

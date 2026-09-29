@@ -108,7 +108,7 @@ describe("SudoUnlock", () => {
     expect(onUnlocked).not.toHaveBeenCalled();
   });
 
-  it("inside another form (the settings dialog): no nested form, and Enter does not submit the outer one", async () => {
+  it("inside another form (the settings page): no nested form, and Enter does not submit the outer one", async () => {
     mockSudo(new Response(null, { status: 204 }));
     const outerSubmit = vi.fn((event: React.FormEvent) => event.preventDefault());
     const onUnlocked = vi.fn();
