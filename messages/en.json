@@ -439,7 +439,13 @@
     "summary_models_note": "The heaviest models of the cycle, as archived.",
     "no_official_value": "no official value",
     "sublimit_closed_unknown": "No figure of its own was recorded for {name} in this cycle.",
-    "chart_closed_no_official": "No official percentage was archived with this cycle, and no token limit was set: there is nothing to chart its usage against. The groups, machines and models below show what was measured."
+    "chart_closed_no_official": "No official percentage was archived with this cycle, and no token limit was set: there is nothing to chart its usage against. The groups, machines and models below show what was measured.",
+    "zoom_legend": "Time window",
+    "zoom_day": "24 hours",
+    "zoom_three_days": "3 days",
+    "zoom_cycle": "Whole cycle",
+    "zoom_reset": "Reset zoom",
+    "zoom_drag_hint": "or drag across the chart to zoom in"
   },
   "Cycles": {
     "picker_label": "Cycle",

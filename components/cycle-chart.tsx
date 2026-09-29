@@ -3,9 +3,24 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { CycleRuler } from "@/components/cycle-ruler";
-import type { AxisScale } from "@/lib/chart";
+import { QUIET_BUTTON } from "@/components/ui/classes";
+import { Segmented } from "@/components/ui/segmented";
+import {
+  type AxisScale,
+  clampWindow,
+  MIN_ZOOM_MS,
+  niceRange,
+  niceScale,
+  presetOf,
+  presetWindow,
+  type TimeSpan,
+  tableSamples,
+  visibleSamples,
+  type ZoomPreset,
+  zoomTicks,
+} from "@/lib/chart";
 import type { DashboardModel } from "@/lib/dashboard";
-import { formatCycleMoment } from "@/lib/format";
+import { formatClock, formatCycleMoment } from "@/lib/format";
 
 export interface ChartSeries {
   id: string;
@@ -24,8 +39,9 @@ interface CycleChartProps {
   model: DashboardModel;
   /** In legend and tooltip order; drawn in reverse, so the first lies on top. */
   series: ChartSeries[];
-  scale: AxisScale;
-  formatTick: (value: number) => string;
+  /** The value axis never shrinks below this over the whole cycle; zoomed in, a tenth of it is the narrowest span. */
+  minAxis: number;
+  formatTick: (value: number, scale: AxisScale) => string;
   /** A value in the tooltip and the table. */
   formatValue: (value: number) => string;
   /** A value at a line's end, where room is short; `formatValue` when not given. */
@@ -40,6 +56,14 @@ const PAD_TOP = 18;
 const END_LABEL_ROOM = 112;
 const END_LABEL_GAP = 16;
 const DASH = "6 5";
+/** A mouse drag narrower than this is a click, not a selection. */
+const MIN_DRAG_PX = 8;
+/** Room one time label on a zoomed axis needs ("szept. 29.", "21:00"). */
+const TICK_ROOM_PX = 72;
+
+/** The zoomed axis's ticks for the plot's width. */
+const ticksFor = (zoomWindow: TimeSpan, timeZone: string, width: number) =>
+  zoomTicks(zoomWindow, timeZone, Math.max(2, Math.floor(width / TICK_ROOM_PX)));
 
 /** A short stroke in the series' colour: the key in the legend, the tooltip and the table. */
 function LineKey({ series }: { series: ChartSeries }) {
@@ -65,8 +89,8 @@ export function ChartLegend({ series }: { series: ChartSeries[] }) {
   );
 }
 
-/** The sample nearest to the horizontal position `x`. */
-function nearestIndex(xs: number[], x: number): number {
+/** The position in `xs` nearest to the horizontal position `x`. */
+function nearestPosition(xs: number[], x: number): number {
   let best = 0;
   for (let index = 1; index < xs.length; index++) {
     if (Math.abs(xs[index]! - x) < Math.abs(xs[best]! - x)) best = index;
@@ -74,16 +98,46 @@ function nearestIndex(xs: number[], x: number): number {
   return best;
 }
 
+/** Under a zoomed-in chart: its hours, and a local midnight by its date. */
+function ZoomAxis({ zoomWindow, width, model }: { zoomWindow: TimeSpan; width: number; model: DashboardModel }) {
+  const locale = useLocale();
+  const day = new Intl.DateTimeFormat(locale, { timeZone: model.timeZone, month: "short", day: "numeric" });
+  const xOf = (ms: number) => ((ms - zoomWindow.startMs) / (zoomWindow.endMs - zoomWindow.startMs)) * width;
+  return (
+    <div aria-hidden="true" className="relative mt-2 h-7">
+      {ticksFor(zoomWindow, model.timeZone, width).map((tick) => {
+        const x = xOf(tick.ms);
+        const align = x < 24 ? "translate-x-0" : x > width - 24 ? "-translate-x-full" : "-translate-x-1/2";
+        return (
+          <div key={tick.ms} className="absolute top-0 h-full" style={{ left: x }}>
+            <span className={`absolute left-0 top-0 h-2 w-px ${tick.midnight ? "bg-ink-3" : "bg-rule"}`} />
+            <span
+              className={`absolute left-0 top-2.5 whitespace-nowrap text-xs tabular-nums ${align} ${
+                tick.midnight ? "text-ink-2" : "text-ink-3"
+              }`}
+            >
+              {tick.midnight ? day.format(tick.ms) : formatClock(tick.ms, model.timeZone, locale)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /**
  * Usage over the cycle: time runs left to right across the whole cycle, as in
- * the meter above, and the lines stop at now. A crosshair (pointer, or the
- * arrow keys once focused) reads every series at one moment; the table under
- * the chart holds the same figures day by day.
+ * the meter above, and the lines stop at now (at the end, for a finished
+ * cycle). The buttons above zoom into the last day or three; on a desktop a
+ * range can also be dragged out with the mouse. Zoomed in, every hour shows
+ * and the value axis fits the lines in view. A crosshair (pointer, or the
+ * arrow keys once focused) reads every series at one moment of the window;
+ * the table under the chart holds the same figures for the window alone.
  */
 export function CycleChart({
   model,
   series,
-  scale,
+  minAxis,
   formatTick,
   formatValue,
   formatEndLabel = formatValue,
@@ -93,10 +147,19 @@ export function CycleChart({
   const t = useTranslations("Widgets");
   const plotRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+  /** A position in `inside`, not an index into the timeline. */
   const [active, setActive] = useState<number | null>(null);
   // Only a crosshair moved by the keyboard is read out: a pointer would flood the screen reader.
   const [announce, setAnnounce] = useState(false);
+  const [zoomWindow, setZoomWindow] = useState<TimeSpan>(() => ({
+    startMs: model.cycle.startMs,
+    endMs: model.cycle.endMs,
+  }));
+  /** A mouse selection being dragged out, in plot pixels. */
+  const [drag, setDrag] = useState<{ fromX: number; toX: number } | null>(null);
   const hintId = useId();
+  const clipId = useId();
+  const zoomName = useId();
 
   useLayoutEffect(() => {
     const plot = plotRef.current;
@@ -110,24 +173,39 @@ export function CycleChart({
 
   const { times } = model.timeline;
   const last = times.length - 1;
-  const { startMs, endMs } = model.cycle;
+  const cycle = { startMs: model.cycle.startMs, endMs: model.cycle.endMs };
+  const lastMs = times[last] ?? cycle.startMs;
+  const zoomed = zoomWindow.startMs !== cycle.startMs || zoomWindow.endMs !== cycle.endMs;
+  const preset = presetOf(zoomWindow, cycle, lastMs);
   const moment = (ms: number) => formatCycleMoment(ms, model.period, model.timeZone, locale);
+
+  const { inside, drawn } = visibleSamples(times, zoomWindow);
+  const insideValues = series.flatMap((s) => inside.map((index) => s.values[index]!));
+  const scale = zoomed
+    ? niceRange(Math.min(...insideValues, Infinity), Math.max(...insideValues, 0), minAxis / 10)
+    : niceScale(Math.max(0, ...series.flatMap((s) => s.values)), minAxis);
 
   const width = size?.width ?? 0;
   const height = size?.height ?? 0;
-  const xOf = (ms: number) => ((ms - startMs) / (endMs - startMs)) * width;
-  const yOf = (value: number) => PAD_TOP + (1 - value / scale.max) * (height - PAD_TOP);
-  const xs = times.map(xOf);
+  const spanMs = zoomWindow.endMs - zoomWindow.startMs;
+  const xOf = (ms: number) => ((ms - zoomWindow.startMs) / spanMs) * width;
+  const msAt = (x: number) => zoomWindow.startMs + (x / width) * spanMs;
+  const yOf = (value: number) => PAD_TOP + (1 - (value - scale.min) / (scale.max - scale.min)) * (height - PAD_TOP);
+  const insideXs = inside.map((index) => xOf(times[index]!));
+  const lastInside = inside[inside.length - 1];
 
   const pathOf = (values: number[]) =>
-    values
-      .map((value, index) => `${index === 0 ? "M" : "L"}${xs[index]!.toFixed(1)},${yOf(value).toFixed(1)}`)
+    drawn
+      .map(
+        (index, position) =>
+          `${position === 0 ? "M" : "L"}${xOf(times[index]!).toFixed(1)},${yOf(values[index]!).toFixed(1)}`,
+      )
       .join("");
 
   // Values at the line ends, right of them where there is room; a label too close to one already placed is left to the legend and tooltip.
-  const endX = xs[last] ?? 0;
+  const endX = lastInside === undefined ? 0 : xOf(times[lastInside]!);
   const endLabels: { series: ChartSeries; y: number }[] = [];
-  if (size && width - endX >= END_LABEL_ROOM) {
+  if (size && lastInside === last && width - endX >= END_LABEL_ROOM) {
     const byPriority = [...series].sort(
       (a, b) =>
         Number(Boolean(b.dashed)) - Number(Boolean(a.dashed)) ||
@@ -140,51 +218,87 @@ export function CycleChart({
     }
   }
 
-  const readout = (index: number) =>
-    `${moment(times[index]!)}: ${series.map((s) => `${s.label} ${formatValue(s.values[index]!)}`).join(", ")}`;
+  const readout = (position: number) => {
+    const index = inside[position]!;
+    return `${moment(times[index]!)}: ${series.map((s) => `${s.label} ${formatValue(s.values[index]!)}`).join(", ")}`;
+  };
+
+  const plotX = (clientX: number) => {
+    const plot = plotRef.current;
+    return plot ? Math.min(width, Math.max(0, clientX - plot.getBoundingClientRect().left)) : 0;
+  };
 
   const pointAt = (clientX: number) => {
-    const plot = plotRef.current;
-    if (!plot || xs.length === 0) return;
+    if (insideXs.length === 0) return;
     setAnnounce(false);
-    setActive(nearestIndex(xs, clientX - plot.getBoundingClientRect().left));
+    setActive(nearestPosition(insideXs, plotX(clientX)));
+  };
+
+  const zoomTo = (next: TimeSpan) => {
+    setZoomWindow(next);
+    setActive(null);
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
-    const current = active ?? last;
+    const lastPosition = inside.length - 1;
+    const current = active ?? lastPosition;
     const next =
       event.key === "ArrowLeft"
         ? Math.max(0, current - 1)
         : event.key === "ArrowRight"
-          ? Math.min(last, current + 1)
+          ? Math.min(lastPosition, current + 1)
           : event.key === "Home"
             ? 0
             : event.key === "End"
-              ? last
+              ? lastPosition
               : null;
     if (event.key === "Escape") setActive(null);
-    if (next === null) return;
+    if (next === null || lastPosition < 0) return;
     event.preventDefault();
     setAnnounce(true);
     setActive(next);
   };
 
-  // One row per day that has ended, and one for now (for a finished cycle, its end).
-  const tableRows = [
-    ...model.cycle.segments
-      .map((segment) => startMs + segment.endFraction * (endMs - startMs))
-      .filter((dayEnd) => dayEnd < times[last]!)
-      .map((dayEnd) => times.findLastIndex((t) => t <= dayEnd)),
-    last,
-  ].filter((index, position, all) => index >= 0 && all.indexOf(index) === position);
+  // The window's own rows: one per day that has ended in it and its last sample, or every sample of a short one.
+  const dayEndsMs = model.cycle.segments.map(
+    (segment) => cycle.startMs + segment.endFraction * (cycle.endMs - cycle.startMs),
+  );
+  const tableRows = tableSamples(times, inside, zoomWindow, dayEndsMs);
 
-  const activeX = active === null ? 0 : xs[active]!;
+  const activeIndex = active === null ? undefined : inside[active];
+  const activeX = activeIndex === undefined ? 0 : xOf(times[activeIndex]!);
   // The tooltip opens towards the wider side and never past the chart's edge.
   const tipOnLeft = activeX > width / 2;
   const tipRoom = Math.max(0, (tipOnLeft ? activeX : width - activeX) - 12);
+  const dotIndex = activeIndex ?? lastInside;
 
   return (
     <div>
+      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <fieldset>
+          <legend className="sr-only">{t("zoom_legend")}</legend>
+          <Segmented
+            name={zoomName}
+            size="sm"
+            // A dragged selection is none of the buttons: none of them is checked then.
+            value={(preset ?? "") as ZoomPreset}
+            onChange={(next) => zoomTo(presetWindow(next, cycle, lastMs))}
+            options={[
+              { value: "day", label: t("zoom_day") },
+              { value: "threeDays", label: t("zoom_three_days") },
+              { value: "cycle", label: t("zoom_cycle") },
+            ]}
+          />
+        </fieldset>
+        {zoomed && preset === null && (
+          <button type="button" onClick={() => zoomTo(cycle)} className={`text-sm ${QUIET_BUTTON}`}>
+            {t("zoom_reset")}
+          </button>
+        )}
+        {/* Only where there is a mouse to drag with. */}
+        <span className="hidden text-sm text-ink-3 [@media(pointer:fine)]:inline">{t("zoom_drag_hint")}</span>
+      </div>
+
       <div
         ref={plotRef}
         role="group"
@@ -192,33 +306,63 @@ export function CycleChart({
         aria-describedby={hintId}
         // biome-ignore lint/a11y/noNoninteractiveTabindex: the plot is keyboard-operated (arrow keys move the crosshair)
         tabIndex={0}
-        onPointerMove={(event) => pointAt(event.clientX)}
-        onPointerDown={(event) => pointAt(event.clientX)}
-        onPointerLeave={() => setActive(null)}
+        onPointerMove={(event) => {
+          pointAt(event.clientX);
+          if (drag) setDrag({ ...drag, toX: plotX(event.clientX) });
+        }}
+        onPointerDown={(event) => {
+          pointAt(event.clientX);
+          // Dragging out a range is for a mouse: on a touch screen the same gesture scrolls the page.
+          if (event.pointerType !== "mouse" || event.button !== 0) return;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          const x = plotX(event.clientX);
+          setDrag({ fromX: x, toX: x });
+        }}
+        onPointerUp={() => {
+          if (drag && Math.abs(drag.toX - drag.fromX) >= MIN_DRAG_PX) {
+            // Up to the last sample only: a stretch of the future has nothing to show yet.
+            const reported = {
+              startMs: cycle.startMs,
+              endMs: Math.min(cycle.endMs, Math.max(lastMs, cycle.startMs + MIN_ZOOM_MS)),
+            };
+            zoomTo(clampWindow({ startMs: msAt(drag.fromX), endMs: msAt(drag.toX) }, reported));
+          }
+          setDrag(null);
+        }}
+        onPointerCancel={() => setDrag(null)}
+        onPointerLeave={() => {
+          if (!drag) setActive(null);
+        }}
         onFocus={() => {
           setAnnounce(true);
-          setActive((current) => current ?? last);
+          setActive((current) => current ?? (inside.length > 0 ? inside.length - 1 : null));
         }}
         onBlur={() => setActive(null)}
         onKeyDown={onKeyDown}
-        className="relative h-56 touch-pan-y select-none sm:h-64"
+        className={`relative h-56 touch-pan-y select-none sm:h-64 ${drag ? "cursor-col-resize" : "[@media(pointer:fine)]:cursor-crosshair"}`}
       >
         {size && (
           <svg width={width} height={height} aria-hidden="true" className="absolute inset-0 overflow-visible">
-            {/* Day boundaries continue the ruler's ticks upwards. */}
-            {model.cycle.segments.slice(1).map((segment) => {
-              const x = Math.round(segment.startFraction * width) + 0.5;
-              return (
-                <line
-                  key={segment.startFraction}
-                  x1={x}
-                  x2={x}
-                  y1={PAD_TOP}
-                  y2={height}
-                  stroke="var(--color-hairline)"
-                />
-              );
-            })}
+            <defs>
+              {/* Lines run on to the window's edges and stop there. */}
+              <clipPath id={clipId}>
+                <rect x={0} y={0} width={width} height={height} />
+              </clipPath>
+            </defs>
+            {/* Day boundaries continue the ruler's ticks upwards; zoomed in, the axis's own ticks do. */}
+            {(zoomed
+              ? ticksFor(zoomWindow, model.timeZone, width).map((tick) => xOf(tick.ms))
+              : model.cycle.segments.slice(1).map((segment) => segment.startFraction * width)
+            ).map((x) => (
+              <line
+                key={x}
+                x1={Math.round(x) + 0.5}
+                x2={Math.round(x) + 0.5}
+                y1={PAD_TOP}
+                y2={height}
+                stroke="var(--color-hairline)"
+              />
+            ))}
             {scale.ticks.map((tick) => {
               const y = Math.round(yOf(tick)) - 0.5;
               return (
@@ -233,35 +377,52 @@ export function CycleChart({
               );
             })}
 
-            {[...series].reverse().map((s) => (
-              <path
-                key={s.id}
-                d={pathOf(s.values)}
-                fill="none"
-                stroke={s.color}
-                strokeWidth={2}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                strokeDasharray={s.dashed ? DASH : undefined}
-              />
-            ))}
-
-            {active !== null && <line x1={activeX} x2={activeX} y1={PAD_TOP} y2={height} stroke="var(--color-ink-3)" />}
-            {/* The page-coloured ring keeps a dot legible where lines cross. */}
-            {[...series].reverse().map((s) => {
-              const index = active ?? last;
-              return (
-                <circle
+            <g clipPath={`url(#${clipId})`}>
+              {[...series].reverse().map((s) => (
+                <path
                   key={s.id}
-                  cx={xs[index]}
-                  cy={yOf(s.values[index]!)}
-                  r={4}
-                  fill={s.color}
-                  stroke="var(--color-page)"
+                  d={pathOf(s.values)}
+                  fill="none"
+                  stroke={s.color}
                   strokeWidth={2}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  strokeDasharray={s.dashed ? DASH : undefined}
                 />
-              );
-            })}
+              ))}
+            </g>
+
+            {drag && (
+              <rect
+                x={Math.min(drag.fromX, drag.toX)}
+                y={PAD_TOP}
+                width={Math.abs(drag.toX - drag.fromX)}
+                height={height - PAD_TOP}
+                fill="var(--color-ink)"
+                opacity={0.08}
+                stroke="var(--color-ink-3)"
+                strokeDasharray="3 3"
+              />
+            )}
+
+            {activeIndex !== undefined && (
+              <line x1={activeX} x2={activeX} y1={PAD_TOP} y2={height} stroke="var(--color-ink-3)" />
+            )}
+            {/* The page-coloured ring keeps a dot legible where lines cross. */}
+            {dotIndex !== undefined &&
+              [...series]
+                .reverse()
+                .map((s) => (
+                  <circle
+                    key={s.id}
+                    cx={xOf(times[dotIndex]!)}
+                    cy={yOf(s.values[dotIndex]!)}
+                    r={4}
+                    fill={s.color}
+                    stroke="var(--color-page)"
+                    strokeWidth={2}
+                  />
+                ))}
           </svg>
         )}
 
@@ -273,11 +434,11 @@ export function CycleChart({
               className="absolute right-0 rounded-sm bg-page px-1 text-xs leading-none text-ink-3 tabular-nums"
               style={{ top: Math.round(yOf(tick)) - 15 }}
             >
-              {formatTick(tick)}
+              {formatTick(tick, scale)}
             </span>
           ))}
 
-        {active === null &&
+        {activeIndex === undefined &&
           endLabels.map(({ series: s, y }) => (
             <span
               key={s.id}
@@ -289,19 +450,19 @@ export function CycleChart({
             </span>
           ))}
 
-        {active !== null && (
+        {activeIndex !== undefined && !drag && (
           <div
             aria-hidden="true"
             className="pointer-events-none absolute top-0 z-10 rounded-md bg-raised px-3 py-2 text-sm shadow-lg ring-1 ring-ink/10"
             style={{ maxWidth: tipRoom, ...(tipOnLeft ? { right: width - activeX + 12 } : { left: activeX + 12 }) }}
           >
-            <p className="text-xs text-ink-3">{moment(times[active]!)}</p>
+            <p className="text-xs text-ink-3">{moment(times[activeIndex]!)}</p>
             <ul className="mt-1.5 space-y-1">
               {series.map((s) => (
                 <li key={s.id} className="flex items-center gap-2">
                   <LineKey series={s} />
                   <strong className="shrink-0 font-medium text-ink tabular-nums">
-                    {formatValue(s.values[active]!)}
+                    {formatValue(s.values[activeIndex]!)}
                   </strong>
                   <span className="min-w-0 truncate text-ink-3">{s.label}</span>
                 </li>
@@ -314,11 +475,11 @@ export function CycleChart({
           {t("keyboard_hint")}
         </p>
         <p aria-live="polite" className="sr-only">
-          {announce && active !== null ? readout(active) : ""}
+          {announce && active !== null && active < inside.length ? readout(active) : ""}
         </p>
       </div>
 
-      <CycleRuler model={model} />
+      {zoomed ? <ZoomAxis zoomWindow={zoomWindow} width={width} model={model} /> : <CycleRuler model={model} />}
 
       <details className="mt-2 text-sm">
         <summary className="w-fit cursor-pointer text-ink-3 transition-colors hover:text-ink">{t("as_table")}</summary>

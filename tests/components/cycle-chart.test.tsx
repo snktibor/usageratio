@@ -1,7 +1,6 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { type ChartSeries, CycleChart } from "@/components/cycle-chart";
-import { niceScale } from "@/lib/chart";
 import { getConfig } from "@/lib/config";
 import { buildDashboard, type StoreSnapshot } from "@/lib/dashboard";
 import { renderWithIntl } from "../helpers/render";
@@ -37,7 +36,7 @@ describe("CycleChart", () => {
       <CycleChart
         model={model}
         series={series}
-        scale={niceScale(model.timeline.times.length, 1)}
+        minAxis={1}
         formatTick={(value) => String(value)}
         formatValue={(value) => `${value} tokens`}
         label="Usage over time"
@@ -59,5 +58,65 @@ describe("CycleChart", () => {
 
     fireEvent.keyDown(plot, { key: "Escape" });
     expect(liveRegion().textContent).toBe("");
+  });
+
+  describe("zoomed in", () => {
+    // Every sample's own value is its hour into the cycle: the readout names which sample it is on.
+    function renderZoomable() {
+      const model = buildDashboard(
+        NOW,
+        getConfig({}),
+        snapshot({ events: [{ machineId: "win-1", groupId: "Work", tokens: 1_000, ts: CYCLE_START + 10 * HOUR }] }),
+      );
+      const series: ChartSeries[] = [
+        {
+          id: "total",
+          label: "Total",
+          color: "#fff",
+          values: model.timeline.times.map((time) => (time - CYCLE_START) / HOUR),
+        },
+      ];
+      renderWithIntl(
+        <CycleChart
+          model={model}
+          series={series}
+          minAxis={1}
+          formatTick={(value) => String(value)}
+          formatValue={(value) => `h${value}`}
+          label="Usage over time"
+        />,
+      );
+      return screen.getByRole("group", { name: "Usage over time" });
+    }
+
+    it("keeps the keys, the readout and the table to the last 24 hours", () => {
+      const plot = renderZoomable();
+      // 60 hours into the cycle.
+      fireEvent.click(screen.getByRole("radio", { name: "24 hours" }));
+      expect(screen.getByRole("radio", { name: "24 hours" })).toHaveProperty("checked", true);
+
+      fireEvent.focus(plot);
+      expect(liveRegion().textContent).toContain("h60");
+      fireEvent.keyDown(plot, { key: "Home" });
+      expect(liveRegion().textContent).toContain("h36");
+      fireEvent.keyDown(plot, { key: "ArrowLeft" });
+      expect(liveRegion().textContent).toContain("h36");
+      fireEvent.keyDown(plot, { key: "End" });
+      expect(liveRegion().textContent).toContain("h60");
+
+      // One table row per hour of the window, and none from before it.
+      const rows = document.querySelectorAll("table tbody tr");
+      expect(rows).toHaveLength(25);
+      expect(rows[0]?.textContent).toContain("h36");
+    });
+
+    it("goes back to the whole cycle, one row a day in the table", () => {
+      renderZoomable();
+      fireEvent.click(screen.getByRole("radio", { name: "24 hours" }));
+      fireEvent.click(screen.getByRole("radio", { name: "Whole cycle" }));
+      // Monday and Tuesday have ended, then now.
+      expect(document.querySelectorAll("table tbody tr")).toHaveLength(3);
+      expect(screen.queryByRole("button", { name: "Reset zoom" })).toBeNull();
+    });
   });
 });
