@@ -38,3 +38,13 @@ test("the setup page has no horizontal overflow", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Install Client" })).toBeVisible();
   expect(await hasNoHorizontalOverflow(page)).toBe(true);
 });
+
+test("the settings page has no horizontal overflow, with its menu above the sections", async ({ page }) => {
+  await page.goto("/en/settings");
+  const menu = page.getByRole("navigation", { name: "Settings sections" });
+  await expect(menu).toBeVisible();
+  const menuBox = await menu.boundingBox();
+  const firstSection = await page.getByRole("heading", { level: 2, name: "General" }).boundingBox();
+  expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(firstSection!.y);
+  expect(await hasNoHorizontalOverflow(page)).toBe(true);
+});

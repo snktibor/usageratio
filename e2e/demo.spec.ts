@@ -65,13 +65,22 @@ test("the usage chart is keyboard-operable", async ({ page }) => {
   await expect(readout).not.toHaveText(atNow ?? "");
 });
 
-test("the settings dialog opens", async ({ page }) => {
+test("the settings page opens from the header, follows its menu, and refuses to save", async ({ page }) => {
   await page.goto("/en");
 
-  await page.getByRole("button", { name: "Settings" }).click();
-  const dialog = page.locator("dialog[open]");
-  await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page).toHaveURL(/\/en\/settings$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
+
+  const menu = page.getByRole("navigation", { name: "Settings sections" });
+  await expect(menu.getByRole("link", { name: "General" })).toHaveAttribute("aria-current", "location");
+  await menu.getByRole("link", { name: "Machines" }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Machines" })).toBeInViewport();
+  await expect(menu.getByRole("link", { name: "Machines" })).toHaveAttribute("aria-current", "location");
+
+  // Readable, but demo mode refuses the write (PUT /api/settings answers 403 demo_read_only).
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Demo mode: settings are not saved.")).toBeVisible();
 });
 
 test("a write attempt through the UI does not change anything", async ({ page }) => {

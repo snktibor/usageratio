@@ -36,7 +36,8 @@ import {
  *   demo    demo.spec.ts and screenshots.spec.ts (the latter only runs when
  *           SCREENSHOTS=1 — see `npm run screenshots`).
  *   real    login.spec.ts (starts every test logged out on purpose),
- *           setup.spec.ts (uses the "setup" project's saved session), and
+ *           setup.spec.ts and settings.spec.ts (both use the "setup"
+ *           project's saved session), and
  *           screenshots.spec.ts's one real-project screenshot (pin.png —
  *           every other screenshot test in that file skips itself here).
  *   mobile  mobile.spec.ts: a 390x844 Chromium viewport rather than a real
@@ -71,7 +72,7 @@ export default defineConfig({
     },
     {
       name: "real",
-      testMatch: /login\.spec\.ts|setup\.spec\.ts|screenshots\.spec\.ts/,
+      testMatch: /login\.spec\.ts|setup\.spec\.ts|settings\.spec\.ts|screenshots\.spec\.ts/,
       use: { ...devices["Desktop Chrome"], baseURL: REAL_BASE_URL, storageState: REAL_AUTH_FILE },
       dependencies: ["setup"],
     },
