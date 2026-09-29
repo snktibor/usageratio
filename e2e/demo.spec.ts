@@ -117,6 +117,41 @@ test("an unknown cycle falls back to the current one, and says so", async ({ pag
   await expect(page.getByRole("textbox", { name: "Current official consumption" })).toHaveValue("62.5");
 });
 
+test("the usage chart zooms into the last 24 hours and back, with the keys kept to the window", async ({ page }) => {
+  await page.goto("/en");
+
+  const section = page.getByRole("region", { name: "Consumption over time" });
+  const chart = section.getByRole("group", {
+    name: "Quota consumption in the cycle, by group and total, and sub-limits",
+  });
+  const readout = chart.locator('p[aria-live="polite"]');
+
+  await section.getByText("24 hours", { exact: true }).click();
+  await expect(section.getByRole("radio", { name: "24 hours" })).toBeChecked();
+  await chart.focus();
+  await chart.press("End");
+  const atEnd = await readout.textContent();
+  await chart.press("Home");
+  await expect(readout).not.toHaveText(atEnd ?? "");
+  // The table holds the window's hours only: 24 of them and the last sample.
+  await section.getByText("As a table").click();
+  await expect(section.locator("table tbody tr")).toHaveCount(25);
+
+  await section.getByText("Whole cycle", { exact: true }).click();
+  await expect(section.getByRole("radio", { name: "Whole cycle" })).toBeChecked();
+});
+
+test("a past cycle's chart zooms too, up to the end of the cycle", async ({ page }) => {
+  await page.goto("/en");
+  await page.getByRole("region", { name: "Previous cycles" }).getByRole("link").first().click();
+  await expect(page).toHaveURL(/cycle=/);
+
+  const models = page.getByRole("region", { name: "Models" });
+  await models.getByText("3 days", { exact: true }).click();
+  await models.getByText("As a table").click();
+  await expect(models.locator("table tbody tr").last().locator("th")).toContainText("end (");
+});
+
 test("a write attempt through the UI does not change anything", async ({ page }) => {
   await page.goto("/en");
 
