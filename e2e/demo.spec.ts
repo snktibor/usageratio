@@ -103,9 +103,10 @@ test("a previous cycle opens read-only from the list, and the way back leads to 
 test("an archived cycle without its reports opens as a summary", async ({ page }) => {
   await page.goto("/en");
 
-  const picker = page.getByRole("combobox", { name: "Cycle", exact: true });
-  const summaryOption = picker.locator("option", { hasText: "(summary only)" }).first();
-  await picker.selectOption((await summaryOption.getAttribute("value"))!);
+  // The previous cycles at the bottom list every archived one; an older one only has its summary left.
+  const history = page.getByRole("region", { name: "Previous cycles" });
+  await history.getByRole("listitem").filter({ hasText: "summary only" }).first().getByRole("link").click();
+  await expect(page).toHaveURL(/cycle=\d+$/);
   await expect(page.getByText("A past cycle, summary only")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Archived summary" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Groups" })).toBeVisible();
