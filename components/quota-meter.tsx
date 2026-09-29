@@ -6,6 +6,7 @@ import type { DashboardModel } from "@/lib/dashboard";
 import {
   formatCost,
   formatCycleMoment,
+  formatDateTime,
   formatDuration,
   formatHeroPercent,
   formatPercent,
@@ -132,7 +133,9 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
   const { quota } = view;
   // Token amounts mean tokens only against a limit: without one `quota` counts fractions of the budget.
   const tokenQuota = view.inTokens ? quota : null;
-  const showRemaining = tokenQuota !== null && model.showRemaining;
+  // A finished cycle has nothing left to spend, nor a pace to keep: only what it came to.
+  const { closed } = model;
+  const showRemaining = tokenQuota !== null && model.showRemaining && !closed;
   const style = quota ? STATUS_STYLE[quota.status] : UNKNOWN_STYLE;
   const StatusIcon = style.icon;
   const fillPercent = quota ? Math.min(1, quota.usedFraction) * 100 : 0;
@@ -153,7 +156,9 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
             <span aria-hidden="true" className="hero-figure text-ink-3">
               –%
             </span>
-            <span className="text-xl text-ink-2 sm:text-2xl">{t("no_official_value_yet")}</span>
+            <span className="text-xl text-ink-2 sm:text-2xl">
+              {closed ? t("no_official_value") : t("no_official_value_yet")}
+            </span>
           </>
         )}
         {view.calibrated && (
@@ -171,13 +176,15 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
       )}
 
       <div className="relative mt-12">
-        <span
-          aria-hidden="true"
-          className={`absolute -top-7 text-xs text-ink-2 ${nowAlign}`}
-          style={{ left: `${nowFraction * 100}%` }}
-        >
-          {t("now")}
-        </span>
+        {!closed && (
+          <span
+            aria-hidden="true"
+            className={`absolute -top-7 text-xs text-ink-2 ${nowAlign}`}
+            style={{ left: `${nowFraction * 100}%` }}
+          >
+            {t("now")}
+          </span>
+        )}
 
         <div
           {...meterAttributes(model, quota, tokenQuota, t, locale)}
@@ -190,18 +197,27 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
         </div>
 
         {/* Where the cycle stands. The page-coloured ring keeps it legible over the fill. */}
-        <div
-          aria-hidden="true"
-          className="absolute -top-1.5 h-8 w-0.5 -translate-x-1/2 bg-ink shadow-[0_0_0_2px_var(--color-page)]"
-          style={{ left: `${nowFraction * 100}%` }}
-        />
+        {!closed && (
+          <div
+            aria-hidden="true"
+            className="absolute -top-1.5 h-8 w-0.5 -translate-x-1/2 bg-ink shadow-[0_0_0_2px_var(--color-page)]"
+            style={{ left: `${nowFraction * 100}%` }}
+          />
+        )}
 
         <CycleRuler model={model} />
       </div>
 
       <p className="mt-6 flex max-w-2xl items-start gap-2.5 text-base text-ink-2">
         <StatusIcon className={`mt-1 shrink-0 ${style.iconColor}`} />
-        {quota ? (
+        {closed ? (
+          <span>
+            <strong className="font-medium text-ink">{t("cycle_closed")}</strong>{" "}
+            {quota
+              ? t("cycle_closed_used", { percent: formatHeroPercent(quota.usedFraction, locale) })
+              : t("cycle_closed_unknown")}
+          </span>
+        ) : quota ? (
           <span>
             <strong className="font-medium text-ink">{statusLabel(quota, t)}</strong>{" "}
             {paceSentence(model, view, quota, t, locale)}
@@ -250,17 +266,28 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
             <dd className="text-sm text-ink-3">{elapsedNote}</dd>
           </div>
         )}
-        <div>
-          <dt className="text-sm text-ink-3">{t("reset")}</dt>
-          <dd className="mt-1 text-2xl font-medium">
-            {t("time_left", { duration: formatDuration(model.cycle.endMs - model.generatedAt, locale) })}
-          </dd>
-          <dd className="text-sm text-ink-3">
-            {formatMoment(model.cycle.endMs, model, locale)}
-            {/* How far the cycle is belongs to neither figure: it moves here when its block is off. */}
-            {!showRemaining && <> · {elapsedNote}</>}
-          </dd>
-        </div>
+        {closed ? (
+          <div>
+            <dt className="text-sm text-ink-3">{t("cycle_span")}</dt>
+            {/* A date, not a weekday: the week in question is not this one. */}
+            <dd className="mt-1 text-2xl font-medium">{formatDateTime(model.cycle.endMs, model.timeZone, locale)}</dd>
+            <dd className="text-sm text-ink-3">
+              {t("cycle_started", { moment: formatDateTime(model.cycle.startMs, model.timeZone, locale) })}
+            </dd>
+          </div>
+        ) : (
+          <div>
+            <dt className="text-sm text-ink-3">{t("reset")}</dt>
+            <dd className="mt-1 text-2xl font-medium">
+              {t("time_left", { duration: formatDuration(model.cycle.endMs - model.generatedAt, locale) })}
+            </dd>
+            <dd className="text-sm text-ink-3">
+              {formatMoment(model.cycle.endMs, model, locale)}
+              {/* How far the cycle is belongs to neither figure: it moves here when its block is off. */}
+              {!showRemaining && <> · {elapsedNote}</>}
+            </dd>
+          </div>
+        )}
       </dl>
     </section>
   );

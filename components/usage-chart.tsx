@@ -57,7 +57,11 @@ export function UsageChart({
   if (model.total === 0) {
     body = <p className="mt-3 max-w-xl text-ink-2">{t("no_measured_usage_chart")}</p>;
   } else if (fractionPerToken === null) {
-    body = <p className="mt-3 max-w-xl text-ink-2">{t("chart_official_explanation")}</p>;
+    body = (
+      <p className="mt-3 max-w-xl text-ink-2">
+        {model.closed ? t("chart_closed_no_official") : t("chart_official_explanation")}
+      </p>
+    );
   } else {
     const groups: ChartSeries[] = model.timeline.groups.map((group) => ({
       id: `group:${group.groupId}`,
