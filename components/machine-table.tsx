@@ -37,6 +37,14 @@ function LastReport({ machine, model }: { machine: Machine; model: DashboardMode
   const locale = useLocale();
   const t = useTranslations("Widgets");
   const { icon: HealthIcon, iconColor } = HEALTH_ICON[machine.health];
+  // A finished cycle: its last report is a date; how the machine is doing today is not this page's story.
+  if (model.closed) {
+    return (
+      <time dateTime={new Date(machine.lastSeenAt).toISOString()} className="whitespace-nowrap text-sm text-ink-2">
+        {formatDateTime(machine.lastSeenAt, model.timeZone, locale)}
+      </time>
+    );
+  }
   return (
     <span className="flex items-center gap-2 whitespace-nowrap">
       <HealthIcon className={`shrink-0 ${iconColor}`} />

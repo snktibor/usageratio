@@ -13,6 +13,7 @@ import { UsageChart } from "@/components/usage-chart";
 import { EMPTY_ENTRY, useOfficialEntry, useSubLimitEntries } from "@/components/use-official-entry";
 import { Link } from "@/i18n/routing";
 import type { TokenMode } from "@/lib/config";
+import type { CycleKind } from "@/lib/cycle-options";
 import type { ProviderDashboardModel } from "@/lib/dashboard";
 import { formatDateTime, formatTokens } from "@/lib/format";
 import { applyGroundTruth, applySubLimitReading, parseOfficialPercent } from "@/lib/ground-truth";
@@ -25,20 +26,31 @@ const MODE_NOTE = {
   counter: "mode_note_counter",
 } as const satisfies Record<TokenMode, string>;
 
+/** What the previous-cycles list needs besides the provider's own history. */
+export interface HistoryContext {
+  /** groupId → colour, for every known group (an archived cycle may name one no longer reporting). */
+  groupColors: Record<string, string>;
+  /** A cycle's start → how it opens. */
+  kinds: Record<number, CycleKind>;
+}
+
 /**
  * The part of the dashboard an official usage figure can restate. The server
  * sends what the machines measured; the recalculation happens here, as the
- * figure is typed.
+ * figure is typed. A finished cycle (`model.closed`) shows the figure archived
+ * with it instead, and takes none.
  */
 function ProviderView({
   selected,
   providers,
   history,
+  historyContext,
   onProviderChange,
 }: {
   selected: ProviderDashboardModel;
   providers: ProviderDashboardModel[];
   history: CycleSummary[];
+  historyContext: HistoryContext;
   onProviderChange: (providerId: string) => void;
 }) {
   const locale = useLocale();
@@ -75,6 +87,14 @@ function ProviderView({
     [model, view, subEntries, subStatuses],
   );
 
+  const cycleInfo = {
+    label: selected.label,
+    start: formatDateTime(model.cycle.startMs, model.timeZone, locale),
+    end: formatDateTime(model.cycle.endMs, model.timeZone, locale),
+    timeZone: model.timeZone,
+    tokens: formatTokens(model.previousTotal, locale),
+  };
+
   return (
     <>
       <main className="mt-10 space-y-16 sm:mt-12">
@@ -91,6 +111,7 @@ function ProviderView({
             providerLabel={selected.label}
             providers={providers.map(({ id, label }) => ({ id, label }))}
             onProviderChange={onProviderChange}
+            readOnly={model.closed}
           >
             <SubLimitMeters model={model} subLimits={subLimits} onChange={setSubEntry} providerLabel={selected.label} />
           </GroundTruthInput>
@@ -125,25 +146,23 @@ function ProviderView({
             </p>
           </section>
         )}
-        <CycleHistory model={model} history={history} />
+        <CycleHistory
+          history={history}
+          timeZone={model.timeZone}
+          groupColors={historyContext.groupColors}
+          kinds={historyContext.kinds}
+          selectedStartMs={model.closed ? model.cycle.startMs : null}
+        />
       </main>
       <footer className="mt-16 max-w-2xl border-t border-hairline pt-6 text-sm leading-relaxed text-ink-3">
-        <p>
-          {t("cycle_info", {
-            label: selected.label,
-            start: formatDateTime(model.cycle.startMs, model.timeZone, locale),
-            end: formatDateTime(model.cycle.endMs, model.timeZone, locale),
-            timeZone: model.timeZone,
-            tokens: formatTokens(model.previousTotal, locale),
-          })}
-        </p>
+        <p>{model.closed ? t("cycle_info_closed", cycleInfo) : t("cycle_info", cycleInfo)}</p>
         <p className="mt-1">{t(MODE_NOTE[model.tokenMode])}</p>
       </footer>
     </>
   );
 }
 
-function writeProviderCookie(providerId: string) {
+export function writeProviderCookie(providerId: string) {
   try {
     const oneYear = 60 * 60 * 24 * 365;
     // biome-ignore lint/suspicious/noDocumentCookie: a plain preference cookie; the Cookie Store API is not available everywhere yet
@@ -163,9 +182,11 @@ function writeProviderCookie(providerId: string) {
 export function DashboardView({
   providers,
   historyByProvider,
+  historyContext,
 }: {
   providers: ProviderDashboardModel[];
   historyByProvider: Record<string, CycleSummary[]>;
+  historyContext: HistoryContext;
 }) {
   const [selectedId, setSelectedId] = useState(providers[0]!.id);
 
@@ -181,6 +202,7 @@ export function DashboardView({
       selected={selected}
       providers={providers}
       history={historyByProvider[selected.id] ?? []}
+      historyContext={historyContext}
       onProviderChange={selectProvider}
     />
   );

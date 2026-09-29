@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { hasLocale } from "next-intl";
 import { setRequestLocale } from "next-intl/server";
-import { Dashboard } from "@/components/dashboard";
+import { Dashboard, type PastSummary } from "@/components/dashboard";
 import { PinGate } from "@/components/pin-gate";
 import { StorageProblem } from "@/components/storage-problem";
 import { routing } from "@/i18n/routing";
@@ -10,28 +10,58 @@ import { isAuthenticated } from "@/lib/auth";
 import { currentTime } from "@/lib/clock";
 import { getConfig } from "@/lib/config";
 import { getCycle, getPreviousCycle } from "@/lib/cycle";
+import {
+  asCycle,
+  type CycleOption,
+  type CycleSelection,
+  listCycleOptions,
+  parseCycleParam,
+  periodOfCycle,
+  selectCycle,
+} from "@/lib/cycle-options";
 import { buildProviderDashboards, type ProviderDashboardModel } from "@/lib/dashboard";
 import { ensureDemoData } from "@/lib/demo/seed";
-import type { CycleSummary } from "@/lib/history";
+import { archivedOfficialEntries, type CycleSummary } from "@/lib/history";
 import { log } from "@/lib/log";
 import { currentOfficialEntries } from "@/lib/official-usage";
 import { PROVIDER_COOKIE } from "@/lib/preferences";
-import { mergeProviderIds } from "@/lib/providers";
+import { mergeProviderIds, providerLabel } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
-import { resolveConfig, storedProviderIds } from "@/lib/settings";
-import { loadEvents, loadHistory, loadIndexes } from "@/lib/usage-store";
+import {
+  NEUTRAL_COLOR,
+  resolveConfig,
+  resolveGroupColors,
+  storedProviderIds,
+  visibleProviderIds,
+} from "@/lib/settings";
+import { loadEvents, loadHistory, loadIndexes, loadOldestReportTime } from "@/lib/usage-store";
 
 // Rendered per request: the page depends on the session cookie and on live data.
 export const dynamic = "force-dynamic";
 
+const DAY_MS = 86_400_000;
+
 interface DashboardData {
+  /** Empty for a cycle only known from its archived summaries: `summaries` has those. */
   providers: ProviderDashboardModel[];
+  summaries: PastSummary[];
   timeZone: string;
+  generatedAt: number;
   historyByProvider: Record<string, CycleSummary[]>;
+  options: CycleOption[];
+  selection: CycleSelection;
+  /** What the export menu can download for the cycle on screen (app/api/export/route.ts); null: nothing. */
+  exportCycle: "current" | "previous" | null;
+  /** groupId → colour, for the archived summaries. */
+  groupColors: Record<string, string>;
 }
 
-/** Two round trips: the saved settings decide the cycle, the cycle decides which reports to read. */
-async function loadDashboard(): Promise<DashboardData> {
+/**
+ * The saved settings decide the cycle, the cycle decides which reports to
+ * read. A past cycle (`?cycle=`) reads everything still kept, since it may
+ * lie anywhere inside the retention.
+ */
+async function loadDashboard(requestedStartMs: number | null): Promise<DashboardData> {
   const now = currentTime();
   // Demo mode only: reseeds the synthetic data once it has gone stale.
   await ensureDemoData(now);
@@ -45,7 +75,10 @@ async function loadDashboard(): Promise<DashboardData> {
   const cycle = getCycle(now, config.reset);
   const previousCycle = getPreviousCycle(cycle, config.reset);
   // The previous cycle rides along: it is the footer's comparison and counter mode's baseline.
-  const since = previousCycle.start.getTime();
+  const since =
+    requestedStartMs === null
+      ? previousCycle.start.getTime()
+      : Math.min(previousCycle.start.getTime(), now.getTime() - config.retentionDays * DAY_MS);
   const { eventsByProvider, groups } = await loadEvents(providerIds, indexes.groups, since);
   // The reset is shared by every provider, so one cycle start also tells which stored ground-truth figures still apply.
   const officialUsage = currentOfficialEntries(indexes.officialUsage, cycle.start.getTime());
@@ -59,18 +92,62 @@ async function loadDashboard(): Promise<DashboardData> {
     eventsByProvider,
     rawOfficialUsage: indexes.officialUsage,
   });
-  const historyByProvider = await loadHistory(providerIds);
+  const [historyByProvider, oldestReportMs] = await Promise.all([
+    loadHistory(providerIds),
+    loadOldestReportTime(providerIds, indexes.groups),
+  ]);
+
+  const options = listCycleOptions({
+    now,
+    reset: config.reset,
+    archived: Object.values(historyByProvider).flat(),
+    retentionDays: config.retentionDays,
+    oldestReportMs,
+  });
+  const selection = selectCycle(options, requestedStartMs);
+  const { selected } = selection;
+  const isPrevious =
+    selected.startMs === previousCycle.start.getTime() && selected.endMs === previousCycle.end.getTime();
+  const store = { eventsByProvider, groups, machines: indexes.machines };
+  const colors = resolveGroupColors(groups);
+
+  let providers: ProviderDashboardModel[] = [];
+  let summaries: PastSummary[] = [];
+  if (selected.kind === "current") {
+    providers = buildProviderDashboards(now, config, providerIds, store, officialUsage);
+  } else if (selected.kind === "detail") {
+    const window = {
+      cycle: asCycle(selected),
+      previous: selection.previous ? asCycle(selection.previous) : getPreviousCycle(asCycle(selected), config.reset),
+    };
+    providers = buildProviderDashboards(
+      now,
+      // The cycle's own length decides how its days are labelled, whatever the settings say today.
+      { ...config, reset: { ...config.reset, period: periodOfCycle(selected) } },
+      providerIds,
+      // Only the machines that reported in it: which ones have gone quiet since is today's story.
+      { ...store, machines: [] },
+      archivedOfficialEntries(historyByProvider, selected),
+      window,
+    );
+  } else {
+    summaries = visibleProviderIds(config, providerIds).map((providerId) => ({
+      id: providerId,
+      label: providerLabel(providerId),
+      summary: (historyByProvider[providerId] ?? []).find((entry) => entry.start === selected.startMs) ?? null,
+    }));
+  }
 
   return {
-    providers: buildProviderDashboards(
-      now,
-      config,
-      providerIds,
-      { eventsByProvider, groups, machines: indexes.machines },
-      officialUsage,
-    ),
+    providers,
+    summaries,
     timeZone: config.reset.timeZone,
+    generatedAt: now.getTime(),
     historyByProvider,
+    options,
+    selection,
+    exportCycle: selected.kind === "current" ? "current" : isPrevious ? "previous" : null,
+    groupColors: Object.fromEntries(groups.map((group) => [group.groupId, colors.get(group.groupId) ?? NEUTRAL_COLOR])),
   };
 }
 
@@ -79,16 +156,19 @@ async function loadDashboard(): Promise<DashboardData> {
  * from the very first paint (see components/dashboard-view.tsx: it reads the
  * order, not the cookie, so the client and the server always agree).
  */
-function withSelectedProviderFirst(
-  providers: ProviderDashboardModel[],
-  selectedId: string | undefined,
-): ProviderDashboardModel[] {
+function withSelectedProviderFirst<T extends { id: string }>(providers: T[], selectedId: string | undefined): T[] {
   const index = selectedId ? providers.findIndex((provider) => provider.id === selectedId) : -1;
   if (index <= 0) return providers;
   return [providers[index]!, ...providers.slice(0, index), ...providers.slice(index + 1)];
 }
 
-export default async function Page({ params }: { params: Promise<{ locale: string }> }) {
+export default async function Page({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ locale: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { locale } = await params;
   if (hasLocale(routing.locales, locale)) setRequestLocale(locale);
 
@@ -97,7 +177,7 @@ export default async function Page({ params }: { params: Promise<{ locale: strin
 
   try {
     // Usage data and settings are only ever read after the session check passed.
-    if (await isAuthenticated()) data = await loadDashboard();
+    if (await isAuthenticated()) data = await loadDashboard(parseCycleParam((await searchParams).cycle));
   } catch (error) {
     storageError = error;
     log.error("dashboard.load_failed", { err: error });
@@ -112,8 +192,14 @@ export default async function Page({ params }: { params: Promise<{ locale: strin
   return (
     <Dashboard
       providers={withSelectedProviderFirst(data.providers, selectedProviderId)}
+      summaries={withSelectedProviderFirst(data.summaries, selectedProviderId)}
       timeZone={data.timeZone}
+      generatedAt={data.generatedAt}
       historyByProvider={data.historyByProvider}
+      options={data.options}
+      selection={data.selection}
+      exportCycle={data.exportCycle}
+      groupColors={data.groupColors}
     />
   );
 }
