@@ -99,7 +99,7 @@ and saves the session for the `real` and `mobile` projects to reuse.
 
 | Spec | Covers |
 | --- | --- |
-| `demo.spec.ts` | dashboard rendering in demo mode, provider switching, chart keyboard access, settings dialog, that a write attempt is rejected, locale routing |
+| `demo.spec.ts` | dashboard rendering in demo mode, provider switching, chart keyboard access, the settings page, that a write attempt is rejected, locale routing |
 | `login.spec.ts` | the real PIN flow: wrong PIN throttling, cookies set on success, logout, an ingested report showing up after reload, unauthenticated/foreign-origin requests rejected |
 | `mobile.spec.ts` | no horizontal overflow at a phone viewport, on the PIN page, dashboard, and setup page |
 | `setup.spec.ts` | the Setup page's ZIP download contents, and the sudo-gated "copy API token" flow |

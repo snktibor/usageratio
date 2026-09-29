@@ -31,7 +31,8 @@
     "export_json": "JSON (.json)",
     "credit_made_by": "Made by",
     "footer_source": "Source",
-    "footer_version": "v{version}"
+    "footer_version": "v{version}",
+    "dashboard_settings": "Settings"
   },
   "Settings": {
     "audit_action_created": "Added",
@@ -59,7 +60,6 @@
     "delete": "Delete",
     "counts_towards": "Counts towards:",
     "no_visible_account": "none of the visible accounts",
-    "reset": "Reset",
     "group_name_rules": "The group name can be 1-64 characters: letter, number, space, dot, hyphen, underscore, starting with a letter or number.",
     "at_least_one_visible_account": "At least one provider must be visible on the dashboard.",
     "reset_time_format_error": "Provide the reset time in hour:minute format, e.g., 00:00.",
@@ -262,7 +262,26 @@
     "alerts_test_sent": "Test message sent.",
     "alerts_test_failed": "Could not send the test message. Check the URL and try again.",
     "invalid_alert_webhook": "Enter an https webhook URL that is not a local or private address, or clear the field to turn alerts off.",
-    "alerts_need_at_least_one_threshold": "Add at least one threshold."
+    "alerts_need_at_least_one_threshold": "Add at least one threshold.",
+    "back_to_dashboard": "Dashboard",
+    "sections_nav_aria": "Settings sections",
+    "section_general": "General",
+    "section_budgets": "Budgets",
+    "section_providers": "Providers",
+    "section_groups": "Groups",
+    "section_machines": "Machines",
+    "section_alerts": "Alerts",
+    "section_tokens": "Tokens",
+    "section_danger": "Danger zone",
+    "language_heading": "Language",
+    "cycle_heading": "Cycle",
+    "unsaved_changes": "Unsaved changes",
+    "saved_notice": "Saved.",
+    "demo_read_only": "Demo mode: settings are not saved.",
+    "leave_title": "Leave without saving?",
+    "leave_body": "Your changes to the settings have not been saved. They are lost if you leave this page now.",
+    "leave_stay": "Stay",
+    "leave_confirm": "Leave"
   },
   "Alerts": {
     "threshold_text": "{label} has used {threshold}% of its budget (currently at {used}%); the cycle ends {end}."

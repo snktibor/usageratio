@@ -1,10 +1,11 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useId, useMemo } from "react";
+import { useEffect, useId, useState } from "react";
 import { type Draft, parseTimeZone } from "@/components/settings/draft";
 import { StatusLine } from "@/components/status-line";
 import { FIELD, QUIET_BUTTON } from "@/components/ui/classes";
+import { Segmented } from "@/components/ui/segmented";
 import { formatMonthDay, weekdayLong } from "@/lib/format";
 import { weekdayOrder } from "@/lib/week";
 
@@ -13,8 +14,8 @@ const MONTH_DAYS = Array.from({ length: 31 }, (_, index) => index + 1);
 /**
  * Every IANA zone the browser knows, the browser's own first, then UTC, with
  * the saved one kept even if this browser does not list it. Only computed in
- * the browser: the form is mounted when the dialog opens, never during server
- * rendering.
+ * the browser, after hydration: the server's zone list and its own time zone
+ * are not the visitor's.
  */
 function timeZoneOptions(current: string, detected: string | null): string[] {
   const known = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
@@ -42,17 +43,38 @@ export function ResetSection({
 }) {
   const locale = useLocale();
   const t = useTranslations("Settings");
-  const detected = useMemo(browserTimeZone, []);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the list is built once per opening; the saved zone only seeds it
-  const zones = useMemo(() => timeZoneOptions(draft.timeZone, detected), []);
+  const [detected, setDetected] = useState<string | null>(null);
+  const [zones, setZones] = useState<string[]>([]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the list is built once per page load; the saved zone only seeds it
+  useEffect(() => {
+    const zone = browserTimeZone();
+    setDetected(zone);
+    setZones(timeZoneOptions(draft.timeZone, zone));
+  }, []);
   const zoneListId = useId();
+  const periodName = useId();
   const zoneInvalid = parseTimeZone(draft.timeZone) === null;
 
   return (
     <section aria-labelledby={`${titleId}-reset`} className="space-y-4">
       <h3 id={`${titleId}-reset`} className="font-medium">
-        {t("reset")}
+        {t("cycle_heading")}
       </h3>
+
+      {/* The cycle's length sits with its reset: the budget's limits only read it. */}
+      <fieldset>
+        <legend className="text-sm text-ink-3">{t("type")}</legend>
+        <Segmented
+          name={periodName}
+          value={draft.period}
+          onChange={(period) => onPatch({ period })}
+          className="mt-1.5"
+          options={[
+            { value: "weekly", label: t("weekly") },
+            { value: "monthly", label: t("monthly") },
+          ]}
+        />
+      </fieldset>
 
       <div className="flex flex-wrap gap-x-5 gap-y-4">
         {draft.period === "weekly" ? (

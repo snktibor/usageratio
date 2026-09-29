@@ -32,7 +32,7 @@ class SudoRefused extends Error {}
  * Sudo mode's unlock prompt: shown wherever an action or a copy failed with
  * `sudo_required`. Confirming the PIN grants the 5-minute window.
  *
- * Not a <form>: in the settings dialog it sits inside the settings <form>, and
+ * Not a <form>: on the settings page it sits inside the settings <form>, and
  * Chromium stops a nested form's submit event at the outer form, before React
  * sees it, so the browser would submit the PIN as a GET to the page's own URL.
  * The button's click and Enter in the field both confirm instead.
@@ -147,7 +147,7 @@ export function SudoUnlock({
             setPin(numeric ? value.replace(/\D/g, "") : value);
           }}
           onKeyDown={(event) => {
-            // Enter confirms the PIN; it must not submit a form around this prompt (the settings dialog's).
+            // Enter confirms the PIN; it must not submit a form around this prompt (the settings page's).
             if (event.key !== "Enter") return;
             event.preventDefault();
             confirm();

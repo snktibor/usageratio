@@ -31,7 +31,8 @@
     "export_json": "JSON (.json)",
     "credit_made_by": "Erstellt von",
     "footer_source": "Quellcode",
-    "footer_version": "v{version}"
+    "footer_version": "v{version}",
+    "dashboard_settings": "Einstellungen"
   },
   "Settings": {
     "audit_action_created": "Hinzugefügt",
@@ -59,7 +60,6 @@
     "delete": "Löschen",
     "counts_towards": "Zählt zu:",
     "no_visible_account": "keinem sichtbaren Konto",
-    "reset": "Reset",
     "group_name_rules": "Der Gruppenname darf 1–64 Zeichen lang sein: Buchstaben, Zahlen, Leerzeichen, Punkt, Bindestrich und Unterstrich, beginnend mit einem Buchstaben oder einer Zahl.",
     "at_least_one_visible_account": "Mindestens ein Anbieter muss im Dashboard sichtbar sein.",
     "reset_time_format_error": "Gib die Reset-Zeit im Format Stunde:Minute an, z. B. 00:00.",
@@ -262,7 +262,26 @@
     "alerts_test_sent": "Testnachricht gesendet.",
     "alerts_test_failed": "Die Testnachricht konnte nicht gesendet werden. Prüfe die URL und versuche es erneut.",
     "invalid_alert_webhook": "Gib eine https-Webhook-URL ein, die keine lokale oder private Adresse ist, oder leere das Feld, um Warnungen auszuschalten.",
-    "alerts_need_at_least_one_threshold": "Füge mindestens eine Schwelle hinzu."
+    "alerts_need_at_least_one_threshold": "Füge mindestens eine Schwelle hinzu.",
+    "back_to_dashboard": "Dashboard",
+    "sections_nav_aria": "Bereiche der Einstellungen",
+    "section_general": "Allgemein",
+    "section_budgets": "Budgets",
+    "section_providers": "Anbieter",
+    "section_groups": "Gruppen",
+    "section_machines": "Maschinen",
+    "section_alerts": "Warnungen",
+    "section_tokens": "Tokens",
+    "section_danger": "Gefahrenzone",
+    "language_heading": "Sprache",
+    "cycle_heading": "Zyklus",
+    "unsaved_changes": "Ungespeicherte Änderungen",
+    "saved_notice": "Gespeichert.",
+    "demo_read_only": "Demo-Modus: Einstellungen werden nicht gespeichert.",
+    "leave_title": "Ohne Speichern verlassen?",
+    "leave_body": "Deine Änderungen an den Einstellungen sind nicht gespeichert. Sie gehen verloren, wenn du die Seite jetzt verlässt.",
+    "leave_stay": "Bleiben",
+    "leave_confirm": "Verlassen"
   },
   "Alerts": {
     "threshold_text": "{label} hat {threshold}% seines Kontingents verbraucht (aktuell bei {used}%); der Zyklus endet am {end}."

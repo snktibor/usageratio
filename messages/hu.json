@@ -31,7 +31,8 @@
     "export_json": "JSON (.json)",
     "credit_made_by": "Készítette",
     "footer_source": "Forráskód",
-    "footer_version": "v{version}"
+    "footer_version": "v{version}",
+    "dashboard_settings": "Beállítások"
   },
   "Settings": {
     "audit_action_created": "Hozzáadás",
@@ -59,7 +60,6 @@
     "delete": "Törlés",
     "counts_towards": "Beszámít:",
     "no_visible_account": "egyik látható fiókba sem",
-    "reset": "Reset",
     "group_name_rules": "A csoportnév 1–64 karakter lehet: betű, szám, szóköz, pont, kötőjel és aláhúzás, az elején betűvel vagy számmal.",
     "at_least_one_visible_account": "Legalább egy szolgáltatónak látszania kell a dashboardon.",
     "reset_time_format_error": "Add meg a reset időpontját óra:perc formában, például 00:00.",
@@ -262,7 +262,26 @@
     "alerts_test_sent": "Teszt üzenet elküldve.",
     "alerts_test_failed": "A teszt üzenetet nem sikerült elküldeni. Ellenőrizd az URL-t, és próbáld újra.",
     "invalid_alert_webhook": "Adj meg egy https webhook URL-t, ami nem helyi vagy privát cím, vagy törld a mezőt a riasztások kikapcsolásához.",
-    "alerts_need_at_least_one_threshold": "Adj meg legalább egy küszöböt."
+    "alerts_need_at_least_one_threshold": "Adj meg legalább egy küszöböt.",
+    "back_to_dashboard": "Dashboard",
+    "sections_nav_aria": "Beállítások részei",
+    "section_general": "Általános",
+    "section_budgets": "Keretek",
+    "section_providers": "Szolgáltatók",
+    "section_groups": "Csoportok",
+    "section_machines": "Gépek",
+    "section_alerts": "Riasztások",
+    "section_tokens": "Tokenek",
+    "section_danger": "Veszélyes műveletek",
+    "language_heading": "Nyelv",
+    "cycle_heading": "Ciklus",
+    "unsaved_changes": "Mentetlen változások",
+    "saved_notice": "Mentve.",
+    "demo_read_only": "Demó mód: a beállítások nem menthetők.",
+    "leave_title": "Kilépsz mentés nélkül?",
+    "leave_body": "A beállítások változásai még nincsenek elmentve. Ha most elhagyod az oldalt, elvesznek.",
+    "leave_stay": "Maradok",
+    "leave_confirm": "Elvetem"
   },
   "Alerts": {
     "threshold_text": "A(z) {label} elhasználta a kerete {threshold}%-át (jelenleg {used}%-nál tart); a ciklus itt ér véget: {end}."

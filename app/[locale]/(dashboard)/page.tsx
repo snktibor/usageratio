@@ -14,12 +14,11 @@ import { buildProviderDashboards, type ProviderDashboardModel } from "@/lib/dash
 import { ensureDemoData } from "@/lib/demo/seed";
 import type { CycleSummary } from "@/lib/history";
 import { log } from "@/lib/log";
-import { modelKeysIn } from "@/lib/models";
 import { currentOfficialEntries } from "@/lib/official-usage";
 import { PROVIDER_COOKIE } from "@/lib/preferences";
 import { mergeProviderIds } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
-import { buildSettingsView, resolveConfig, type SettingsView, storedProviderIds } from "@/lib/settings";
+import { resolveConfig, storedProviderIds } from "@/lib/settings";
 import { loadEvents, loadHistory, loadIndexes } from "@/lib/usage-store";
 
 // Rendered per request: the page depends on the session cookie and on live data.
@@ -27,7 +26,7 @@ export const dynamic = "force-dynamic";
 
 interface DashboardData {
   providers: ProviderDashboardModel[];
-  settings: SettingsView;
+  timeZone: string;
   historyByProvider: Record<string, CycleSummary[]>;
 }
 
@@ -70,15 +69,7 @@ async function loadDashboard(): Promise<DashboardData> {
       { eventsByProvider, groups, machines: indexes.machines },
       officialUsage,
     ),
-    // The models seen lately, for picking a sub-limit's on the settings panel.
-    settings: buildSettingsView(
-      config,
-      groups,
-      providerIds,
-      Object.fromEntries(
-        Object.entries(eventsByProvider).map(([providerId, events]) => [providerId, modelKeysIn(events)]),
-      ),
-    ),
+    timeZone: config.reset.timeZone,
     historyByProvider,
   };
 }
@@ -121,7 +112,7 @@ export default async function Page({ params }: { params: Promise<{ locale: strin
   return (
     <Dashboard
       providers={withSelectedProviderFirst(data.providers, selectedProviderId)}
-      settings={data.settings}
+      timeZone={data.timeZone}
       historyByProvider={data.historyByProvider}
     />
   );
