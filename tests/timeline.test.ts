@@ -24,11 +24,11 @@ describe("sampleTimes", () => {
     expect(times).toEqual([0, 1, 2, 3, 4, 5, 5.5].map((h) => START + h * HOUR));
   });
 
-  it("widens the step for a month", () => {
+  it("samples a month hourly too, so a zoomed chart can show every hour", () => {
     const end = START + 31 * 24 * HOUR;
     const times = sampleTimes(START, end, end);
-    expect(times[1]! - times[0]!).toBe(4 * HOUR);
-    expect(times.length).toBeLessThanOrEqual(200);
+    expect(times[1]! - times[0]!).toBe(HOUR);
+    expect(times).toHaveLength(31 * 24 + 1);
     expect(times[times.length - 1]).toBe(end);
   });
 
