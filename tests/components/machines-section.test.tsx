@@ -8,6 +8,11 @@ const GROUPS: DraftGroup[] = [
   { id: "Personal", color: "#3987e5", colorText: "#3987e5", hasReports: true, excluded: [] },
 ];
 
+const TWO_GROUPS: DraftGroup[] = [
+  ...GROUPS,
+  { id: "Work", color: "#e5a139", colorText: "#e5a139", hasReports: true, excluded: [] },
+];
+
 const MACHINE = {
   providerId: "claude",
   machineId: "mac-1",
@@ -125,15 +130,53 @@ describe("MachinesSection", () => {
     expect(onManaged).toHaveBeenCalled();
   });
 
-  it("refuses a rename onto an id one of its providers already uses, without sending anything", async () => {
+  it("offers a merge for a rename onto another machine's name, and merges every entry once confirmed", async () => {
+    const onManaged = vi.fn();
     const fetchMock = mockFetch(
       jsonResponse({
         machines: [
-          MACHINE,
-          { ...MACHINE, providerId: "openai" },
-          { ...MACHINE, providerId: "openai", machineId: "pc" },
+          { ...MACHINE, groupId: "Personal" },
+          { ...MACHINE, providerId: "openai", groupId: "Personal" },
+          { ...MACHINE, providerId: "openai", machineId: "pc", groupId: "Work" },
         ],
       }),
+      jsonResponse({ ok: true }),
+      jsonResponse({ ok: true }),
+      jsonResponse({ machines: [{ ...MACHINE, machineId: "pc", groupId: "Work" }] }),
+    );
+    renderWithIntl(<MachinesSection titleId="settings" groups={TWO_GROUPS} onManaged={onManaged} />);
+
+    fireEvent.click(await screen.findByText("mac-1"));
+    const input = screen.getByLabelText(/rename.*mac-1/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "pc" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("Merge “mac-1” into “pc”?")).not.toBeNull();
+    expect(within(dialog).getByText(/move under “pc” \(Work\)/)).not.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const confirmButton = within(dialog).getByRole("button", { name: /yes/i });
+    await waitFor(() => expect(confirmButton).toHaveProperty("disabled", false), { timeout: 4000 });
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    expect(fetchMock.mock.calls.slice(1, 3).map((call) => [call[0], call[1].body])).toEqual([
+      ["/api/machines/claude/mac-1", JSON.stringify({ id: "pc", group: "Work", merge: true })],
+      ["/api/machines/openai/mac-1", JSON.stringify({ id: "pc", group: "Work", merge: true })],
+    ]);
+    expect(await screen.findByText("Merged “mac-1” into “pc”.")).not.toBeNull();
+    expect(onManaged).toHaveBeenCalled();
+  }, 8000);
+
+  it("asks for the PIN when a merge needs sudo, and carries on with it once unlocked", async () => {
+    const fetchMock = mockFetch(
+      jsonResponse({ machines: [MACHINE, { ...MACHINE, machineId: "pc" }] }),
+      jsonResponse({ error: "sudo_required" }, false, 403),
+      jsonResponse({ numeric: true }),
+      { ok: true, status: 204, json: async () => ({}) } as Response,
+      jsonResponse({ ok: true }),
+      jsonResponse({ machines: [{ ...MACHINE, machineId: "pc" }] }),
     );
     renderWithIntl(<MachinesSection titleId="settings" groups={GROUPS} onManaged={vi.fn()} />);
 
@@ -141,11 +184,50 @@ describe("MachinesSection", () => {
     const input = screen.getByLabelText(/rename.*mac-1/i) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "pc" } });
     fireEvent.keyDown(input, { key: "Enter" });
+    const dialog = await screen.findByRole("alertdialog");
+    const confirmButton = within(dialog).getByRole("button", { name: /yes/i });
+    await waitFor(() => expect(confirmButton).toHaveProperty("disabled", false), { timeout: 4000 });
+    fireEvent.click(confirmButton);
 
-    expect((await screen.findByRole("alert")).textContent).toBe(
-      "There is already a machine named “pc” for OpenAI. Nothing was renamed.",
+    const unlock = await screen.findByRole("button", { name: "Unlock" });
+    fireEvent.change(document.getElementById("sudo-pin")!, { target: { value: "12345" } });
+    fireEvent.click(unlock);
+
+    expect(await screen.findByText("Merged “mac-1” into “pc”.")).not.toBeNull();
+    expect(fetchMock.mock.calls[4]![0]).toBe("/api/machines/claude/mac-1");
+    expect(fetchMock.mock.calls[4]![1].body).toBe(JSON.stringify({ id: "pc", group: "Personal", merge: true }));
+  }, 8000);
+
+  it("moves every provider's entry of a machine to the group picked for it", async () => {
+    const onManaged = vi.fn();
+    const fetchMock = mockFetch(
+      jsonResponse({ machines: [MACHINE, { ...MACHINE, providerId: "openai" }] }),
+      jsonResponse({ ok: true }),
+      jsonResponse({ ok: true }),
     );
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    renderWithIntl(<MachinesSection titleId="settings" groups={TWO_GROUPS} onManaged={onManaged} />);
+
+    const picker = (await screen.findByLabelText("Group of “mac-1”")) as HTMLSelectElement;
+    expect(picker.value).toBe("Personal");
+    fireEvent.change(picker, { target: { value: "Work" } });
+
+    expect(await screen.findByText("Moved “mac-1” to Work.")).not.toBeNull();
+    expect(fetchMock.mock.calls.slice(1).map((call) => [call[0], call[1].body])).toEqual([
+      ["/api/machines/claude/mac-1", JSON.stringify({ group: "Work" })],
+      ["/api/machines/openai/mac-1", JSON.stringify({ group: "Work" })],
+    ]);
+    expect((screen.getByLabelText("Group of “mac-1”") as HTMLSelectElement).value).toBe("Work");
+    expect(onManaged).toHaveBeenCalled();
+  });
+
+  it("says to save the settings first when the picked group is not stored yet", async () => {
+    mockFetch(jsonResponse({ machines: [MACHINE] }), jsonResponse({ error: "group_not_found" }, false, 404));
+    renderWithIntl(<MachinesSection titleId="settings" groups={TWO_GROUPS} onManaged={vi.fn()} />);
+
+    fireEvent.change(await screen.findByLabelText("Group of “mac-1”"), { target: { value: "Work" } });
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "“Work” is not saved yet. Save the settings first, then move the machine.",
+    );
   });
 
   it("says which providers were renamed when a rename fails half way, and reloads the list", async () => {

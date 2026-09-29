@@ -28,11 +28,12 @@ import type { ReportMode, UsageReport } from "@/lib/validation";
  *   usage:events:{providerId}:{groupId}  ZSET  score = report time (epoch ms)
  *                                              member = {"m": machineId, "t": tokens, "ts": ms,
  *                                                        "b": {modelId: tokens}, "$": costUsd,
- *                                                        "$b": {modelId: costUsd}, "c": 1}
+ *                                                        "$b": {modelId: costUsd}, "c": 1, "x": 1}
  *                                              ("b", the split by model, only from clients that send one;
  *                                              "$"/"$b", the API-list-price cost estimate and its split by
  *                                              model, only from a client that opted in (lib/setup.ts COST);
- *                                              "c" marks a day's checkpoint, see lib/days.ts)
+ *                                              "c" marks a day's checkpoint, see lib/days.ts; "x" a merged
+ *                                              machine's carry-over, see lib/machine-merge.ts)
  *   usage:groups            HASH  groupId   → {"color": "#rrggbb", "ts": first-seen ms}
  *                                 (a bare ms number in entries older than group colours)
  *   usage:machines          HASH  providerId:machineId → {"g": groupId, "ts": ms, "t": tokens}
@@ -75,7 +76,7 @@ const DAY_MS = 86_400_000;
  * COST): absent for every client that does not opt in, and always absent from
  * a checkpoint, since a day's split carries no cost of its own (lib/days.ts).
  */
-function eventMember(
+export function eventMember(
   machineId: string,
   tokens: number,
   timestampMs: number,
@@ -83,6 +84,7 @@ function eventMember(
   costUsd: number | undefined,
   modelCosts: Record<string, number> | undefined,
   checkpoint = false,
+  carried = false,
 ): string {
   const entries = Object.entries(models ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   const costEntries = Object.entries(modelCosts ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
@@ -94,6 +96,7 @@ function eventMember(
     ...(costUsd !== undefined && { $: costUsd }),
     ...(costEntries.length > 0 && { $b: Object.fromEntries(costEntries) }),
     ...(checkpoint && { c: 1 }),
+    ...(carried && { x: 1 }),
   });
 }
 
@@ -281,11 +284,11 @@ export async function storeReport(
   return { ok: true, duplicate, newGroup: Number(plan.result(results, "group")) === 1, newProviders, heartbeat };
 }
 
-function parseEvent(raw: unknown, groupId: string): UsageEvent | null {
+export function parseEvent(raw: unknown, groupId: string): UsageEvent | null {
   try {
     const value: unknown = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (typeof value !== "object" || value === null) return null;
-    const { m, t, ts, b, c, $: cost, $b: modelCostsRaw } = value as Record<string, unknown>;
+    const { m, t, ts, b, c, x, $: cost, $b: modelCostsRaw } = value as Record<string, unknown>;
     if (typeof m !== "string" || typeof t !== "number" || typeof ts !== "number") return null;
     if (!Number.isFinite(t) || t < 0 || !Number.isFinite(ts)) return null;
     const models = parseModelSplit(b);
@@ -302,6 +305,7 @@ function parseEvent(raw: unknown, groupId: string): UsageEvent | null {
       ...(costUsd !== undefined && { costUsd }),
       ...(modelCosts && { modelCosts }),
       ...(c === 1 && { checkpoint: true }),
+      ...(x === 1 && { carried: true }),
     };
   } catch {
     return null;
@@ -492,7 +496,14 @@ export async function loadEvents(
       for (const raw of members) {
         const event = parseEvent(raw, groupId);
         if (!event) continue;
-        const identity = JSON.stringify([event.machineId, event.groupId, event.tokens, event.ts, !!event.checkpoint]);
+        const identity = JSON.stringify([
+          event.machineId,
+          event.groupId,
+          event.tokens,
+          event.ts,
+          !!event.checkpoint,
+          !!event.carried,
+        ]);
         if (!seen.has(identity)) {
           seen.add(identity);
           target.push(event);

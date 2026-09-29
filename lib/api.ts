@@ -47,6 +47,8 @@ export type ApiErrorCode =
   | "not_found"
   | "demo_read_only"
   | "machine_exists"
+  | "merge_unsupported"
+  | "group_not_found"
   | "group_exists"
   | "group_has_events"
   | "provider_has_events"

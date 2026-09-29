@@ -6,10 +6,11 @@
  *   usage:events:{providerId}:{groupId}   ZSET   score = report time (epoch ms)
  *                                                 member = {"m": machineId, "t": tokens, "ts": ms,
  *                                                           "b": {modelId: tokens}, "$": usd,
- *                                                           "$b": {modelId: usd}, "c": 1}
+ *                                                           "$b": {modelId: usd}, "c": 1, "x": 1}
  *                                                 ("b", the split by model, only from clients that send one;
  *                                                 "$"/"$b", the opt-in cost estimate; "c" marks a
- *                                                 day's or hour's checkpoint, see lib/days.ts)
+ *                                                 day's or hour's checkpoint, see lib/days.ts; "x" a
+ *                                                 merged machine's carry-over, see lib/machine-merge.ts)
  *   usage:groups            HASH  groupId   → {"color": "#rrggbb", "ts": first-seen ms}
  *                                 (a bare ms number in entries older than group colours)
  *   usage:machines          HASH  providerId:machineId → {"g": groupId, "ts": ms, "t": tokens,

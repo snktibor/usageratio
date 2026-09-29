@@ -155,6 +155,76 @@ describe("PATCH /api/machines/[provider]/[machine]", () => {
     expect(body).toEqual({ ok: true, affected: { events: 1, machines: 1, groups: 0 } });
     expect(await getRedis().hexists(KEYS.machines, "claude:mac-1-renamed")).toBe(1);
   });
+
+  it("answers 200 and moves it to another group, without needing sudo", async () => {
+    const cookie = await seedSession(PIN);
+    await ingest({ machineId: "mac-1", groupId: "Personal" });
+    await ingest({ machineId: "mac-2", groupId: "Work" });
+    const response = await patchMachine(
+      request("http://localhost/api/machines/claude/mac-1", {
+        method: "PATCH",
+        body: JSON.stringify({ group: "Work" }),
+        headers: { cookie },
+      }),
+      { params },
+    );
+    expect(response.status).toBe(200);
+    expect(JSON.parse((await getRedis().hget<string>(KEYS.machines, "claude:mac-1"))!).g).toBe("Work");
+  });
+
+  it("answers 404 group_not_found for a group nobody defined", async () => {
+    const cookie = await seedSession(PIN);
+    await ingest({ machineId: "mac-1" });
+    const response = await patchMachine(
+      request("http://localhost/api/machines/claude/mac-1", {
+        method: "PATCH",
+        body: JSON.stringify({ group: "Nowhere" }),
+        headers: { cookie },
+      }),
+      { params },
+    );
+    expect(response.status).toBe(404);
+    expect((await response.json()).error).toBe("group_not_found");
+  });
+
+  it("answers 400 without an id or a group", async () => {
+    const cookie = await seedSession(PIN);
+    await ingest({ machineId: "mac-1" });
+    const response = await patchMachine(
+      request("http://localhost/api/machines/claude/mac-1", {
+        method: "PATCH",
+        body: JSON.stringify({ merge: true }),
+        headers: { cookie },
+      }),
+      { params },
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("answers 403 sudo_required for a merge without a sudo grant, and merges once granted", async () => {
+    const cookie = await seedSession(PIN);
+    await ingest({ machineId: "mac-1" });
+    await ingest({ machineId: "mac-2" });
+    const merge = () =>
+      patchMachine(
+        request("http://localhost/api/machines/claude/mac-1", {
+          method: "PATCH",
+          body: JSON.stringify({ id: "mac-2", merge: true }),
+          headers: { cookie },
+        }),
+        { params },
+      );
+
+    const refused = await merge();
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).error).toBe("sudo_required");
+
+    await grantSudo(cookie);
+    const merged = await merge();
+    expect(merged.status).toBe(200);
+    expect(await getRedis().hexists(KEYS.machines, "claude:mac-1")).toBe(0);
+    expect(await getRedis().hexists(KEYS.machines, "claude:mac-2")).toBe(1);
+  });
 });
 
 describe("DELETE /api/machines/[provider]/[machine]", () => {
