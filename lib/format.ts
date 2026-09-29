@@ -106,6 +106,11 @@ export function formatDateTime(ms: number, timeZone: string, locale: string): st
   return zoned(ms, timeZone, locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+/** "szept. 21. 00:00 – szept. 28. 00:00": a cycle's span, the end exclusive. */
+export function formatCycleRange(startMs: number, endMs: number, timeZone: string, locale: string): string {
+  return `${formatDateTime(startMs, timeZone, locale)} – ${formatDateTime(endMs, timeZone, locale)}`;
+}
+
 /** "2026. szept. 21. 14:05:09": a moment worth pinning down to the second, such as an audit entry. */
 export function formatTimestamp(ms: number, timeZone: string, locale: string): string {
   return zoned(ms, timeZone, locale, {

@@ -5,7 +5,7 @@ import { useId } from "react";
 import { StopCircleIcon } from "@/components/icons";
 import { StatusLine } from "@/components/status-line";
 import type { EntryStatus } from "@/components/use-official-entry";
-import { formatDateTime, formatFactor, formatPercent, formatTokens } from "@/lib/format";
+import { formatDateTime, formatFactor, formatHeroPercent, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
 import type { Translator } from "@/lib/i18n";
 
@@ -26,14 +26,17 @@ interface GroundTruthInputProps {
   onProviderChange: (providerId: string) => void;
   /** Under the field: the provider's sub-limits, if it has any. */
   children?: React.ReactNode;
+  /** A finished cycle: the figure archived with it is shown, never edited. */
+  readOnly?: boolean;
 }
 
 function hint(
-  { invalid, enteredAt, view, timeZone, providerLabel }: GroundTruthInputProps,
+  { invalid, enteredAt, view, timeZone, providerLabel, readOnly: readOnlyCycle }: GroundTruthInputProps,
   t: Translator<"Widgets">,
   locale: string,
 ): string {
   if (invalid) return t("number_between_0_100");
+  if (readOnlyCycle && !view.calibrated) return t("official_not_archived", { label: providerLabel });
   if (!view.calibrated) {
     if (!view.inTokens) {
       return t("enter_official_no_token", { label: providerLabel });
@@ -41,7 +44,9 @@ function hint(
     return t("enter_official_with_token", { label: providerLabel });
   }
 
-  const entered = enteredAt === null ? "" : t("entered_at", { time: formatDateTime(enteredAt, timeZone, locale) });
+  // An archived figure's only date is the end of its cycle: "entered at" would not be true.
+  const entered =
+    enteredAt === null || readOnlyCycle ? "" : t("entered_at", { time: formatDateTime(enteredAt, timeZone, locale) });
   if (view.measured.total === 0) {
     return t("no_consumption_yet", { entered });
   }
@@ -64,7 +69,8 @@ function hint(
 export function GroundTruthInput(props: GroundTruthInputProps) {
   const locale = useLocale();
   const t = useTranslations("Widgets");
-  const { raw, onChange, invalid, status, view, providerId, providerLabel, providers, onProviderChange } = props;
+  const { raw, onChange, invalid, status, view, providerId, providerLabel, providers, onProviderChange, readOnly } =
+    props;
   const fieldId = useId();
   const hintId = useId();
 
@@ -80,9 +86,13 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
       }`}
     >
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-hairline pb-4">
-        <label htmlFor={fieldId} className="text-base font-medium">
-          {t("current_official_consumption")}
-        </label>
+        {readOnly ? (
+          <h2 className="text-base font-medium">{t("final_official_consumption")}</h2>
+        ) : (
+          <label htmlFor={fieldId} className="text-base font-medium">
+            {t("current_official_consumption")}
+          </label>
+        )}
         <label className="flex items-center gap-2 text-sm text-ink-3">
           <span>{t("ai_account")}</span>
           <select
@@ -99,58 +109,67 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
         </label>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
-        <span className="text-sm text-ink-3">{t("real_percentage", { label: providerLabel })}</span>
-
-        {/* One row from `sm` up. On a phone the slider gets a row of its own: it has to be draggable by thumb. */}
-        <div className="flex min-w-64 grow flex-wrap items-center gap-4 sm:flex-nowrap">
-          <span className="relative shrink-0">
-            <input
-              id={fieldId}
-              type="text"
-              inputMode="decimal"
-              autoComplete="off"
-              maxLength={7}
-              placeholder="–"
-              value={raw}
-              onChange={(event) => onChange(event.target.value)}
-              aria-invalid={invalid || undefined}
-              aria-describedby={hintId}
-              className="block w-28 rounded-md border border-rule bg-page py-2 pl-3.5 pr-9 text-2xl font-medium tabular-nums text-ink placeholder:text-ink-3"
-            />
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-lg text-ink-3"
-            >
-              %
-            </span>
+      {readOnly ? (
+        <p className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          <span className="text-sm text-ink-3">{t("real_percentage", { label: providerLabel })}</span>
+          <span className={`text-2xl font-medium tabular-nums ${raw === "" ? "text-ink-3" : "text-ink"}`}>
+            {raw === "" ? "–" : formatHeroPercent(Number(raw) / 100, locale)}
           </span>
+        </p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
+          <span className="text-sm text-ink-3">{t("real_percentage", { label: providerLabel })}</span>
 
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={1}
-            value={Math.round(sliderValue)}
-            onChange={(event) => onChange(event.target.value)}
-            aria-label={t("official_slider_aria", { label: providerLabel })}
-            aria-valuetext={`${Math.round(sliderValue)}%`}
-            className={`order-3 h-6 w-full min-w-0 cursor-pointer accent-ink transition-opacity sm:order-2 sm:w-auto sm:grow ${
-              view.calibrated ? "" : "opacity-50 hover:opacity-100 focus-visible:opacity-100"
-            }`}
-          />
+          {/* One row from `sm` up. On a phone the slider gets a row of its own: it has to be draggable by thumb. */}
+          <div className="flex min-w-64 grow flex-wrap items-center gap-4 sm:flex-nowrap">
+            <span className="relative shrink-0">
+              <input
+                id={fieldId}
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                maxLength={7}
+                placeholder="–"
+                value={raw}
+                onChange={(event) => onChange(event.target.value)}
+                aria-invalid={invalid || undefined}
+                aria-describedby={hintId}
+                className="block w-28 rounded-md border border-rule bg-page py-2 pl-3.5 pr-9 text-2xl font-medium tabular-nums text-ink placeholder:text-ink-3"
+              />
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-lg text-ink-3"
+              >
+                %
+              </span>
+            </span>
 
-          {raw !== "" && (
-            <button
-              type="button"
-              onClick={() => onChange("")}
-              className="order-2 ml-auto shrink-0 rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink sm:order-3 sm:ml-0"
-            >
-              {t("delete")}
-            </button>
-          )}
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={Math.round(sliderValue)}
+              onChange={(event) => onChange(event.target.value)}
+              aria-label={t("official_slider_aria", { label: providerLabel })}
+              aria-valuetext={`${Math.round(sliderValue)}%`}
+              className={`order-3 h-6 w-full min-w-0 cursor-pointer accent-ink transition-opacity sm:order-2 sm:w-auto sm:grow ${
+                view.calibrated ? "" : "opacity-50 hover:opacity-100 focus-visible:opacity-100"
+              }`}
+            />
+
+            {raw !== "" && (
+              <button
+                type="button"
+                onClick={() => onChange("")}
+                className="order-2 ml-auto shrink-0 rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink sm:order-3 sm:ml-0"
+              >
+                {t("delete")}
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <p id={hintId} className={`mt-4 flex max-w-3xl items-start gap-2 text-sm ${invalid ? "text-ink" : "text-ink-3"}`}>
         {invalid && <StopCircleIcon className="mt-0.5 shrink-0 text-critical" />}

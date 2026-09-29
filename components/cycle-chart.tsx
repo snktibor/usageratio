@@ -169,7 +169,7 @@ export function CycleChart({
     setActive(next);
   };
 
-  // One row per day that has ended, and one for now.
+  // One row per day that has ended, and one for now (for a finished cycle, its end).
   const tableRows = [
     ...model.cycle.segments
       .map((segment) => startMs + segment.endFraction * (endMs - startMs))
@@ -344,7 +344,11 @@ export function CycleChart({
               {tableRows.map((index) => (
                 <tr key={index} className="border-t border-hairline">
                   <th scope="row" className="whitespace-nowrap py-2 pr-4 font-normal text-ink-2">
-                    {index === last ? t("now_row", { moment: moment(times[index]!) }) : moment(times[index]!)}
+                    {index !== last
+                      ? moment(times[index]!)
+                      : model.closed
+                        ? t("end_row", { moment: moment(times[index]!) })
+                        : t("now_row", { moment: moment(times[index]!) })}
                   </th>
                   {series.map((s) => (
                     <td key={s.id} className="py-2 pl-4 text-right">
