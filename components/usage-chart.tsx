@@ -1,6 +1,6 @@
 import { useLocale, useTranslations } from "next-intl";
 import { ChartLegend, type ChartSeries, CycleChart } from "@/components/cycle-chart";
-import { formatPercentTick, niceScale } from "@/lib/chart";
+import { formatPercentTick } from "@/lib/chart";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatHeroPercent } from "@/lib/format";
 import { type DashboardView, type SubLimitView, subLimitTimeline } from "@/lib/ground-truth";
@@ -78,7 +78,6 @@ export function UsageChart({
     };
     // Drawn in reverse: the sub-limits' fainter lines lie beneath the groups'.
     const series = [total, ...groups, ...subLimitSeries];
-    const scale = niceScale(Math.max(...series.flatMap((s) => s.values)), MIN_AXIS_FRACTION);
 
     body = (
       <>
@@ -89,8 +88,8 @@ export function UsageChart({
           <CycleChart
             model={model}
             series={series}
-            scale={scale}
-            formatTick={(fraction) => formatPercentTick(fraction, scale.step, locale)}
+            minAxis={MIN_AXIS_FRACTION}
+            formatTick={(fraction, scale) => formatPercentTick(fraction, scale.step, locale)}
             formatValue={(val) => formatHeroPercent(val, locale)}
             label={subLimitSeries.length > 0 ? t("chart_aria_with_sublimits") : t("chart_aria_no_sublimits")}
           />

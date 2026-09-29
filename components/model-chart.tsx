@@ -3,7 +3,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useId, useState } from "react";
 import { ChartLegend, type ChartSeries, CycleChart } from "@/components/cycle-chart";
-import { formatTokenTick, niceScale } from "@/lib/chart";
+import { formatTokenTick } from "@/lib/chart";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatCost } from "@/lib/format";
 import { NEUTRAL_COLOR } from "@/lib/settings";
@@ -78,7 +78,7 @@ export function ModelChart({ model }: { model: DashboardModel }) {
               key={selected.modelId}
               model={model}
               series={series}
-              scale={niceScale(Math.max(...series.flatMap((s) => s.values)), MIN_AXIS_TOKENS)}
+              minAxis={MIN_AXIS_TOKENS}
               formatTick={(tokens) => formatTokenTick(tokens, locale)}
               formatValue={(tokens) => t("token_amount", { count: tokens })}
               formatEndLabel={(tokens) => formatTokenTick(tokens, locale)}
