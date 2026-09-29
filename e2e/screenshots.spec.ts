@@ -90,12 +90,10 @@ test("groups-machines.png — the groups and machines sections", async ({ page }
   });
 });
 
-test("settings.png — the settings dialog open", async ({ page }, testInfo) => {
+test("settings.png — the settings page", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "demo", "runs only against the demo project");
-  await gotoDashboard(page);
-
-  await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.locator("dialog[open]")).toBeVisible();
+  await page.goto("/en/settings");
+  await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
 
   await page.screenshot({ path: `${ASSETS}/settings.png` });
 });

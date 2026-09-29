@@ -28,7 +28,7 @@ export interface LoginState {
 }
 
 /** Where a successful login may continue: the pages that show the PIN form. Anything else goes home. */
-const AFTER_LOGIN = new Set(["/", "/setup"]);
+const AFTER_LOGIN = new Set(["/", "/setup", "/settings"]);
 
 /** Form action of the PIN screen. Returns the failure to display, or redirects to the page that asked (`next`). */
 export async function login(_previous: LoginState, formData: FormData): Promise<LoginState> {

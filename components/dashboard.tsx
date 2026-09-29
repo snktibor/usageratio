@@ -2,15 +2,13 @@ import { getLocale, getTranslations } from "next-intl/server";
 import { logout } from "@/app/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { DashboardView } from "@/components/dashboard-view";
-import { DownloadIcon, ExportIcon, GitHubIcon } from "@/components/icons";
-import { SettingsDialog } from "@/components/settings-dialog";
+import { DownloadIcon, ExportIcon, GitHubIcon, SlidersIcon } from "@/components/icons";
 import { Link } from "@/i18n/routing";
 import type { ProviderDashboardModel } from "@/lib/dashboard";
 import { isDemoMode } from "@/lib/demo/mode";
 import { formatClock } from "@/lib/format";
 import type { CycleSummary } from "@/lib/history";
 import type { Translator } from "@/lib/i18n";
-import type { SettingsView } from "@/lib/settings";
 import { version } from "@/package.json";
 
 const REPO_URL = "https://github.com/snktibor/usageratio";
@@ -49,19 +47,20 @@ function ExportMenu({ t }: { t: Translator<"HomePage"> }) {
 
 export async function Dashboard({
   providers,
-  settings,
+  timeZone,
   historyByProvider,
 }: {
   providers: ProviderDashboardModel[];
-  settings: SettingsView;
+  /** The saved time zone: the refresh time's when there is no provider yet. */
+  timeZone: string;
   historyByProvider: Record<string, CycleSummary[]>;
 }) {
   const locale = await getLocale();
   const t = await getTranslations("HomePage");
   const tDashboard = await getTranslations("Dashboard");
-  // A fresh install has no provider yet: no model, only the settings' time zone.
+  // A fresh install has no provider yet: no model, only the saved time zone.
   const model = providers[0]?.dashboard;
-  const refreshedAt = formatClock(model?.generatedAt ?? Date.now(), model?.timeZone ?? settings.timeZone, locale);
+  const refreshedAt = formatClock(model?.generatedAt ?? Date.now(), model?.timeZone ?? timeZone, locale);
 
   return (
     <div className="mx-auto w-full max-w-4xl px-5 pb-16 pt-6 sm:px-8 sm:pt-8">
@@ -82,7 +81,13 @@ export async function Dashboard({
             <span className="sr-only sm:not-sr-only">{t("dashboard_setup")}</span>
           </Link>
           {providers.length > 0 && <ExportMenu t={t} />}
-          <SettingsDialog view={settings} />
+          <Link
+            href="/settings"
+            className="flex items-center gap-2 rounded-md border border-rule px-2.5 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink sm:px-3"
+          >
+            <SlidersIcon />
+            <span className="sr-only sm:not-sr-only">{t("dashboard_settings")}</span>
+          </Link>
           {!isDemoMode() && (
             <form action={logout}>
               <button

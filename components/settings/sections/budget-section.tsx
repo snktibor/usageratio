@@ -1,10 +1,8 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useId } from "react";
 import { type Draft, type DraftProvider, parseLimit } from "@/components/settings/draft";
 import { FIELD } from "@/components/ui/classes";
-import { Segmented } from "@/components/ui/segmented";
 import { formatTokens } from "@/lib/format";
 
 export function BudgetSection({
@@ -22,27 +20,12 @@ export function BudgetSection({
 }) {
   const locale = useLocale();
   const t = useTranslations("Settings");
-  const periodName = useId();
 
   return (
     <section aria-labelledby={`${titleId}-budget`} className="space-y-4">
       <h3 id={`${titleId}-budget`} className="font-medium">
         {t("budget")}
       </h3>
-
-      <fieldset>
-        <legend className="text-sm text-ink-3">{t("type")}</legend>
-        <Segmented
-          name={periodName}
-          value={draft.period}
-          onChange={(period) => onPatch({ period })}
-          className="mt-1.5"
-          options={[
-            { value: "weekly", label: t("weekly") },
-            { value: "monthly", label: t("monthly") },
-          ]}
-        />
-      </fieldset>
 
       <label className="flex cursor-pointer items-start gap-3">
         <input

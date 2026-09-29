@@ -26,7 +26,9 @@ round trip → resolve the effective config → compute the current and previous
 (`lib/cycle.ts`) → load that window's events → archive the previous cycle for any provider not yet
 archived (`lib/archive.ts`, shared with the daily housekeeping run — see below) → load the archived
 history → build each provider's dashboard model
-(`lib/aggregate.ts`, `lib/dashboard.ts`, `lib/quota.ts`, `lib/timeline.ts`) and the settings view.
+(`lib/aggregate.ts`, `lib/dashboard.ts`, `lib/quota.ts`, `lib/timeline.ts`). The settings page
+(`app/[locale]/settings/page.tsx`) is gated the same way and builds the settings view from the same
+reads.
 
 **A settings-panel save** (`PUT /api/settings`): same-origin check → refuse in demo mode → session
 check → read the size-capped body → validate it field by field (`lib/settings.ts`) → refuse if the
@@ -40,6 +42,7 @@ alerts only ever fire from a usage report or an official-percentage update.
 | --- | --- |
 | `app/[locale]/(dashboard)/` | the authenticated dashboard page |
 | `app/[locale]/setup/` | the Setup page (client install wizard) |
+| `app/[locale]/settings/` | the settings page |
 | `app/[locale]/[...rest]/`, `not-found.tsx` | catch-all → localized 404 |
 | `app/[locale]/layout.tsx`, `error.tsx` | root layout (font, `NextIntlClientProvider`, demo banner) and its error boundary |
 | `app/[locale]/opengraph-image.tsx`, `twitter-image.tsx` | generated social-preview images |
@@ -47,7 +50,7 @@ alerts only ever fire from a usage report or an official-percentage update.
 | `app/global-error.tsx`, `app/robots.ts` | last-resort error boundary; `disallow: /` for crawlers |
 | `app/api/**/route.ts` | 21 thin route handlers — see [api.md](api.md) |
 | `components/` (top-level) | one dashboard widget per file (charts, tables, dialogs) |
-| `components/settings/` | the settings panel's form state and sections |
+| `components/settings/` | the settings page: its form state, sections, menu and leave warning |
 | `components/setup/` | the Setup page's ZIP/copy/one-shot UI — see [clients.md](clients.md) |
 | `components/ui/` | small shared primitives (confirm dialog, toast, segmented control) |
 | `lib/` — auth/tokens/vault | `auth.ts`, `tokens.ts`, `api-token.ts`, `token-vault.ts`, `secret-box.ts`, `security.ts` |

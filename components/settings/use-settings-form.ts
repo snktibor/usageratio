@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { createElement, Fragment, type ReactNode, useRef, useState } from "react";
+import { createElement, Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import {
   type AlertsDraft,
   type Draft,
@@ -32,7 +32,7 @@ export interface SettingsFormActions {
   /** Replaces the draft's group list in place: how the Machines/Groups/Accounts sections reflect a rename, merge or delete they made directly against the manage routes, outside the draft's own save. */
   setGroups: (updater: (groups: DraftGroup[]) => DraftGroup[]) => void;
   save: () => Promise<void>;
-  /** Refreshes the page's server-fetched data after a manage-route action (rename/delete/merge/prune), so the rest of the dashboard (outside this open dialog) catches up. */
+  /** Refreshes the page's server-fetched data after a manage-route action (rename/delete/merge/prune), so the page catches up with what the action changed. */
   refresh: () => void;
 }
 
@@ -44,14 +44,29 @@ export interface SettingsFormActions {
  */
 export function useSettingsForm(
   view: SettingsView,
-  onClose: () => void,
-): { draft: Draft; actions: SettingsFormActions; problem: ReactNode | null; saving: boolean } {
+  onSaved: () => void,
+): { draft: Draft; actions: SettingsFormActions; problem: ReactNode | null; saving: boolean; dirty: boolean } {
   const t = useTranslations("Settings");
   const router = useRouter();
-  const [draft, setDraft] = useState<Draft>(() => draftFrom(view));
+  /** The draft as last saved (or as loaded): what `dirty` compares against. */
+  const [baseline, setBaseline] = useState<Draft>(() => draftFrom(view));
+  const [draft, setDraft] = useState<Draft>(baseline);
   const [problem, setProblem] = useState<ReactNode | null>(null);
   const [saving, setSaving] = useState(false);
   const newSubLimitKey = useRef(0);
+  /** Set by a successful save: the next view the refresh brings replaces the draft, normalised the way the server stored it. */
+  const resyncOnView = useRef(false);
+
+  // Only after a save: a refresh after a manage-route action must not throw away what is being typed.
+  useEffect(() => {
+    if (!resyncOnView.current) return;
+    resyncOnView.current = false;
+    const fresh = draftFrom(view);
+    setBaseline(fresh);
+    setDraft(fresh);
+  }, [view]);
+
+  const dirty = JSON.stringify(draft) !== JSON.stringify(baseline);
 
   const patch = (changes: Partial<Draft>) => setDraft((current) => ({ ...current, ...changes }));
 
@@ -164,8 +179,10 @@ export function useSettingsForm(
         body: JSON.stringify(result.request),
       });
       if (response.ok) {
+        setBaseline(pending);
+        resyncOnView.current = true;
         router.refresh();
-        onClose();
+        onSaved();
         return;
       }
 
@@ -173,6 +190,8 @@ export function useSettingsForm(
       if (response.status === 401) {
         setProblem(t("session_expired"));
         router.refresh();
+      } else if (response.status === 403 && payload?.error === "demo_read_only") {
+        setProblem(t("demo_read_only"));
       } else if (response.status === 409 && Array.isArray(payload?.groups)) {
         const refused = payload.groups.map(String);
         setDraft((current) => ({
@@ -223,13 +242,17 @@ export function useSettingsForm(
     }
   }
 
-  const setGroups = (updater: (groups: DraftGroup[]) => DraftGroup[]) =>
+  // The manage routes have already stored the change: the baseline takes it too, so it does not count as unsaved.
+  const setGroups = (updater: (groups: DraftGroup[]) => DraftGroup[]) => {
     setDraft((current) => ({ ...current, groups: updater(current.groups) }));
+    setBaseline((current) => ({ ...current, groups: updater(current.groups) }));
+  };
 
   return {
     draft,
     problem,
     saving,
+    dirty,
     actions: {
       patch,
       patchGroup,

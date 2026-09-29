@@ -12,6 +12,6 @@ export const QUIET_BUTTON =
 export const PRIMARY_BUTTON =
   "rounded-md bg-ink px-5 py-1.5 font-medium text-page transition-opacity hover:opacity-90 disabled:opacity-40";
 
-/** A `<dialog>` nested inside the settings dialog: same chrome, its own width and padding. */
+/** A `<dialog>` opened from the settings page: same chrome, its own width and padding. */
 export const NESTED_DIALOG =
   "m-auto max-h-[calc(100dvh-2rem)] rounded-xl border border-rule bg-raised text-base text-ink shadow-2xl backdrop:bg-black/60";
