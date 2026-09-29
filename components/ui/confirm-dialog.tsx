@@ -11,6 +11,10 @@ const DANGER_BUTTON =
  * title, body and confirm label, an optional destructive style, and an
  * optional delay before the confirm button may be pressed (a reflexive Enter
  * must not confirm it). Mounted only while it is open.
+ *
+ * With `stayOpenOnConfirm` the confirm button runs `onConfirm` without closing:
+ * the caller carries the action out inside the dialog (asking for the PIN in
+ * `children` when it has to) and closes it by unmounting it.
  */
 export function ConfirmDialog({
   title,
@@ -21,6 +25,10 @@ export function ConfirmDialog({
   countdownSeconds = 0,
   onCancel,
   onConfirm,
+  stayOpenOnConfirm = false,
+  busy = false,
+  confirmDisabled = false,
+  children,
 }: {
   title: ReactNode;
   body: ReactNode;
@@ -33,6 +41,12 @@ export function ConfirmDialog({
   countdownSeconds?: number;
   onCancel: () => void;
   onConfirm: () => void;
+  stayOpenOnConfirm?: boolean;
+  /** The action is running: neither button nor Escape does anything. */
+  busy?: boolean;
+  confirmDisabled?: boolean;
+  /** Shown under the body, e.g. the PIN prompt of an action that needs one. */
+  children?: ReactNode;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const confirmed = useRef(false);
@@ -60,6 +74,9 @@ export function ConfirmDialog({
       aria-labelledby={titleId}
       aria-describedby={textId}
       // Closed by either button or by Escape; only the confirm button sets `confirmed`.
+      onCancel={(event) => {
+        if (busy) event.preventDefault();
+      }}
       onClose={(event) => {
         if (event.target !== event.currentTarget) return;
         if (confirmed.current) onConfirm();
@@ -73,11 +90,13 @@ export function ConfirmDialog({
       <p id={textId} className="mt-2 text-sm leading-relaxed text-ink-2">
         {body}
       </p>
+      {children && <div className="mt-4">{children}</div>}
       <div className="mt-6 flex justify-end gap-3">
         <button
           type="button"
           // biome-ignore lint/a11y/noAutofocus: the safe choice takes focus when the confirmation opens
           autoFocus
+          disabled={busy}
           onClick={() => dialogRef.current?.close()}
           className={QUIET_BUTTON}
         >
@@ -85,8 +104,12 @@ export function ConfirmDialog({
         </button>
         <button
           type="button"
-          disabled={secondsLeft > 0}
+          disabled={secondsLeft > 0 || busy || confirmDisabled}
           onClick={() => {
+            if (stayOpenOnConfirm) {
+              onConfirm();
+              return;
+            }
             confirmed.current = true;
             dialogRef.current?.close();
           }}

@@ -189,11 +189,19 @@ describe("MachinesSection", () => {
     await waitFor(() => expect(confirmButton).toHaveProperty("disabled", false), { timeout: 4000 });
     fireEvent.click(confirmButton);
 
-    const unlock = await screen.findByRole("button", { name: "Unlock" });
+    // In the same dialog, which stays open, focused, and saying what it is for.
+    const unlock = await within(dialog).findByRole("button", { name: "Unlock" });
+    expect(screen.getByRole("alertdialog")).toBe(dialog);
+    expect(document.activeElement?.id).toBe("sudo-pin");
+    expect(
+      within(dialog).getByText("Confirm this with your PIN. It will not ask again for the next 5 minutes."),
+    ).not.toBeNull();
+    expect(within(dialog).getByRole("button", { name: /yes/i })).toHaveProperty("disabled", true);
     fireEvent.change(document.getElementById("sudo-pin")!, { target: { value: "12345" } });
     fireEvent.click(unlock);
 
     expect(await screen.findByText("Merged “mac-1” into “pc”.")).not.toBeNull();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(fetchMock.mock.calls[4]![0]).toBe("/api/machines/claude/mac-1");
     expect(fetchMock.mock.calls[4]![1].body).toBe(JSON.stringify({ id: "pc", group: "Personal", merge: true }));
   }, 8000);

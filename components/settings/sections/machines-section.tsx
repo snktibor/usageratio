@@ -22,11 +22,13 @@ const INACTIVE_MS = INACTIVE_MACHINE_DAYS * 24 * 60 * 60 * 1000;
 type Load = { phase: "loading" } | { phase: "failed" } | { phase: "ready"; machines: MachineEntry[] };
 /** A merge of `row` into the machine called `to`, which keeps its name and `groupId`. */
 type PendingMerge = { row: MachineRow; to: string; groupId: string };
-/** A delete or merge resumes with the entries it has not done yet. */
-type SudoRetry =
-  | { kind: "delete"; machineId: string; entries: MachineEntry[] }
-  | { kind: "merge"; merge: PendingMerge; entries: MachineEntry[] }
-  | { kind: "prune" };
+/**
+ * The merge dialog: the question, then the merge running inside it, asking for
+ * the PIN there when it needs one; `entries` are the ones not merged yet.
+ */
+type MergeDialog = { merge: PendingMerge; entries: MachineEntry[]; phase: "confirm" | "busy" | "pin" };
+/** A delete resumes with the entries it has not removed yet. */
+type SudoRetry = { kind: "delete"; machineId: string; entries: MachineEntry[] } | { kind: "prune" };
 /** The body of PATCH /api/machines/[provider]/[machine]. */
 type Move = { id?: string; group?: string; merge?: true };
 type MoveOutcome = { done: MachineEntry[]; failure: { entry: MachineEntry; error: string | null } | null };
@@ -98,7 +100,7 @@ export function MachinesSection({
   const [rowProblem, setRowProblem] = useState<{ key: string; message: string } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<MachineRow | null>(null);
   const [pendingPrune, setPendingPrune] = useState(false);
-  const [pendingMerge, setPendingMerge] = useState<PendingMerge | null>(null);
+  const [mergeDialog, setMergeDialog] = useState<MergeDialog | null>(null);
   const [sudoRetry, setSudoRetry] = useState<SudoRetry | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -167,7 +169,8 @@ export function MachinesSection({
       const target = rows.find((candidate) => candidate.machineId === newId);
       setEditing(null);
       setRowProblem(null);
-      setPendingMerge({ row, to: newId, groupId: target?.groupIds[0] ?? row.groupIds[0] ?? "" });
+      const merge = { row, to: newId, groupId: target?.groupIds[0] ?? row.groupIds[0] ?? "" };
+      setMergeDialog({ merge, entries: row.entries, phase: "confirm" });
       return;
     }
 
@@ -244,17 +247,24 @@ export function MachinesSection({
     onManaged();
   }
 
+  /** Runs inside the merge dialog, which stays open until it is done or asks for the PIN. */
   async function performMerge(merge: PendingMerge, toMerge: MachineEntry[]) {
+    setMergeDialog({ merge, entries: toMerge, phase: "busy" });
     setMoving(true);
     setProblem(null);
     const move: Move = { id: merge.to, group: merge.groupId, merge: true };
     const { done, failure } = await patchEntries(toMerge, move);
     setMoving(false);
 
+    if (failure?.error === "sudo_required") {
+      setMergeDialog({ merge, entries: toMerge.slice(done.length), phase: "pin" });
+    } else {
+      setMergeDialog(null);
+    }
     if (!failure) {
       setToast(t("manage_machines_merged_toast", { from: merge.row.machineId, to: merge.to }));
     } else if (failure.error === "sudo_required") {
-      setSudoRetry({ kind: "merge", merge, entries: toMerge.slice(done.length) });
+      // Asked for in the dialog.
     } else if (done.length === 0) {
       setProblem(moveProblem(failure, move));
     } else {
@@ -324,6 +334,19 @@ export function MachinesSection({
     }
     setProblem(t("manage_machines_action_failed"));
   }
+
+  const sudoPrompt = sudoRetry && (
+    <SudoUnlock
+      autoFocus
+      prompt={t("manage_sudo_prompt")}
+      onUnlocked={() => {
+        const retry = sudoRetry;
+        setSudoRetry(null);
+        if (retry.kind === "delete") void performDelete(retry.machineId, retry.entries);
+        else void performPrune();
+      }}
+    />
+  );
 
   return (
     <section aria-labelledby={`${titleId}-machines`}>
@@ -434,6 +457,10 @@ export function MachinesSection({
                     {rowProblem.message}
                   </p>
                 )}
+                {sudoRetry?.kind === "delete" && sudoRetry.machineId === key && (
+                  // Right under the machine it is for: at the bottom of a long list it went unseen.
+                  <div className="mt-2.5">{sudoPrompt}</div>
+                )}
               </li>
             );
           })}
@@ -448,17 +475,7 @@ export function MachinesSection({
 
       <div aria-live="polite" className="mt-3 space-y-2.5">
         {problem && <StatusLine tone="problem">{problem}</StatusLine>}
-        {sudoRetry && (
-          <SudoUnlock
-            onUnlocked={() => {
-              const retry = sudoRetry;
-              setSudoRetry(null);
-              if (retry.kind === "delete") void performDelete(retry.machineId, retry.entries);
-              else if (retry.kind === "merge") void performMerge(retry.merge, retry.entries);
-              else void performPrune();
-            }}
-          />
-        )}
+        {sudoRetry?.kind === "prune" && sudoPrompt}
       </div>
       {toast && (
         <Toast onDismiss={() => setToast(null)}>
@@ -490,13 +507,13 @@ export function MachinesSection({
         />
       )}
 
-      {pendingMerge && (
+      {mergeDialog && (
         <ConfirmDialog
-          title={t("manage_machines_merge_title", { from: pendingMerge.row.machineId, to: pendingMerge.to })}
+          title={t("manage_machines_merge_title", { from: mergeDialog.merge.row.machineId, to: mergeDialog.merge.to })}
           body={t("manage_machines_merge_body", {
-            from: pendingMerge.row.machineId,
-            to: pendingMerge.to,
-            group: pendingMerge.groupId,
+            from: mergeDialog.merge.row.machineId,
+            to: mergeDialog.merge.to,
+            group: mergeDialog.merge.groupId,
           })}
           cancelLabel={t("cancel")}
           confirmLabel={(secondsLeft) =>
@@ -504,13 +521,20 @@ export function MachinesSection({
           }
           danger
           countdownSeconds={CONFIRM_DELAY_SECONDS}
-          onCancel={() => setPendingMerge(null)}
-          onConfirm={() => {
-            const merge = pendingMerge;
-            setPendingMerge(null);
-            void performMerge(merge, merge.row.entries);
-          }}
-        />
+          stayOpenOnConfirm
+          busy={mergeDialog.phase === "busy"}
+          confirmDisabled={mergeDialog.phase !== "confirm"}
+          onCancel={() => setMergeDialog(null)}
+          onConfirm={() => void performMerge(mergeDialog.merge, mergeDialog.entries)}
+        >
+          {mergeDialog.phase === "pin" && (
+            <SudoUnlock
+              autoFocus
+              prompt={t("manage_sudo_prompt")}
+              onUnlocked={() => void performMerge(mergeDialog.merge, mergeDialog.entries)}
+            />
+          )}
+        </ConfirmDialog>
       )}
 
       {pendingPrune && (

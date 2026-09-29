@@ -208,6 +208,7 @@
     "manage_provider_delete_failed": "Ez nem sikerült. Próbáld újra kicsit később.",
     "manage_clients_note": "Ha egy kliens még a régi névvel vagy csoporttal van beállítva, a következő jelentésekor újra oda jelent: a gépen is állítsd át.",
     "manage_machines_heading": "Gépek",
+    "manage_sudo_prompt": "Erősítsd meg a PIN-kóddal. A következő 5 percben nem kérdez újra.",
     "manage_machines_load_failed": "Nem sikerült betölteni a gépeket.",
     "manage_machines_empty": "Még egyetlen gép sem küldött jelentést.",
     "manage_machines_providers_aria": "Szolgáltatók, amelyekhez jelent",
