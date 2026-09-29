@@ -141,6 +141,14 @@ export function ArrowLeftIcon({ className }: IconProps) {
   );
 }
 
+export function ChevronRightIcon({ className }: IconProps) {
+  return (
+    <Glyph className={className}>
+      <path d="m6 3.5 4.5 4.5L6 12.5" />
+    </Glyph>
+  );
+}
+
 export function KeyIcon({ className }: IconProps) {
   return (
     <Glyph className={className}>

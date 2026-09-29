@@ -138,6 +138,45 @@ describe("buildDashboard — quota and pace", () => {
   });
 });
 
+describe("buildDashboard — a past cycle", () => {
+  // The cycle before the current one, with the boundaries it really ran with (a Friday 15:00 reset).
+  const window = {
+    cycle: { start: new Date(CYCLE_START - 3 * 24 * HOUR), end: new Date(CYCLE_START + 4 * 24 * HOUR) },
+    previous: { start: new Date(CYCLE_START - 10 * 24 * HOUR), end: new Date(CYCLE_START - 3 * 24 * HOUR) },
+  };
+  const afterIt = new Date(window.cycle.end.getTime() + 36 * HOUR);
+
+  it("measures the given window rather than the one `now` falls in, and runs its timeline to the end", () => {
+    const model = buildDashboard(
+      afterIt,
+      config,
+      snapshot({
+        events: [
+          report("win-1", "Work", 40_000, -200),
+          report("win-1", "Work", 100_000, 10),
+          report("mac", "Personal", 50_000, 90),
+          // After the window: the next cycle's.
+          report("mac", "Personal", 70_000, 100),
+        ],
+      }),
+      [],
+      window,
+    );
+    expect(model.closed).toBe(true);
+    expect(model.cycle).toMatchObject({ startMs: window.cycle.start.getTime(), endMs: window.cycle.end.getTime() });
+    expect(model.cycle.elapsedFraction).toBe(1);
+    expect(model.total).toBe(150_000);
+    expect(model.previousTotal).toBe(40_000);
+    expect(model.timeline.times.at(-1)).toBe(window.cycle.end.getTime());
+    expect(model.timeline.groups.map((g) => g.values.at(-1))).toEqual([100_000, 50_000]);
+  });
+
+  it("is not closed while `now` is still inside it", () => {
+    const model = buildDashboard(NOW, config, snapshot({}), [], window);
+    expect(model.closed).toBe(false);
+  });
+});
+
 describe("buildDashboard — without token limits", () => {
   const events = [report("win-1", "Work", 150_000, 10), report("mac", "Personal", 50_000, 20)];
   const known = [{ machineId: "old", groupId: "Work", lastSeenAt: NOW.getTime() - 48 * HOUR, lastTokens: 0 }];

@@ -519,6 +519,36 @@ export async function loadEvents(
   };
 }
 
+/**
+ * When the oldest report still stored was made, over every provider and
+ * group; null when there is none. Tells how far back the full dashboard can
+ * reach (lib/cycle-options.ts): one member per key, not the reports.
+ */
+export async function loadOldestReportTime(providerIds: string[], groups: IndexedGroup[]): Promise<number | null> {
+  const providers = mergeProviderIds(providerIds);
+  if (groups.length === 0 || providers.length === 0) return null;
+
+  const reads = getRedis().pipeline();
+  const plan = new TxPlan();
+  const requests: string[] = [];
+  for (const providerId of providers) {
+    for (const group of groups) {
+      const index = requests.length;
+      plan.add(`oldest:${index}`, () => reads.zrange(KEYS.events(providerId, group.groupId), 0, 0));
+      requests.push(group.groupId);
+    }
+  }
+  const results: unknown[] = await reads.exec();
+
+  let oldest: number | null = null;
+  requests.forEach((groupId, index) => {
+    const members = plan.result(results, `oldest:${index}`);
+    const event = Array.isArray(members) && members.length > 0 ? parseEvent(members[0], groupId) : null;
+    if (event && (oldest === null || event.ts < oldest)) oldest = event.ts;
+  });
+  return oldest;
+}
+
 /** `loadEvents` without the events: just which groups still have stored reports. */
 export async function loadGroupActivity(groups: IndexedGroup[], providerIds: string[]): Promise<KnownGroup[]> {
   if (groups.length === 0) return [];

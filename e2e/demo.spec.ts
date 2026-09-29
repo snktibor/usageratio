@@ -83,6 +83,40 @@ test("the settings page opens from the header, follows its menu, and refuses to 
   await expect(page.getByText("Demo mode: settings are not saved.")).toBeVisible();
 });
 
+test("a previous cycle opens read-only from the list, and the way back leads to the current one", async ({ page }) => {
+  await page.goto("/en");
+
+  const history = page.getByRole("region", { name: "Previous cycles" });
+  await history.getByRole("link").first().click();
+  await expect(page).toHaveURL(/\/en\?cycle=\d+$/);
+  await expect(page.getByText("You are looking at a past cycle")).toBeVisible();
+  // Read-only: no official field to type into, no pace, and the chart table ends at the cycle's end.
+  await expect(page.getByRole("textbox", { name: "Current official consumption" })).toHaveCount(0);
+  await expect(page.getByText("Cycle closed.")).toBeVisible();
+  await expect(history.locator('a[aria-current="page"]')).toHaveCount(1);
+
+  await page.getByRole("link", { name: "Back to the current cycle" }).click();
+  await expect(page).toHaveURL(/\/en$/);
+  await expect(page.getByRole("textbox", { name: "Current official consumption" })).toHaveValue("62.5");
+});
+
+test("an archived cycle without its reports opens as a summary", async ({ page }) => {
+  await page.goto("/en");
+
+  const picker = page.getByRole("combobox", { name: "Cycle", exact: true });
+  const summaryOption = picker.locator("option", { hasText: "(summary only)" }).first();
+  await picker.selectOption((await summaryOption.getAttribute("value"))!);
+  await expect(page.getByText("A past cycle, summary only")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Archived summary" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Groups" })).toBeVisible();
+});
+
+test("an unknown cycle falls back to the current one, and says so", async ({ page }) => {
+  await page.goto("/en?cycle=123");
+  await expect(page.getByText("That cycle is not available: the current one is shown instead.")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Current official consumption" })).toHaveValue("62.5");
+});
+
 test("a write attempt through the UI does not change anything", async ({ page }) => {
   await page.goto("/en");
 
