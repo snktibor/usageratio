@@ -439,7 +439,13 @@
     "summary_models_note": "A ciklus legtöbbet használt modelljei, ahogy archiválódtak.",
     "no_official_value": "nincs hivatalos érték",
     "sublimit_closed_unknown": "Ebben a ciklusban a(z) {name} alkerethez nem került rögzítésre saját százalék.",
-    "chart_closed_no_official": "Ehhez a ciklushoz nem archiválódott hivatalos százalék, és tokenkeret sem volt beállítva: nincs mihez viszonyítani a fogyást. Lent a csoportok, gépek és modellek mutatják, mit mértek."
+    "chart_closed_no_official": "Ehhez a ciklushoz nem archiválódott hivatalos százalék, és tokenkeret sem volt beállítva: nincs mihez viszonyítani a fogyást. Lent a csoportok, gépek és modellek mutatják, mit mértek.",
+    "zoom_legend": "Időablak",
+    "zoom_day": "24 óra",
+    "zoom_three_days": "3 nap",
+    "zoom_cycle": "Teljes ciklus",
+    "zoom_reset": "Visszaállítás",
+    "zoom_drag_hint": "vagy jelölj ki egy szakaszt az egérrel"
   },
   "Cycles": {
     "picker_label": "Ciklus",

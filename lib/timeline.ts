@@ -11,9 +11,6 @@ import { modelKey, modelLabel } from "@/lib/models";
 
 const HOUR = 3_600_000;
 
-/** A chart gets at most about this many samples over a whole cycle (a week: hourly). */
-const MAX_SAMPLES = 200;
-
 export interface GroupSeries {
   groupId: string;
   /** Cumulative tokens at each sample time. */
@@ -39,9 +36,14 @@ export interface CycleTimeline {
   models: ModelTimeline[];
 }
 
-/** The start, whole steps (of whole hours) after it, and `nowMs` itself as the last sample. */
+/**
+ * The start, every whole hour after it, and `nowMs` itself as the last
+ * sample. Hourly even over a month: the clients report hourly, and a chart
+ * zoomed into a day or three shows every hour (lib/chart.ts thins the
+ * samples out for a whole-cycle view).
+ */
 export function sampleTimes(startMs: number, endMs: number, nowMs: number): number[] {
-  const stepMs = HOUR * Math.max(1, Math.ceil((endMs - startMs) / HOUR / MAX_SAMPLES));
+  const stepMs = HOUR;
   const lastMs = Math.min(Math.max(nowMs, startMs), endMs);
   const times: number[] = [];
   for (let t = startMs; t < lastMs; t += stepMs) times.push(t);

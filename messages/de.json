@@ -439,7 +439,13 @@
     "summary_models_note": "Die meistgenutzten Modelle des Zyklus, wie archiviert.",
     "no_official_value": "kein offizieller Wert",
     "sublimit_closed_unknown": "Für {name} wurde in diesem Zyklus kein eigener Wert festgehalten.",
-    "chart_closed_no_official": "Mit diesem Zyklus wurde kein offizieller Prozentwert archiviert, und es war kein Token-Limit gesetzt: Es gibt nichts, woran der Verbrauch gemessen werden könnte. Gruppen, Maschinen und Modelle unten zeigen, was gemessen wurde."
+    "chart_closed_no_official": "Mit diesem Zyklus wurde kein offizieller Prozentwert archiviert, und es war kein Token-Limit gesetzt: Es gibt nichts, woran der Verbrauch gemessen werden könnte. Gruppen, Maschinen und Modelle unten zeigen, was gemessen wurde.",
+    "zoom_legend": "Zeitfenster",
+    "zoom_day": "24 Stunden",
+    "zoom_three_days": "3 Tage",
+    "zoom_cycle": "Ganzer Zyklus",
+    "zoom_reset": "Zoom zurücksetzen",
+    "zoom_drag_hint": "oder ziehe über das Diagramm, um hineinzuzoomen"
   },
   "Cycles": {
     "picker_label": "Zyklus",
