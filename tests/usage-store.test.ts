@@ -4,7 +4,7 @@ import { MAX_PROVIDERS } from "@/lib/providers";
 import { getMemoryStoreForTests, getRedis } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
 import { MAX_GROUPS } from "@/lib/settings";
-import { loadEvents, loadIndexes, storeReport } from "@/lib/usage-store";
+import { loadEvents, loadIndexes, loadOldestReportTime, storeReport } from "@/lib/usage-store";
 import { parseUsageReport, type UsageReport } from "@/lib/validation";
 import { useRedis } from "./helpers/redis-fixture";
 
@@ -64,6 +64,27 @@ describe("storeReport — duplicate detection", () => {
 
     const repeat = await storeOk(report({ providers: { claude: 100, deepseek: 999 } }), NOW, 70, null);
     expect(repeat.duplicate).toBe(true);
+  });
+});
+
+describe("loadOldestReportTime", () => {
+  useRedis();
+
+  it("is null before any report, then the oldest report over every provider and group", async () => {
+    const groups = [...GROUPS, { groupId: "Work", color: null, firstSeenAt: 0 }];
+    expect(await loadOldestReportTime(["claude", "deepseek"], groups)).toBeNull();
+
+    await storeOk(report({ timestamp: "2026-09-22T10:00:00Z" }), NOW, 70, null);
+    await storeOk(
+      report({ groupId: "Work", providers: { deepseek: 5 }, timestamp: "2026-09-21T08:00:00Z" }),
+      NOW,
+      70,
+      null,
+    );
+    await storeOk(report({ timestamp: "2026-09-22T12:00:00Z" }), NOW, 70, null);
+
+    expect(await loadOldestReportTime(["claude", "deepseek"], groups)).toBe(Date.parse("2026-09-21T08:00:00Z"));
+    expect(await loadOldestReportTime(["claude"], groups)).toBe(Date.parse("2026-09-22T10:00:00Z"));
   });
 });
 

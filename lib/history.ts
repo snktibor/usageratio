@@ -2,7 +2,7 @@ import { groupIntoSeries, summarizeCost, summarizeUsage, type UsageEvent, usageO
 import type { TokenMode } from "@/lib/config";
 import { parseOfficialPercent } from "@/lib/ground-truth";
 import { modelKey } from "@/lib/models";
-import { currentOfficialEntries, officialUsageField } from "@/lib/official-usage";
+import { currentOfficialEntries, type OfficialEntryView, officialUsageField } from "@/lib/official-usage";
 import { type SubLimit, splitBySubLimits } from "@/lib/sub-limits";
 
 /**
@@ -158,6 +158,27 @@ export function officialPercentForCycle(
 ): number | null {
   const entry = currentOfficialEntries(rawOfficialUsage, cycleStartMs).get(officialUsageField(providerId, null));
   return entry ? parseOfficialPercent(entry.raw).percent : null;
+}
+
+/**
+ * A finished cycle's official percentages, by provider, as ground-truth
+ * entries of the dashboard (lib/official-usage.ts): read from the archived
+ * summaries, since `usage:official` drops a cycle's figure once it is over.
+ * "Entered" at the cycle's end, the moment it stood for. A provider with no
+ * summary of that cycle, or one without a figure, gets no entry.
+ */
+export function archivedOfficialEntries(
+  historyByProvider: Record<string, CycleSummary[]>,
+  cycle: { startMs: number; endMs: number },
+): Map<string, OfficialEntryView> {
+  const entries = new Map<string, OfficialEntryView>();
+  for (const [providerId, history] of Object.entries(historyByProvider)) {
+    const official = history.find((entry) => entry.start === cycle.startMs)?.official;
+    if (official !== undefined && official !== null) {
+      entries.set(officialUsageField(providerId, null), { raw: String(official), enteredAt: cycle.endMs });
+    }
+  }
+  return entries;
 }
 
 // ── (De)serialization ────────────────────────────────────────────────────────

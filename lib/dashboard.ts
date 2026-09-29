@@ -1,6 +1,6 @@
 import { summarizeCost, summarizeUsage, type UsageEvent } from "@/lib/aggregate";
 import type { AppConfig, BudgetPeriod, TokenMode } from "@/lib/config";
-import { getCycle, getDaySegments, getPreviousCycle } from "@/lib/cycle";
+import { type Cycle, getCycle, getDaySegments, getPreviousCycle } from "@/lib/cycle";
 import { type OfficialEntryView, officialUsageField } from "@/lib/official-usage";
 import { providerLabel } from "@/lib/providers";
 import { assessQuota, type QuotaAssessment } from "@/lib/quota";
@@ -55,6 +55,12 @@ export type MachineHealth = "active" | "late" | "manual" | "inactive";
  */
 export interface DashboardModel {
   generatedAt: number;
+  /**
+   * A cycle that has already ended, opened from the previous cycles: every
+   * figure is final, the charts run to its end, and nothing on the page may
+   * project a pace or the tokens left, nor take an official figure.
+   */
+  closed: boolean;
   tokenMode: TokenMode;
   timeZone: string;
   period: BudgetPeriod;
@@ -156,23 +162,36 @@ function healthOf(
 }
 
 /**
+ * A cycle other than the one `now` falls in: a past one, with the cycle
+ * before it (the footer's comparison, counter mode's baseline). Its
+ * boundaries are taken as given, not worked out from the reset settings.
+ */
+export interface CycleWindow {
+  cycle: Cycle;
+  previous: Cycle;
+}
+
+/**
  * Turns raw store data into everything the dashboard renders. Pure.
  * `config` is the effective one: the saved settings already applied.
  * `subLimits` are the provider's: a separate one's tokens are taken out of
- * every figure but the models and its own.
+ * every figure but the models and its own. `window`: see `CycleWindow`; the
+ * snapshot's events must then reach back to its `previous.start`.
  */
 export function buildDashboard(
   now: Date,
   config: AppConfig,
   snapshot: StoreSnapshot,
   subLimits: SubLimit[] = [],
+  window?: CycleWindow,
 ): DashboardModel {
   const nowMs = now.getTime();
-  const cycle = getCycle(now, config.reset);
-  const previousCycle = getPreviousCycle(cycle, config.reset);
+  const cycle = window?.cycle ?? getCycle(now, config.reset);
+  const previousCycle = window?.previous ?? getPreviousCycle(cycle, config.reset);
   const startMs = cycle.start.getTime();
   const endMs = cycle.end.getTime();
   const lengthMs = endMs - startMs;
+  const closed = endMs <= nowMs;
 
   const split = splitBySubLimits(snapshot.events, subLimits);
   const current = summarizeUsage(split.main, { startMs, endMs }, config.tokenMode);
@@ -256,6 +275,7 @@ export function buildDashboard(
 
   return {
     generatedAt: nowMs,
+    closed,
     tokenMode: config.tokenMode,
     timeZone: config.reset.timeZone,
     period: config.reset.period,
@@ -314,6 +334,7 @@ export function buildProviderDashboards(
   providerIds: string[],
   store: ProviderStoreSnapshot,
   officialUsage: Map<string, OfficialEntryView> = new Map(),
+  window?: CycleWindow,
 ): ProviderDashboardModel[] {
   return visibleProviderIds(config, providerIds).map((providerId) => {
     const counts = (groupId: string) => countsForProvider(config.excludedProviders, groupId, providerId);
@@ -331,6 +352,7 @@ export function buildProviderDashboards(
           machines: store.machines.filter((machine) => machine.providerId === providerId && counts(machine.groupId)),
         },
         subLimits,
+        window,
       ),
       officialEntry: officialUsage.get(officialUsageField(providerId, null)) ?? null,
       subLimitEntries: Object.fromEntries(

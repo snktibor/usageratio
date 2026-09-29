@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UsageEvent } from "@/lib/aggregate";
 import {
+  archivedOfficialEntries,
   type CycleSummary,
   HISTORY_RETENTION,
   HISTORY_TOP_MODELS,
@@ -197,6 +198,39 @@ describe("serializeCycleSummary / parseCycleSummary", () => {
     expect(parseCycleSummary(JSON.stringify({ ...summary, groups: { Work: "100" } }))).toBeNull();
     expect(parseCycleSummary(JSON.stringify({ ...summary, total: "not a number" }))).toBeNull();
     expect(parseCycleSummary(JSON.stringify({ ...summary, cost: "not a number" }))).toBeNull();
+  });
+});
+
+describe("archivedOfficialEntries", () => {
+  const entry = (start: number, end: number, official: number | null): CycleSummary => ({
+    v: 1,
+    start,
+    end,
+    total: 1,
+    limit: null,
+    official,
+    groups: {},
+    machines: 1,
+    models: {},
+    subLimits: {},
+    archivedAt: end,
+  });
+
+  it("gives each provider the percentage archived with that very cycle, as of its end", () => {
+    const entries = archivedOfficialEntries(
+      {
+        claude: [entry(2_000, 3_000, 62.5), entry(1_000, 2_000, 40)],
+        openai: [entry(2_000, 3_000, null)],
+        deepseek: [entry(1_000, 2_000, 12)],
+      },
+      { startMs: 2_000, endMs: 3_000 },
+    );
+    expect([...entries]).toEqual([["claude", { raw: "62.5", enteredAt: 3_000 }]]);
+  });
+
+  it("matches the archived start exactly, not a cycle that merely overlaps it", () => {
+    const entries = archivedOfficialEntries({ claude: [entry(2_000, 3_000, 70)] }, { startMs: 2_500, endMs: 3_500 });
+    expect(entries.size).toBe(0);
   });
 });
 
