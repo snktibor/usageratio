@@ -40,12 +40,13 @@ test("a wrong PIN shows an error with attempts left", async ({ page }) => {
   await expect(page.locator("#pin")).toBeVisible();
 });
 
-test("the correct PIN opens the empty dashboard, sets HttpOnly cookies, and logout returns to the PIN form", async ({
+test("the correct PIN opens the dashboard, sets HttpOnly cookies, and logout returns to the PIN form", async ({
   page,
   context,
 }) => {
   await loginViaUi(page);
-  await expect(page.getByText("No machine has reported to this account yet")).toBeVisible();
+  // Not the empty-dashboard text: on a retry, the report test below has already filled the store.
+  await expect(page.getByRole("button", { name: "Log out" })).toBeVisible();
 
   const cookies = await context.cookies();
   const session = cookies.find((cookie) => cookie.name === "usageratio_session");
@@ -59,13 +60,16 @@ test("the correct PIN opens the empty dashboard, sets HttpOnly cookies, and logo
 });
 
 test("a report posted via the API appears on the dashboard after a reload", async ({ page, request }) => {
+  // Its own machine per attempt: the store keeps the reports of earlier attempts (retries, reused servers).
+  const machineId = `e2e-report-box-${Date.now().toString(36)}`;
   await loginViaUi(page);
-  await expect(page.getByText("No machine has reported to this account yet")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Log out" })).toBeVisible();
+  await expect(page.getByText(machineId)).toHaveCount(0);
 
   const response = await request.post("/api/usage", {
     headers: { Authorization: `Bearer ${REAL_API_TOKEN}` },
     data: {
-      machineId: "e2e-report-box",
+      machineId,
       groupId: "E2E",
       providers: { claude: 12_345 },
       timestamp: new Date().toISOString(),
@@ -74,7 +78,7 @@ test("a report posted via the API appears on the dashboard after a reload", asyn
   expect(response.status()).toBe(201);
 
   await page.reload();
-  await expect(page.getByText("e2e-report-box").last()).toBeVisible();
+  await expect(page.getByText(machineId).last()).toBeVisible();
 });
 
 test("/api/settings without a session answers 401", async ({ request }) => {

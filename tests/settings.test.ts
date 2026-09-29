@@ -6,6 +6,7 @@ import {
   buildSettingsView,
   configForProvider,
   countsForProvider,
+  MAX_ALERT_THRESHOLDS,
   MAX_GROUPS,
   NEUTRAL_COLOR,
   normalizeHexColor,
@@ -352,6 +353,14 @@ describe("parseSettingsUpdate", () => {
     });
   });
 
+  it("accepts up to 20 alert thresholds, sorted", () => {
+    expect(MAX_ALERT_THRESHOLDS).toBe(20);
+    const thresholds = Array.from({ length: 20 }, (_, i) => 100 - i * 5);
+    const result = parseSettingsUpdate({ ...valid, alerts: { ...valid.alerts, thresholds } });
+    if (!result.ok) throw new Error(result.errors.join("; "));
+    expect(result.update.settings.alerts.thresholds).toEqual([...thresholds].sort((a, b) => a - b));
+  });
+
   it("treats the group lists as optional", () => {
     const { groups: _groups, removedGroups: _removed, ...budgetOnly } = valid;
     const result = parseSettingsUpdate(budgetOnly);
@@ -451,7 +460,13 @@ describe("parseSettingsUpdate", () => {
       { ...valid, alerts: { ...valid.alerts, webhookUrl: "https://user:pass@example.com" } },
     ],
     ["an empty thresholds list", { ...valid, alerts: { ...valid.alerts, thresholds: [] } }],
-    ["more than 5 thresholds", { ...valid, alerts: { ...valid.alerts, thresholds: [1, 2, 3, 4, 5, 6] } }],
+    [
+      "more than MAX_ALERT_THRESHOLDS thresholds",
+      {
+        ...valid,
+        alerts: { ...valid.alerts, thresholds: Array.from({ length: MAX_ALERT_THRESHOLDS + 1 }, (_, i) => i + 1) },
+      },
+    ],
     ["a threshold of 0", { ...valid, alerts: { ...valid.alerts, thresholds: [0] } }],
     ["a threshold above 100", { ...valid, alerts: { ...valid.alerts, thresholds: [101] } }],
     ["a non-boolean perProvider", { ...valid, alerts: { ...valid.alerts, perProvider: "true" } }],

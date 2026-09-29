@@ -62,8 +62,8 @@ a machine id, then pick one of three routes to get the files onto the machine
 Because the one-shot command (and a "copy the token" affordance next to the ZIP/manual steps) needs the
 real `USAGE_API_TOKEN` value, fetching it requires **sudo**: a short-lived (5 minute) re-confirmation of
 the dashboard PIN on top of an already-live session (see [security.md](security.md)). If a copy attempt
-comes back `sudo_required`, the page shows an inline unlock prompt — re-enter the PIN, then click copy
-again (it does not retry automatically).
+comes back `sudo_required`, the page shows an inline unlock prompt, and submitting the PIN there finishes
+the copy (the clipboard write starts inside that submit, which keeps Safari's clipboard permission).
 
 The installer, wherever it runs (`clients/setup/install.sh` / `install.ps1` / `install.cmd`):
 

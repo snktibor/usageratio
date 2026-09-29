@@ -1,6 +1,6 @@
 import type { DraftProblem } from "@/components/settings/draft";
 import type { Translator } from "@/lib/i18n";
-import { MAX_GROUPS } from "@/lib/settings";
+import { MAX_ALERT_THRESHOLDS, MAX_GROUPS } from "@/lib/settings";
 import { MAX_SUB_LIMIT_MODELS, MAX_SUB_LIMIT_NAME_LENGTH } from "@/lib/sub-limits";
 
 /**
@@ -19,6 +19,8 @@ export function problemText(t: Translator<"Settings">, problem: DraftProblem): s
       return t("invalid_provider_limit", { label: problem.label });
     case "reset_time_format_error":
       return t("reset_time_format_error");
+    case "invalid_time_zone":
+      return t("timezone_invalid");
     case "invalid_group_color":
       return t("invalid_group_color", { id: problem.id });
     case "missing_sublimit_name":
@@ -39,6 +41,10 @@ export function problemText(t: Translator<"Settings">, problem: DraftProblem): s
       return t("max_groups_reached", { maxGroups: MAX_GROUPS });
     case "invalid_alert_webhook":
       return t("invalid_alert_webhook");
+    case "invalid_alert_threshold":
+      return t("alerts_threshold_invalid");
+    case "max_alert_thresholds_reached":
+      return t("alerts_threshold_max", { max: MAX_ALERT_THRESHOLDS });
     case "alerts_need_at_least_one_threshold":
       return t("alerts_need_at_least_one_threshold");
   }

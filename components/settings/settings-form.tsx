@@ -1,10 +1,12 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import { useState } from "react";
 import { StopCircleIcon, XIcon } from "@/components/icons";
 import { AccountsSection } from "@/components/settings/sections/accounts-section";
 import { AlertsSection } from "@/components/settings/sections/alerts-section";
 import { BudgetSection } from "@/components/settings/sections/budget-section";
+import { DangerSection } from "@/components/settings/sections/danger-section";
 import { GroupsSection } from "@/components/settings/sections/groups-section";
 import { LanguageSection } from "@/components/settings/sections/language-section";
 import { MachinesSection } from "@/components/settings/sections/machines-section";
@@ -20,6 +22,9 @@ import type { SettingsView } from "@/lib/settings";
 export function SettingsForm({ view, titleId, onClose }: { view: SettingsView; titleId: string; onClose: () => void }) {
   const t = useTranslations("Settings");
   const { draft, actions, problem, saving } = useSettingsForm(view, onClose);
+  const [deletedProviderIds, setDeletedProviderIds] = useState<string[]>([]);
+  const [machineIds, setMachineIds] = useState<string[]>([]);
+  const listedProviders = draft.providers.filter((provider) => !deletedProviderIds.includes(provider.id));
   const visibleProviders = draft.providers.filter((provider) => provider.visible);
 
   return (
@@ -50,10 +55,9 @@ export function SettingsForm({ view, titleId, onClose }: { view: SettingsView; t
       <div className="space-y-9 px-6 pb-7 pt-6">
         <AccountsSection
           titleId={titleId}
-          providers={draft.providers}
+          providers={listedProviders}
           visibleCount={visibleProviders.length}
           onToggle={(id, visible) => actions.patchProvider(id, { visible })}
-          onManaged={actions.refresh}
         />
 
         <BudgetSection
@@ -90,7 +94,12 @@ export function SettingsForm({ view, titleId, onClose }: { view: SettingsView; t
           onManaged={actions.refresh}
         />
 
-        <MachinesSection titleId={titleId} groups={draft.groups} onManaged={actions.refresh} />
+        <MachinesSection
+          titleId={titleId}
+          groups={draft.groups}
+          onManaged={actions.refresh}
+          onMachineIds={setMachineIds}
+        />
 
         <AlertsSection
           titleId={titleId}
@@ -106,7 +115,19 @@ export function SettingsForm({ view, titleId, onClose }: { view: SettingsView; t
           timeZone={view.timeZone}
         />
 
-        <TokensSection titleId={titleId} timeZone={view.timeZone} onManaged={actions.refresh} />
+        <TokensSection
+          titleId={titleId}
+          timeZone={view.timeZone}
+          knownMachines={machineIds}
+          onManaged={actions.refresh}
+        />
+
+        <DangerSection
+          titleId={titleId}
+          providers={listedProviders}
+          onDeleted={(id) => setDeletedProviderIds((current) => [...current, id])}
+          onManaged={actions.refresh}
+        />
       </div>
 
       <footer className="sticky bottom-0 border-t border-hairline bg-raised px-6 py-4">

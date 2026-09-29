@@ -1,7 +1,8 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
+import { CopyError, type CopyErrorCode, copyText } from "@/components/clipboard";
 import { StatusLine } from "@/components/status-line";
 
 type UnlockState = { phase: "idle" } | { phase: "busy" } | { phase: "error"; message: string };
@@ -24,24 +25,45 @@ function useNumericHint(): boolean {
   return numeric;
 }
 
+/** The PIN was not accepted; the message is already the one to show. */
+class SudoRefused extends Error {}
+
 /**
- * Sudo mode's unlock form: shown wherever a copy failed with `sudo_required`
- * (token-copy-button.tsx, the one-shot route's command copy). Confirming the
- * PIN here only grants the 5-minute window; it does not retry the copy
- * itself — a fresh click is what keeps the clipboard permission on Safari.
+ * Sudo mode's unlock prompt: shown wherever an action or a copy failed with
+ * `sudo_required`. Confirming the PIN grants the 5-minute window.
+ *
+ * Not a <form>: in the settings dialog it sits inside the settings <form>, and
+ * Chromium stops a nested form's submit event at the outer form, before React
+ * sees it, so the browser would submit the PIN as a GET to the page's own URL.
+ * The button's click and Enter in the field both confirm instead.
+ *
+ * With `copy` (token-copy-button.tsx, the one-shot route's command copy),
+ * confirming also finishes the copy: `copyText` is started inside that click
+ * or keypress, on a promise that first unlocks and then builds the text, so
+ * the clipboard write stays within the user's gesture, as Safari requires.
  */
-export function SudoUnlock({ onUnlocked }: { onUnlocked: () => void }) {
+export function SudoUnlock({
+  onUnlocked,
+  copy,
+  onCopyFailed,
+}: {
+  /** After the PIN is accepted; with `copy`, once the text is on the clipboard too. */
+  onUnlocked: () => void;
+  /** Builds the text to copy, once the PIN is accepted. */
+  copy?: () => Promise<string>;
+  /** A copy that failed after the PIN was accepted. */
+  onCopyFailed?: (code: CopyErrorCode) => void;
+}) {
   const t = useTranslations("Setup");
   const tAuth = useTranslations("Auth");
   const numeric = useNumericHint();
   const [pin, setPin] = useState("");
   const [reveal, setReveal] = useState(false);
   const [state, setState] = useState<UnlockState>({ phase: "idle" });
+  const labelId = useId();
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setState({ phase: "busy" });
-
+  /** POST /api/auth/sudo; rejects with a SudoRefused when the PIN is not accepted. */
+  async function unlock(): Promise<void> {
     let response: Response;
     try {
       response = await fetch("/api/auth/sudo", {
@@ -51,16 +73,9 @@ export function SudoUnlock({ onUnlocked }: { onUnlocked: () => void }) {
         cache: "no-store",
       });
     } catch {
-      setState({ phase: "error", message: t("sudo_error_generic") });
-      return;
+      throw new SudoRefused(t("sudo_error_generic"));
     }
-
-    if (response.status === 204) {
-      setPin("");
-      setState({ phase: "idle" });
-      onUnlocked();
-      return;
-    }
+    if (response.status === 204) return;
 
     const payload = (await response.json().catch(() => null)) as {
       error?: string;
@@ -68,36 +83,60 @@ export function SudoUnlock({ onUnlocked }: { onUnlocked: () => void }) {
       retryAfterSeconds?: number;
     } | null;
     if (response.status === 401 && payload?.error === "sudo_invalid") {
-      setState({ phase: "error", message: tAuth("pin_invalid", { attemptsLeft: payload.attemptsLeft ?? 0 }) });
-    } else if (response.status === 429) {
-      const minutes = Math.max(1, Math.ceil((payload?.retryAfterSeconds ?? 60) / 60));
-      setState({ phase: "error", message: tAuth("rate_limited", { minutes }) });
-    } else {
-      setState({ phase: "error", message: t("sudo_error_generic") });
+      throw new SudoRefused(tAuth("pin_invalid", { attemptsLeft: payload.attemptsLeft ?? 0 }));
     }
+    if (response.status === 429) {
+      const minutes = Math.max(1, Math.ceil((payload?.retryAfterSeconds ?? 60) / 60));
+      throw new SudoRefused(tAuth("rate_limited", { minutes }));
+    }
+    throw new SudoRefused(t("sudo_error_generic"));
+  }
+
+  function confirm() {
+    if (state.phase === "busy" || pin.length === 0) return;
+    setState({ phase: "busy" });
+    // No await before copyText: the clipboard write has to start inside this click or keypress.
+    const unlocked = unlock();
+    const done = copy ? copyText(unlocked.then(copy)) : unlocked;
+    done.then(
+      () => {
+        setPin("");
+        setState({ phase: "idle" });
+        onUnlocked();
+      },
+      (error: unknown) => {
+        if (error instanceof SudoRefused) {
+          setState({ phase: "error", message: error.message });
+          return;
+        }
+        setPin("");
+        setState({ phase: "idle" });
+        onCopyFailed?.(error instanceof CopyError ? error.code : "generic");
+      },
+    );
   }
 
   return (
-    <form
-      onSubmit={(event) => void submit(event)}
-      className="space-y-2.5 rounded-md border border-rule bg-raised p-3.5"
-    >
-      <label htmlFor="sudo-pin" className="block text-sm text-ink-2">
+    <div role="group" aria-labelledby={labelId} className="space-y-2.5 rounded-md border border-rule bg-raised p-3.5">
+      <label id={labelId} htmlFor="sudo-pin" className="block text-sm text-ink-2">
         {t("sudo_prompt")}
       </label>
       <div className="flex items-center gap-2">
         <input
           id="sudo-pin"
-          name="pin"
           type={numeric || !reveal ? "password" : "text"}
           inputMode={numeric ? "numeric" : undefined}
           autoComplete="current-password"
-          minLength={5}
-          required
           value={pin}
           onChange={(event) => {
             const value = event.currentTarget.value;
             setPin(numeric ? value.replace(/\D/g, "") : value);
+          }}
+          onKeyDown={(event) => {
+            // Enter confirms the PIN; it must not submit a form around this prompt (the settings dialog's).
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            confirm();
           }}
           className="min-w-0 grow rounded-md border border-rule bg-page px-3 py-1.5 text-ink"
         />
@@ -111,14 +150,15 @@ export function SudoUnlock({ onUnlocked }: { onUnlocked: () => void }) {
           </button>
         )}
         <button
-          type="submit"
+          type="button"
+          onClick={confirm}
           disabled={state.phase === "busy" || pin.length === 0}
           className="shrink-0 rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-page transition-opacity hover:opacity-90 disabled:opacity-60"
         >
-          {state.phase === "busy" ? t("sudo_unlocking") : t("sudo_unlock")}
+          {state.phase === "busy" ? t("sudo_unlocking") : copy ? t("sudo_unlock_copy") : t("sudo_unlock")}
         </button>
       </div>
       <div aria-live="polite">{state.phase === "error" && <StatusLine tone="problem">{state.message}</StatusLine>}</div>
-    </form>
+    </div>
   );
 }

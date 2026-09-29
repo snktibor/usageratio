@@ -488,7 +488,7 @@ function parseSubLimits(value: unknown, errors: string[]): Record<string, SubLim
 
 // ── Alerts ───────────────────────────────────────────────────────────────────
 
-export const MAX_ALERT_THRESHOLDS = 5;
+export const MAX_ALERT_THRESHOLDS = 20;
 export const ALERT_FORMATS: readonly AlertsFormat[] = ["generic", "slack", "discord"];
 
 function isAlertFormat(value: unknown): value is AlertsFormat {

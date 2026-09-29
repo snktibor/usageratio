@@ -12,14 +12,17 @@ seed the settings panel's initial values). This page covers both.
 Opened from the dashboard header (visible only when signed in). Saves with `PUT /api/settings`
 (see [api.md](api.md)); most changes take effect immediately, with no redeploy or reinstall.
 
-### Accounts
+### Providers
 
-A toggle per detected provider/account controls whether it appears on the dashboard and in the
-account picker. At least one account must stay visible — the last visible one's toggle is
-disabled. Hiding an account doesn't stop the server storing its reports: re-enabling it brings its
-history back. A hidden account can also be deleted outright, together with its reports, machines
-and settings (`DELETE /api/providers/[provider]`); if it still has reports, the panel asks you to
-confirm a force delete and to re-enter the PIN.
+A provider is an AI tool the machines report usage for (Claude Code, Codex/OpenAI, …); the
+dashboard's picker calls them AI accounts. A toggle per detected provider controls whether it
+appears on the dashboard and in that picker. At least one provider must stay visible — the last
+visible one's toggle is disabled. Hiding a provider doesn't stop the server storing its reports:
+re-enabling it brings its history back.
+
+A hidden provider can also be deleted outright, together with its reports, machines and settings
+(`DELETE /api/providers/[provider]`), from the **Danger zone** block at the bottom of the panel; if
+it still has reports, the panel asks you to confirm a force delete and to re-enter the PIN.
 
 ### Budget and token limits
 
@@ -51,9 +54,9 @@ sub-limit a model with more than one matching fragment falls into.
 For a weekly budget, the day of the week the cycle restarts; for monthly, the day of the month
 (1–31) — a value past the end of a shorter month falls back to that month's last day. Both a
 weekly and a monthly choice are always kept, so switching the period back restores the previous
-one. The reset time (`HH:MM`) and time zone are also set here; the time zone list comes from the
-browser's own `Intl.supportedValuesOf("timeZone")`, with a shortcut to match the browser's
-detected zone.
+one. The reset time (`HH:MM`) and time zone are also set here. The time zone is a searchable field
+whose suggestions come from the browser's own `Intl.supportedValuesOf("timeZone")`, the browser's
+detected zone first (with a shortcut to use it); a zone the browser does not know cannot be saved.
 
 **Official percentage**: a machine's own measurement doesn't always exactly match a provider's own
 official usage figure, but their proportions hold. Typing (or dragging the slider to) a percentage
@@ -78,15 +81,21 @@ deleted or renamed group id recreates that group on its next report.
 
 ### Machines management
 
-Lists every known machine (its group, provider, and last-seen time), with inline rename and
-delete. A **remove inactive machines** action appears once any machine has gone silent for more
-than 35 days, and clears them from the list in one action (their stored reports are unaffected —
-this only removes the machine from the index; see [data-model.md](data-model.md)).
+Lists every known machine once (its group, the providers it reports for, and when it last
+reported), with inline rename and delete. The index keeps one entry per provider and machine, so a
+rename or delete runs on each of the machine's providers in turn: a rename onto an id that one of
+them already uses is refused before anything changes, and if a request fails half way the panel
+says which providers were done and which were not. A **remove inactive machines** action appears
+once any machine has gone silent for more than 35 days, and clears them from the list in one
+action (their stored reports are unaffected — this only removes the machine from the index; see
+[data-model.md](data-model.md)).
 
 ### Alerts
 
 An optional webhook message the first time a provider's usage in the current cycle crosses one of
-up to 5 percentage thresholds (50, 80 and 100% by default; 25, 75 and 90 are one click away).
+up to 20 percentage thresholds (50, 80 and 100% by default). A threshold is added by typing a whole
+percentage (1–100) and pressing **Add**; the list stays sorted, a repeated value is dropped, and
+each one has its own remove button.
 Each threshold fires at most once per provider per cycle. Fields:
 webhook URL (must be `https`, and can't point at a private/loopback/link-local address — the same
 allow-list a self-hosted deployment's own network is protected by, see
@@ -102,7 +111,8 @@ provider.
 The bottom of the panel holds a copy of `USAGE_API_TOKEN` for the Setup page's *Copy token* button
 (add/replace it here; replacing requires a confirmation), and a separate list of **per-machine
 tokens** that can be issued and revoked individually as an alternative to the shared master token
-(see [security.md](security.md#per-machine-tokens)). An **Audit** button shows who added, changed,
+(see [security.md](security.md#per-machine-tokens)). A new token gets a label and either works for
+any machine or is bound to one picked from the machines that have already reported. An **Audit** button shows who added, changed,
 or revealed the stored master-token copy, and from where. See [security.md](security.md) for the
 underlying encryption and audit mechanics.
 

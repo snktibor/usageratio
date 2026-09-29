@@ -7,8 +7,9 @@ import {
   parseLimit,
   parseModelParts,
   parseSharePercent,
-  toggleAlertThreshold,
+  parseTimeZone,
   toRequest,
+  withAlertThreshold,
 } from "@/components/settings/draft";
 import { getConfig } from "@/lib/config";
 import { buildSettingsView, MAX_ALERT_THRESHOLDS, MAX_GROUPS, MAX_LIMIT, parseSettingsUpdate } from "@/lib/settings";
@@ -96,6 +97,20 @@ describe("parseModelParts", () => {
   });
 });
 
+describe("parseTimeZone", () => {
+  it("accepts a zone Intl knows, in its canonical spelling", () => {
+    expect(parseTimeZone("Europe/Budapest")).toBe("Europe/Budapest");
+    expect(parseTimeZone(" europe/budapest ")).toBe("Europe/Budapest");
+    expect(parseTimeZone("UTC")).toBe("UTC");
+  });
+
+  it("rejects a half-typed or unknown zone", () => {
+    for (const text of ["", "  ", "Europe/Buda", "Mars/Olympus_Mons"]) {
+      expect(parseTimeZone(text)).toBeNull();
+    }
+  });
+});
+
 describe("groupNameProblem", () => {
   const groups = [group("work")];
 
@@ -147,6 +162,17 @@ describe("toRequest", () => {
     expect(parsed.update.settings.reset.monthDay).toBe(15);
     expect(parsed.update.settings.limits.claude).toBe(1_000_000);
     expect(parsed.update.settings.limits.deepseek).toBe(1_000_000);
+  });
+
+  it("refuses to save a time zone that is not a known one", () => {
+    const draft = draftFrom(view);
+    expect(toRequest({ ...draft, timeZone: "Europe/Buda" })).toEqual({ problem: { code: "invalid_time_zone" } });
+  });
+
+  it("saves a typed time zone in its canonical spelling", () => {
+    const result = toRequest({ ...draftFrom(view), timeZone: "europe/budapest" });
+    if (!("request" in result)) throw new Error(`expected a request, got a problem: ${JSON.stringify(result)}`);
+    expect(result.request.reset.timeZone).toBe("Europe/Budapest");
   });
 
   it("reports an invalid provider limit as a DraftProblem code, not text", () => {
@@ -224,6 +250,7 @@ describe("toRequest", () => {
       alerts: {
         webhookUrl: " https://hooks.example.com/x ",
         thresholds: [90, 25, 25],
+        newThreshold: "",
         perProvider: false,
         format: "discord",
         locale: "de",
@@ -253,20 +280,45 @@ describe("toRequest", () => {
     const noThresholds: Draft = { ...draft, alerts: { ...draft.alerts, thresholds: [] } };
     expect(toRequest(noThresholds)).toEqual({ problem: { code: "alerts_need_at_least_one_threshold" } });
   });
+
+  it("saves a threshold still left in the add field", () => {
+    const draft = draftFrom(view);
+    const result = toRequest({ ...draft, alerts: { ...draft.alerts, thresholds: [], newThreshold: " 85 " } });
+    if (!("request" in result)) throw new Error(`expected a request, got a problem: ${JSON.stringify(result)}`);
+    expect(result.request.alerts.thresholds).toEqual([85]);
+  });
+
+  it("refuses to save while the add field holds no valid percentage", () => {
+    const draft = draftFrom(view);
+    const result = toRequest({ ...draft, alerts: { ...draft.alerts, newThreshold: "150" } });
+    expect(result).toEqual({ problem: { code: "invalid_alert_threshold" } });
+  });
 });
 
-describe("toggleAlertThreshold", () => {
-  it("adds a value that is not yet selected, keeping the list sorted", () => {
-    expect(toggleAlertThreshold([50, 100], 80)).toEqual([50, 80, 100]);
+describe("withAlertThreshold", () => {
+  it("adds a typed value, keeping the list sorted", () => {
+    expect(withAlertThreshold([50, 100], "80")).toEqual({ thresholds: [50, 80, 100] });
+    expect(withAlertThreshold([], " 7 ")).toEqual({ thresholds: [7] });
   });
 
-  it("removes a value that is already selected", () => {
-    expect(toggleAlertThreshold([50, 80, 100], 80)).toEqual([50, 100]);
+  it("drops a value already on the list instead of repeating it", () => {
+    expect(withAlertThreshold([50, 80, 100], "80")).toEqual({ thresholds: [50, 80, 100] });
   });
 
-  it("ignores an addition once MAX_ALERT_THRESHOLDS is reached", () => {
-    const full = [10, 20, 30, 40, 50];
-    expect(full).toHaveLength(MAX_ALERT_THRESHOLDS);
-    expect(toggleAlertThreshold(full, 60)).toEqual(full);
+  it("takes a removed value back, in its sorted place", () => {
+    const removed = [50, 80, 100].filter((value) => value !== 80);
+    expect(withAlertThreshold(removed, "80")).toEqual({ thresholds: [50, 80, 100] });
+  });
+
+  it("refuses anything but a whole number from 1 to 100", () => {
+    for (const text of ["", "0", "101", "12.5", "-5", "abc"]) {
+      expect(withAlertThreshold([50], text)).toEqual({ problem: { code: "invalid_alert_threshold" } });
+    }
+  });
+
+  it("refuses a new value once MAX_ALERT_THRESHOLDS is reached, but not a repeat", () => {
+    const full = Array.from({ length: MAX_ALERT_THRESHOLDS }, (_, i) => i + 1);
+    expect(withAlertThreshold(full, "60")).toEqual({ problem: { code: "max_alert_thresholds_reached" } });
+    expect(withAlertThreshold(full, "5")).toEqual({ thresholds: full });
   });
 });
