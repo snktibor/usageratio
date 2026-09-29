@@ -448,9 +448,6 @@
     "zoom_drag_hint": "oder ziehe über das Diagramm, um hineinzuzoomen"
   },
   "Cycles": {
-    "picker_label": "Zyklus",
-    "picker_current": "Aktuell: {range}",
-    "picker_summary": "{range} (nur Zusammenfassung)",
     "back_to_current": "Zurück zum aktuellen Zyklus",
     "past_banner_title": "Du siehst einen früheren Zyklus",
     "past_banner_body": "Nur lesbar: Alle Zahlen sind endgültig, die Diagramme reichen bis zum Ende des Zyklus, und der offizielle Prozentwert ist der mit ihm archivierte.",

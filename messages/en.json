@@ -448,9 +448,6 @@
     "zoom_drag_hint": "or drag across the chart to zoom in"
   },
   "Cycles": {
-    "picker_label": "Cycle",
-    "picker_current": "Current: {range}",
-    "picker_summary": "{range} (summary only)",
     "back_to_current": "Back to the current cycle",
     "past_banner_title": "You are looking at a past cycle",
     "past_banner_body": "Read-only: every figure is final, the charts run to the end of the cycle, and the official percentage is the one archived with it.",

@@ -126,7 +126,7 @@ export async function Dashboard({
         </div>
       </header>
 
-      <CycleBar options={options} selection={selection} timeZone={timeZone} retentionDays={getConfig().retentionDays} />
+      <CycleBar selection={selection} timeZone={timeZone} retentionDays={getConfig().retentionDays} />
 
       {selected.kind === "summary" && summaries.length > 0 ? (
         <ArchivedCycleView

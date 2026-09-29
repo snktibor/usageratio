@@ -448,9 +448,6 @@
     "zoom_drag_hint": "vagy jelölj ki egy szakaszt az egérrel"
   },
   "Cycles": {
-    "picker_label": "Ciklus",
-    "picker_current": "Aktuális: {range}",
-    "picker_summary": "{range} (csak összegzés)",
     "back_to_current": "Vissza az aktuálishoz",
     "past_banner_title": "Egy korábbi ciklust nézel",
     "past_banner_body": "Csak olvasható: minden szám végleges, a grafikonok a ciklus végéig tartanak, a hivatalos százalék pedig az, amelyik vele együtt archiválódott.",
