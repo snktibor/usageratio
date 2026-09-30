@@ -304,6 +304,8 @@
     "group_share_aria": "Group share of consumption",
     "share": "Share",
     "of_quota": "Of quota",
+    "group_machines_desc": "{basis, select, official {The official percentage, distributed among the machines according to their measured token proportions.} measured {In percentage of the token limit, as measured by the machines.} other {The machines' measured tokens, accumulated since the start of the cycle: without an official percentage there is no quota to compare them to.}} Next to each machine: its tokens, and its share of the group's consumption.",
+    "group_machines_aria": "Consumption of the machines of the group “{id}” over the cycle",
     "machines_count": "{count, plural, one {# machine} other {# machines}}",
     "no_usage_yet": "No consumption in this cycle yet. The breakdown will appear after the first submission reporting tokens.",
     "status_active": "Active",

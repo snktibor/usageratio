@@ -304,6 +304,8 @@
     "group_share_aria": "Anteil der Gruppen am Verbrauch",
     "share": "Anteil",
     "of_quota": "Vom Kontingent",
+    "group_machines_desc": "{basis, select, official {Der offizielle Prozentsatz, verteilt auf die Maschinen im Verhältnis ihrer gemessenen Token.} measured {In Prozent des Tokenkontingents, laut Messung der Maschinen.} other {Die gemessenen Token der Maschinen, seit Beginn des Zyklus aufsummiert: ohne offiziellen Prozentsatz gibt es kein Kontingent zum Vergleich.}} Neben jeder Maschine: ihre Token und ihr Anteil am Verbrauch der Gruppe.",
+    "group_machines_aria": "Verbrauch der Maschinen der Gruppe „{id}“ im Zyklus",
     "machines_count": "{count, plural, one {# Maschine} other {# Maschinen}}",
     "no_usage_yet": "In diesem Zyklus gibt es noch keinen Verbrauch. Die Aufschlüsselung erscheint nach der ersten Übermittlung mit gemeldeten Token.",
     "status_active": "Aktiv",

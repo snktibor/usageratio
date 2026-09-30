@@ -17,6 +17,14 @@ export interface GroupSeries {
   values: number[];
 }
 
+/** One machine's own line within one group: the group's line is the sum of its machines'. */
+export interface MachineSeries {
+  machineId: string;
+  groupId: string;
+  /** Cumulative tokens at each sample time. */
+  values: number[];
+}
+
 export interface ModelTimeline {
   /** The model's id without its snapshot date; see lib/models.ts. */
   modelId: string;
@@ -32,6 +40,8 @@ export interface CycleTimeline {
   /** Sample times, epoch ms: the cycle's start, then every full step, and last the moment of the dashboard. */
   times: number[];
   groups: GroupSeries[];
+  /** The machines of those groups with usage this cycle, each within its group; in no particular order. */
+  machines: MachineSeries[];
   /** Only models with usage this cycle, the heaviest first. */
   models: ModelTimeline[];
 }
@@ -97,6 +107,34 @@ function groupTimelines(
     });
   }
   return groupIds.map((groupId) => ({ groupId, values: byGroup.get(groupId)! }));
+}
+
+/**
+ * Every machine's cumulative usage at each of `times`, within each of `groupIds`
+ * (a merged machine's carry-over counted into its line). A machine without
+ * usage has no line: its line would lie on the axis.
+ */
+function machineTimelines(
+  events: UsageEvent[],
+  groupIds: string[],
+  times: number[],
+  window: { startMs: number; endMs: number },
+  mode: TokenMode,
+): MachineSeries[] {
+  const endsMs = sampleEnds(times, window);
+  const byMachine = new Map<string, MachineSeries>();
+
+  for (const series of groupIntoSeries(events)) {
+    const { groupId, machineId } = series[0]!;
+    if (!groupIds.includes(groupId)) continue;
+    const key = JSON.stringify([groupId, machineId]);
+    const machine = byMachine.get(key) ?? { machineId, groupId, values: times.map(() => 0) };
+    byMachine.set(key, machine);
+    usageOfSeriesUntil(series, window.startMs, endsMs, mode).forEach((usage, index) => {
+      machine.values[index]! += usage;
+    });
+  }
+  return [...byMachine.values()].filter((machine) => machine.values[times.length - 1]! > 0);
 }
 
 /**
@@ -175,5 +213,10 @@ export function buildTimeline(
     .filter((model) => model.tokens > 0)
     .sort((a, b) => b.tokens - a.tokens || a.modelId.localeCompare(b.modelId));
 
-  return { times, groups: groupTimelines(events, groupIds, times, window, mode), models };
+  return {
+    times,
+    groups: groupTimelines(events, groupIds, times, window, mode),
+    machines: machineTimelines(events, groupIds, times, window, mode),
+    models,
+  };
 }

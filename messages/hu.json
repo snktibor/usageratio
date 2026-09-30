@@ -304,6 +304,8 @@
     "group_share_aria": "A csoportok részesedése a fogyasztásból",
     "share": "Részesedés",
     "of_quota": "A keretből",
+    "group_machines_desc": "{basis, select, official {A hivatalos százalék, a gépek között a mért tokenjeik arányában elosztva.} measured {A tokenkeret százalékában, a gépek mérése szerint.} other {A gépek mért tokenjei a ciklus eleje óta összesítve: hivatalos százalék nélkül nincs keret, amihez viszonyítani lehetne.}} A gépek neve mellett a tokenjeik és a részesedésük a csoport fogyasztásából.",
+    "group_machines_aria": "A(z) „{id}” csoport gépeinek fogyasztása a ciklusban",
     "machines_count": "{count, plural, other {# gép}}",
     "no_usage_yet": "Ebben a ciklusban még nincs fogyasztás. A bontás az első tokeneket jelentő beküldés után jelenik meg.",
     "status_active": "Aktív",

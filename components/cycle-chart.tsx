@@ -66,7 +66,7 @@ const ticksFor = (zoomWindow: TimeSpan, timeZone: string, width: number) =>
   zoomTicks(zoomWindow, timeZone, Math.max(2, Math.floor(width / TICK_ROOM_PX)));
 
 /** A short stroke in the series' colour: the key in the legend, the tooltip and the table. */
-function LineKey({ series }: { series: ChartSeries }) {
+export function LineKey({ series }: { series: Pick<ChartSeries, "color" | "dashed"> }) {
   return (
     <span
       aria-hidden="true"

@@ -27,6 +27,42 @@ test("dashboard shows the Claude view with 62.5% and machines", async ({ page })
   }
 });
 
+test("a group's row opens the chart of its machines, one group at a time", async ({ page }) => {
+  await page.goto("/en");
+
+  const groups = page.getByRole("region", { name: "Groups" });
+  const work = groups.getByRole("button", { name: /^Work/ });
+  const personal = groups.getByRole("button", { name: /^Personal/ });
+  const chartOf = (groupId: string) =>
+    groups.getByRole("group", { name: `Consumption of the machines of the group “${groupId}” over the cycle` });
+  await expect(work).toHaveAttribute("aria-expanded", "false");
+
+  await work.click();
+  await expect(work).toHaveAttribute("aria-expanded", "true");
+  await expect(chartOf("Work")).toBeVisible();
+  // Only Work's machines (lib/demo/dataset.ts): mac-studio is Personal's.
+  const key = groups
+    .locator(`#${await work.getAttribute("aria-controls")}`)
+    .getByRole("list")
+    .first();
+  await expect(key.getByRole("listitem")).toHaveText([/^win-desktop/, /^thinkpad/, /^old-laptop/]);
+
+  // Opening another group closes this one.
+  await personal.click();
+  await expect(chartOf("Personal")).toBeVisible();
+  await expect(chartOf("Work")).toHaveCount(0);
+  await expect(work).toHaveAttribute("aria-expanded", "false");
+
+  // The whole row is the target, not just the name.
+  await groups
+    .getByRole("row", { name: /^Personal/ })
+    .getByRole("cell")
+    .first()
+    .click();
+  await expect(personal).toHaveAttribute("aria-expanded", "false");
+  await expect(chartOf("Personal")).toHaveCount(0);
+});
+
 test("the provider switch keeps working and writes the usageratio_provider cookie", async ({ page, context }) => {
   await page.goto("/en");
 
