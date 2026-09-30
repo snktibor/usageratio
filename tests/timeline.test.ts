@@ -74,6 +74,27 @@ describe("buildTimeline", () => {
     expect(timeline.groups[1]!.values).toEqual([0, 0, 0, 0, 0]);
   });
 
+  it("gives every machine its own line within its group, the group's line being their sum", () => {
+    const both = [...events, report("win-2", "Work", 50, 2.5), report("mac", "Work", 30, 0.5)];
+    const timeline = buildTimeline(both, ["Work", "Personal"], WEEK, START + 4 * HOUR, "snapshot");
+
+    expect(timeline.machines).toEqual([
+      { machineId: "mac", groupId: "Personal", values: [0, 100, 100, 250, 250] },
+      { machineId: "win", groupId: "Work", values: [0, 0, 400, 600, 700] },
+      { machineId: "win-2", groupId: "Work", values: [0, 0, 0, 50, 50] },
+      // The same machine reporting into a second group is a line of that group.
+      { machineId: "mac", groupId: "Work", values: [0, 30, 30, 30, 30] },
+    ]);
+    expect(timeline.groups[0]).toEqual({ groupId: "Work", values: [0, 30, 430, 680, 780] });
+  });
+
+  it("leaves out the machines of other groups, and those without usage", () => {
+    const quiet = [...events, report("idle", "Personal", 0, 1.5)];
+    const timeline = buildTimeline(quiet, ["Personal"], WEEK, START + 4 * HOUR, "snapshot");
+
+    expect(timeline.machines.map((machine) => machine.machineId)).toEqual(["mac"]);
+  });
+
   it("splits by model, leaving out the reports without a split", () => {
     const withModels = [
       report("mac", "Personal", 300, 0.5),

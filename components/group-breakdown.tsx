@@ -1,4 +1,7 @@
 import { useLocale, useTranslations } from "next-intl";
+import { useId, useState } from "react";
+import { GroupMachines } from "@/components/group-machines";
+import { ChevronRightIcon } from "@/components/icons";
 import type { DashboardModel } from "@/lib/dashboard";
 import { formatCostOrDash, formatLimitShare, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
@@ -65,14 +68,93 @@ function ShareBar({ groups }: { groups: Group[] }) {
   );
 }
 
-export function GroupBreakdown({ model, view }: { model: DashboardModel; view: DashboardView }) {
+/** One group's row, and under it, while open, the chart of its machines against each other. */
+function GroupRows({
+  group,
+  model,
+  view,
+  open,
+  onToggle,
+}: {
+  group: Group;
+  model: DashboardModel;
+  view: DashboardView;
+  open: boolean;
+  onToggle: () => void;
+}) {
   const locale = useLocale();
   const t = useTranslations("Widgets");
+  const panelId = useId();
+  const hasLimitShare = view.quota !== null;
+  const hasCost = Boolean(model.cost);
+  const chevron = `shrink-0 text-ink-3 transition group-hover/row:text-ink motion-reduce:transition-none ${open ? "rotate-90" : ""}`;
+
+  return (
+    <>
+      {/* The button in the first cell is the keyboard's way in, and its click bubbles up here: the row only widens the pointer's target. */}
+      <tr className="group/row cursor-pointer border-t border-hairline" onClick={onToggle}>
+        <th scope="row" className="py-3 pr-4 font-normal">
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={open ? panelId : undefined}
+            className="block w-full cursor-pointer text-left"
+          >
+            <span className="flex items-center gap-2.5">
+              <ChevronRightIcon className={`hidden sm:block ${chevron}`} />
+              <Swatch color={group.color} />
+              <span className="wrap-anywhere">{group.groupId}</span>
+              <span className="hidden shrink-0 text-sm text-ink-3 sm:inline">
+                {t("machines_count", { count: group.machines })}
+              </span>
+            </span>
+            {/*
+              Narrow screens have no room for a fourth column: the share moves under the name. Nor for a
+              chevron before the name, which would break it mid-word: it takes the indent under the swatch.
+            */}
+            <span className="mt-0.5 flex items-center text-sm text-ink-3 sm:hidden">
+              <span className="w-5 shrink-0">
+                <ChevronRightIcon className={`-ml-0.5 size-3.5 ${chevron}`} />
+              </span>
+              {formatPercent(group.share, locale)} · {t("machines_count", { count: group.machines })}
+            </span>
+          </button>
+        </th>
+        <td className="py-3 pl-4 text-right">{formatTokens(group.tokens, locale)}</td>
+        <td className="hidden py-3 pl-4 text-right text-ink-2 sm:table-cell">{formatPercent(group.share, locale)}</td>
+        {hasLimitShare && <td className="py-3 pl-4 text-right">{formatLimitShare(group.limitShare, locale)}</td>}
+        {hasCost && (
+          <td className="py-3 pl-4 text-right text-ink-2">
+            {formatCostOrDash(model.cost?.byGroup[group.groupId], locale)}
+          </td>
+        )}
+      </tr>
+      {open && (
+        <tr>
+          {/* On the page's own ground, like the other charts: their labels and tooltips are drawn for it. */}
+          <td colSpan={3 + Number(hasLimitShare) + Number(hasCost)} className="pb-8 pt-1">
+            {/* No width of its own, then all of the cell's: its long lines must not move the columns above. */}
+            <div id={panelId} className="w-0 min-w-full">
+              <GroupMachines group={group} model={model} view={view} />
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+export function GroupBreakdown({ model, view }: { model: DashboardModel; view: DashboardView }) {
+  const t = useTranslations("Widgets");
+  // One at a time: opening a group closes the one that was open.
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
   // The split itself always comes from the machines: without measurements there is nothing to show.
   const hasUsage = model.total > 0;
   // No token limit and no official figure: there is no limit to take a share of.
   const hasLimitShare = view.quota !== null;
   const hasCost = Boolean(model.cost);
+
+  const toggle = (groupId: string) => setOpenGroup((current) => (current === groupId ? null : groupId));
 
   return (
     <section aria-labelledby="groups-heading">
@@ -113,33 +195,14 @@ export function GroupBreakdown({ model, view }: { model: DashboardModel; view: D
             </thead>
             <tbody className="tabular-nums">
               {view.groups.map((group) => (
-                <tr key={group.groupId} className="border-t border-hairline">
-                  <th scope="row" className="py-3 pr-4 font-normal">
-                    <span className="flex items-center gap-2.5">
-                      <Swatch color={group.color} />
-                      <span className="wrap-anywhere">{group.groupId}</span>
-                      <span className="hidden shrink-0 text-sm text-ink-3 sm:inline">
-                        {t("machines_count", { count: group.machines })}
-                      </span>
-                    </span>
-                    {/* Narrow screens have no room for a fourth column: the share moves under the name. */}
-                    <span className="mt-0.5 block pl-5 text-sm text-ink-3 sm:hidden">
-                      {formatPercent(group.share, locale)} · {t("machines_count", { count: group.machines })}
-                    </span>
-                  </th>
-                  <td className="py-3 pl-4 text-right">{formatTokens(group.tokens, locale)}</td>
-                  <td className="hidden py-3 pl-4 text-right text-ink-2 sm:table-cell">
-                    {formatPercent(group.share, locale)}
-                  </td>
-                  {hasLimitShare && (
-                    <td className="py-3 pl-4 text-right">{formatLimitShare(group.limitShare, locale)}</td>
-                  )}
-                  {hasCost && (
-                    <td className="py-3 pl-4 text-right text-ink-2">
-                      {formatCostOrDash(model.cost?.byGroup[group.groupId], locale)}
-                    </td>
-                  )}
-                </tr>
+                <GroupRows
+                  key={group.groupId}
+                  group={group}
+                  model={model}
+                  view={view}
+                  open={openGroup === group.groupId}
+                  onToggle={() => toggle(group.groupId)}
+                />
               ))}
             </tbody>
           </table>
