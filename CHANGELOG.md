@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.3.0](https://github.com/snktibor/usageratio/compare/v0.2.0...v0.3.0) (2026-09-30)
+
+
+### Features
+
+* **charts:** the zoom window, its sampling and its time axis ([0fa80fb](https://github.com/snktibor/usageratio/commit/0fa80fbb993409487bf914bad51b02a1bcea2a55))
+* **charts:** zoom into the usage and model charts ([fd9643e](https://github.com/snktibor/usageratio/commit/fd9643e4e13becd1c55a4adad412b90bca31d6a8))
+* **dashboard:** open a past cycle read-only from the previous cycles ([c9d67e5](https://github.com/snktibor/usageratio/commit/c9d67e5ac240750a790ca0410220a4dae1e38d90))
+* **group-breakdown:** refactor to use GroupRows component for better readability ([111d10f](https://github.com/snktibor/usageratio/commit/111d10f2a75751f474b4b43840031a8392072bed))
+* **group-machines:** implement group machines chart and breakdown functionality ([111d10f](https://github.com/snktibor/usageratio/commit/111d10f2a75751f474b4b43840031a8392072bed))
+* **history:** work out which past cycles can be opened, and how ([55e2735](https://github.com/snktibor/usageratio/commit/55e27354d3281828391a8f84a273d7d074f803b6))
+* **settings:** move the settings dialog to its own page ([a674710](https://github.com/snktibor/usageratio/commit/a674710a2d3078b4124095caeede21b8ec057e4f))
+
+
+### Bug Fixes
+
+* **dashboard:** drop the cycle picker above the dashboard ([2f456c3](https://github.com/snktibor/usageratio/commit/2f456c348b22053ae8806675c4164bdaf6c84bc8))
+* **i18n:** update translations for group machines description and aria labels ([111d10f](https://github.com/snktibor/usageratio/commit/111d10f2a75751f474b4b43840031a8392072bed))
+* **settings:** ask for the PIN inside the machine merge dialog ([e32944b](https://github.com/snktibor/usageratio/commit/e32944b02c8f6530c765fb4d1bf88e0c026198aa))
+
 ## [0.2.0](https://github.com/snktibor/usageratio/compare/v0.1.0...v0.2.0) (2026-09-29)
 
 
