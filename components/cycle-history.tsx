@@ -16,7 +16,8 @@ import { NEUTRAL_COLOR } from "@/lib/settings";
  * (lib/history.ts), newest first, each a link to its own view (the full
  * dashboard while its reports are still kept, its summary after that). Above
  * them, once there are at least two to compare, a small column chart in
- * components/cycle-chart.tsx's visual language and keyboard pattern.
+ * components/cycle-chart.tsx's visual language and keyboard pattern. The list
+ * never grows past VISIBLE_ROWS rows: the rest scroll inside it.
  */
 
 type Metric = "official" | "limitShare" | "measured";
@@ -50,6 +51,8 @@ const MIN_AXIS_TOKENS = 1_000;
 const PAD_TOP = 18;
 /** A cycle missing this chart's metric still gets a column, this tall, so it reads as "not recorded" rather than as a gap. */
 const UNKNOWN_BAR_HEIGHT = 4;
+/** How many cycles the list shows at once; the older ones are reached by scrolling inside it. */
+const VISIBLE_ROWS = 3;
 /** A column never grows wider than this: a handful of cycles must not turn into slabs. */
 const MAX_BAR_WIDTH = 40;
 /** Below this much room per column, only every other date label fits under the chart. */
@@ -332,6 +335,42 @@ export function CycleHistory({
 }) {
   const locale = useLocale();
   const t = useTranslations("Widgets");
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const [maxHeight, setMaxHeight] = useState<number>();
+  const scrolls = history.length > VISIBLE_ROWS;
+
+  // Exactly VISIBLE_ROWS rows tall, however tall they wrap to at this width.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: other cycles are other rows to measure
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list || !scrolls) {
+      setMaxHeight(undefined);
+      return;
+    }
+    const measure = () =>
+      setMaxHeight(
+        Array.from(list.children)
+          .slice(0, VISIBLE_ROWS)
+          .reduce((sum, row) => sum + (row as HTMLElement).offsetHeight, 0),
+      );
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [history, scrolls]);
+
+  // The cycle on screen stays in sight, even when it is one of the rows scrolled out of the list.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs again once the list has its height, and for another cycle
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    const row = scroller?.querySelector<HTMLElement>('[aria-current="page"]')?.parentElement;
+    if (!scroller || !row) return;
+    const top = row.offsetTop;
+    const bottom = top + row.offsetHeight;
+    if (top < scroller.scrollTop) scroller.scrollTop = top;
+    else if (bottom > scroller.scrollTop + scroller.clientHeight) scroller.scrollTop = bottom - scroller.clientHeight;
+  }, [selectedStartMs, maxHeight]);
 
   return (
     <section aria-labelledby="history-heading">
@@ -347,80 +386,89 @@ export function CycleHistory({
           {/* One column says nothing a row does not: the chart waits for a second cycle to compare. */}
           {history.length >= 2 && <HistoryChart history={history} timeZone={timeZone} t={t} locale={locale} />}
 
-          {/* biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics once list-style is none */}
-          <ul role="list" className="mt-6 border-t border-hairline">
-            {history.map((entry) => {
-              const groups = groupShares(entry);
-              const summaryOnly = kinds[entry.start] === "summary";
-              const current = entry.start === selectedStartMs;
-              return (
-                <li key={entry.start} className="border-b border-hairline">
-                  <Link
-                    href={`/?cycle=${entry.start}`}
-                    aria-current={current ? "page" : undefined}
-                    className={`group -mx-3 block rounded-md px-3 py-4 transition-colors hover:bg-raised ${
-                      current ? "bg-raised" : ""
-                    }`}
-                  >
-                    <span className="flex items-start justify-between gap-4">
-                      <span className="min-w-0">
-                        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <span className="font-medium text-ink">
-                            {formatCycleRange(entry.start, entry.end, timeZone, locale)}
+          {/* The rules stay put; the rows scroll between them, their hover bleeding into the gutters as before. */}
+          <div className="mt-6 border-y border-hairline">
+            <div
+              ref={scrollerRef}
+              className={`code-scroll relative -mx-3 overflow-y-auto px-3 ${scrolls ? "max-h-96" : ""}`}
+              style={{ maxHeight }}
+            >
+              {/* biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics once list-style is none */}
+              <ul ref={listRef} role="list">
+                {history.map((entry) => {
+                  const groups = groupShares(entry);
+                  const summaryOnly = kinds[entry.start] === "summary";
+                  const current = entry.start === selectedStartMs;
+                  return (
+                    <li key={entry.start} className="border-hairline not-first:border-t">
+                      <Link
+                        href={`/?cycle=${entry.start}`}
+                        aria-current={current ? "page" : undefined}
+                        className={`group -mx-3 block rounded-md px-3 py-4 transition-colors hover:bg-raised ${
+                          current ? "bg-raised" : ""
+                        }`}
+                      >
+                        <span className="flex items-start justify-between gap-4">
+                          <span className="min-w-0">
+                            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="font-medium text-ink">
+                                {formatCycleRange(entry.start, entry.end, timeZone, locale)}
+                              </span>
+                              {summaryOnly && (
+                                <span className="rounded-full border border-rule px-2 py-0.5 text-xs text-ink-3">
+                                  {t("history_summary_badge")}
+                                </span>
+                              )}
+                            </span>
+                            <span className="mt-1 block text-sm text-ink-3 tabular-nums">
+                              {t("history_measured_line", {
+                                tokens: formatTokens(entry.total, locale),
+                                machines: entry.machines,
+                              })}
+                            </span>
                           </span>
-                          {summaryOnly && (
-                            <span className="rounded-full border border-rule px-2 py-0.5 text-xs text-ink-3">
-                              {t("history_summary_badge")}
-                            </span>
-                          )}
+                          <span className="flex shrink-0 items-center gap-2">
+                            <FinalUsage entry={entry} t={t} locale={locale} />
+                            <ChevronRightIcon className="text-ink-3 transition-colors group-hover:text-ink" />
+                          </span>
                         </span>
-                        <span className="mt-1 block text-sm text-ink-3 tabular-nums">
-                          {t("history_measured_line", {
-                            tokens: formatTokens(entry.total, locale),
-                            machines: entry.machines,
-                          })}
-                        </span>
-                      </span>
-                      <span className="flex shrink-0 items-center gap-2">
-                        <FinalUsage entry={entry} t={t} locale={locale} />
-                        <ChevronRightIcon className="text-ink-3 transition-colors group-hover:text-ink" />
-                      </span>
-                    </span>
 
-                    {groups.length > 0 && (
-                      <>
-                        <span aria-hidden="true" className="mt-3 flex h-2 w-full gap-0.5">
-                          {groups.map((group) => (
-                            <span
-                              key={group.groupId}
-                              className="h-full min-w-0.5 rounded-[2px]"
-                              style={{
-                                flex: `${group.tokens} 1 0%`,
-                                backgroundColor: groupColors[group.groupId] ?? NEUTRAL_COLOR,
-                              }}
-                            />
-                          ))}
-                        </span>
-                        <span className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-2">
-                          {groups.map((group) => (
-                            <span key={group.groupId} className="flex min-w-0 items-center gap-1.5">
-                              <span
-                                aria-hidden="true"
-                                className="size-2 shrink-0 rounded-[2px]"
-                                style={{ backgroundColor: groupColors[group.groupId] ?? NEUTRAL_COLOR }}
-                              />
-                              <span className="wrap-anywhere">{group.groupId}</span>
-                              <span className="tabular-nums text-ink-3">{formatPercent(group.share, locale)}</span>
+                        {groups.length > 0 && (
+                          <>
+                            <span aria-hidden="true" className="mt-3 flex h-2 w-full gap-0.5">
+                              {groups.map((group) => (
+                                <span
+                                  key={group.groupId}
+                                  className="h-full min-w-0.5 rounded-[2px]"
+                                  style={{
+                                    flex: `${group.tokens} 1 0%`,
+                                    backgroundColor: groupColors[group.groupId] ?? NEUTRAL_COLOR,
+                                  }}
+                                />
+                              ))}
                             </span>
-                          ))}
-                        </span>
-                      </>
-                    )}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+                            <span className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-2">
+                              {groups.map((group) => (
+                                <span key={group.groupId} className="flex min-w-0 items-center gap-1.5">
+                                  <span
+                                    aria-hidden="true"
+                                    className="size-2 shrink-0 rounded-[2px]"
+                                    style={{ backgroundColor: groupColors[group.groupId] ?? NEUTRAL_COLOR }}
+                                  />
+                                  <span className="wrap-anywhere">{group.groupId}</span>
+                                  <span className="tabular-nums text-ink-3">{formatPercent(group.share, locale)}</span>
+                                </span>
+                              ))}
+                            </span>
+                          </>
+                        )}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
         </>
       )}
     </section>
