@@ -104,6 +104,25 @@ describe("CycleHistory", () => {
     expect(within(newer!).queryByText("summary only")).toBeNull();
   });
 
+  it("shows three cycles at a time: the older ones scroll inside the list", () => {
+    // jsdom lays nothing out: every row is given a height to measure.
+    const rowHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(120);
+    const cycles = [0, 1, 2, 3, 4].map((age) =>
+      summary({ start: END - (age + 1) * 7 * DAY, end: END - age * 7 * DAY, total: 1_000 }),
+    );
+
+    const { unmount } = renderHistory(cycles);
+    // Every cycle is still in the list; its box is as tall as the first three.
+    expect(screen.getAllByRole("listitem")).toHaveLength(5);
+    expect(screen.getByRole("list").parentElement?.style.maxHeight).toBe("360px");
+    unmount();
+
+    // Three or fewer fit as they are: nothing to scroll, no height imposed.
+    renderHistory(cycles.slice(0, 3));
+    expect(screen.getByRole("list").parentElement?.style.maxHeight).toBe("");
+    rowHeight.mockRestore();
+  });
+
   it("falls back to the share of the token limit when no official figure was recorded", () => {
     renderHistory([summary({ start: END - 7 * DAY, end: END, total: 250_000, limit: 1_000_000 })]);
     const link = screen.getByRole("link");
