@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/snktibor/usageratio/compare/v0.3.0...v0.4.0) (2026-10-01)
+
+
+### Features
+
+* **cycle-history:** implement scrolling behavior for cycle list with max height ([aa73da1](https://github.com/snktibor/usageratio/commit/aa73da16923625135c2c1890ec8de459fd6283a9))
+
 ## [0.3.0](https://github.com/snktibor/usageratio/compare/v0.2.0...v0.3.0) (2026-09-30)
 
 
