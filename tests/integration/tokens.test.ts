@@ -66,6 +66,7 @@ describe("GET /api/tokens", () => {
         id,
         label: "Mac Studio",
         machineId: "mac-studio",
+        scope: "ingest",
         createdAt: expect.any(Number),
         lastUsedAt: null,
         revokedAt: null,
@@ -144,6 +145,41 @@ describe("POST /api/tokens", () => {
       }),
     );
     expect(badMachine.status).toBe(400);
+
+    const badScope = await postTokens(
+      request("http://localhost/api/tokens", {
+        method: "POST",
+        body: JSON.stringify({ label: "ok", scope: "admin" }),
+        headers: { cookie },
+      }),
+    );
+    expect(badScope.status).toBe(400);
+
+    const boundRead = await postTokens(
+      request("http://localhost/api/tokens", {
+        method: "POST",
+        body: JSON.stringify({ label: "ok", scope: "read", machineId: "mac-studio" }),
+        headers: { cookie },
+      }),
+    );
+    expect(boundRead.status).toBe(400);
+  });
+
+  it("issues a read token, listed with its scope", async () => {
+    const cookie = await seedSession(PIN);
+    await grantSudo(cookie);
+    const created = await postTokens(
+      request("http://localhost/api/tokens", {
+        method: "POST",
+        body: JSON.stringify({ label: "Menu bar", scope: "read" }),
+        headers: { cookie },
+      }),
+    );
+    expect(created.status).toBe(201);
+
+    const response = await getTokens(request("http://localhost/api/tokens", { headers: { cookie } }));
+    const body = (await response.json()) as { tokens: Record<string, unknown>[] };
+    expect(body.tokens).toEqual([expect.objectContaining({ label: "Menu bar", scope: "read", machineId: null })]);
   });
 
   it("answers 201 with a fresh id and token, storing only the token's hash", async () => {

@@ -7,6 +7,7 @@ All source: `app/api/**/route.ts`, shared helpers in `lib/api.ts`.
 - [Rate limits and size caps](#rate-limits-and-size-caps)
 - [`GET`/`POST /api/usage`](#getpost-apiusage) — the ingest endpoint
 - [The report schema](#the-report-schema)
+- [`GET /api/status`](#get-apistatus) — the macOS menu bar app's read
 - [`GET /api/health`](#get-apihealth)
 - [`GET`/`PUT /api/settings`](#getput-apisettings)
 - [`PUT /api/official-usage`](#put-apiofficial-usage)
@@ -64,6 +65,7 @@ The full `ApiErrorCode` union (`lib/api.ts`):
 | `sudo_invalid` | 401 | Wrong PIN presented to `POST /api/auth/sudo` (`attemptsLeft` when known). |
 | `too_many_groups` / `too_many_providers` / `too_many_machines` / `too_many_tokens` | 422 | A registry cap would be exceeded; `limit` gives the cap. |
 | `machine_mismatch` | 403 | A machine-bound per-machine token reported for a different `machineId`. |
+| `read_only_token` | 403 | A "read" per-machine token tried to report (`POST /api/usage`); it may only read. |
 | `no_token` | 404 | Nothing stored to reveal (`POST /api/api-token/reveal`). |
 | `token_unreadable` | 409 | The stored API token can't be decrypted with any known key. |
 | `groups_have_reports` | 409 | A settings save tried to remove a group that still has stored reports. |
@@ -85,7 +87,8 @@ tiny in-process counter so it still works when the store is down.
 | `POST /api/usage` | 60 | 1 hour | per token + `machineId` |
 | `POST /api/usage` (global) | 600 | 1 hour | the whole deployment, per UTC hour bucket |
 | `GET /api/usage` | 120 | 1 hour | per token |
-| Any `Authorization: Bearer` on `/api/usage` that fails | 60 | 1 minute | per IP (hashed) |
+| `GET /api/status` | 120 | 1 hour | per token |
+| Any `Authorization: Bearer` on `/api/usage` or `/api/status` that fails | 60 | 1 minute | per IP (hashed) |
 | `POST /api/alerts/test` | 1 | 10 seconds | global (one counter for every caller) |
 | `POST /api/csp-report` | 20 | 1 minute | per IP, in-process only |
 | Dashboard login / sudo PIN guesses | 5 | 15 minutes | per IP, with an escalating lockout (15 min → 30 min → … capped at 6 hours) |
@@ -197,6 +200,52 @@ Provider ids are normalized: lower-cased, 1–64 characters of `a-z`, `0-9`, `.`
 the same pattern. See [data-model.md](data-model.md) for how `snapshot`/`delta`/`counter` modes (the
 `TOKEN_MODE` setting) interpret `providers`' values, and for the day/hour checkpoint mechanism.
 
+## `GET /api/status`
+
+The current cycle's usage per provider, in a compact, versioned shape: what the
+[macOS menu bar app](../clients/macos/README.md) shows. Auth: **bearer** — the master token, a
+per-machine token, or (meant for this) a [`"read"` one](#per-machine-tokens). Source:
+`app/api/status/route.ts`, `lib/status.ts`. Allowed in demo mode.
+
+Every figure is the dashboard's own: the same model, with the official reading typed on the
+dashboard laid over it. Percentages are 0–100 (above 100 when over the limit), two decimals;
+times are ISO 8601. `v` only changes for a breaking change — new fields are added to version 1.
+
+```json
+{
+  "v": 1,
+  "generatedAt": "2026-10-07T09:12:00.000Z",
+  "cycle": { "period": "weekly", "start": "…", "end": "…", "timeZone": "Europe/Budapest" },
+  "providers": [
+    {
+      "id": "claude", "label": "Claude Code",
+      "percent": 62.4, "source": "official", "estimatedPercent": 58.91, "asOf": "…",
+      "tokens": 41200000, "limit": 70000000, "status": "warning",
+      "pace": { "projectedPercent": 108.03, "runOutAt": "2026-10-11T15:00:00.000Z" },
+      "subLimits": [{ "id": "fable", "name": "Fable", "percent": 80.1, "source": "provider", "status": "warning" }],
+      "lastReportAt": "2026-10-07T09:00:04.000Z"
+    }
+  ]
+}
+```
+
+- `percent` — how much of the budget is gone; `null` with the token limits off and no official
+  reading. `source` is `"official"` when a typed official reading drives it, `"estimate"` when the
+  machines' measurement does, `null` with `percent`. `estimatedPercent` is the measurement against
+  the token limit either way (`null` without one).
+- `status` — `good` / `warning` / `critical` (lib/quota.ts); `pace` — the linear projection for the
+  cycle (`projectedPercent` `null` while too early) and when the budget runs out at that pace
+  (`runOutAt` `null` if it lasts); both `null` with `percent`.
+- `subLimits[].source` — `official`, `provider` (a share of the provider's official figure) or
+  `measured`; `percent` is of its own budget, `null` while unknown.
+- `lastReportAt` — the newest report of any machine counted for the provider this cycle.
+
+The full example is `clients/tests/fixtures/status-v1.json`, the contract both the server's tests
+(`tests/integration/status.test.ts`) and the app's own check against.
+
+`200` ok · `401` bad token · `429 rate_limited` (with `retryAfterSeconds`) · `500` server
+misconfigured · `503` Redis down.
+
 ## `GET /api/health`
 
 Auth: **none**. No data, no configuration — only whether the process is up and the store answers.
@@ -295,11 +344,14 @@ encryption/rotation mechanics.
 Behind the session; creating and revoking also need sudo, since the plaintext is shown once and
 never again. See [clients.md](clients.md#per-machine-tokens-vs-the-master-token).
 
-- **`GET /api/tokens`** → `{ "tokens": [{id, label, machineId, createdAt, lastUsedAt, revokedAt}] }`
+- **`GET /api/tokens`** → `{ "tokens": [{id, label, machineId, scope, createdAt, lastUsedAt, revokedAt}] }`
   (never the token or its hash). `401` no session · `503` Redis down.
-- **`POST /api/tokens`** (session + sudo, same-origin) `{ "label": "…", "machineId"?: "…" }` →
-  `201 { "id", "token" }`. `400` invalid body · `401` no session · `403` foreign origin, demo mode, or
-  no sudo grant · `413`/`415` bad body · `422 too_many_tokens` (with `limit`, 100) · `503` Redis down.
+- **`POST /api/tokens`** (session + sudo, same-origin) `{ "label": "…", "machineId"?: "…", "scope"?:
+  "ingest" | "read" }` → `201 { "id", "token" }`. `scope` defaults to `"ingest"`; a `"read"` token (the
+  [menu bar app](#get-apistatus)'s) only reads `GET /api/status` and `GET /api/usage`, is refused by
+  `POST /api/usage` with `403 read_only_token`, and takes no `machineId`. `400` invalid body · `401` no
+  session · `403` foreign origin, demo mode, or no sudo grant · `413`/`415` bad body ·
+  `422 too_many_tokens` (with `limit`, 100) · `503` Redis down.
 - **`DELETE /api/tokens/[id]`** (session + sudo, same-origin) → `200 { "ok": true }`, idempotent.
   `401` no session · `403` foreign origin, demo mode, or no sudo grant · `404` no such token · `503`
   Redis down.

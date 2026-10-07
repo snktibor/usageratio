@@ -1,18 +1,17 @@
 import { checkIngestAlerts } from "@/lib/alerts";
-import { apiError, type BearerAuth, json, readJsonBody, requireBearer, withApiHandler } from "@/lib/api";
+import { apiError, json, readJsonBody, requireBearerThrottled, withApiHandler } from "@/lib/api";
 import {
   CYCLE_RATE_LIMIT_PER_TOKEN,
   getConfig,
   INGEST_RATE_LIMIT_GLOBAL,
   INGEST_RATE_LIMIT_PER_MACHINE,
-  UNAUTH_RATE_LIMIT_PER_IP,
 } from "@/lib/config";
 import { dateInTimeZone, getCycle } from "@/lib/cycle";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { ingestReport } from "@/lib/ingest";
 import { mergeProviderIds } from "@/lib/providers";
 import { hit } from "@/lib/rate-limit";
-import { clientIp, defer } from "@/lib/request-context";
+import { defer } from "@/lib/request-context";
 import { sha256Hex } from "@/lib/security";
 import { resolveConfig, storedProviderIds } from "@/lib/settings";
 import { loadReportContext } from "@/lib/usage-store";
@@ -43,8 +42,9 @@ import { loadReportContext } from "@/lib/usage-store";
  *
  * 201 stored · 200 identical report already stored · 400 bad JSON/payload ·
  * 401 bad token · 403 machine_mismatch (a machine-bound token reporting for
- * another machine) · 413 body too large · 422 a registry cap (too many groups,
- * providers or machines) refused the report, with its `limit` · 429 a rate
+ * another machine), or read_only_token (a "read" token, which may only GET) ·
+ * 413 body too large · 422 a registry cap (too many groups, providers or
+ * machines) refused the report, with its `limit` · 429 a rate
  * limit was hit, with `retryAfterSeconds` · 500 server misconfigured ·
  * 503 Redis down
  *
@@ -64,23 +64,6 @@ import { loadReportContext } from "@/lib/usage-store";
 
 // Room for the optional splits: up to 60 model ids, and those again for each of up to 32 days, with their hours.
 const MAX_BODY_BYTES = 65_536;
-
-/**
- * `requireBearer`, throttled per IP against repeated bad tokens: a token that
- * does not check out bumps `usage:rl:unauth:{sha256(ip)[:32]}` (60/minute),
- * and once that window is used up the client gets 429 instead of endless 401s.
- * A valid token, or a 500 (server misconfigured — not the caller's doing),
- * never touches the counter.
- */
-async function requireBearerThrottled(request: Request): Promise<Response | BearerAuth> {
-  const auth = await requireBearer(request);
-  if (!(auth instanceof Response) || auth.status !== 401) return auth;
-
-  const key = `usage:rl:unauth:${sha256Hex(await clientIp()).slice(0, 32)}`;
-  const unauth = await hit(key, UNAUTH_RATE_LIMIT_PER_IP, 60);
-  if (!unauth.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: unauth.retryAfterSeconds });
-  return auth;
-}
 
 /** The body's `machineId` field, read before validation so the per-machine limiter can key on it. */
 function rawMachineId(body: unknown): string | null {
@@ -126,6 +109,8 @@ export const GET = withApiHandler("api/usage", async ({ request }) => {
 export const POST = withApiHandler("api/usage", async ({ request }) => {
   const auth = await requireBearerThrottled(request);
   if (auth instanceof Response) return auth;
+  // A read token (the menu bar app's) may look, never report.
+  if (auth.scope === "read") return apiError("read_only_token", 403);
   // The demo's data is synthetic on purpose; nothing gets in.
   const readOnly = demoReadOnly();
   if (readOnly) return readOnly;
