@@ -37,12 +37,22 @@ export const LAST_USED_REFRESH_MS = 60 * 60 * 1000;
 /** Housekeeping (lib/housekeeping.ts): a token revoked longer ago than this is forgotten entirely. */
 export const REVOKED_RETENTION_DAYS = 90;
 
+/**
+ * What a token may do: "ingest" reports usage (POST /api/usage) and reads,
+ * "read" only reads (GET /api/status, for the macOS menu bar app), so one
+ * that leaks from a laptop's keychain cannot write fake reports.
+ */
+export type TokenScope = "ingest" | "read";
+export const TOKEN_SCOPES: readonly TokenScope[] = ["ingest", "read"];
+
 export interface MachineToken {
   /** Public, stable across the token's life: `tk_` + 8 base32 characters. Never secret. */
   id: string;
   label: string;
-  /** Bound machine (POST /api/usage's `machineId`), or null for a token any machine may use. */
+  /** Bound machine (POST /api/usage's `machineId`), or null for a token any machine may use. Always null for "read". */
   machineId: string | null;
+  /** Absent in entries stored before scopes existed: those read as "ingest", which is what they could do. */
+  scope: TokenScope;
   createdAt: number;
   /** Last authenticated request, refreshed at most once an hour; null before the token is ever used. */
   lastUsedAt: number | null;
@@ -104,6 +114,7 @@ function parseStored(raw: string): MachineToken | null {
     id: entry.id,
     label: entry.label,
     machineId: typeof entry.machineId === "string" ? entry.machineId : null,
+    scope: entry.scope === "read" ? "read" : "ingest",
     createdAt: entry.createdAt,
     lastUsedAt: typeof entry.lastUsedAt === "number" ? entry.lastUsedAt : null,
     revokedAt: typeof entry.revokedAt === "number" ? entry.revokedAt : null,
@@ -131,14 +142,27 @@ export async function listTokens(): Promise<MachineToken[]> {
 export type CreateTokenResult = { ok: true; id: string; token: string } | { ok: false; reason: "too_many" };
 
 /** Issues a fresh token and stores its hash; the plaintext is returned once and never stored. */
-export async function createToken(label: string, machineId: string | null, now: Date): Promise<CreateTokenResult> {
+export async function createToken(
+  label: string,
+  machineId: string | null,
+  now: Date,
+  scope: TokenScope = "ingest",
+): Promise<CreateTokenResult> {
   const redis = getRedis();
   const count = await redis.hlen(KEYS.tokens);
   if (count >= MAX_TOKENS) return { ok: false, reason: "too_many" };
 
   const token = generatePlainToken();
   const id = generateTokenId();
-  const record: MachineToken = { id, label, machineId, createdAt: now.getTime(), lastUsedAt: null, revokedAt: null };
+  const record: MachineToken = {
+    id,
+    label,
+    machineId: scope === "read" ? null : machineId,
+    scope,
+    createdAt: now.getTime(),
+    lastUsedAt: null,
+    revokedAt: null,
+  };
   await redis.hset(KEYS.tokens, { [hashToken(token)]: serialize(record) });
   return { ok: true, id, token };
 }
@@ -161,7 +185,7 @@ export async function revokeToken(id: string, now: Date): Promise<RevokeTokenRes
 }
 
 export type TokenAuthResult =
-  | { ok: true; tokenId: string; machineId: string | null }
+  | { ok: true; tokenId: string; machineId: string | null; scope: TokenScope }
   | { ok: false; reason: "not_found" | "revoked" };
 
 /**
@@ -187,7 +211,7 @@ export async function authenticateToken(bearer: string, now: Date): Promise<Toke
     });
   }
 
-  return { ok: true, tokenId: token.id, machineId: token.machineId };
+  return { ok: true, tokenId: token.id, machineId: token.machineId, scope: token.scope };
 }
 
 /**

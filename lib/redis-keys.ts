@@ -24,10 +24,11 @@
  *   usage:api-token:audit    LIST   newest first, at most AUDIT_LIMIT entries:
  *                                   {"at","a","ua","ch","pf","s", "ip"|"iph"+"ipp"} (see lib/api-token.ts)
  *
- *   usage:tokens             HASH   sha256(token) → {"id","label","machineId","createdAt",
+ *   usage:tokens             HASH   sha256(token) → {"id","label","machineId","scope","createdAt",
  *                                   "lastUsedAt","revokedAt"}: per-machine API tokens, an
  *                                   alternative to the shared USAGE_API_TOKEN that can be
- *                                   individually revoked (see lib/tokens.ts). The field is the
+ *                                   individually revoked (see lib/tokens.ts); "scope" is
+ *                                   "ingest" (absent in older entries) or "read". The field is the
  *                                   token's own hash, never its plaintext, which is shown once at
  *                                   creation and not stored.
  *
