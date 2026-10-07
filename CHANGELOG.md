@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/snktibor/usageratio/compare/v0.4.0...v0.5.0) (2026-10-07)
+
+
+### Features
+
+* macOS menu bar app with GET /api/status and read-only tokens ([#10](https://github.com/snktibor/usageratio/issues/10)) ([75603d9](https://github.com/snktibor/usageratio/commit/75603d92c8c33b7f67b6bed7b87404793bc49b7a))
+
 ## [0.4.0](https://github.com/snktibor/usageratio/compare/v0.3.0...v0.4.0) (2026-10-01)
 
 
