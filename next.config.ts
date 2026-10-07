@@ -15,15 +15,29 @@ const hstsEnabled = !FALSE_VALUES.has(process.env.SECURITY_HSTS?.trim().toLowerC
 const hstsPreload = TRUE_VALUES.has(process.env.SECURITY_HSTS_PRELOAD?.trim().toLowerCase() ?? "");
 const hstsValue = `max-age=63072000; includeSubDomains${hstsPreload ? "; preload" : ""}`;
 
+const SETUP_CLIENT_FILES = [
+  "./clients/auto/**/*",
+  "./clients/manual/**/*",
+  "./clients/setup/**/*",
+  "./clients/shared/**/*",
+];
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   // Only the Dockerfile's build sets this — Vercel's build stays on its own
   // (Fluid Compute) output and must not be touched.
   ...(process.env.DOCKER_BUILD === "1" ? { output: "standalone" as const } : {}),
   // The setup page and its ZIP download read the client scripts from disk at request time.
+  // Their folders only: not clients/macos, which no setup package ships, and where a local
+  // `swift build` leaves a .build folder whose symlinks break the trace.
   outputFileTracingIncludes: {
-    "/setup": ["./clients/**/*"],
-    "/api/setup": ["./clients/**/*"],
+    "/setup": SETUP_CLIENT_FILES,
+    "/api/setup": SETUP_CLIENT_FILES,
+  },
+  // The `path.join(process.cwd(), "clients", …)` in lib/setup-package.ts traces the whole folder.
+  outputFileTracingExcludes: {
+    "/setup": ["./clients/macos/**/*"],
+    "/api/setup": ["./clients/macos/**/*"],
   },
   async headers() {
     return [

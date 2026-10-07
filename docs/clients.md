@@ -8,6 +8,7 @@ troubleshoot them.
 - [OS matrix](#os-matrix)
 - [The opt-in cost estimate](#the-opt-in-cost-estimate)
 - [Per-machine tokens vs. the master token](#per-machine-tokens-vs-the-master-token)
+- [The macOS menu bar app](#the-macos-menu-bar-app)
 - [Command-line install](#command-line-install)
 - [Flags and exit codes](#flags-and-exit-codes)
 - [Config and log files](#config-and-log-files)
@@ -125,6 +126,19 @@ then per-machine tokens by a hash lookup. A token bound to a specific machine id
 other id (`403 machine_mismatch`). Revoking a per-machine token from the settings panel makes that
 client's next report fail with a generic `401` — nothing on the client side distinguishes "revoked" from
 "wrong token," so check the settings panel's token list if a machine suddenly stops reporting.
+
+A token created with the access **Read only (menu bar app)** (`scope: "read"`) is for reading, not
+reporting: `GET /api/status` and `GET /api/usage` accept it, `POST /api/usage` refuses it with
+`403 read_only_token`. It is what the menu bar app below keeps in its keychain.
+
+## The macOS menu bar app
+
+`clients/macos` is a small native app (SwiftUI, no dependencies) that shows one provider's usage
+percentage in the macOS menu bar, and every provider's figures, sub-limits, pace and the reset
+countdown in a popover. It reads [`GET /api/status`](api.md#get-apistatus) every five minutes with a
+read-only token. It is not part of the setup packages: build it on the Mac that runs it — the
+Command Line Tools are enough, no Xcode or Apple Developer account. See
+[clients/macos/README.md](../clients/macos/README.md).
 
 ## Command-line install
 
