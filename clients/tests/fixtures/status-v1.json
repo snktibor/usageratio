@@ -1,0 +1,40 @@
+{
+  "v": 1,
+  "generatedAt": "2026-10-07T09:12:00.000Z",
+  "cycle": {
+    "period": "weekly",
+    "start": "2026-10-05T07:00:00.000Z",
+    "end": "2026-10-12T07:00:00.000Z",
+    "timeZone": "Europe/Budapest"
+  },
+  "providers": [
+    {
+      "id": "claude",
+      "label": "Claude Code",
+      "percent": 62.4,
+      "source": "official",
+      "estimatedPercent": 58.91,
+      "asOf": "2026-10-07T08:30:00.000Z",
+      "tokens": 41200000,
+      "limit": 70000000,
+      "status": "warning",
+      "pace": { "projectedPercent": 108.03, "runOutAt": "2026-10-11T15:00:00.000Z" },
+      "subLimits": [{ "id": "fable", "name": "Fable", "percent": 80.1, "source": "provider", "status": "warning" }],
+      "lastReportAt": "2026-10-07T09:00:04.000Z"
+    },
+    {
+      "id": "codex",
+      "label": "Codex",
+      "percent": null,
+      "source": null,
+      "estimatedPercent": null,
+      "asOf": "2026-10-07T09:12:00.000Z",
+      "tokens": 1500000,
+      "limit": null,
+      "status": null,
+      "pace": null,
+      "subLimits": [],
+      "lastReportAt": null
+    }
+  ]
+}
