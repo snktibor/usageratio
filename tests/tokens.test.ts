@@ -82,6 +82,7 @@ describe("createToken / listTokens", () => {
       id: result.id,
       label: "Mac Studio",
       machineId: null,
+      scope: "ingest",
       createdAt: now.getTime(),
       lastUsedAt: null,
       revokedAt: null,
@@ -163,6 +164,7 @@ describe("authenticateToken", () => {
         ok: true,
         tokenId: created.id,
         machineId: null,
+        scope: "ingest",
       });
     });
 
@@ -180,8 +182,24 @@ describe("authenticateToken", () => {
         ok: true,
         tokenId: created.id,
         machineId: "mac-studio",
+        scope: "ingest",
       });
     });
+  });
+
+  it("issues a read token unbound, even when a machine is passed", async () => {
+    const created = await createToken("menu bar", "mac-studio", new Date(0), "read");
+    if (!created.ok) throw new Error("unreachable");
+    const [token] = await listTokens();
+    expect(token).toMatchObject({ scope: "read", machineId: null });
+  });
+
+  it("reads an entry stored before scopes existed as an ingest token", async () => {
+    await getRedis().hset(KEYS.tokens, {
+      [hashToken("ur_legacy")]: JSON.stringify({ id: "tk_LEGACY01", label: "old", machineId: null, createdAt: 1 }),
+    });
+    const [token] = await listTokens();
+    expect(token?.scope).toBe("ingest");
   });
 
   it("refreshes lastUsedAt at most once an hour", async () => {

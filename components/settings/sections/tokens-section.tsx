@@ -25,14 +25,18 @@ interface MachineTokenView {
   id: string;
   label: string;
   machineId: string | null;
+  scope: Scope;
   createdAt: number;
   lastUsedAt: number | null;
   revokedAt: number | null;
 }
 
+/** Mirrors lib/tokens.ts's TokenScope: "read" is the menu bar app's, which may only look. */
+type Scope = "ingest" | "read";
+
 type Load = { phase: "loading" } | { phase: "failed" } | { phase: "ready"; tokens: MachineTokenView[] };
 type SudoRetry =
-  | { kind: "create"; label: string; machineId: string | null }
+  | { kind: "create"; label: string; machineId: string | null; scope: Scope }
   | { kind: "revoke"; token: MachineTokenView };
 
 async function errorCode(response: Response): Promise<string | null> {
@@ -66,6 +70,7 @@ export function TokensSection({
   const [label, setLabel] = useState("");
   /** "" = any machine. */
   const [machineId, setMachineId] = useState("");
+  const [scope, setScope] = useState<Scope>("ingest");
   const [creating, setCreating] = useState(false);
   const [createProblem, setCreateProblem] = useState<string | null>(null);
   const [justCreated, setJustCreated] = useState<{ id: string; token: string } | null>(null);
@@ -75,6 +80,7 @@ export function TokensSection({
   const [toast, setToast] = useState<string | null>(null);
   const labelInputId = useId();
   const machineInputId = useId();
+  const scopeInputId = useId();
 
   function reload() {
     setLoad({ phase: "loading" });
@@ -91,27 +97,32 @@ export function TokensSection({
 
   const tokens = load.phase === "ready" ? load.tokens : [];
 
-  async function performCreate(rawLabel: string, rawMachineId: string | null) {
+  async function performCreate(rawLabel: string, rawMachineId: string | null, rawScope: Scope) {
     setCreating(true);
     setCreateProblem(null);
     try {
       const response = await fetch("/api/tokens", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ label: rawLabel, ...(rawMachineId !== null && { machineId: rawMachineId }) }),
+        body: JSON.stringify({
+          label: rawLabel,
+          scope: rawScope,
+          ...(rawMachineId !== null && { machineId: rawMachineId }),
+        }),
       });
       if (response.ok) {
         const payload = (await response.json()) as { id: string; token: string };
         setJustCreated(payload);
         setLabel("");
         setMachineId("");
+        setScope("ingest");
         reload();
         onManaged();
         return;
       }
       const error = await errorCode(response);
       if (error === "sudo_required") {
-        setSudoRetry({ kind: "create", label: rawLabel, machineId: rawMachineId });
+        setSudoRetry({ kind: "create", label: rawLabel, machineId: rawMachineId, scope: rawScope });
         return;
       }
       setCreateProblem(
@@ -130,7 +141,8 @@ export function TokensSection({
       setCreateProblem(t("tokens_label_problem", { max: MAX_LABEL_LENGTH }));
       return;
     }
-    void performCreate(trimmedLabel, machineId === "" ? null : machineId);
+    // A read token is never bound to a machine: it reports nothing to bind.
+    void performCreate(trimmedLabel, scope === "read" || machineId === "" ? null : machineId, scope);
   }
 
   async function performRevoke(token: MachineTokenView) {
@@ -181,7 +193,11 @@ export function TokensSection({
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                 <span className="min-w-0 grow truncate wrap-anywhere">{token.label}</span>
                 <span className="shrink-0 text-sm text-ink-3">
-                  {token.machineId ? t("tokens_bound_machine", { id: token.machineId }) : t("tokens_any_machine")}
+                  {token.scope === "read"
+                    ? t("tokens_scope_read")
+                    : token.machineId
+                      ? t("tokens_bound_machine", { id: token.machineId })
+                      : t("tokens_any_machine")}
                 </span>
                 {token.revokedAt !== null ? (
                   <span className="shrink-0 rounded-full border border-rule px-2.5 py-0.5 text-xs text-ink-3">
@@ -226,8 +242,8 @@ export function TokensSection({
         </div>
       )}
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <label htmlFor={labelInputId} className="block min-w-0 grow">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+        <label htmlFor={labelInputId} className="block min-w-0 sm:basis-full">
           <span className="text-sm text-ink-3">{t("tokens_label_field")}</span>
           <input
             id={labelInputId}
@@ -249,11 +265,12 @@ export function TokensSection({
             className={`mt-1.5 block w-full min-w-0 ${FIELD}`}
           />
         </label>
-        <label htmlFor={machineInputId} className="block min-w-0 sm:w-56">
+        <label htmlFor={machineInputId} className="block min-w-0 sm:flex-1">
           <span className="text-sm text-ink-3">{t("tokens_machine_field")}</span>
           <select
             id={machineInputId}
-            value={machineId}
+            value={scope === "read" ? "" : machineId}
+            disabled={scope === "read"}
             onChange={(event) => {
               setMachineId(event.target.value);
               setCreateProblem(null);
@@ -266,6 +283,21 @@ export function TokensSection({
                 {id}
               </option>
             ))}
+          </select>
+        </label>
+        <label htmlFor={scopeInputId} className="block min-w-0 sm:flex-1">
+          <span className="text-sm text-ink-3">{t("tokens_scope_field")}</span>
+          <select
+            id={scopeInputId}
+            value={scope}
+            onChange={(event) => {
+              setScope(event.target.value as Scope);
+              setCreateProblem(null);
+            }}
+            className={`mt-1.5 block w-full min-w-0 ${FIELD}`}
+          >
+            <option value="ingest">{t("tokens_scope_ingest")}</option>
+            <option value="read">{t("tokens_scope_read")}</option>
           </select>
         </label>
         <button
@@ -287,7 +319,7 @@ export function TokensSection({
             onUnlocked={() => {
               const retry = sudoRetry;
               setSudoRetry(null);
-              if (retry.kind === "create") void performCreate(retry.label, retry.machineId);
+              if (retry.kind === "create") void performCreate(retry.label, retry.machineId, retry.scope);
               else void performRevoke(retry.token);
             }}
           />

@@ -1,7 +1,16 @@
 import { apiError, json, readJsonBody, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
 import { hasSudo } from "@/lib/auth";
 import { demoReadOnly } from "@/lib/demo/mode";
-import { createToken, labelProblem, listTokens, MAX_LABEL_LENGTH, MAX_TOKENS, MIN_LABEL_LENGTH } from "@/lib/tokens";
+import {
+  createToken,
+  labelProblem,
+  listTokens,
+  MAX_LABEL_LENGTH,
+  MAX_TOKENS,
+  MIN_LABEL_LENGTH,
+  TOKEN_SCOPES,
+  type TokenScope,
+} from "@/lib/tokens";
 import { parseId } from "@/lib/validation";
 
 /**
@@ -10,13 +19,15 @@ import { parseId } from "@/lib/validation";
  * the dashboard's session; POST also needs a fresh sudo grant, since the
  * plaintext it returns is never shown again.
  *
- *   GET  → { "tokens": [{ "id", "label", "machineId", "createdAt", "lastUsedAt", "revokedAt" }] }
+ *   GET  → { "tokens": [{ "id", "label", "machineId", "scope", "createdAt", "lastUsedAt", "revokedAt" }] }
  *          (never the token itself, nor its hash)
  *
- *   POST { "label": "…", "machineId"?: "…" } → { "id", "token" } (201)
+ *   POST { "label": "…", "machineId"?: "…", "scope"?: "ingest" | "read" } → { "id", "token" } (201)
  *          `token` is shown here once and never stored; `machineId`, when
  *          given, restricts POST /api/usage reports to that one machine
- *          (403 machine_mismatch otherwise).
+ *          (403 machine_mismatch otherwise). `scope` defaults to "ingest";
+ *          a "read" token (the menu bar app's) only reads GET /api/status
+ *          and GET /api/usage, and takes no `machineId`.
  *
  * 200/201 ok · 400 invalid body · 401 no session · 403 foreign origin, demo
  * mode, or no sudo grant (POST) · 413/415 bad body (POST) ·
@@ -26,7 +37,9 @@ import { parseId } from "@/lib/validation";
 
 const MAX_BODY_BYTES = 1024;
 
-function parseCreateBody(value: unknown): { label: string; machineId: string | null } | { errors: string[] } {
+function parseCreateBody(
+  value: unknown,
+): { label: string; machineId: string | null; scope: TokenScope } | { errors: string[] } {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return { errors: ["body must be a JSON object"] };
   }
@@ -47,7 +60,14 @@ function parseCreateBody(value: unknown): { label: string; machineId: string | n
     machineId = parseId(body.machineId, "machineId", errors);
   }
 
-  return errors.length > 0 ? { errors } : { label, machineId };
+  let scope: TokenScope = "ingest";
+  if (body.scope !== undefined) {
+    if (TOKEN_SCOPES.includes(body.scope as TokenScope)) scope = body.scope as TokenScope;
+    else errors.push(`scope must be one of ${TOKEN_SCOPES.join(", ")}`);
+  }
+  if (scope === "read" && machineId !== null) errors.push("a read token cannot be bound to a machine");
+
+  return errors.length > 0 ? { errors } : { label, machineId, scope };
 }
 
 export const GET = withApiHandler("api/tokens", async () => {
@@ -61,6 +81,7 @@ export const GET = withApiHandler("api/tokens", async () => {
         id: token.id,
         label: token.label,
         machineId: token.machineId,
+        scope: token.scope,
         createdAt: token.createdAt,
         lastUsedAt: token.lastUsedAt,
         revokedAt: token.revokedAt,
@@ -84,7 +105,7 @@ export const POST = withApiHandler("api/tokens", async ({ request }) => {
   const parsed = parseCreateBody(body.value);
   if ("errors" in parsed) return apiError("invalid_payload", 400, { details: parsed.errors });
 
-  const result = await createToken(parsed.label, parsed.machineId, new Date());
+  const result = await createToken(parsed.label, parsed.machineId, new Date(), parsed.scope);
   if (!result.ok) return apiError("too_many_tokens", 422, { limit: MAX_TOKENS });
   return json({ id: result.id, token: result.token }, 201);
 });

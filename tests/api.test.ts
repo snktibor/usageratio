@@ -160,7 +160,11 @@ describe("requireBearer", () => {
 
   it("lets the master token through", async () => {
     vi.stubEnv("USAGE_API_TOKEN", " 0123456789abcdef ");
-    expect(await requireBearer(request("bearer 0123456789abcdef"))).toEqual({ tokenId: "master", machineId: null });
+    expect(await requireBearer(request("bearer 0123456789abcdef"))).toEqual({
+      tokenId: "master",
+      machineId: null,
+      scope: "ingest",
+    });
   });
 
   it("authenticates a per-machine token, unbound or bound to a machine", async () => {
@@ -173,10 +177,23 @@ describe("requireBearer", () => {
     expect(await requireBearer(request(`Bearer ${unbound.token}`))).toEqual({
       tokenId: unbound.id,
       machineId: null,
+      scope: "ingest",
     });
     expect(await requireBearer(request(`Bearer ${bound.token}`))).toEqual({
       tokenId: bound.id,
       machineId: "mac-studio",
+      scope: "ingest",
+    });
+  });
+
+  it("hands back a read token's scope", async () => {
+    vi.stubEnv("USAGE_API_TOKEN", "0123456789abcdef");
+    const read = await createToken("menu bar", null, new Date(), "read");
+    if (!read.ok) throw new Error("unreachable");
+    expect(await requireBearer(request(`Bearer ${read.token}`))).toEqual({
+      tokenId: read.id,
+      machineId: null,
+      scope: "read",
     });
   });
 

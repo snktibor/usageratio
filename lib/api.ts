@@ -1,12 +1,21 @@
 import { errors as upstash } from "@upstash/redis";
 import { isAuthenticated } from "@/lib/auth";
+import { UNAUTH_RATE_LIMIT_PER_IP } from "@/lib/config";
 import { reportError } from "@/lib/error-reporter";
 import { isForeignOrigin } from "@/lib/http";
 import { log } from "@/lib/log";
+import { hit } from "@/lib/rate-limit";
 import { StorageNotConfiguredError } from "@/lib/redis";
-import { type CookieJar, currentRequest, currentRequestId, requestIdFrom, runWithRequest } from "@/lib/request-context";
-import { safeEqual } from "@/lib/security";
-import { authenticateToken } from "@/lib/tokens";
+import {
+  type CookieJar,
+  clientIp,
+  currentRequest,
+  currentRequestId,
+  requestIdFrom,
+  runWithRequest,
+} from "@/lib/request-context";
+import { safeEqual, sha256Hex } from "@/lib/security";
+import { authenticateToken, type TokenScope } from "@/lib/tokens";
 
 /**
  * What every route handler shares: the JSON error envelope, the body reader
@@ -41,6 +50,7 @@ export type ApiErrorCode =
   | "too_many_machines"
   | "too_many_tokens"
   | "machine_mismatch"
+  | "read_only_token"
   | "no_token"
   | "token_unreadable"
   | "groups_have_reports"
@@ -151,6 +161,8 @@ export interface BearerAuth {
   tokenId: string;
   /** The token's bound machine (lib/tokens.ts `createToken`); null for the master token or an unbound one. */
   machineId: string | null;
+  /** What it may do (lib/tokens.ts `TokenScope`); the master token may do everything, "ingest". */
+  scope: TokenScope;
 }
 
 /**
@@ -172,11 +184,28 @@ export async function requireBearer(request: Request): Promise<Response | Bearer
   const bearer = /^Bearer\s+(\S+)\s*$/i.exec(request.headers.get("authorization") ?? "");
   const presented = bearer?.[1];
   if (!presented) return apiError("unauthorized", 401, { scheme: "bearer" });
-  if (safeEqual(presented, expected)) return { tokenId: "master", machineId: null };
+  if (safeEqual(presented, expected)) return { tokenId: "master", machineId: null, scope: "ingest" };
 
   const result = await authenticateToken(presented, new Date());
   if (!result.ok) return apiError("unauthorized", 401, { scheme: "bearer" });
-  return { tokenId: result.tokenId, machineId: result.machineId };
+  return { tokenId: result.tokenId, machineId: result.machineId, scope: result.scope };
+}
+
+/**
+ * `requireBearer`, throttled per IP against repeated bad tokens: a token that
+ * does not check out bumps `usage:rl:unauth:{sha256(ip)[:32]}` (60/minute),
+ * and once that window is used up the client gets 429 instead of endless 401s.
+ * A valid token, or a 500 (server misconfigured — not the caller's doing),
+ * never touches the counter.
+ */
+export async function requireBearerThrottled(request: Request): Promise<Response | BearerAuth> {
+  const auth = await requireBearer(request);
+  if (!(auth instanceof Response) || auth.status !== 401) return auth;
+
+  const key = `usage:rl:unauth:${sha256Hex(await clientIp()).slice(0, 32)}`;
+  const unauth = await hit(key, UNAUTH_RATE_LIMIT_PER_IP, 60);
+  if (!unauth.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: unauth.retryAfterSeconds });
+  return auth;
 }
 
 /** A store that did not answer: the SDK's own errors, and the network failures under them. */
