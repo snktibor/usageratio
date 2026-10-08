@@ -4,28 +4,36 @@ import Foundation
 /// kept in code rather than in .strings resources, since a SwiftPM resource
 /// bundle cannot sit where an ad-hoc signed .app expects it.
 public struct Strings: Sendable {
-    public let weeklyCycle: String
-    public let monthlyCycle: String
-    /// countdown, reset date
-    public let resetsIn: @Sendable (String, String) -> String
-    public let official: String
-    public let estimate: String
+    /// "weekly" / "monthly", after the provider's name
+    public let weekly: String
+    public let monthly: String
+    /// percentage left
+    public let remaining: @Sendable (String) -> String
+    /// percentage over the limit
+    public let over: @Sendable (String) -> String
+    /// percentage of the cycle gone by, under its marker on the bar
+    public let elapsed: @Sendable (String) -> String
+    /// weekday and time
+    public let runsOut: @Sendable (String) -> String
+    public let lastsUntilReset: String
+    public let tooEarly: String
+    /// weekday and time
+    public let reset: @Sendable (String) -> String
+    public let sourceOfficial: String
+    public let sourceEstimate: String
     public let noLimit: String
+    /// how many more rows
+    public let more: @Sendable (Int) -> String
     /// compact token count
     public let tokens: @Sendable (String) -> String
-    /// projected percentage, run-out date
-    public let paceRunsOut: @Sendable (String, String) -> String
-    /// projected percentage
-    public let paceProjection: @Sendable (String) -> String
-    public let paceTooEarly: String
-    /// relative time
+    /// relative time, shown when the figure is stale
     public let lastReport: @Sendable (String) -> String
-    public let noReport: String
-    /// relative time
-    public let updated: @Sendable (String) -> String
     public let refreshing: String
     public let noProviders: String
-    public let selectHint: String
+    /// Section headings (shown in capitals).
+    public let displaySection: String
+    public let connectionSection: String
+    public let generalSection: String
 
     public let errorNotConfigured: String
     public let errorUnauthorized: String
@@ -37,12 +45,17 @@ public struct Strings: Sendable {
     public let errorInvalid: String
     public let errorNetwork: String
 
+    // Buttons and the settings screen.
     public let refresh: String
-    public let dashboard: String
-    public let openDashboard: String
     public let settings: String
+    public let done: String
+    public let openDashboard: String
     public let quit: String
-
+    public let provider: String
+    public let menuBarShows: String
+    public let wholeProvider: String
+    public let groupsSection: String
+    public let machinesSection: String
     public let serverLabel: String
     public let tokenLabel: String
     public let tokenSaved: String
@@ -50,11 +63,11 @@ public struct Strings: Sendable {
     public let launchAtLogin: String
     public let launchAtLoginFailed: String
     public let save: String
-    public let cancel: String
+    public let saved: String
     public let invalidURL: String
     public let missingToken: String
 
-    /// "en", "hu" or "de": the one the strings and the formatters below use.
+    /// "en", "hu" or "de": the one the strings and the formatters use.
     public let languageCode: String
 
     public var locale: Locale { Locale(identifier: languageCode) }
@@ -86,22 +99,26 @@ public struct Strings: Sendable {
     }
 
     public static let en = Strings(
-        weeklyCycle: "Weekly cycle",
-        monthlyCycle: "Monthly cycle",
-        resetsIn: { "Resets in \($0) (\($1))" },
-        official: "official",
-        estimate: "estimate",
-        noLimit: "No limit or official % set",
+        weekly: "weekly",
+        monthly: "monthly",
+        remaining: { "\($0) left" },
+        over: { "Over by \($0)" },
+        elapsed: { "time elapsed \($0)" },
+        runsOut: { "Runs out \($0)" },
+        lastsUntilReset: "Lasts until the reset",
+        tooEarly: "Too early for a pace",
+        reset: { "Reset: \($0)" },
+        sourceOfficial: "official",
+        sourceEstimate: "estimate",
+        noLimit: "No limit or official %",
+        more: { "+\($0) more" },
         tokens: { "\($0) tokens" },
-        paceRunsOut: { "At this pace ~\($0) by the reset; runs out \($1)" },
-        paceProjection: { "At this pace ~\($0) by the reset" },
-        paceTooEarly: "Too early to project the pace",
         lastReport: { "Last report \($0)" },
-        noReport: "No report this cycle yet",
-        updated: { "Updated \($0)" },
         refreshing: "Refreshing…",
         noProviders: "No provider has reported yet.",
-        selectHint: "Click a provider to show it in the menu bar.",
+        displaySection: "Display",
+        connectionSection: "Connection",
+        generalSection: "General",
         errorNotConfigured: "Set the server and a token in Settings.",
         errorUnauthorized: "The token was refused: wrong or revoked.",
         errorRateLimited: "Too many requests; trying again later.",
@@ -111,10 +128,15 @@ public struct Strings: Sendable {
         errorInvalid: "The server sent an unexpected answer.",
         errorNetwork: "The server cannot be reached (offline?).",
         refresh: "Refresh",
-        dashboard: "Dashboard",
-        openDashboard: "Open the dashboard in the browser",
         settings: "Settings",
-        quit: "Quit",
+        done: "Done",
+        openDashboard: "Open the dashboard",
+        quit: "Quit UsageRatio",
+        provider: "Provider",
+        menuBarShows: "Menu bar shows",
+        wholeProvider: "Whole provider",
+        groupsSection: "Groups",
+        machinesSection: "Machines",
         serverLabel: "Server URL",
         tokenLabel: "Read token",
         tokenSaved: "A token is saved; leave this empty to keep it.",
@@ -122,29 +144,33 @@ public struct Strings: Sendable {
         launchAtLogin: "Open at login",
         launchAtLoginFailed: "The login item could not be changed.",
         save: "Save",
-        cancel: "Cancel",
+        saved: "Saved",
         invalidURL: "Enter an https:// address.",
         missingToken: "Paste a token.",
         languageCode: "en"
     )
 
     public static let hu = Strings(
-        weeklyCycle: "Heti ciklus",
-        monthlyCycle: "Havi ciklus",
-        resetsIn: { "Reset \($0) múlva (\($1))" },
-        official: "hivatalos",
-        estimate: "becsült",
+        weekly: "heti",
+        monthly: "havi",
+        remaining: { "\($0) maradt" },
+        over: { "Túllépés: \($0)" },
+        elapsed: { "eltelt idő \($0)" },
+        runsOut: { "Elfogy: \($0)" },
+        lastsUntilReset: "Kitart a resetig",
+        tooEarly: "A tempóhoz még korai",
+        reset: { "Reset: \($0)" },
+        sourceOfficial: "hivatalos",
+        sourceEstimate: "becsült",
         noLimit: "Nincs limit vagy hivatalos %",
+        more: { "+\($0) további" },
         tokens: { "\($0) token" },
-        paceRunsOut: { "Ezzel a tempóval ~\($0) a resetig; elfogy: \($1)" },
-        paceProjection: { "Ezzel a tempóval ~\($0) a resetig" },
-        paceTooEarly: "Még korai a tempót előrejelezni",
         lastReport: { "Utolsó jelentés: \($0)" },
-        noReport: "Ebben a ciklusban még nincs jelentés",
-        updated: { "Frissítve: \($0)" },
         refreshing: "Frissítés…",
         noProviders: "Még egy szolgáltató sem jelentett.",
-        selectHint: "Kattints egy szolgáltatóra, hogy az látszódjon a menüsávban.",
+        displaySection: "Megjelenítés",
+        connectionSection: "Kapcsolat",
+        generalSection: "Általános",
         errorNotConfigured: "Add meg a szervert és egy tokent a beállításokban.",
         errorUnauthorized: "A szerver nem fogadta el a tokent: hibás vagy visszavont.",
         errorRateLimited: "Túl sok kérés; később újrapróbálom.",
@@ -154,10 +180,15 @@ public struct Strings: Sendable {
         errorInvalid: "A szerver váratlan választ küldött.",
         errorNetwork: "A szerver nem érhető el (offline?).",
         refresh: "Frissítés",
-        dashboard: "Dashboard",
-        openDashboard: "A dashboard megnyitása a böngészőben",
         settings: "Beállítások",
-        quit: "Kilépés",
+        done: "Kész",
+        openDashboard: "Dashboard megnyitása",
+        quit: "Kilépés a UsageRatióból",
+        provider: "Szolgáltató",
+        menuBarShows: "Menüsávban",
+        wholeProvider: "Összesen",
+        groupsSection: "Csoportok",
+        machinesSection: "Gépek",
         serverLabel: "Szerver címe",
         tokenLabel: "Olvasó token",
         tokenSaved: "Van elmentett token; hagyd üresen, ha marad.",
@@ -165,29 +196,33 @@ public struct Strings: Sendable {
         launchAtLogin: "Indítás bejelentkezéskor",
         launchAtLoginFailed: "Nem sikerült módosítani az indítási elemet.",
         save: "Mentés",
-        cancel: "Mégse",
+        saved: "Elmentve",
         invalidURL: "Adj meg egy https:// címet.",
         missingToken: "Illessz be egy tokent.",
         languageCode: "hu"
     )
 
     public static let de = Strings(
-        weeklyCycle: "Wöchentlicher Zyklus",
-        monthlyCycle: "Monatlicher Zyklus",
-        resetsIn: { "Reset in \($0) (\($1))" },
-        official: "offiziell",
-        estimate: "geschätzt",
+        weekly: "wöchentlich",
+        monthly: "monatlich",
+        remaining: { "\($0) übrig" },
+        over: { "Überschritten: \($0)" },
+        elapsed: { "Zeit vergangen \($0)" },
+        runsOut: { "Aufgebraucht \($0)" },
+        lastsUntilReset: "Reicht bis zum Reset",
+        tooEarly: "Für ein Tempo noch zu früh",
+        reset: { "Reset: \($0)" },
+        sourceOfficial: "offiziell",
+        sourceEstimate: "geschätzt",
         noLimit: "Kein Limit oder offizieller Wert",
+        more: { "+\($0) weitere" },
         tokens: { "\($0) Tokens" },
-        paceRunsOut: { "In diesem Tempo ~\($0) bis zum Reset; aufgebraucht \($1)" },
-        paceProjection: { "In diesem Tempo ~\($0) bis zum Reset" },
-        paceTooEarly: "Für eine Tempo-Prognose noch zu früh",
         lastReport: { "Letzter Bericht \($0)" },
-        noReport: "In diesem Zyklus noch kein Bericht",
-        updated: { "Aktualisiert \($0)" },
         refreshing: "Aktualisiere…",
         noProviders: "Noch hat kein Anbieter berichtet.",
-        selectHint: "Klicke auf einen Anbieter, um ihn in der Menüleiste zu zeigen.",
+        displaySection: "Anzeige",
+        connectionSection: "Verbindung",
+        generalSection: "Allgemein",
         errorNotConfigured: "Lege Server und Token in den Einstellungen fest.",
         errorUnauthorized: "Der Token wurde abgelehnt: falsch oder widerrufen.",
         errorRateLimited: "Zu viele Anfragen; später erneut.",
@@ -197,10 +232,15 @@ public struct Strings: Sendable {
         errorInvalid: "Der Server sandte eine unerwartete Antwort.",
         errorNetwork: "Der Server ist nicht erreichbar (offline?).",
         refresh: "Aktualisieren",
-        dashboard: "Dashboard",
-        openDashboard: "Das Dashboard im Browser öffnen",
         settings: "Einstellungen",
-        quit: "Beenden",
+        done: "Fertig",
+        openDashboard: "Dashboard öffnen",
+        quit: "UsageRatio beenden",
+        provider: "Anbieter",
+        menuBarShows: "Menüleiste zeigt",
+        wholeProvider: "Gesamter Anbieter",
+        groupsSection: "Gruppen",
+        machinesSection: "Maschinen",
         serverLabel: "Server-URL",
         tokenLabel: "Lese-Token",
         tokenSaved: "Ein Token ist gespeichert; leer lassen, um ihn zu behalten.",
@@ -208,7 +248,7 @@ public struct Strings: Sendable {
         launchAtLogin: "Beim Anmelden öffnen",
         launchAtLoginFailed: "Das Anmeldeobjekt ließ sich nicht ändern.",
         save: "Sichern",
-        cancel: "Abbrechen",
+        saved: "Gesichert",
         invalidURL: "Gib eine https://-Adresse ein.",
         missingToken: "Füge einen Token ein.",
         languageCode: "de"

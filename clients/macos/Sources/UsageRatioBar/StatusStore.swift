@@ -24,6 +24,11 @@ final class StatusStore {
         didSet { UserDefaults.standard.set(selectedProviderId, forKey: Keys.provider) }
     }
 
+    /// Of the selected provider: all of it, or one group's or machine's part.
+    var selectedScope: MenuBarScope = .total {
+        didSet { UserDefaults.standard.set(selectedScope.storage, forKey: Keys.scope) }
+    }
+
     let strings = Strings.forPreferredLanguages()
 
     @ObservationIgnored private let client = StatusClient()
@@ -34,11 +39,13 @@ final class StatusStore {
     private enum Keys {
         static let server = "serverURL"
         static let provider = "selectedProvider"
+        static let scope = "selectedScope"
     }
 
     init() {
         serverURL = UserDefaults.standard.string(forKey: Keys.server).flatMap(normalizedServerURL)
         selectedProviderId = UserDefaults.standard.string(forKey: Keys.provider)
+        selectedScope = MenuBarScope(storage: UserDefaults.standard.string(forKey: Keys.scope))
 
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
@@ -58,8 +65,20 @@ final class StatusStore {
         Display.selectedProvider(in: payload, id: selectedProviderId)
     }
 
+    /// What the menu bar shows.
+    var menuBarFigure: MenuBarFigure? {
+        selectedProvider.map { Display.figure(of: $0, scope: selectedScope) }
+    }
+
     var isStale: Bool {
-        Display.isStale(selectedProvider, lastSuccess: lastSuccess, now: now)
+        Display.isStale(lastReportAt: menuBarFigure?.lastReportAt, lastSuccess: lastSuccess, now: now)
+    }
+
+    /// A click on a provider in the popover: another provider starts from its whole figure.
+    func select(providerId: String) {
+        guard providerId != selectedProvider?.id else { return }
+        selectedProviderId = providerId
+        selectedScope = .total
     }
 
     /// A lookup right now (after `delay`), and the five-minute rhythm from there.
@@ -108,6 +127,11 @@ final class StatusStore {
         defer { isRefreshing = false }
         do {
             payload = try await client.fetch(base: serverURL, token: token)
+            // A group or machine gone from the list (deleted, merged) reads as the whole provider: say so in the picker too.
+            if selectedScope != .total, let provider = selectedProvider,
+               Display.figure(of: provider, scope: selectedScope).name == nil {
+                selectedScope = .total
+            }
             lastSuccess = Date()
             now = Date()
             error = nil

@@ -223,6 +223,8 @@ times are ISO 8601. `v` only changes for a breaking change — new fields are ad
       "tokens": 41200000, "limit": 70000000, "status": "warning",
       "pace": { "projectedPercent": 108.03, "runOutAt": "2026-10-11T15:00:00.000Z" },
       "subLimits": [{ "id": "fable", "name": "Fable", "percent": 80.1, "source": "provider", "status": "warning" }],
+      "groups": [{ "id": "Personal", "percent": 41.6, "tokens": 27466667 }],
+      "machines": [{ "id": "mac-studio", "groupId": "Personal", "percent": 33.3, "tokens": 22000000, "lastReportAt": "…" }],
       "lastReportAt": "2026-10-07T09:00:04.000Z"
     }
   ]
@@ -238,6 +240,9 @@ times are ISO 8601. `v` only changes for a breaking change — new fields are ad
   (`runOutAt` `null` if it lasts); both `null` with `percent`.
 - `subLimits[].source` — `official`, `provider` (a share of the provider's official figure) or
   `measured`; `percent` is of its own budget, `null` while unknown.
+- `groups` / `machines` — the dashboard's breakdown, heaviest first (machines silent this cycle last,
+  at 0): `percent` is each one's part of the provider's whole budget, restated by the official
+  reading like the dashboard's, `null` whenever the provider's `percent` is.
 - `lastReportAt` — the newest report of any machine counted for the provider this cycle.
 
 The full example is `clients/tests/fixtures/status-v1.json`, the contract both the server's tests

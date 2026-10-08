@@ -11,16 +11,21 @@ struct MenuBarLabel: View {
 
     var body: some View {
         let provider = store.selectedProvider
+        let figure = store.menuBarFigure
         if store.payload == nil, let error = store.error, error != .notConfigured {
             Image(nsImage: Self.render(symbol: "exclamationmark.triangle", text: nil, color: nil, dimmed: false))
         } else {
             Image(nsImage: Self.render(
-                symbol: Display.gaugeSymbol(provider?.percent),
-                text: Display.percentText(provider?.percent),
-                color: Self.color(provider?.status),
+                symbol: Display.gaugeSymbol(figure?.percent),
+                text: Display.percentText(figure?.percent),
+                color: Self.color(figure?.status),
                 dimmed: store.isStale
             ))
-            .accessibilityLabel("\(provider?.label ?? "UsageRatio") \(Display.percentText(provider?.percent))")
+            .accessibilityLabel(
+                [provider?.label ?? "UsageRatio", figure?.name, Display.percentText(figure?.percent)]
+                    .compactMap { $0 }
+                    .joined(separator: " ")
+            )
         }
     }
 
