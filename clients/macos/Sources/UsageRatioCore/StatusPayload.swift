@@ -31,9 +31,27 @@ public struct StatusPayload: Decodable, Equatable, Sendable {
         public let status: QuotaStatus?
         public let pace: Pace?
         public let subLimits: [SubLimit]
+        /// Empty from a server older than the breakdown.
+        public let groups: [Share]
+        public let machines: [Machine]
         public let lastReportAt: Date?
 
         public var isOfficial: Bool { source == "official" }
+    }
+
+    /// A group's part of its provider's figure: `percent` is of the provider's whole budget.
+    public struct Share: Decodable, Equatable, Sendable, Identifiable {
+        public let id: String
+        public let percent: Double?
+        public let tokens: Double
+    }
+
+    public struct Machine: Decodable, Equatable, Sendable, Identifiable {
+        public let id: String
+        public let groupId: String
+        public let percent: Double?
+        public let tokens: Double
+        public let lastReportAt: Date
     }
 
     public struct Pace: Decodable, Equatable, Sendable {
@@ -89,7 +107,8 @@ public enum QuotaStatus: String, Sendable, Decodable {
 
 extension StatusPayload.Provider {
     private enum CodingKeys: String, CodingKey {
-        case id, label, percent, source, estimatedPercent, asOf, tokens, limit, status, pace, subLimits, lastReportAt
+        case id, label, percent, source, estimatedPercent, asOf, tokens, limit, status, pace, subLimits, groups,
+            machines, lastReportAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -105,6 +124,8 @@ extension StatusPayload.Provider {
         status = try? c.decodeIfPresent(QuotaStatus.self, forKey: .status)
         pace = try c.decodeIfPresent(StatusPayload.Pace.self, forKey: .pace)
         subLimits = try c.decodeIfPresent([StatusPayload.SubLimit].self, forKey: .subLimits) ?? []
+        groups = try c.decodeIfPresent([StatusPayload.Share].self, forKey: .groups) ?? []
+        machines = try c.decodeIfPresent([StatusPayload.Machine].self, forKey: .machines) ?? []
         lastReportAt = try c.decodeIfPresent(Date.self, forKey: .lastReportAt)
     }
 }
