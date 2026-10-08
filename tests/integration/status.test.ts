@@ -89,6 +89,12 @@ describe("GET /api/status", () => {
     expect(keys(body.cycle)).toEqual(keys(FIXTURE.cycle));
     expect(keys(claude!)).toEqual(keys(sample));
     expect(keys(claude!.pace!)).toEqual(keys(sample.pace!));
+    expect(keys(claude!.groups[0]!)).toEqual(keys(sample.groups[0]!));
+    expect(keys(claude!.machines[0]!)).toEqual(keys(sample.machines[0]!));
+    expect(claude!.groups).toEqual([{ id: "Personal", percent: 25, tokens: 2500 }]);
+    expect(claude!.machines).toEqual([
+      { id: "mac", groupId: "Personal", percent: 25, tokens: 2500, lastReportAt: expect.any(String) },
+    ]);
   });
 
   it("lets an official reading of this cycle lead, as the dashboard does", async () => {
@@ -100,11 +106,11 @@ describe("GET /api/status", () => {
     });
 
     const body = (await (await GET(get())).json()) as StatusPayload;
-    expect(body.providers.find((provider) => provider.id === "claude")).toMatchObject({
-      percent: 40,
-      source: "official",
-      estimatedPercent: 25,
-    });
+    const claude = body.providers.find((provider) => provider.id === "claude");
+    expect(claude).toMatchObject({ percent: 40, source: "official", estimatedPercent: 25 });
+    // The breakdown is restated by the official reading too: the one machine carries all 40%.
+    expect(claude?.machines[0]).toMatchObject({ id: "mac", percent: 40, tokens: 4000 });
+    expect(claude?.groups[0]).toMatchObject({ id: "Personal", percent: 40 });
   });
 
   it("states a separate sub-limit against its own budget", async () => {
@@ -141,6 +147,8 @@ describe("GET /api/status", () => {
       pace: null,
       tokens: 2500,
     });
+    const claude = body.providers.find((provider) => provider.id === "claude");
+    expect(claude?.machines[0]?.percent).toBeNull();
   });
 
   it("serves a read token, which POST /api/usage refuses with 403 read_only_token", async () => {
