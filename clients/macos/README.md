@@ -7,10 +7,13 @@ with a read-only token, and shows exactly what the dashboard does.
 - **Menu bar:** a gauge and the chosen provider's percentage. Plain (adapting to light and dark)
   while all is well, orange past the warning level, red when critical, dimmed when the figure is
   more than two hours old (the server was unreachable, or no machine has reported).
-- **Popover:** every provider with its bar, sub-limits, whether the figure is the official reading
-  or the machines' estimate, the pace ("at this pace ~108% by the reset; runs out Friday 15:00"),
-  the reset countdown, and Refresh / Dashboard / Settings / Quit. Click a provider to put it in
-  the menu bar.
+- **Popover:** a compact card for the chosen provider: the percentage used (official or estimate)
+  and what is left, a bar with a marker where the cycle stands — a fill past the marker is ahead of
+  the even pace — when it runs out and when it resets, its sub-limits, and how much each group and
+  machine took (the one in the menu bar in bold). Refresh and the gear sit at the bottom.
+- **Settings (the gear):** which provider the menu bar shows, and whether its whole figure or one
+  group's or machine's part of it (its share of the provider's budget, as on the dashboard); the
+  server and token; open at login; open the dashboard; quit.
 - **Polling:** every 5 minutes, again 10 seconds after the Mac wakes, and when the popover opens
   on a figure older than a minute. On errors it backs off (1, 2, 4 … up to 30 minutes) and honours
   the server's `Retry-After`.

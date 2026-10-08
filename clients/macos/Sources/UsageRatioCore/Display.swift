@@ -43,24 +43,45 @@ public enum Display {
         return providers.first { $0.id == id } ?? providers.first
     }
 
+    /// The figure the menu bar shows: the provider's own, or one group's or machine's part of it.
+    /// A group or machine no longer listed falls back to the provider's.
+    public static func figure(of provider: StatusPayload.Provider, scope: MenuBarScope) -> MenuBarFigure {
+        switch scope {
+        case .group(let id):
+            if let group = provider.groups.first(where: { $0.id == id }) {
+                let newest = provider.machines.filter { $0.groupId == id }.map(\.lastReportAt).max()
+                return MenuBarFigure(name: id, percent: group.percent, status: shareStatus(group.percent), lastReportAt: newest)
+            }
+        case .machine(let id):
+            if let machine = provider.machines.first(where: { $0.id == id }) {
+                return MenuBarFigure(
+                    name: id, percent: machine.percent, status: shareStatus(machine.percent), lastReportAt: machine.lastReportAt
+                )
+            }
+        case .total:
+            break
+        }
+        return MenuBarFigure(name: nil, percent: provider.percent, status: provider.status, lastReportAt: provider.lastReportAt)
+    }
+
+    /// A group's or machine's part has no pace of its own: only the levels the dashboard warns at.
+    public static func shareStatus(_ percent: Double?) -> QuotaStatus? {
+        guard let percent else { return nil }
+        return percent >= 100 ? .critical : percent >= 80 ? .warning : .good
+    }
+
     /// True when the last successful lookup, or the newest report behind the figure, is older than `staleAfter`.
-    public static func isStale(_ provider: StatusPayload.Provider?, lastSuccess: Date?, now: Date) -> Bool {
+    public static func isStale(lastReportAt: Date?, lastSuccess: Date?, now: Date) -> Bool {
         guard let lastSuccess else { return false }
         if now.timeIntervalSince(lastSuccess) > staleAfter { return true }
-        guard let lastReportAt = provider?.lastReportAt else { return false }
+        guard let lastReportAt else { return false }
         return now.timeIntervalSince(lastReportAt) > staleAfter
     }
 
-    /// "3d 4h" (in the app's language): at most the two largest units.
-    public static func countdown(from now: Date, to end: Date, strings: Strings) -> String {
-        let formatter = DateComponentsFormatter()
-        var calendar = Calendar.current
-        calendar.locale = strings.locale
-        formatter.calendar = calendar
-        formatter.unitsStyle = .abbreviated
-        formatter.maximumUnitCount = 2
-        formatter.allowedUnits = [.day, .hour, .minute]
-        return formatter.string(from: max(60, end.timeIntervalSince(now))) ?? ""
+    /// "mac-studio · 23,4%" in the scope picker, or its tokens while there is no percentage.
+    public static func shareText(name: String, percent: Double?, tokens: Double, strings: Strings) -> String {
+        let figure = percent == nil ? tokensText(tokens, strings: strings) : precisePercentText(percent, strings: strings)
+        return "\(name) · \(figure)"
     }
 
     /// "Monday 09:00": weekday and time, in this Mac's time zone.
@@ -76,26 +97,49 @@ public enum Display {
         let formatter = RelativeDateTimeFormatter()
         formatter.locale = strings.locale
         formatter.unitsStyle = .short
-        // Under a minute reads "now" rather than a count of seconds.
-        if abs(now.timeIntervalSince(date)) < 60 { return formatter.localizedString(fromTimeInterval: 0) }
+        // Under a minute reads "now" ("most", "jetzt"): the numeric style would say "in 0 seconds".
+        if abs(now.timeIntervalSince(date)) < 60 {
+            formatter.dateTimeStyle = .named
+            return formatter.localizedString(fromTimeInterval: 0)
+        }
         return formatter.localizedString(for: date, relativeTo: now)
     }
 
-    public static func resetLine(_ cycle: StatusPayload.Cycle, now: Date, strings: Strings) -> String {
-        strings.resetsIn(countdown(from: now, to: cycle.end, strings: strings), shortDate(cycle.end, strings: strings))
+    /// "Reset: Monday 02:00".
+    public static func resetText(_ cycle: StatusPayload.Cycle, strings: Strings) -> String {
+        strings.reset(shortDate(cycle.end, strings: strings))
     }
 
-    public static func cycleTitle(_ cycle: StatusPayload.Cycle, strings: Strings) -> String {
-        cycle.period == "monthly" ? strings.monthlyCycle : strings.weeklyCycle
+    /// "weekly" / "monthly", after the provider's name.
+    public static func periodText(_ cycle: StatusPayload.Cycle, strings: Strings) -> String {
+        cycle.period == "monthly" ? strings.monthly : strings.weekly
     }
 
-    /// The pace under a provider's bar; nil while there is no percentage to project.
-    public static func paceLine(_ provider: StatusPayload.Provider, strings: Strings) -> String? {
+    /// How much of the cycle has gone by, 0–100.
+    public static func elapsedPercent(_ cycle: StatusPayload.Cycle, now: Date) -> Double {
+        let length = cycle.end.timeIntervalSince(cycle.start)
+        guard length > 0 else { return 0 }
+        return min(100, max(0, now.timeIntervalSince(cycle.start) / length * 100))
+    }
+
+    /// "Runs out Saturday 06:25", or that it lasts; nil while there is no percentage.
+    public static func runOutText(_ provider: StatusPayload.Provider, strings: Strings) -> String? {
         guard provider.percent != nil, let pace = provider.pace else { return nil }
-        guard let projected = pace.projectedPercent else { return strings.paceTooEarly }
-        if let runOutAt = pace.runOutAt {
-            return strings.paceRunsOut(percentText(projected), shortDate(runOutAt, strings: strings))
-        }
-        return strings.paceProjection(percentText(projected))
+        if let runOutAt = pace.runOutAt { return strings.runsOut(shortDate(runOutAt, strings: strings)) }
+        return pace.projectedPercent == nil ? strings.tooEarly : strings.lastsUntilReset
+    }
+
+    /// "37.5% left", or "Over by 12.5%" past the limit; nil while there is no percentage.
+    public static func remainingText(_ percent: Double?, strings: Strings) -> String? {
+        guard let percent else { return nil }
+        return percent > 100
+            ? strings.over(precisePercentText(percent - 100, strings: strings))
+            : strings.remaining(precisePercentText(100 - percent, strings: strings))
+    }
+
+    /// Each row's bar against the heaviest row, so the differences show even when all are small.
+    public static func barFractions(_ values: [Double]) -> [Double] {
+        let top = values.max() ?? 0
+        return values.map { top > 0 ? max(0, $0) / top : 0 }
     }
 }

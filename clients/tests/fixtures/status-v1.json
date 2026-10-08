@@ -18,8 +18,54 @@
       "tokens": 41200000,
       "limit": 70000000,
       "status": "warning",
-      "pace": { "projectedPercent": 108.03, "runOutAt": "2026-10-11T15:00:00.000Z" },
-      "subLimits": [{ "id": "fable", "name": "Fable", "percent": 80.1, "source": "provider", "status": "warning" }],
+      "pace": {
+        "projectedPercent": 108.03,
+        "runOutAt": "2026-10-11T15:00:00.000Z"
+      },
+      "subLimits": [
+        {
+          "id": "fable",
+          "name": "Fable",
+          "percent": 80.1,
+          "source": "provider",
+          "status": "warning"
+        }
+      ],
+      "groups": [
+        {
+          "id": "Personal",
+          "percent": 41.6,
+          "tokens": 27466667
+        },
+        {
+          "id": "Work",
+          "percent": 20.8,
+          "tokens": 13733333
+        }
+      ],
+      "machines": [
+        {
+          "id": "mac-studio",
+          "groupId": "Personal",
+          "percent": 33.3,
+          "tokens": 22000000,
+          "lastReportAt": "2026-10-07T09:00:04.000Z"
+        },
+        {
+          "id": "macbook",
+          "groupId": "Personal",
+          "percent": 8.3,
+          "tokens": 5466667,
+          "lastReportAt": "2026-10-07T08:00:11.000Z"
+        },
+        {
+          "id": "work-pc",
+          "groupId": "Work",
+          "percent": 20.8,
+          "tokens": 13733333,
+          "lastReportAt": "2026-10-07T09:00:02.000Z"
+        }
+      ],
       "lastReportAt": "2026-10-07T09:00:04.000Z"
     },
     {
@@ -34,6 +80,8 @@
       "status": null,
       "pace": null,
       "subLimits": [],
+      "groups": [],
+      "machines": [],
       "lastReportAt": null
     }
   ]

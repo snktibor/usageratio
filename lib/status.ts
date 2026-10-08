@@ -33,6 +33,20 @@ export interface StatusSubLimit {
   status: QuotaStatus | null;
 }
 
+/** A group's or machine's part of the provider's figure, as the dashboard's breakdown states it. */
+export interface StatusShare {
+  id: string;
+  /** Of the provider's whole budget; null when the provider's `percent` is. */
+  percent: number | null;
+  /** Its measured tokens this cycle (restated by the official reading when one leads, with a token limit). */
+  tokens: number;
+}
+
+export interface StatusMachine extends StatusShare {
+  groupId: string;
+  lastReportAt: string;
+}
+
 export interface StatusProvider {
   id: string;
   label: string;
@@ -57,6 +71,10 @@ export interface StatusProvider {
     runOutAt: string | null;
   } | null;
   subLimits: StatusSubLimit[];
+  /** Its groups this cycle, the heaviest first. */
+  groups: StatusShare[];
+  /** Its machines, the heaviest first; those silent this cycle (still listed on the dashboard) last, at 0. */
+  machines: StatusMachine[];
   /** The newest report of any machine counted for it this cycle; null before the first one. */
   lastReportAt: string | null;
 }
@@ -112,6 +130,19 @@ function providerStatus(provider: ProviderDashboardModel): StatusProvider {
         status: subView.quota?.status ?? null,
       };
     }),
+    // `limitShare` is null without a token limit unless an official reading restated it: the same rule as `percent`.
+    groups: view.groups.map((group) => ({
+      id: group.groupId,
+      percent: view.quota && group.limitShare !== null ? percentOf(group.limitShare) : null,
+      tokens: Math.round(group.tokens),
+    })),
+    machines: view.machines.map((machine) => ({
+      id: machine.machineId,
+      groupId: machine.groupId,
+      percent: view.quota && machine.limitShare !== null ? percentOf(machine.limitShare) : null,
+      tokens: Math.round(machine.tokens),
+      lastReportAt: iso(machine.lastSeenAt),
+    })),
     lastReportAt: lastSeen > 0 ? iso(lastSeen) : null,
   };
 }

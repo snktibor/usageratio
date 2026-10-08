@@ -24,12 +24,23 @@ private func fixture() throws -> Data {
     #expect(claude.pace?.projectedPercent == 108.03)
     #expect(claude.subLimits.first?.name == "Fable")
     #expect(claude.lastReportAt != nil)
+    #expect(claude.groups.map(\.id) == ["Personal", "Work"])
+    #expect(claude.machines.map(\.groupId) == ["Personal", "Personal", "Work"])
 
     let codex = payload.providers[1]
     #expect(codex.percent == nil)
     #expect(codex.status == nil)
     #expect(codex.pace == nil)
     #expect(codex.lastReportAt == nil)
+}
+
+@Test func readsAServerWithoutTheBreakdown() throws {
+    var json = try #require(String(data: fixture(), encoding: .utf8))
+    json = json.replacingOccurrences(of: "\"groups\": [],\n      \"machines\": [],\n", with: "")
+    #expect(!json.contains("\"groups\": []"))
+    let payload = try StatusPayload.decode(Data(json.utf8))
+    #expect(payload.providers[1].groups.isEmpty)
+    #expect(payload.providers[1].machines.isEmpty)
 }
 
 @Test func readsAnUnknownStatusAsNil() throws {
