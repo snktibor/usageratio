@@ -87,9 +87,9 @@ export function ArchivedCycleView({
   const selectProvider = useCallback(
     (providerId: string) => {
       writeProviderCookie(providerId);
+      setSelectedId(providerId);
       // A past cycle is the selected provider's own: another provider's would be a different week.
       if (pastCycle) router.push("/");
-      else setSelectedId(providerId);
     },
     [pastCycle, router],
   );
