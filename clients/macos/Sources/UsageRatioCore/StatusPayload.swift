@@ -18,9 +18,17 @@ public struct StatusPayload: Decodable, Equatable, Sendable {
         public let timeZone: String
     }
 
+    /// A provider's own cycle: its subscription's window can differ from the dashboard's.
+    public struct ProviderCycle: Decodable, Equatable, Sendable {
+        public let start: Date
+        public let end: Date
+    }
+
     public struct Provider: Decodable, Equatable, Sendable, Identifiable {
         public let id: String
         public let label: String
+        /// Absent from a server older than per-provider cycles.
+        public let cycle: ProviderCycle?
         public let percent: Double?
         /// "official" or "estimate"; nil when `percent` is.
         public let source: String?
@@ -107,7 +115,7 @@ public enum QuotaStatus: String, Sendable, Decodable {
 
 extension StatusPayload.Provider {
     private enum CodingKeys: String, CodingKey {
-        case id, label, percent, source, estimatedPercent, asOf, tokens, limit, status, pace, subLimits, groups,
+        case id, label, cycle, percent, source, estimatedPercent, asOf, tokens, limit, status, pace, subLimits, groups,
             machines, lastReportAt
     }
 
@@ -115,6 +123,7 @@ extension StatusPayload.Provider {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         label = try c.decode(String.self, forKey: .label)
+        cycle = try c.decodeIfPresent(StatusPayload.ProviderCycle.self, forKey: .cycle)
         percent = try c.decodeIfPresent(Double.self, forKey: .percent)
         source = try c.decodeIfPresent(String.self, forKey: .source)
         estimatedPercent = try c.decodeIfPresent(Double.self, forKey: .estimatedPercent)

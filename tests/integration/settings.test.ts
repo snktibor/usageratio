@@ -13,6 +13,7 @@ const VALID_UPDATE = {
   useTokenLimits: false,
   limits: { claude: 500_000 },
   reset: { weekday: 1, monthDay: 1, hour: 0, minute: 0, timeZone: "UTC" },
+  resetOverrides: {},
   showRemaining: true,
   hiddenProviders: [],
   excludedProviders: {},

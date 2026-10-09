@@ -147,7 +147,9 @@ read_provider_tokens() {
   run_ccusage "$blocks_file" "${blocks_args[@]}" 2>/dev/null || rm -f "$blocks_file"
   run_ccusage "$output_file" "${ccusage_args[@]}" 2>>"$error_file" || return 1
 
-  hourly_args=("$blocks_file" "$cycle_start" "$cycle_timezone")
+  # The cycle file also names each provider's own start (cycle.providers): the
+  # parser counts every provider from its own, and the earliest from the shared one.
+  hourly_args=("$blocks_file" "$cycle_start" "$cycle_timezone" "$cycle_file")
   PROVIDERS_JSON="$(node "$CCUSAGE_PARSER" parse "$cycle_providers" "${hourly_args[@]}" <"$output_file" 2>>"$error_file")" || return 1
   # The splits by model and by day are optional: without them the report still goes out.
   node "$CCUSAGE_PARSER" parse-models "$cycle_providers" "${hourly_args[@]}" <"$output_file" >"$WORK_DIR/models.json" 2>/dev/null ||

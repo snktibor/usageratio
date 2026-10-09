@@ -11,6 +11,7 @@ All source: `app/api/**/route.ts`, shared helpers in `lib/api.ts`.
 - [`GET /api/health`](#get-apihealth)
 - [`GET`/`PUT /api/settings`](#getput-apisettings)
 - [`PUT /api/official-usage`](#put-apiofficial-usage)
+- [`POST /api/official-usage/report`](#post-apiofficial-usagereport)
 - [`GET /api/setup`](#get-apisetup)
 - [`GET`/`PUT /api/api-token`, `POST /api/api-token/reveal`, `GET /api/api-token/audit`](#the-stored-api-token)
 - [`GET`/`POST /api/tokens`, `DELETE /api/tokens/[id]`](#per-machine-tokens)
@@ -65,7 +66,10 @@ The full `ApiErrorCode` union (`lib/api.ts`):
 | `sudo_invalid` | 401 | Wrong PIN presented to `POST /api/auth/sudo` (`attemptsLeft` when known). |
 | `too_many_groups` / `too_many_providers` / `too_many_machines` / `too_many_tokens` | 422 | A registry cap would be exceeded; `limit` gives the cap. |
 | `machine_mismatch` | 403 | A machine-bound per-machine token reported for a different `machineId`. |
-| `read_only_token` | 403 | A "read" per-machine token tried to report (`POST /api/usage`); it may only read. |
+| `read_only_token` | 403 | A "read" or "official" per-machine token tried to report (`POST /api/usage`); it may not report tokens. |
+| `official_scope_required` | 403 | `POST /api/official-usage/report` needs an "official" token. |
+| `period_not_weekly` | 409 | An official report was sent to a monthly dashboard; the figure is a weekly window. |
+| `stale_reading` | 409 | An official report whose window already reset, or that was read before the provider's current cycle began. |
 | `no_token` | 404 | Nothing stored to reveal (`POST /api/api-token/reveal`). |
 | `token_unreadable` | 409 | The stored API token can't be decrypted with any known key. |
 | `groups_have_reports` | 409 | A settings save tried to remove a group that still has stored reports. |
@@ -107,7 +111,9 @@ truncated): 200 machines (`MAX_MACHINES`), 50 groups (`MAX_GROUPS`), 20 provider
 
 The client-facing ingest endpoint. Auth: **bearer**.
 
-**`GET /api/usage`** — the current cycle, for a client to scope its next `ccusage` run:
+**`GET /api/usage`** — the current cycle, for a client to scope its next `ccusage` run. A provider
+can have its own reset, so `cycle.start`/`end`/`sinceDate` are the earliest provider cycle's (the
+shared reset included), and `cycle.providers` holds each provider's own:
 
 ```json
 {
@@ -117,7 +123,11 @@ The client-facing ingest endpoint. Auth: **bearer**.
     "start": "2026-09-21T00:00:00.000Z",
     "end": "2026-09-28T00:00:00.000Z",
     "sinceDate": "2026-09-21",
-    "timeZone": "Europe/Budapest"
+    "timeZone": "Europe/Budapest",
+    "providers": {
+      "claude": { "start": "2026-09-17T09:00:00.000Z", "end": "2026-09-24T09:00:00.000Z" },
+      "openai": { "start": "2026-09-21T00:00:00.000Z", "end": "2026-09-28T00:00:00.000Z" }
+    }
   }
 }
 ```
@@ -137,6 +147,8 @@ The client-facing ingest endpoint. Auth: **bearer**.
   "cycle": { "start": "2026-09-21T00:00:00.000Z", "end": "2026-09-28T00:00:00.000Z" }
 }
 ```
+
+`cycle` is the earliest of the shared reset's cycle and the report's providers' cycles (the shared reset's alone for a heartbeat).
 
 `groupRegistered` is `true` when the `groupId` wasn't on the settings panel's list yet (it's now
 auto-registered with the next free preset color). `providersRegistered` lists any provider ids seen for the first
@@ -219,6 +231,7 @@ times are ISO 8601. `v` only changes for a breaking change — new fields are ad
   "providers": [
     {
       "id": "claude", "label": "Claude Code",
+      "cycle": { "start": "…", "end": "…" },
       "percent": 62.4, "source": "official", "estimatedPercent": 58.91, "asOf": "…",
       "tokens": 41200000, "limit": 70000000, "status": "warning",
       "pace": { "projectedPercent": 108.03, "runOutAt": "2026-10-11T15:00:00.000Z" },
@@ -231,6 +244,8 @@ times are ISO 8601. `v` only changes for a breaking change — new fields are ad
 }
 ```
 
+- `cycle` (top level) — the shared reset's cycle; per-provider figures should use `providers[].cycle`, that provider's own, which
+  differs while it has its own reset (see [configuration.md](configuration.md#reset-and-time-zone)).
 - `percent` — how much of the budget is gone; `null` with the token limits off and no official
   reading. `source` is `"official"` when a typed official reading drives it, `"estimate"` when the
   machines' measurement does, `null` with `percent`. `estimatedPercent` is the measurement against
@@ -280,6 +295,7 @@ required on every save (a document stored before some of them existed is still r
   "useTokenLimits": false,
   "limits": { "claude": 500000, "deepseek": 750000, "openai": 1000000 },
   "reset": { "weekday": 1, "monthDay": 1, "hour": 0, "minute": 0, "timeZone": "Europe/Budapest" },
+  "resetOverrides": {},
   "showRemaining": true,
   "hiddenProviders": ["openai"],
   "excludedProviders": { "Work": ["claude", "deepseek"] },
@@ -291,6 +307,10 @@ required on every save (a document stored before some of them existed is still r
   "removedGroups": ["Old"]
 }
 ```
+
+`resetOverrides` is required: providerId → `{ weekday, monthDay, hour, minute }`, the provider's own
+reset over the shared period and time zone (`{}` for none). An entry may add `source?: "report"` —
+set by an official report; the panel drops it when the entry is edited.
 
 `groups` creates or recolors — groups not listed are left untouched (so one that appeared on its own
 in the meantime, from a client report, isn't wiped out by an unrelated save). `removedGroups` only
@@ -319,6 +339,28 @@ field, written on a debounced pause after typing (or dragging the slider), not o
 field's own cycle, from the dashboard it was typed on. `200 { "ok": true, "enteredAt": <ms> }` ·
 `400` invalid JSON/payload · `401` no session · `403` foreign origin · `413`/`415` bad body · `503`
 Redis down.
+
+## `POST /api/official-usage/report`
+
+Auth: **Bearer** token with the `official` scope (`403 official_scope_required` otherwise). A
+provider's own weekly usage percentage, read on a machine by the macOS menu bar app, stored as the
+dashboard's official reading. 1 KB body, 120 calls per token per hour.
+
+```json
+{ "providerId": "claude", "usedPercent": 41.2, "resetsAtMs": 1758704400000, "observedAtMs": 1758628200000 }
+```
+
+`usedPercent` is 0–1000; `resetsAtMs` is when the provider's weekly window resets and must lie within
+a week after `observedAtMs` (when the figure was read, not in the future). The server decides, in order:
+a monthly dashboard is refused (`409 period_not_weekly`); a window that already reset is refused
+(`409 stale_reading`); if the provider's cycle end differs from `resetsAtMs` by more than 15 minutes its
+reset is moved to the window's (weekday, hour and minute in the dashboard's time zone, marked as set by
+a report; the provider's month day is kept); a reading taken before the (new) cycle began is refused
+(`409 stale_reading`); a reading no newer than the figure already stored for that cycle is not written.
+
+`200 { "ok": true, "saved": <bool>, "cycleChanged": <bool>, "reset": { "weekday", "hour", "minute" } | null }`
+· `400` invalid JSON/payload · `401` bad token · `403` wrong scope or demo mode (`demo_read_only`) ·
+`409` as above · `413`/`415` bad body · `429` rate limited · `503` Redis down.
 
 ## `GET /api/setup`
 
@@ -352,9 +394,11 @@ never again. See [clients.md](clients.md#per-machine-tokens-vs-the-master-token)
 - **`GET /api/tokens`** → `{ "tokens": [{id, label, machineId, scope, createdAt, lastUsedAt, revokedAt}] }`
   (never the token or its hash). `401` no session · `503` Redis down.
 - **`POST /api/tokens`** (session + sudo, same-origin) `{ "label": "…", "machineId"?: "…", "scope"?:
-  "ingest" | "read" }` → `201 { "id", "token" }`. `scope` defaults to `"ingest"`; a `"read"` token (the
+  "ingest" | "read" | "official" }` → `201 { "id", "token" }`. `scope` defaults to `"ingest"`; a `"read"` token (the
   [menu bar app](#get-apistatus)'s) only reads `GET /api/status` and `GET /api/usage`, is refused by
-  `POST /api/usage` with `403 read_only_token`, and takes no `machineId`. `400` invalid body · `401` no
+  `POST /api/usage` with `403 read_only_token`, and takes no `machineId`. An `"official"` token reads the
+  same and may also upload a provider's own usage percentage (`POST /api/official-usage/report`); it is
+  refused by `POST /api/usage` likewise and takes no `machineId`. `400` invalid body · `401` no
   session · `403` foreign origin, demo mode, or no sudo grant · `413`/`415` bad body ·
   `422 too_many_tokens` (with `limit`, 100) · `503` Redis down.
 - **`DELETE /api/tokens/[id]`** (session + sudo, same-origin) → `200 { "ok": true }`, idempotent.
@@ -434,8 +478,9 @@ never again. See [clients.md](clients.md#per-machine-tokens-vs-the-master-token)
   defaults to every visible provider). Response: `200`, a file download
   (`Content-Disposition: attachment`).
   - CSV columns: `provider,groupId,machineId,timestamp,tokens,checkpoint,models,costUsd`.
-  - JSON shape: `{ generatedAt, timeZone, cycle: {start, end}, providers: [{id, label, events, history}] }`
-    — `events` are the requested cycle's raw reports, `history` is every archived cycle for that
+  - JSON shape: `{ generatedAt, timeZone, cycle: {start, end}, providers: [{id, label, cycle: {start, end}, events, history}] }`
+    — the top-level `cycle` is the earliest provider's, `providers[].cycle` the provider's own window
+    of the requested cycle; `events` are that window's raw reports, `history` is every archived cycle for that
     provider (not filtered to the requested cycle).
   - `400` bad query · `401` no session · `404` unknown provider · `503` Redis down.
 

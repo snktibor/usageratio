@@ -46,6 +46,8 @@ export function parseExportQuery(params: URLSearchParams): ExportQueryResult {
 export interface ExportProviderInput {
   id: string;
   label: string;
+  /** This provider's own window of the requested cycle (its reset may differ from the shared one). */
+  cycle: { startMs: number; endMs: number };
   /** Already filtered to the requested cycle's window. */
   events: UsageEvent[];
   /** Every cycle archived for it, newest first (lib/history.ts); not filtered by the requested cycle. */
@@ -145,6 +147,7 @@ export interface ExportJsonPayload {
   providers: {
     id: string;
     label: string;
+    cycle: { start: string; end: string };
     events: ExportEventRow[];
     history: CycleSummary[];
   }[];
@@ -159,6 +162,10 @@ export function buildExportJsonPayload(input: ExportInput): ExportJsonPayload {
     providers: input.providers.map((provider) => ({
       id: provider.id,
       label: provider.label,
+      cycle: {
+        start: new Date(provider.cycle.startMs).toISOString(),
+        end: new Date(provider.cycle.endMs).toISOString(),
+      },
       events: buildExportRows({ ...input, providers: [provider] }),
       history: provider.history,
     })),

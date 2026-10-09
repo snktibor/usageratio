@@ -207,3 +207,48 @@ private func fixturePayload() throws -> StatusPayload {
     #expect(Display.statusText(.warning, strings: .en) == "Warning")
     #expect(Display.statusText(.critical, strings: .de) == "Kritisch")
 }
+
+@Test func usesTheProvidersOwnCycle() throws {
+    let json = """
+    {"v":1,"generatedAt":"2026-10-07T09:12:00Z",
+     "cycle":{"period":"weekly","start":"2026-10-05T07:00:00Z","end":"2026-10-12T07:00:00Z","timeZone":"UTC"},
+     "providers":[{"id":"claude","label":"X","cycle":{"start":"2026-10-08T07:00:00Z","end":"2026-10-15T07:00:00Z"},
+       "percent":null,"source":null,"estimatedPercent":null,"asOf":"2026-10-07T09:12:00Z","tokens":1,"limit":null,
+       "status":null,"pace":null,"subLimits":[],"lastReportAt":null}]}
+    """
+    let payload = try StatusPayload.decode(Data(json.utf8))
+    let cycle = Display.cycle(of: payload.providers[0], in: payload)
+    #expect(cycle.start == Date(timeIntervalSince1970: 1_791_442_800))
+    #expect(cycle.end == Date(timeIntervalSince1970: 1_792_047_600))
+    #expect(cycle.period == "weekly" && cycle.timeZone == "UTC")
+    // No cycle of its own (a server before it): the payload's.
+    #expect(Display.cycle(of: provider(), in: payload) == payload.cycle)
+}
+
+@Test func wordsTheFiveHourWindow() {
+    // 14:30 in this Mac's time zone, whatever it is.
+    let resetsAt = Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 9, hour: 14, minute: 30))!
+    let time = { (strings: Strings) in
+        let formatter = DateFormatter()
+        formatter.locale = strings.locale
+        formatter.setLocalizedDateFormatFromTemplate("jmm")
+        return formatter.string(from: resetsAt)
+    }
+    let window = LimitWindow(usedPercent: 23.4, resetsAt: resetsAt)
+    #expect(Display.fiveHourText(window, strings: .en) == "5-hour window: 23% · resets \(time(.en))")
+    #expect(Display.fiveHourText(window, strings: .hu) == "5 órás ablak: 23% · nullázódik \(time(.hu))")
+    #expect(time(.hu).contains("14:30"))
+}
+
+@Test func wordsTheResetMoment() {
+    let thursday = ResetMoment(weekday: 4, hour: 9, minute: 0)
+    #expect(Display.momentText(thursday, strings: .en) == "Thursday 09:00")
+    #expect(Display.momentText(thursday, strings: .hu) == "csütörtök 09:00")
+    #expect(Display.momentText(ResetMoment(weekday: 0, hour: 23, minute: 5), strings: .de) == "Sonntag 23:05")
+}
+
+@Test func wordsWhyAnUploadWasRefused() {
+    #expect(Display.uploadNoteText(.periodNotWeekly, strings: .hu) == Strings.hu.uploadMonthly)
+    #expect(Display.uploadNoteText(.notOfficialToken, strings: .en) == Strings.en.uploadNotOfficialToken)
+    #expect(Display.uploadNoteText(.staleReading, strings: .de) == Strings.de.uploadStale)
+}

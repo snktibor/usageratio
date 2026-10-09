@@ -182,7 +182,13 @@ export function SettingsPage({ view }: { view: SettingsView }) {
           <div className="space-y-16">
             <SettingsGroup sectionKey="general" title={t("section_general")}>
               <LanguageSection titleId={titleId} confirmLeave={guard.confirmLeave} />
-              <ResetSection titleId={titleId} draft={draft} onPatch={actions.patch} />
+              <ResetSection
+                titleId={titleId}
+                draft={draft}
+                onPatch={actions.patch}
+                onOwnReset={actions.ownReset}
+                onPatchOwnReset={actions.patchOwnReset}
+              />
             </SettingsGroup>
 
             <SettingsGroup sectionKey="budgets" title={t("section_budgets")}>

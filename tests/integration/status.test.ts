@@ -113,6 +113,49 @@ describe("GET /api/status", () => {
     expect(claude?.groups[0]).toMatchObject({ id: "Personal", percent: 40 });
   });
 
+  it("gives a provider with its own reset its own cycle", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-09-23T12:00:00Z"));
+      await seedSettings({
+        useTokenLimits: true,
+        limits: { claude: 10_000, openai: 10_000 },
+        resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } },
+      });
+      await report(2500);
+      await postUsage(
+        new Request("http://localhost/api/usage", {
+          method: "POST",
+          body: JSON.stringify({
+            machineId: "mac",
+            groupId: "Personal",
+            providers: { openai: 1000 },
+            timestamp: new Date().toISOString(),
+          }),
+          headers: AUTH,
+        }),
+      );
+      await getRedis().hset(KEYS.officialUsage, {
+        claude: JSON.stringify({
+          raw: "41",
+          enteredAt: Date.now(),
+          cycleStartMs: Date.parse("2026-09-17T09:00:00Z"),
+        }),
+      });
+
+      const body = (await (await GET(get())).json()) as StatusPayload;
+      const claude = body.providers.find((provider: { id: string }) => provider.id === "claude")!;
+      const openai = body.providers.find((provider: { id: string }) => provider.id === "openai")!;
+      expect(claude.cycle).toEqual({ start: "2026-09-17T09:00:00.000Z", end: "2026-09-24T09:00:00.000Z" });
+      expect(openai.cycle).toEqual({ start: "2026-09-21T00:00:00.000Z", end: "2026-09-28T00:00:00.000Z" });
+      expect(body.cycle.start).toBe("2026-09-21T00:00:00.000Z");
+      expect(claude.source).toBe("official");
+      expect(claude.percent).toBe(41);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("states a separate sub-limit against its own budget", async () => {
     await seedSettings({
       useTokenLimits: true,
@@ -160,5 +203,14 @@ describe("GET /api/status", () => {
     const refused = await report(100, headers);
     expect(refused.status).toBe(403);
     expect((await refused.json()).error).toBe("read_only_token");
+  });
+
+  it("serves an official token too, which POST /api/usage refuses", async () => {
+    const created = await createToken("Menu bar", null, new Date(), "official");
+    if (!created.ok) throw new Error("token not created");
+    const headers = { authorization: `Bearer ${created.token}` };
+
+    expect((await GET(get(headers))).status).toBe(200);
+    expect((await report(100, headers)).status).toBe(403);
   });
 });

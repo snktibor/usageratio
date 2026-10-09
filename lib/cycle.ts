@@ -109,6 +109,15 @@ export function dateInTimeZone(date: Date, timeZone: string): string {
   return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
 }
 
+/** The wall clock `date` shows in `timeZone`: what a reset moment is stored as. */
+export function wallClockOf(
+  date: Date,
+  timeZone: string,
+): { weekday: number; day: number; hour: number; minute: number } {
+  const { weekday, day, hour, minute } = zonedParts(date, timeZone);
+  return { weekday, day, hour, minute };
+}
+
 /** The cycle that contains `now`. */
 export function getCycle(now: Date, reset: ResetConfig): Cycle {
   return reset.period === "monthly" ? getMonthlyCycle(now, reset) : getWeeklyCycle(now, reset);

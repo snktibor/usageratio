@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { ResetConfig } from "@/lib/config";
-import { listCycleOptions, parseCycleParam, periodOfCycle, selectCycle } from "@/lib/cycle-options";
+import { getConfig, type ResetConfig } from "@/lib/config";
+import {
+  listCycleOptions,
+  parseCycleParam,
+  periodOfCycle,
+  providerCycleOptions,
+  selectCycle,
+} from "@/lib/cycle-options";
 
 const UTC_MONDAY: ResetConfig = { period: "weekly", weekday: 1, monthDay: 1, hour: 0, minute: 0, timeZone: "UTC" };
 const ms = (iso: string) => new Date(iso).getTime();
@@ -164,5 +170,32 @@ describe("periodOfCycle", () => {
     // A week across the autumn clock change is still a week.
     expect(periodOfCycle({ startMs: ms("2026-10-19T22:00:00Z"), endMs: ms("2026-10-26T23:00:00Z") })).toBe("weekly");
     expect(periodOfCycle({ startMs: ms("2026-02-01T00:00:00Z"), endMs: ms("2026-03-01T00:00:00Z") })).toBe("monthly");
+  });
+});
+
+describe("providerCycleOptions", () => {
+  const now = new Date("2026-09-23T12:00:00Z");
+  const config = {
+    ...getConfig(),
+    reset: { period: "weekly" as const, weekday: 1, monthDay: 1, hour: 0, minute: 0, timeZone: "UTC" },
+    resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } },
+    retentionDays: 30,
+  };
+
+  it("lists the provider's own cycles", () => {
+    const options = providerCycleOptions({
+      now,
+      config,
+      providerId: "claude",
+      history: [],
+      oldestReportMs: Date.parse("2026-09-01T00:00:00Z"),
+    });
+    expect(options[0]).toMatchObject({ kind: "current", startMs: Date.parse("2026-09-17T09:00:00Z") });
+    expect(options[1]).toMatchObject({ kind: "detail", startMs: Date.parse("2026-09-10T09:00:00Z") });
+  });
+
+  it("uses the shared reset for a provider without its own", () => {
+    const options = providerCycleOptions({ now, config, providerId: "openai", history: [], oldestReportMs: null });
+    expect(options[0]!.startMs).toBe(Date.parse("2026-09-21T00:00:00Z"));
   });
 });

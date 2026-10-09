@@ -1,11 +1,12 @@
 import { currentTime } from "@/lib/clock";
 import type { BudgetPeriod } from "@/lib/config";
 import { getConfig } from "@/lib/config";
-import { getCycle, getPreviousCycle } from "@/lib/cycle";
+import { getCycle } from "@/lib/cycle";
 import { buildProviderDashboards, type ProviderDashboardModel } from "@/lib/dashboard";
 import { ensureDemoData } from "@/lib/demo/seed";
 import { applyGroundTruth, applySubLimitReading, parseOfficialPercent, type SubLimitSource } from "@/lib/ground-truth";
 import { currentOfficialEntries, type OfficialEntryView } from "@/lib/official-usage";
+import { earliestStartMs, providerCycle } from "@/lib/provider-cycles";
 import { mergeProviderIds } from "@/lib/providers";
 import type { QuotaAssessment, QuotaStatus } from "@/lib/quota";
 import { resolveConfig, storedProviderIds } from "@/lib/settings";
@@ -50,6 +51,8 @@ export interface StatusMachine extends StatusShare {
 export interface StatusProvider {
   id: string;
   label: string;
+  /** This provider's own cycle: its reset may differ from the shared one (lib/settings.ts `resetFor`). */
+  cycle: { start: string; end: string };
   /** How much of the budget is gone; null with the token limits off and no official reading. */
   percent: number | null;
   /** "official": an official reading typed on the dashboard drives `percent`; "estimate": the machines' measurement. */
@@ -112,6 +115,7 @@ function providerStatus(provider: ProviderDashboardModel): StatusProvider {
   return {
     id: provider.id,
     label: provider.label,
+    cycle: { start: iso(model.cycle.startMs), end: iso(model.cycle.endMs) },
     percent: view.quota ? percentOf(view.quota.usedFraction) : null,
     source: view.calibrated ? "official" : view.quota ? "estimate" : null,
     estimatedPercent: view.measured.usedFraction === null ? null : percentOf(view.measured.usedFraction),
@@ -177,11 +181,14 @@ export async function loadStatus(): Promise<StatusPayload> {
   );
   const config = resolveConfig(getConfig(), indexes.settings, providerIds);
 
+  // The shared reset's cycle heads the payload; every provider carries its own below.
   const cycle = getCycle(now, config.reset);
-  // The previous cycle rides along: counter mode's baseline needs it.
-  const previousCycle = getPreviousCycle(cycle, config.reset);
-  const { eventsByProvider, groups } = await loadEvents(providerIds, indexes.groups, previousCycle.start.getTime());
-  const officialUsage = currentOfficialEntries(indexes.officialUsage, cycle.start.getTime());
+  // The previous cycles ride along: counter mode's baseline needs them.
+  const since = earliestStartMs(now, config, providerIds, "previous");
+  const { eventsByProvider, groups } = await loadEvents(providerIds, indexes.groups, since);
+  const officialUsage = currentOfficialEntries(indexes.officialUsage, (providerId) =>
+    providerCycle(now, config, providerId).cycle.start.getTime(),
+  );
   const providers = buildProviderDashboards(
     now,
     config,

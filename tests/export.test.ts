@@ -28,6 +28,8 @@ function summary(start: number): CycleSummary {
   };
 }
 
+const WINDOW = { startMs: 0, endMs: 7 * 24 * HOUR };
+
 function input(overrides: Partial<ExportInput> = {}): ExportInput {
   return {
     generatedAtMs: Date.parse("2026-09-23T12:00:00.000Z"),
@@ -73,8 +75,8 @@ describe("buildExportRows", () => {
     const rows = buildExportRows(
       input({
         providers: [
-          { id: "claude", label: "Claude", events: claudeEvents, history: [] },
-          { id: "openai", label: "OpenAI", events: openaiEvents, history: [] },
+          { id: "claude", label: "Claude", cycle: WINDOW, events: claudeEvents, history: [] },
+          { id: "openai", label: "OpenAI", cycle: WINDOW, events: openaiEvents, history: [] },
         ],
       }),
     );
@@ -115,7 +117,9 @@ describe("buildExportRows", () => {
       { machineId: "mac", groupId: "Work", tokens: 100, ts: HOUR, costUsd: 1.2345 },
       { machineId: "pc", groupId: "Work", tokens: 50, ts: 2 * HOUR },
     ];
-    const rows = buildExportRows(input({ providers: [{ id: "claude", label: "Claude", events, history: [] }] }));
+    const rows = buildExportRows(
+      input({ providers: [{ id: "claude", label: "Claude", cycle: WINDOW, events, history: [] }] }),
+    );
     expect(rows[0]).toMatchObject({ machineId: "mac", costUsd: 1.2345 });
     expect(rows[1]).not.toHaveProperty("costUsd");
   });
@@ -129,7 +133,9 @@ describe("buildExportCsv", () => {
 
   it("quotes a comma, a double quote and a newline per RFC 4180", () => {
     const events: UsageEvent[] = [{ machineId: "mac, home", groupId: 'Work "A"', tokens: 10, ts: HOUR }];
-    const csv = buildExportCsv(input({ providers: [{ id: "claude", label: "Claude", events, history: [] }] }));
+    const csv = buildExportCsv(
+      input({ providers: [{ id: "claude", label: "Claude", cycle: WINDOW, events, history: [] }] }),
+    );
     const [, row] = csv.split("\r\n");
     expect(row).toBe(`claude,"Work ""A""","mac, home",${new Date(HOUR).toISOString()},10,false,,`);
   });
@@ -139,7 +145,9 @@ describe("buildExportCsv", () => {
       { machineId: "mac", groupId: "Work", tokens: 10, ts: HOUR, costUsd: 1.2345 },
       { machineId: "pc", groupId: "Work", tokens: 20, ts: 2 * HOUR },
     ];
-    const csv = buildExportCsv(input({ providers: [{ id: "claude", label: "Claude", events, history: [] }] }));
+    const csv = buildExportCsv(
+      input({ providers: [{ id: "claude", label: "Claude", cycle: WINDOW, events, history: [] }] }),
+    );
     const [, withCost, withoutCost] = csv.split("\r\n");
     expect(withCost?.endsWith(",false,,1.2345")).toBe(true);
     expect(withoutCost?.endsWith(",false,,")).toBe(true);
@@ -149,14 +157,18 @@ describe("buildExportCsv", () => {
     const events: UsageEvent[] = [
       { machineId: "line1\nline2", groupId: "Work", tokens: 10, ts: HOUR, models: { "claude-sonnet-4-5": 10 } },
     ];
-    const csv = buildExportCsv(input({ providers: [{ id: "claude", label: "Claude", events, history: [] }] }));
+    const csv = buildExportCsv(
+      input({ providers: [{ id: "claude", label: "Claude", cycle: WINDOW, events, history: [] }] }),
+    );
     expect(csv).toContain('"line1\nline2"');
     expect(csv).toContain(`"${JSON.stringify({ "claude-sonnet-4-5": 10 }).replace(/"/g, '""')}"`);
   });
 
   it("ends every line, including the last, with CRLF", () => {
     const events: UsageEvent[] = [{ machineId: "mac", groupId: "Work", tokens: 10, ts: HOUR }];
-    const csv = buildExportCsv(input({ providers: [{ id: "claude", label: "Claude", events, history: [] }] }));
+    const csv = buildExportCsv(
+      input({ providers: [{ id: "claude", label: "Claude", cycle: WINDOW, events, history: [] }] }),
+    );
     expect(csv.endsWith("\r\n")).toBe(true);
     expect(csv.split("\r\n")).toHaveLength(3); // header, one row, and the trailing empty split after the final CRLF
   });
@@ -168,7 +180,7 @@ describe("buildExportJsonPayload", () => {
     const payload = buildExportJsonPayload(
       input({
         cycle: { startMs: 0, endMs: 7 * 24 * HOUR },
-        providers: [{ id: "claude", label: "Claude", events, history: [summary(0)] }],
+        providers: [{ id: "claude", label: "Claude", cycle: WINDOW, events, history: [summary(0)] }],
       }),
     );
 
@@ -179,6 +191,7 @@ describe("buildExportJsonPayload", () => {
       {
         id: "claude",
         label: "Claude",
+        cycle: { start: new Date(0).toISOString(), end: new Date(7 * 24 * HOUR).toISOString() },
         events: [
           {
             provider: "claude",
@@ -202,6 +215,7 @@ describe("buildExportJsonPayload", () => {
           {
             id: "claude",
             label: "Claude",
+            cycle: WINDOW,
             events: [{ machineId: "mac", groupId: "Work", tokens: 10, ts: HOUR, costUsd: 2.5 }],
             history: [],
           },
@@ -219,10 +233,11 @@ describe("buildExportJsonPayload", () => {
           {
             id: "claude",
             label: "Claude",
+            cycle: WINDOW,
             events: [{ machineId: "mac", groupId: "Work", tokens: 10, ts: HOUR }],
             history: [],
           },
-          { id: "openai", label: "OpenAI", events: [], history: [] },
+          { id: "openai", label: "OpenAI", cycle: WINDOW, events: [], history: [] },
         ],
       }),
     );

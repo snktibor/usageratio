@@ -1,8 +1,9 @@
 import { parseAuditRecord } from "@/lib/api-token";
 import { archiveDueCycles } from "@/lib/archive";
 import { getConfig, RETENTION_DAYS } from "@/lib/config";
-import { getCycle, getPreviousCycle } from "@/lib/cycle";
 import { log } from "@/lib/log";
+import { providerOfOfficialField } from "@/lib/official-usage";
+import { earliestStartMs, providerCycle } from "@/lib/provider-cycles";
 import { getRedis } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
 import { parseStoredSettings, resolveConfig, settingsFromConfig } from "@/lib/settings";
@@ -124,24 +125,26 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
   // same way the first dashboard render after it does: a cycle nobody looked at is kept all the same.
   // It runs before step 5 deletes that cycle's official-usage entries, and reads the same snapshot.
   const config = resolveConfig(getConfig(), indexes.settings, providerIds);
-  const cycle = getCycle(now, config.reset);
-  const previousCycle = getPreviousCycle(cycle, config.reset);
-  const { eventsByProvider } = await loadEvents(providerIds, indexes.groups, previousCycle.start.getTime());
+  const { eventsByProvider } = await loadEvents(
+    providerIds,
+    indexes.groups,
+    earliestStartMs(now, config, providerIds, "previous"),
+  );
   const archived = await archiveDueCycles({
     providerIds,
     config,
-    cycle,
-    previousCycle,
+    now,
     eventsByProvider,
     rawOfficialUsage: indexes.officialUsage,
     dryRun,
   });
 
-  // Step 5: official-usage entries from a cycle that has since rolled over, or that no longer parse.
+  // Step 5: official-usage entries from a cycle that has since rolled over (each provider's own), or that no longer parse.
   const staleOfficialFields = Object.entries(indexes.officialUsage)
-    .filter(([, raw]) => {
+    .filter(([field, raw]) => {
       const cycleStartMs = officialCycleStartMs(raw);
-      return cycleStartMs === null || cycleStartMs < cycle.start.getTime();
+      const currentStartMs = providerCycle(now, config, providerOfOfficialField(field)).cycle.start.getTime();
+      return cycleStartMs === null || cycleStartMs < currentStartMs;
     })
     .map(([field]) => field);
 

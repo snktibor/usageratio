@@ -57,7 +57,7 @@ BeforeAll {
     }
 
     # --- Environment: a temp home, log file and PATH -------------------------
-    $script:OriginalPath = $env:Path
+    $script:OriginalPath = $env:PATH
     $script:OriginalUserProfile = $env:USERPROFILE
     $script:OriginalLogFile = $env:USAGERATIO_LOG_FILE
     $script:OriginalCcusageMode = $env:USAGERATIO_CCUSAGE
@@ -67,7 +67,8 @@ BeforeAll {
     New-Item -ItemType Directory -Path $script:HomeDir -Force | Out-Null
     $script:LogFile = Join-Path $script:HomeDir 'usageratio.log'
 
-    $env:Path = "$script:ToolsDir$([IO.Path]::PathSeparator)$env:Path"
+    # PATH in capitals: environment variable names are case-sensitive on macOS and Linux.
+    $env:PATH = "$script:ToolsDir$([IO.Path]::PathSeparator)$env:PATH"
     $env:USERPROFILE = $script:HomeDir
     $env:USAGERATIO_LOG_FILE = $script:LogFile
     $env:USAGERATIO_CCUSAGE = 'global'
@@ -121,7 +122,7 @@ BeforeAll {
 }
 
 AfterAll {
-    $env:Path = $script:OriginalPath
+    $env:PATH = $script:OriginalPath
     $env:USERPROFILE = $script:OriginalUserProfile
     $env:USAGERATIO_LOG_FILE = $script:OriginalLogFile
     $env:USAGERATIO_CCUSAGE = $script:OriginalCcusageMode
@@ -186,5 +187,64 @@ Describe 'the fake ccusage/npx used above' {
         & $script:NpxPath '--yes' 'ccusage@latest' 'daily' 2>&1 | Out-Null
 
         $LASTEXITCODE | Should -Be 1
+    }
+}
+
+Describe 'report-usage-core.ps1 with each provider''s own cycle start' {
+    BeforeAll {
+        # A one-request HTTP stub of GET /api/usage, in a background job so the child process can reach it.
+        $script:Port = Get-Random -Minimum 20000 -Maximum 40000
+        $script:CycleJson = @{
+            tokenMode = 'snapshot'
+            providers = @('claude', 'openai')
+            cycle     = @{
+                start     = '2026-01-05T00:00:00Z'
+                end       = '2026-01-12T00:00:00Z'
+                sinceDate = '2026-01-05'
+                timeZone  = 'UTC'
+                providers = @{
+                    # After the fixture's only day (2026-01-05): Claude counts nothing yet.
+                    claude = @{ start = '2026-01-06T00:00:00Z'; end = '2026-01-13T00:00:00Z' }
+                    openai = @{ start = '2026-01-05T00:00:00Z'; end = '2026-01-12T00:00:00Z' }
+                }
+            }
+        } | ConvertTo-Json -Depth 5 -Compress
+        $script:Server = Start-Job -ArgumentList $script:Port, $script:CycleJson -ScriptBlock {
+            param($Port, $Body)
+            $listener = [Net.HttpListener]::new()
+            $listener.Prefixes.Add("http://localhost:$Port/")
+            $listener.Start()
+            try {
+                $context = $listener.GetContext()
+                $bytes = [Text.Encoding]::UTF8.GetBytes($Body)
+                $context.Response.ContentType = 'application/json'
+                $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+                $context.Response.Close()
+            } finally { $listener.Stop() }
+        }
+        # Wait until the stub listens.
+        $deadline = (Get-Date).AddSeconds(15)
+        do {
+            Start-Sleep -Milliseconds 200
+            $client = [Net.Sockets.TcpClient]::new()
+            try { $client.Connect('localhost', $script:Port); $listening = $true } catch { $listening = $false } finally { $client.Dispose() }
+        } until ($listening -or (Get-Date) -gt $deadline)
+    }
+
+    AfterAll {
+        Stop-Job -Job $script:Server -ErrorAction SilentlyContinue
+        Remove-Job -Job $script:Server -Force -ErrorAction SilentlyContinue
+        Remove-Item Env:USAGERATIO_API_URL, Env:USAGERATIO_API_TOKEN -ErrorAction SilentlyContinue
+    }
+
+    It 'trims every provider to its own start' {
+        $env:USAGERATIO_API_URL = "http://localhost:$script:Port/api/usage"
+        $env:USAGERATIO_API_TOKEN = 'test-token'
+        $result = Invoke-Core -Arguments @('-DryRun', '-ConfigPath', $script:ConfigPath)
+
+        $result.ExitCode | Should -Be 0
+        $payload = $result.Output | ConvertFrom-Json
+        $payload.providers.claude | Should -Be 0
+        $payload.providers.openai | Should -Be 500
     }
 }

@@ -29,6 +29,8 @@ Every client — automatic or manual, macOS/Linux or Windows — runs the same c
    --timezone <tz>` (plus `--no-cost`, or `--offline` when the cost estimate is on — see below),
    filtered to the days since the cycle started, and for Claude Code specifically also `ccusage blocks
    --json --offline --session-length 1 --since <sinceDate> --timezone <tz>` to get whole-hour blocks.
+   `ccusage` runs from the earliest provider's start; the parser then trims each provider to its own
+   (`cycle.providers` of the response), days by date and Claude Code's hours by hour.
    `ccusage` itself runs from a globally installed copy if present, otherwise via `npx --yes
    ccusage@<version>` — the version is pinned (`20.0.24` at the time of writing) in
    `clients/shared/report-usage-core.sh`, `report-usage-core.ps1`, and `lib/setup.ts` together (a test
@@ -130,6 +132,9 @@ client's next report fail with a generic `401` — nothing on the client side di
 A token created with the access **Read only (menu bar app)** (`scope: "read"`) is for reading, not
 reporting: `GET /api/status` and `GET /api/usage` accept it, `POST /api/usage` refuses it with
 `403 read_only_token`. It is what the menu bar app below keeps in its keychain.
+
+An **official** token (`scope: "official"`) reads the same, and is also what the menu bar app needs to
+upload the providers' own usage percentages; it too is refused by `POST /api/usage`.
 
 ## The macOS menu bar app
 

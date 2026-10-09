@@ -66,3 +66,18 @@ private func fixture() throws -> Data {
     #expect(StatusClient.statusURL(base: URL(string: "https://usage.example.com/")!).absoluteString
         == "https://usage.example.com/api/status")
 }
+
+@Test func readsEachProvidersOwnCycle() throws {
+    let payload = try StatusPayload.decode(fixture())
+    #expect(payload.providers[0].cycle?.start == Date(timeIntervalSince1970: 1_791_183_600))
+    #expect(payload.providers[0].cycle?.end == Date(timeIntervalSince1970: 1_791_788_400))
+}
+
+@Test func readsAServerWithoutTheProviderCycle() throws {
+    var json = try #require(String(data: fixture(), encoding: .utf8))
+    let cycle = try Regex(#"\"cycle\": \{\s*\"start\": \"[^"]*\",\s*\"end\": \"[^"]*\"\s*\},\s*"#)
+    json = json.replacing(cycle, with: "")
+    let payload = try StatusPayload.decode(Data(json.utf8))
+    #expect(payload.providers.allSatisfy { $0.cycle == nil })
+    #expect(payload.cycle.period == "weekly")
+}

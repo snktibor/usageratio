@@ -6,6 +6,7 @@ steps that are not, in the order to do them, and then every behaviour change you
 - [Before you deploy](#before-you-deploy)
 - [Deploy the server, then the clients](#deploy-the-server-then-the-clients)
 - [After the first deploy](#after-the-first-deploy)
+- [Per-provider reset](#per-provider-reset)
 - [Behaviour changes](#behaviour-changes)
 
 ## Before you deploy
@@ -66,6 +67,15 @@ curl -s -H "Authorization: Bearer $CRON_SECRET" "https://usageratio.example.com/
 
 Self-hosting without Vercel's scheduler: see
 [self-hosting.md § Housekeeping](self-hosting.md#housekeeping-the-daily-cron).
+
+## Per-provider reset
+
+A provider can now have its own budget reset moment, apart from the shared one. Nothing changes
+until one does. Once any provider has its own reset, re-run the installer on every machine. The
+server exposes each provider's own start (`cycle.providers` of `GET /api/usage`), and the
+reporting clients now count every provider from its own. A machine installed before this release
+keeps over-counting a provider with a later reset (it counts that provider from the earliest
+start) until the installer is re-run on it: download a fresh setup package from the settings page.
 
 ## Behaviour changes
 

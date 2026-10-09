@@ -1,17 +1,16 @@
 import type { UsageEvent } from "@/lib/aggregate";
 import type { AppConfig } from "@/lib/config";
-import type { Cycle } from "@/lib/cycle";
 import { officialPercentForCycle, summarizeCycle } from "@/lib/history";
 import { log } from "@/lib/log";
+import { providerCycle } from "@/lib/provider-cycles";
 import { configForProvider, countsForProvider, subLimitsOf } from "@/lib/settings";
 import { archiveCycle, loadNewestArchivedStarts } from "@/lib/usage-store";
 
 export interface ArchiveInput {
   providerIds: string[];
   config: AppConfig;
-  cycle: Cycle;
-  previousCycle: Cycle;
-  /** Must reach back at least to `previousCycle.start` (`loadEvents(…, previousCycle.start)`). */
+  now: Date;
+  /** Must reach back to the earliest previous cycle (lib/provider-cycles.ts `earliestStartMs(…, "previous")`). */
   eventsByProvider: Record<string, UsageEvent[]>;
   /** The raw `usage:official` hash, for the previous cycle's typed-in percentage. */
   rawOfficialUsage: Record<string, string>;
@@ -31,6 +30,8 @@ export interface ArchiveInput {
  * `ZADD NX` truly dedupes them into one entry rather than adding a second one
  * that only differs by when each happened to run. See lib/history.ts for why
  * only this one cycle can be archived this way, and for `summarizeCycle`.
+ * Each provider's cycles are its own (lib/provider-cycles.ts): the shared
+ * reset, or the provider's override.
  *
  * Best-effort per provider: a failure is logged and skipped, never thrown, so
  * one bad provider neither breaks the dashboard nor the rest of the run.
@@ -39,18 +40,20 @@ export interface ArchiveInput {
 export async function archiveDueCycles({
   providerIds,
   config,
-  cycle,
-  previousCycle,
+  now,
   eventsByProvider,
   rawOfficialUsage,
   dryRun = false,
 }: ArchiveInput): Promise<string[]> {
   if (providerIds.length === 0) return [];
-  const previousStartMs = previousCycle.start.getTime();
-  const cycleStartMs = cycle.start.getTime();
   const newestStarts = await loadNewestArchivedStarts(providerIds);
+  const windowOf = (providerId: string) => {
+    const { cycle, previous } = providerCycle(now, config, providerId);
+    return { previousStartMs: previous.start.getTime(), cycleStartMs: cycle.start.getTime() };
+  };
 
   const due = providerIds.filter((providerId) => {
+    const { previousStartMs, cycleStartMs } = windowOf(providerId);
     const newest = newestStarts[providerId];
     if (newest !== null && newest !== undefined && newest >= previousStartMs) return false;
     return (eventsByProvider[providerId] ?? []).some((event) => event.ts >= previousStartMs && event.ts < cycleStartMs);
@@ -60,6 +63,7 @@ export async function archiveDueCycles({
   const archived = await Promise.all(
     due.map(async (providerId) => {
       try {
+        const { previousStartMs, cycleStartMs } = windowOf(providerId);
         const counts = (groupId: string) => countsForProvider(config.excludedProviders, groupId, providerId);
         const providerConfig = configForProvider(config, providerId);
         const summary = summarizeCycle({

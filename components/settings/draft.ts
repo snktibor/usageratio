@@ -1,4 +1,4 @@
-import { type AlertsFormat, type BudgetPeriod, isValidTimeZone } from "@/lib/config";
+import { type AlertsFormat, type BudgetPeriod, isValidTimeZone, type ResetOverride } from "@/lib/config";
 import {
   MAX_ALERT_THRESHOLDS,
   MAX_GROUPS,
@@ -34,6 +34,15 @@ export interface DraftGroup {
   hasReports: boolean;
   /** The providers whose usage in this group does not count. */
   excluded: string[];
+}
+
+/** A provider's own reset on the form: its moment as typed; `source` only while a report's value is untouched. */
+export interface DraftOwnReset {
+  weekday: number;
+  monthDay: number;
+  /** "HH:MM", as typed. */
+  time: string;
+  source?: "report";
 }
 
 export interface DraftSubLimit {
@@ -88,6 +97,8 @@ export interface Draft {
   time: string;
   /** IANA name; the cycle's reset and the clients' day split both use it. */
   timeZone: string;
+  /** providerId → its own reset; absent: the shared one. */
+  resetOverrides: Record<string, DraftOwnReset>;
   showRemaining: boolean;
   groups: DraftGroup[];
   /** Taken off the list in this session; kept whole so a refused removal can be put back. */
@@ -103,6 +114,7 @@ export interface SettingsRequest {
   useTokenLimits: boolean;
   limits: Record<string, number>;
   reset: { weekday: number; monthDay: number; hour: number; minute: number; timeZone: string };
+  resetOverrides: Record<string, ResetOverride>;
   showRemaining: boolean;
   hiddenProviders: string[];
   excludedProviders: Record<string, string[]>;
@@ -127,6 +139,7 @@ export type DraftProblem =
   | { code: "at_least_one_visible_account" }
   | { code: "invalid_provider_limit"; label: string }
   | { code: "reset_time_format_error" }
+  | { code: "invalid_own_reset_time"; label: string }
   | { code: "invalid_time_zone" }
   | { code: "invalid_group_color"; id: string }
   | { code: "missing_sublimit_name"; label: string }
@@ -143,8 +156,17 @@ export type DraftProblem =
   | { code: "alerts_need_at_least_one_threshold" };
 
 export function draftFrom(view: SettingsView): Draft {
-  const { period, useTokenLimits, limits, reset, showRemaining, hiddenProviders, excludedProviders, subLimits } =
-    view.settings;
+  const {
+    period,
+    useTokenLimits,
+    limits,
+    reset,
+    resetOverrides,
+    showRemaining,
+    hiddenProviders,
+    excludedProviders,
+    subLimits,
+  } = view.settings;
   const twoDigits = (value: number) => String(value).padStart(2, "0");
   return {
     period,
@@ -170,6 +192,17 @@ export function draftFrom(view: SettingsView): Draft {
     monthDay: reset.monthDay,
     time: `${twoDigits(reset.hour)}:${twoDigits(reset.minute)}`,
     timeZone: reset.timeZone,
+    resetOverrides: Object.fromEntries(
+      Object.entries(resetOverrides).map(([providerId, override]) => [
+        providerId,
+        {
+          weekday: override.weekday,
+          monthDay: override.monthDay,
+          time: `${twoDigits(override.hour)}:${twoDigits(override.minute)}`,
+          ...(override.source ? { source: override.source } : {}),
+        },
+      ]),
+    ),
     showRemaining,
     groups: view.groups.map((group) => ({
       ...group,
@@ -316,6 +349,28 @@ export function withNewGroup(draft: Draft): Draft {
   };
 }
 
+/** Gives `providerId` its own reset, starting from the shared one, or takes it away. */
+export function withOwnReset(draft: Draft, providerId: string, own: boolean): Draft {
+  const { [providerId]: _, ...others } = draft.resetOverrides;
+  if (!own) return { ...draft, resetOverrides: others };
+  return {
+    ...draft,
+    resetOverrides: { ...others, [providerId]: { weekday: draft.weekday, monthDay: draft.monthDay, time: draft.time } },
+  };
+}
+
+/** Edits a provider's own reset; an edit makes it the panel's own, so a report's marker goes. */
+export function patchOwnReset(
+  draft: Draft,
+  providerId: string,
+  changes: Partial<Omit<DraftOwnReset, "source">>,
+): Draft {
+  const current = draft.resetOverrides[providerId];
+  if (!current) return draft;
+  const { source: _, ...rest } = current;
+  return { ...draft, resetOverrides: { ...draft.resetOverrides, [providerId]: { ...rest, ...changes } } };
+}
+
 export function toRequest(draft: Draft): { request: SettingsRequest } | { problem: DraftProblem } {
   // A fresh install knows no provider yet: its reset, time zone and groups can still be saved.
   if (draft.providers.length > 0 && !draft.providers.some((provider) => provider.visible)) {
@@ -334,6 +389,22 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
 
   const time = /^([01]\d|2[0-3]):([0-5]\d)/.exec(draft.time);
   if (!time) return { problem: { code: "reset_time_format_error" } };
+
+  const resetOverrides: Record<string, ResetOverride> = {};
+  for (const [providerId, own] of Object.entries(draft.resetOverrides)) {
+    const ownTime = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(own.time);
+    if (!ownTime) {
+      const label = draft.providers.find((provider) => provider.id === providerId)?.label ?? providerId;
+      return { problem: { code: "invalid_own_reset_time", label } };
+    }
+    resetOverrides[providerId] = {
+      weekday: own.weekday,
+      monthDay: own.monthDay,
+      hour: Number(ownTime[1]),
+      minute: Number(ownTime[2]),
+      ...(own.source ? { source: own.source } : {}),
+    };
+  }
 
   const timeZone = parseTimeZone(draft.timeZone);
   if (timeZone === null) return { problem: { code: "invalid_time_zone" } };
@@ -379,6 +450,7 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
         minute: Number(time[2]),
         timeZone,
       },
+      resetOverrides,
       showRemaining: draft.showRemaining,
       hiddenProviders: draft.providers.filter((provider) => !provider.visible).map((provider) => provider.id),
       // Only the groups on the list: a removed group takes its exclusions with it.

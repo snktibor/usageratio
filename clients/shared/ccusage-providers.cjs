@@ -469,6 +469,32 @@ function trimProvider(usage, provider, amount) {
   }
 }
 
+/** When `provider`'s own cycle began: its start from the server (`hourly.starts`), else the shared one. */
+function startOf(hourly, provider) {
+  const own = hourly.starts && Object.hasOwn(hourly.starts, provider) ? hourly.starts[provider] : undefined;
+  return own ?? hourly.cycleStartMs;
+}
+
+/**
+ * Drops each provider's days before its own cycle's first day: `ccusage
+ * --since` reads from the earliest start of them all (the server's
+ * `cycle.sinceDate`), and a provider with a later reset must not count what
+ * came before it. The provider stays in such a day at 0, so a snapshot still
+ * names it; its split by model and cost for that day goes.
+ */
+function trimToCycles(days, hourly) {
+  if (!hourly) return;
+  for (const [date, usage] of days) {
+    for (const provider of [...usage.providers.keys()]) {
+      if (date >= localDate(startOf(hourly, provider), hourly.timeZone)) continue;
+      usage.providers.set(provider, 0);
+      usage.models.delete(provider);
+      usage.costs.delete(provider);
+      usage.modelCosts.delete(provider);
+    }
+  }
+}
+
 /**
  * Lays the one-hour blocks of `hourly` over the days of a daily report
  * (`days`: date → usage, changed in place) and returns each day's hours by
@@ -477,16 +503,16 @@ function trimProvider(usage, provider, amount) {
  * day a provider's hours are kept only when they add up to its day exactly
  * (another agent may have used the same provider's models).
  *
- * On the day of the reset, the hours before the cycle's start are taken off
- * the provider's day, so they no longer count in both cycles; the day's split
+ * On the day each provider's own cycle starts (its `hourly.starts` entry, else
+ * the shared start), the hours before that start are taken off the provider's
+ * day, so they no longer count in both cycles; the day's split
  * by model is scaled down in proportion (the blocks carry no split of their
  * own). The providers without hours keep the whole day.
  */
 function applyHourly(days, hourly) {
   const hoursByDate = new Map();
-  const blocks = hourly && hourlyBlocks(hourly.blocks, hourly.timeZone);
+  const blocks = hourly?.blocks && hourlyBlocks(hourly.blocks, hourly.timeZone);
   if (!blocks) return hoursByDate;
-  const firstDate = localDate(hourly.cycleStartMs, hourly.timeZone);
   const lastDate = [...days.keys()].sort().at(-1);
 
   for (const [date, usage] of days) {
@@ -497,10 +523,11 @@ function applyHourly(days, hourly) {
       if (blockTotal > total) continue;
 
       let hours = blockHours;
-      if (date === firstDate) {
-        const before = sumTokens(blockHours.filter((hour) => hour.startMs + HOUR_MS <= hourly.cycleStartMs));
+      const startMs = startOf(hourly, provider);
+      if (date === localDate(startMs, hourly.timeZone)) {
+        const before = sumTokens(blockHours.filter((hour) => hour.startMs + HOUR_MS <= startMs));
         if (before > 0) trimProvider(usage, provider, before);
-        hours = blockHours.filter((hour) => hour.startMs + HOUR_MS > hourly.cycleStartMs);
+        hours = blockHours.filter((hour) => hour.startMs + HOUR_MS > startMs);
       }
 
       const complete = blockTotal === total || date === lastDate;
@@ -532,6 +559,7 @@ function collectUsage(input, hourly) {
     }
     addRow(usage, item, documentSource);
   }
+  trimToCycles(days, hourly);
   return { document, documentSource, days, undated, hoursByDate: applyHourly(days, hourly) };
 }
 
@@ -562,8 +590,9 @@ function dayMap(days, hoursByDate) {
 
 /**
  * ccusage's daily JSON → { providers: { provider: tokens }, models: { provider: { model: tokens } } }.
- * `hourly` ({ blocks, cycleStartMs, timeZone }, optional) lays Claude Code's
- * hours over the days first: see applyHourly.
+ * `hourly` ({ blocks, cycleStartMs, timeZone, starts }, optional) trims each
+ * provider to its own cycle start and lays Claude Code's hours over the days:
+ * see trimToCycles and applyHourly.
  */
 function parseCcusageUsage(input, fallbackProviders = [], hourly = null) {
   const { document, documentSource, days, undated } = collectUsage(input, hourly);
@@ -620,18 +649,44 @@ function parseCcusageDays(input, hourly = null) {
   return {};
 }
 
-/** The `hourly` input of the parse commands; null when any part of it is missing or unreadable. */
-function readHourly(blocksPath, cycleStart, timeZone) {
-  if (!blocksPath || !cycleStart || !timeZone) return null;
+/** A JSON file's contents; null for "-", a missing path, or a file that does not parse. */
+function readJsonFile(path) {
+  if (!path || path === "-") return null;
+  try {
+    return JSON.parse(fs.readFileSync(path, "utf8").replace(/^\uFEFF/, ""));
+  } catch {
+    return null;
+  }
+}
+
+/** provider → its own cycle start (ms), from a GET /api/usage response's `cycle.providers`; {} without one. */
+function readStarts(cyclePath) {
+  const providers = asObject(asObject(asObject(readJsonFile(cyclePath))?.cycle)?.providers);
+  const starts = {};
+  for (const [rawProvider, entry] of Object.entries(providers || {})) {
+    const provider = slug(rawProvider);
+    const startMs = Date.parse(asObject(entry)?.start);
+    if (provider && Number.isFinite(startMs)) starts[provider] = startMs;
+  }
+  return starts;
+}
+
+/**
+ * The `hourly` input of the parse commands: the blocks (null without a
+ * readable file, or "-"), the shared cycle start, the time zone and each
+ * provider's own start. Null when the start or the time zone is missing or
+ * unreadable: then nothing is trimmed at all.
+ */
+function readHourly(blocksPath, cycleStart, timeZone, cyclePath) {
+  if (!cycleStart || !timeZone) return null;
   const cycleStartMs = Date.parse(cycleStart);
   if (!Number.isFinite(cycleStartMs)) return null;
   try {
     localDate(cycleStartMs, timeZone);
-    const blocks = JSON.parse(fs.readFileSync(blocksPath, "utf8").replace(/^﻿/, ""));
-    return { blocks, cycleStartMs, timeZone };
   } catch {
     return null;
   }
+  return { blocks: readJsonFile(blocksPath), cycleStartMs, timeZone, starts: readStarts(cyclePath) };
 }
 
 /** The split saved by `parse-models`; a missing or unreadable file only means no split is sent. */
@@ -735,11 +790,11 @@ async function main() {
     throw new Error(`input is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  // parse, parse-models, parse-days: <fallback providers> [<blocks file> <cycle start> <time zone>]
+  // parse, parse-models, parse-days, parse-costs: <fallback providers> [<blocks file | "-"> <cycle start> <time zone> [<cycle file>]]
   const fallbacks = String(process.argv[3] ?? "")
     .split(",")
     .filter(Boolean);
-  const hourly = readHourly(process.argv[4], process.argv[5], process.argv[6]);
+  const hourly = readHourly(process.argv[4], process.argv[5], process.argv[6], process.argv[7]);
   if (command === "parse") {
     process.stdout.write(JSON.stringify(parseCcusageProviders(parsed, fallbacks, hourly)));
     return;

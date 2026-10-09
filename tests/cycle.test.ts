@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ResetConfig } from "@/lib/config";
-import { getCycle, getDaySegments, getPreviousCycle } from "@/lib/cycle";
+import { getCycle, getDaySegments, getPreviousCycle, wallClockOf } from "@/lib/cycle";
 
 const HOUR = 3_600_000;
 
@@ -264,5 +264,16 @@ describe("getDaySegments", () => {
     for (let i = 1; i < segments.length; i += 1) {
       expect(segments[i]!.start.getTime()).toBe(segments[i - 1]!.end.getTime());
     }
+  });
+});
+
+describe("wallClockOf", () => {
+  it("reads the wall clock in a time zone", () => {
+    expect(wallClockOf(new Date("2026-09-24T07:00:00Z"), "Europe/Budapest")).toEqual({
+      weekday: 4,
+      day: 24,
+      hour: 9,
+      minute: 0,
+    });
   });
 });

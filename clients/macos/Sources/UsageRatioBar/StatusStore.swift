@@ -19,6 +19,14 @@ final class StatusStore {
     private(set) var now = Date()
     private(set) var serverURL: URL?
     private(set) var hasToken = Keychain.hasToken
+    /// The providers' own usage limits read on this Mac, by provider id.
+    private(set) var limits: [String: LimitsSnapshot] = [:]
+    /// What was found at each source (the settings screen's "Sources").
+    private(set) var sources: (claude: SourceReading, codex: SourceReading) = (.missing, .missing)
+    /// A provider's last upload the server declined, by provider id.
+    private(set) var uploadNotes: [String: OfficialReportRefusal] = [:]
+    /// A provider's weekly reset the server moved on our word; shown until the popover closes.
+    private(set) var movedNotes: [String: ResetMoment] = [:]
 
     var selectedProviderId: String? {
         didSet { UserDefaults.standard.set(selectedProviderId, forKey: Keys.provider) }
@@ -32,6 +40,7 @@ final class StatusStore {
     let strings: Strings
 
     @ObservationIgnored private let client = StatusClient()
+    @ObservationIgnored private let reporter = OfficialReportClient()
     @ObservationIgnored private var loop: Task<Void, Never>?
     @ObservationIgnored private var clock: Task<Void, Never>?
     @ObservationIgnored private var failures = 0
@@ -42,6 +51,7 @@ final class StatusStore {
         static let server = "serverURL"
         static let provider = "selectedProvider"
         static let scope = "selectedScope"
+        static let lastUploaded = "lastUploadedLimits"
     }
 
     init() {
@@ -67,7 +77,15 @@ final class StatusStore {
 #if DEBUG
     /// A store that shows `payload` as of `now` and never touches the network or the keychain:
     /// for previews and the offscreen snapshots that check the card's layout.
-    init(preview payload: StatusPayload, now: Date, strings: Strings, scope: MenuBarScope = .total) {
+    init(
+        preview payload: StatusPayload, now: Date, strings: Strings, scope: MenuBarScope = .total,
+        limits: [String: LimitsSnapshot] = [:], sources: (claude: SourceReading, codex: SourceReading) = (.missing, .missing),
+        uploadNotes: [String: OfficialReportRefusal] = [:], movedNotes: [String: ResetMoment] = [:]
+    ) {
+        self.limits = limits
+        self.sources = sources
+        self.uploadNotes = uploadNotes
+        self.movedNotes = movedNotes
         self.strings = strings
         self.payload = payload
         self.now = now
@@ -119,6 +137,52 @@ final class StatusStore {
         restart()
     }
 
+    /// The "cycle moved" notes are shown once: the popover closing clears them.
+    func dismissMovedNotes() {
+        if !movedNotes.isEmpty { movedNotes = [:] }
+    }
+
+    private func lastUploaded(_ providerId: String) -> Date? {
+        let stored = UserDefaults.standard.dictionary(forKey: Keys.lastUploaded) as? [String: Double]
+        return stored?[providerId].map { Date(timeIntervalSince1970: $0) }
+    }
+
+    private func setLastUploaded(_ providerId: String, _ date: Date) {
+        var stored = UserDefaults.standard.dictionary(forKey: Keys.lastUploaded) as? [String: Double] ?? [:]
+        stored[providerId] = date.timeIntervalSince1970
+        UserDefaults.standard.set(stored, forKey: Keys.lastUploaded)
+    }
+
+    /// Reads the providers' own limits and uploads each weekly figure newer than the last one sent.
+    /// Answers whether the server saved a new figure.
+    private func readAndUploadLimits(base serverURL: URL, token: String) async -> Bool {
+        var saved = false
+        let readings = await LimitSources.readAll()
+        sources = readings
+        limits = Dictionary(
+            uniqueKeysWithValues: [readings.claude.snapshot, readings.codex.snapshot].compactMap { $0 }.map { ($0.providerId, $0) }
+        )
+        for snapshot in limits.values.sorted(by: { $0.providerId < $1.providerId })
+        where UploadPolicy.shouldUpload(snapshot, lastUploaded: lastUploaded(snapshot.providerId)) {
+            do {
+                switch try await reporter.send(snapshot, base: serverURL, token: token) {
+                case .accepted(let wasSaved, let movedTo):
+                    if wasSaved { saved = true }
+                    setLastUploaded(snapshot.providerId, snapshot.observedAt)
+                    uploadNotes[snapshot.providerId] = nil
+                    if let movedTo { movedNotes[snapshot.providerId] = movedTo }
+                case .refused(let refusal):
+                    uploadNotes[snapshot.providerId] = refusal
+                    // A stale reading will never be accepted: do not retry it every five minutes.
+                    if refusal == .staleReading { setLastUploaded(snapshot.providerId, snapshot.observedAt) }
+                }
+            } catch {
+                // Network or server trouble: the status lookup reports it; the next poll retries the upload.
+            }
+        }
+        return saved
+    }
+
     /// Saves the settings screen; returns the problem to show, or nil once saved.
     func save(serverText: String, token: String) -> String? {
         guard let url = normalizedServerURL(serverText) else { return strings.invalidURL }
@@ -146,6 +210,12 @@ final class StatusStore {
         defer { isRefreshing = false }
         do {
             payload = try await client.fetch(base: serverURL, token: token)
+            // The uploads come after the lookup, so a slow server never delays its status; a saved
+            // figure changes the card, so look once more.
+            if await readAndUploadLimits(base: serverURL, token: token),
+               let fresh = try? await client.fetch(base: serverURL, token: token) {
+                payload = fresh
+            }
             // A group or machine gone from the list (deleted, merged) reads as the whole provider: say so in the picker too.
             if selectedScope != .total, let provider = selectedProvider,
                Display.figure(of: provider, scope: selectedScope).name == nil {

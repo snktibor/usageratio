@@ -24,6 +24,7 @@ struct PopoverView: View {
         .padding(16)
         .frame(width: 320)
         .onAppear { store.refreshIfIdle() }
+        .onDisappear { store.dismissMovedNotes() }
     }
 
     private var strings: Strings { store.strings }
@@ -31,8 +32,9 @@ struct PopoverView: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 14) {
             if let payload = store.payload, let provider = store.selectedProvider {
-                header(provider, cycle: payload.cycle)
-                summary(provider, cycle: payload.cycle)
+                let cycle = Display.cycle(of: provider, in: payload)
+                header(provider, cycle: cycle)
+                summary(provider, cycle: cycle)
                 if !provider.subLimits.isEmpty {
                     subLimits(provider)
                 }
@@ -139,6 +141,23 @@ struct PopoverView: View {
                     systemImage: "clock.badge.exclamationmark"
                 )
                 .foregroundStyle(.orange)
+            }
+            if let window = store.limits[provider.id]?.fiveHour, window.resetsAt > store.now {
+                Label(Display.fiveHourText(window, strings: strings), systemImage: "hourglass")
+                    .foregroundStyle(.secondary)
+            }
+            if let refusal = store.uploadNotes[provider.id] {
+                Label(Display.uploadNoteText(refusal, strings: strings), systemImage: "icloud.slash")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let moved = store.movedNotes[provider.id] {
+                Label(
+                    strings.cycleMoved(provider.label, Display.momentText(moved, strings: strings)),
+                    systemImage: "calendar.badge.clock"
+                )
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
         .font(.caption)

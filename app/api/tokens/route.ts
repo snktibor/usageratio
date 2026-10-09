@@ -22,7 +22,7 @@ import { parseId } from "@/lib/validation";
  *   GET  → { "tokens": [{ "id", "label", "machineId", "scope", "createdAt", "lastUsedAt", "revokedAt" }] }
  *          (never the token itself, nor its hash)
  *
- *   POST { "label": "…", "machineId"?: "…", "scope"?: "ingest" | "read" } → { "id", "token" } (201)
+ *   POST { "label": "…", "machineId"?: "…", "scope"?: "ingest" | "read" | "official" } → { "id", "token" } (201)
  *          `token` is shown here once and never stored; `machineId`, when
  *          given, restricts POST /api/usage reports to that one machine
  *          (403 machine_mismatch otherwise). `scope` defaults to "ingest";
@@ -65,7 +65,7 @@ function parseCreateBody(
     if (TOKEN_SCOPES.includes(body.scope as TokenScope)) scope = body.scope as TokenScope;
     else errors.push(`scope must be one of ${TOKEN_SCOPES.join(", ")}`);
   }
-  if (scope === "read" && machineId !== null) errors.push("a read token cannot be bound to a machine");
+  if (scope !== "ingest" && machineId !== null) errors.push(`a ${scope} token cannot be bound to a machine`);
 
   return errors.length > 0 ? { errors } : { label, machineId, scope };
 }

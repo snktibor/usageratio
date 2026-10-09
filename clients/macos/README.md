@@ -58,6 +58,29 @@ same dashboard page.
 After a rebuild the keychain sees a different app (an ad-hoc signature changes with every build):
 macOS asks once whether UsageRatio may read its token. Choose **Always Allow**.
 
+## Claude's own usage
+
+Besides the dashboard's figures the app can send the weekly usage your subscriptions report
+themselves, so the dashboard shows the official percentage instead of an estimate. For this the token
+must be an **official** one (one that may report), not the read-only token.
+
+- **Codex** needs nothing: the app reads the limits Codex writes into its own session logs
+  (`~/.codex/sessions`).
+- **Claude Code** hands its limits to every status line. `scripts/statusline-tee.sh` (installed to
+  `~/.usageratio/statusline-tee.sh` by `build-app.sh --install`) runs your own status line command
+  unchanged, with the same input, passes its output and exit code through byte for byte, and saves
+  the limits to `~/.usageratio/claude-limits.json`, where the app reads them. It does not touch the
+  network or any credential, and a failure while saving never affects the status line.
+
+Wrap your status line command in `~/.claude/settings.json`:
+
+```json
+"statusLine": { "type": "command", "command": "~/.usageratio/statusline-tee.sh ~/.claude/statusline.sh" }
+```
+
+Your own script is not changed and the status line looks the same. To undo, put the old command
+back. Settings → Sources shows whether each source has been seen.
+
 ## Develop
 
 ```bash

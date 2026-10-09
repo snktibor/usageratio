@@ -28,18 +28,22 @@ export interface Checkpoint {
   models?: Record<string, number>;
 }
 
+/** A cycle start for every provider alike, or each provider's own (by provider id). */
+export type CycleStart = number | ((providerId: string) => number);
+
 /**
- * The checkpoints of `report` after `sinceMs` (the start of the report's cycle:
- * a running total means nothing in the cycle before), up to the report
- * itself. A day or hour still in progress has no final count yet: the report
+ * The checkpoints of `report` after `sinceMs` (the start of the report's cycle,
+ * or each provider's own: a running total means nothing in the cycle before),
+ * up to the report itself. A day or hour still in progress has no final count yet: the report
  * stands for it. `timeZone` is the one the client split the days in.
  */
-export function reportCheckpoints(report: UsageReport, timeZone: string, sinceMs: number): Checkpoint[] {
+export function reportCheckpoints(report: UsageReport, timeZone: string, sinceMs: CycleStart): Checkpoint[] {
   const tokens: Record<string, number> = {};
   const models: Record<string, Record<string, number>> = {};
   const checkpoints: Checkpoint[] = [];
+  const sinceOf = typeof sinceMs === "number" ? () => sinceMs : sinceMs;
   const keep = (checkpoint: Checkpoint) => {
-    if (checkpoint.ts > sinceMs) checkpoints.push(checkpoint);
+    if (checkpoint.ts > sinceOf(checkpoint.providerId)) checkpoints.push(checkpoint);
   };
 
   for (const day of report.days) {
