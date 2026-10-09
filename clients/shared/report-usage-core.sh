@@ -303,6 +303,10 @@ WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/usageratio.XXXXXX")" || {
   exit 1
 }
 trap 'rm -rf "$WORK_DIR"' EXIT
+# A stop from outside (the menu bar app's timeout) still runs the cleanup above:
+# the work folder holds the token's curl config.
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 # curl reads this private file both for the cycle lookup and for the report.
 if [ -n "$API_TOKEN" ]; then

@@ -192,7 +192,7 @@ struct SettingsView: View {
         groupId = saved.groupId
         guard machineId.isEmpty && groupId.isEmpty else { return }
         if let script = MachineReporter.scriptConfig(), script.machineId != nil || script.groupId != nil {
-            machineId = script.machineId ?? ""
+            machineId = script.machineId ?? MachineReporter.localHostName ?? ""
             groupId = script.groupId ?? ""
             prefilled = true
         } else {

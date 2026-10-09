@@ -91,9 +91,25 @@ enum MachineReporter {
             }
         }
         pipe.fileHandleForReading.readabilityHandler = nil
+        // The exit can come before the handler saw the last chunk (the "Sync failed" line): take
+        // what is left without blocking, since a child the timeout orphaned may hold the pipe open.
+        output.append(drain(pipe.fileHandleForReading))
         guard finished else { return .failed(.other("bash could not be started")) }
         if output.timedOut { return .failed(.timedOut) }
         return MachineReportOutcome.parse(exitCode: process.terminationStatus, output: output.text)
+    }
+
+    private static func drain(_ handle: FileHandle) -> Data {
+        let descriptor = handle.fileDescriptor
+        _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 16_384)
+        while true {
+            let count = read(descriptor, &buffer, buffer.count)
+            guard count > 0 else { break }
+            data.append(buffer, count: count)
+        }
+        return data
     }
 }
 
@@ -120,10 +136,16 @@ private final class RunningProcess: @unchecked Sendable {
     private let process: Process
     init(_ process: Process) { self.process = process }
 
-    /// `before` runs first, so the exit it causes already reads as a timeout.
+    /// `before` runs first, so the exit it causes already reads as a timeout. The reporter's
+    /// children (ccusage, curl) are stopped too; the reporter then cleans up its work folder.
     func terminateIfRunning(_ before: () -> Void) {
         guard process.isRunning else { return }
         before()
+        let pkill = Process()
+        pkill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        pkill.arguments = ["-TERM", "-P", String(process.processIdentifier)]
+        try? pkill.run()
+        pkill.waitUntilExit()
         process.terminate()
     }
 }
