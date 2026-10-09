@@ -26,8 +26,10 @@ import { parseId } from "@/lib/validation";
  *          `token` is shown here once and never stored; `machineId`, when
  *          given, restricts POST /api/usage reports to that one machine
  *          (403 machine_mismatch otherwise). `scope` defaults to "ingest";
- *          a "read" token (the menu bar app's) only reads GET /api/status
- *          and GET /api/usage, and takes no `machineId`.
+ *          a "read" token only reads GET /api/status and GET /api/usage, and
+ *          takes no `machineId`; an "official" token (the menu bar app's)
+ *          reports like an ingest token, bound or not, and also uploads the
+ *          providers' own percentages.
  *
  * 200/201 ok · 400 invalid body · 401 no session · 403 foreign origin, demo
  * mode, or no sudo grant (POST) · 413/415 bad body (POST) ·
@@ -65,7 +67,7 @@ function parseCreateBody(
     if (TOKEN_SCOPES.includes(body.scope as TokenScope)) scope = body.scope as TokenScope;
     else errors.push(`scope must be one of ${TOKEN_SCOPES.join(", ")}`);
   }
-  if (scope !== "ingest" && machineId !== null) errors.push(`a ${scope} token cannot be bound to a machine`);
+  if (scope === "read" && machineId !== null) errors.push("a read token cannot be bound to a machine");
 
   return errors.length > 0 ? { errors } : { label, machineId, scope };
 }

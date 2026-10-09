@@ -198,12 +198,17 @@ describe("POST|GET /api/usage", () => {
       expect(response.status).toBe(201);
     });
 
-    it("refuses an official token with 403 read_only_token", async () => {
-      const issued = await createToken("menu bar", null, new Date(), "official");
-      if (!issued.ok) throw new Error("unreachable");
-      const response = await POST(post(validReport(), { authorization: `Bearer ${issued.token}` }));
-      expect(response.status).toBe(403);
-      expect((await response.json()).error).toBe("read_only_token");
+    it("accepts a report from an official token (the menu bar app's), held to its bound machine", async () => {
+      const report = validReport();
+      const own = await createToken("menu bar", "mac", new Date(), "official");
+      if (!own.ok) throw new Error("unreachable");
+      expect((await POST(post(report, { authorization: `Bearer ${own.token}` }))).status).toBe(201);
+
+      const other = await createToken("menu bar elsewhere", "other-machine", new Date(), "official");
+      if (!other.ok) throw new Error("unreachable");
+      const refused = await POST(post(report, { authorization: `Bearer ${other.token}` }));
+      expect(refused.status).toBe(403);
+      expect((await refused.json()).error).toBe("machine_mismatch");
     });
 
     it("answers 401 once that token is revoked", async () => {

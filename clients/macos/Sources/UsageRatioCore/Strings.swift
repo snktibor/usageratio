@@ -100,10 +100,52 @@ public struct Strings: Sendable {
     public let copyStatusLineCommand: String
     public let copied: String
 
+    // This Mac's own report (the shared reporter, run by the app).
+    public let machineSection: String
+    public let machineReportToggle: String
+    public let machineIdLabel: String
+    public let groupIdLabel: String
+    public let machineReportHint: String
+    public let machinePrefilled: String
+    public let machineMissingFields: String
+    public let nodeNotFound: String
+    /// relative time
+    public let machineReported: @Sendable (String) -> String
+    public let machineReporting: String
+    /// the reason
+    public let machineReportFailed: @Sendable (String) -> String
+    public let reportReporterMissing: String
+    public let reportNodeMissing: String
+    public let reportCcusageFailed: String
+    public let reportUnauthorized: String
+    public let reportMachineMismatch: String
+    public let reportReadOnlyToken: String
+    public let reportRateLimited: String
+    /// HTTP status
+    public let reportServer: @Sendable (Int) -> String
+    public let reportNetwork: String
+    public let reportTimedOut: String
+
     /// "en", "hu" or "de": the one the strings and the formatters use.
     public let languageCode: String
 
     public var locale: Locale { Locale(identifier: languageCode) }
+
+    public func message(for problem: MachineReportProblem) -> String {
+        switch problem {
+        case .reporterMissing: reportReporterMissing
+        case .nodeMissing: reportNodeMissing
+        case .ccusageFailed: reportCcusageFailed
+        case .unauthorized: reportUnauthorized
+        case .machineMismatch: reportMachineMismatch
+        case .readOnlyToken: reportReadOnlyToken
+        case .rateLimited: reportRateLimited
+        case .server(let status): reportServer(status)
+        case .network: reportNetwork
+        case .timedOut: reportTimedOut
+        case .other(let detail): detail
+        }
+    }
 
     public func message(for error: StatusError) -> String {
         switch error {
@@ -173,7 +215,7 @@ public struct Strings: Sendable {
         serverLabel: "Server URL",
         tokenLabel: "Token",
         tokenSaved: "A token is saved; leave this empty to keep it.",
-        tokenHint: "Read and upload official usage (menu bar app)",
+        tokenHint: "A “Menu bar app” token (read, report, official %)",
         launchAtLogin: "Open at login",
         launchAtLoginFailed: "The login item could not be changed.",
         save: "Save",
@@ -189,7 +231,7 @@ public struct Strings: Sendable {
         shownInMenuBar: "Shown in the menu bar",
         subLimitsSection: "Sub-limits",
         fiveHourWindow: { "5-hour window: \($0) · resets \($1)" },
-        uploadNotOfficialToken: "Not uploaded: the token needs “Read and upload official usage” access (Settings → Tokens on the dashboard).",
+        uploadNotOfficialToken: "Not uploaded: the token needs the “Menu bar app” access (Settings → Tokens on the dashboard).",
         uploadMonthly: "Not uploaded: the dashboard's cycle is monthly.",
         uploadStale: "Not uploaded: the reading is from a window that is over.",
         cycleMoved: { "\($0)'s cycle now resets \($1)" },
@@ -201,6 +243,27 @@ public struct Strings: Sendable {
         statusLineHint: "Point Claude Code's status line at the pass-through; your own script runs unchanged.",
         copyStatusLineCommand: "Copy the settings line",
         copied: "Copied",
+        machineSection: "This Mac's usage",
+        machineReportToggle: "Report this Mac's token usage",
+        machineIdLabel: "Machine",
+        groupIdLabel: "Group",
+        machineReportHint: "Hourly and on ↻, with ccusage and the same reporter as the script. Keep the script's machine name: its figures carry on, never counted twice.",
+        machinePrefilled: "Taken from the script's settings on this Mac.",
+        machineMissingFields: "Enter a machine name and a group.",
+        nodeNotFound: "Node.js was not found; ccusage needs it (nodejs.org or Homebrew).",
+        machineReported: { "This Mac reported \($0)" },
+        machineReporting: "Reporting this Mac…",
+        machineReportFailed: { "This Mac's report failed: \($0)" },
+        reportReporterMissing: "the reporter is missing from the app; build it with scripts/build-app.sh",
+        reportNodeMissing: "Node.js or ccusage was not found",
+        reportCcusageFailed: "ccusage could not be read",
+        reportUnauthorized: "the token was refused",
+        reportMachineMismatch: "the token is bound to another machine name",
+        reportReadOnlyToken: "the token may only read; create a “Menu bar app” token",
+        reportRateLimited: "too many reports; it tries again later",
+        reportServer: { "the server answered HTTP \($0)" },
+        reportNetwork: "the server cannot be reached",
+        reportTimedOut: "it took too long",
         languageCode: "en"
     )
 
@@ -246,7 +309,7 @@ public struct Strings: Sendable {
         serverLabel: "Szerver címe",
         tokenLabel: "Token",
         tokenSaved: "Van elmentett token; hagyd üresen, ha marad.",
-        tokenHint: "Olvasás és hivatalos % feltöltése (menüsáv app)",
+        tokenHint: "„Menüsáv app” token (olvasás, jelentés, hivatalos %)",
         launchAtLogin: "Indítás bejelentkezéskor",
         launchAtLoginFailed: "Nem sikerült módosítani az indítási elemet.",
         save: "Mentés",
@@ -262,7 +325,7 @@ public struct Strings: Sendable {
         shownInMenuBar: "Ez látszik a menüsávban",
         subLimitsSection: "Alkeretek",
         fiveHourWindow: { "5 órás ablak: \($0) · nullázódik \($1)" },
-        uploadNotOfficialToken: "Nincs feltöltve: a token jogosultsága nem „Olvasás és hivatalos % feltöltése” (dashboard → Beállítások → Tokenek).",
+        uploadNotOfficialToken: "Nincs feltöltve: a token jogosultsága nem „Menüsáv app” (dashboard → Beállítások → Tokenek).",
         uploadMonthly: "Nincs feltöltve: a dashboard ciklusa havi.",
         uploadStale: "Nincs feltöltve: a mérés egy már lezárt ablakból való.",
         cycleMoved: { "\($0) ciklusa mostantól: \($1)" },
@@ -274,6 +337,27 @@ public struct Strings: Sendable {
         statusLineHint: "Állítsd a Claude Code status line-ját az átvezető szkriptre; a saját szkripted változatlanul fut.",
         copyStatusLineCommand: "Beállítás-sor másolása",
         copied: "Kimásolva",
+        machineSection: "A gép használata",
+        machineReportToggle: "A gép token-használatának jelentése",
+        machineIdLabel: "Gépnév",
+        groupIdLabel: "Csoport",
+        machineReportHint: "Óránként és ↻-ra, ccusage-dzsel, ugyanazzal a jelentővel, mint a script. Tartsd meg a script gépnevét: a számai folytatódnak, és sosem számolódnak duplán.",
+        machinePrefilled: "A gépen lévő script beállításaiból.",
+        machineMissingFields: "Adj meg gépnevet és csoportot.",
+        nodeNotFound: "Nem található Node.js; a ccusage-nek kell (nodejs.org vagy Homebrew).",
+        machineReported: { "A gép jelentve: \($0)" },
+        machineReporting: "A gép jelentése…",
+        machineReportFailed: { "A gép jelentése nem sikerült: \($0)" },
+        reportReporterMissing: "a jelentő hiányzik az appból; a scripts/build-app.sh-val építsd",
+        reportNodeMissing: "a Node.js vagy a ccusage nem található",
+        reportCcusageFailed: "a ccusage nem olvasható",
+        reportUnauthorized: "a szerver nem fogadta el a tokent",
+        reportMachineMismatch: "a token másik gépnévhez van kötve",
+        reportReadOnlyToken: "a token csak olvasni tud; hozz létre „Menüsáv app” tokent",
+        reportRateLimited: "túl sok jelentés; később újrapróbálja",
+        reportServer: { "a szerver HTTP \($0) választ adott" },
+        reportNetwork: "a szerver nem érhető el",
+        reportTimedOut: "túl sokáig tartott",
         languageCode: "hu"
     )
 
@@ -319,7 +403,7 @@ public struct Strings: Sendable {
         serverLabel: "Server-URL",
         tokenLabel: "Token",
         tokenSaved: "Ein Token ist gespeichert; leer lassen, um ihn zu behalten.",
-        tokenHint: "Lesen und offizielle Nutzung hochladen (Menüleisten-App)",
+        tokenHint: "Ein „Menüleisten-App“-Token (lesen, melden, offizielle %)",
         launchAtLogin: "Beim Anmelden öffnen",
         launchAtLoginFailed: "Das Anmeldeobjekt ließ sich nicht ändern.",
         save: "Sichern",
@@ -335,7 +419,7 @@ public struct Strings: Sendable {
         shownInMenuBar: "In der Menüleiste",
         subLimitsSection: "Unterkontingente",
         fiveHourWindow: { "5-Stunden-Fenster: \($0) · Reset \($1)" },
-        uploadNotOfficialToken: "Nicht hochgeladen: dem Token fehlt die Berechtigung „Lesen und offizielle Nutzung hochladen“ (Dashboard → Einstellungen → Tokens).",
+        uploadNotOfficialToken: "Nicht hochgeladen: dem Token fehlt die Berechtigung „Menüleisten-App“ (Dashboard → Einstellungen → Tokens).",
         uploadMonthly: "Nicht hochgeladen: der Zyklus des Dashboards ist monatlich.",
         uploadStale: "Nicht hochgeladen: der Wert stammt aus einem abgelaufenen Fenster.",
         cycleMoved: { "Zyklus von \($0) jetzt: \($1)" },
@@ -347,6 +431,27 @@ public struct Strings: Sendable {
         statusLineHint: "Leite die Statuszeile von Claude Code über das Durchreich-Skript; dein eigenes Skript läuft unverändert.",
         copyStatusLineCommand: "Einstellungszeile kopieren",
         copied: "Kopiert",
+        machineSection: "Nutzung dieses Macs",
+        machineReportToggle: "Token-Nutzung dieses Macs melden",
+        machineIdLabel: "Maschine",
+        groupIdLabel: "Gruppe",
+        machineReportHint: "Stündlich und bei ↻, mit ccusage und demselben Melder wie das Skript. Behalte den Maschinennamen des Skripts: Seine Zahlen laufen weiter und zählen nie doppelt.",
+        machinePrefilled: "Aus den Einstellungen des Skripts auf diesem Mac.",
+        machineMissingFields: "Gib Maschine und Gruppe an.",
+        nodeNotFound: "Node.js nicht gefunden; ccusage braucht es (nodejs.org oder Homebrew).",
+        machineReported: { "Dieser Mac gemeldet: \($0)" },
+        machineReporting: "Dieser Mac meldet…",
+        machineReportFailed: { "Meldung dieses Macs fehlgeschlagen: \($0)" },
+        reportReporterMissing: "der Melder fehlt in der App; mit scripts/build-app.sh bauen",
+        reportNodeMissing: "Node.js oder ccusage nicht gefunden",
+        reportCcusageFailed: "ccusage konnte nicht gelesen werden",
+        reportUnauthorized: "der Token wurde abgelehnt",
+        reportMachineMismatch: "der Token ist an einen anderen Maschinennamen gebunden",
+        reportReadOnlyToken: "der Token darf nur lesen; erstelle einen „Menüleisten-App“-Token",
+        reportRateLimited: "zu viele Meldungen; später erneut",
+        reportServer: { "der Server antwortete mit HTTP \($0)" },
+        reportNetwork: "der Server ist nicht erreichbar",
+        reportTimedOut: "es hat zu lange gedauert",
         languageCode: "de"
     )
 }

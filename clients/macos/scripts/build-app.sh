@@ -23,6 +23,10 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$binary" "$app/Contents/MacOS/UsageRatioBar"
 sed "s/__VERSION__/$version/g" Resources/Info.plist > "$app/Contents/Info.plist"
+# The shared reporter the scripts use: the app runs it to report this Mac's usage.
+mkdir -p "$app/Contents/Resources/reporter"
+install -m 0755 ../shared/report-usage-core.sh "$app/Contents/Resources/reporter/report-usage-core.sh"
+install -m 0644 ../shared/ccusage-providers.cjs "$app/Contents/Resources/reporter/ccusage-providers.cjs"
 codesign --force --sign - --timestamp=none "$app"
 echo "Built $app ($version)"
 
