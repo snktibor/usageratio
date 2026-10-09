@@ -11,6 +11,10 @@
     {
       "id": "claude",
       "label": "Claude Code",
+      "cycle": {
+        "start": "2026-10-05T07:00:00.000Z",
+        "end": "2026-10-12T07:00:00.000Z"
+      },
       "percent": 62.4,
       "source": "official",
       "estimatedPercent": 58.91,
@@ -71,6 +75,10 @@
     {
       "id": "codex",
       "label": "Codex",
+      "cycle": {
+        "start": "2026-10-05T07:00:00.000Z",
+        "end": "2026-10-12T07:00:00.000Z"
+      },
       "percent": null,
       "source": null,
       "estimatedPercent": null,

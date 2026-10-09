@@ -7,10 +7,10 @@ import { routing } from "@/i18n/routing";
 import { isAuthenticated } from "@/lib/auth";
 import { currentTime } from "@/lib/clock";
 import { getConfig } from "@/lib/config";
-import { getCycle, getPreviousCycle } from "@/lib/cycle";
 import { ensureDemoData } from "@/lib/demo/seed";
 import { log } from "@/lib/log";
 import { modelKeysIn } from "@/lib/models";
+import { earliestStartMs } from "@/lib/provider-cycles";
 import { mergeProviderIds } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { buildSettingsView, resolveConfig, type SettingsView, storedProviderIds } from "@/lib/settings";
@@ -41,8 +41,7 @@ async function loadSettingsView(): Promise<SettingsView> {
     storedProviderIds(indexes.settings),
   );
   const config = resolveConfig(getConfig(), indexes.settings, providerIds);
-  const cycle = getCycle(now, config.reset);
-  const since = getPreviousCycle(cycle, config.reset).start.getTime();
+  const since = earliestStartMs(now, config, providerIds, "previous");
   const { eventsByProvider, groups } = await loadEvents(providerIds, indexes.groups, since);
   return buildSettingsView(
     config,

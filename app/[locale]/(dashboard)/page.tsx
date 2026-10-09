@@ -25,6 +25,7 @@ import { archivedOfficialEntries, type CycleSummary } from "@/lib/history";
 import { log } from "@/lib/log";
 import { currentOfficialEntries } from "@/lib/official-usage";
 import { PROVIDER_COOKIE } from "@/lib/preferences";
+import { earliestStartMs, providerCycle } from "@/lib/provider-cycles";
 import { mergeProviderIds, providerLabel } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import {
@@ -75,13 +76,16 @@ async function loadDashboard(requestedStartMs: number | null): Promise<Dashboard
   const cycle = getCycle(now, config.reset);
   const previousCycle = getPreviousCycle(cycle, config.reset);
   // The previous cycle rides along: it is the footer's comparison and counter mode's baseline.
+  const earliestPrevious = earliestStartMs(now, config, providerIds, "previous");
   const since =
     requestedStartMs === null
-      ? previousCycle.start.getTime()
-      : Math.min(previousCycle.start.getTime(), now.getTime() - config.retentionDays * DAY_MS);
+      ? earliestPrevious
+      : Math.min(earliestPrevious, now.getTime() - config.retentionDays * DAY_MS);
   const { eventsByProvider, groups } = await loadEvents(providerIds, indexes.groups, since);
-  // The reset is shared by every provider, so one cycle start also tells which stored ground-truth figures still apply.
-  const officialUsage = currentOfficialEntries(indexes.officialUsage, cycle.start.getTime());
+  // Each provider's stored ground-truth figure applies while its own cycle runs.
+  const officialUsage = currentOfficialEntries(indexes.officialUsage, (providerId) =>
+    providerCycle(now, config, providerId).cycle.start.getTime(),
+  );
 
   // Lazy archiving of the cycle that just ended (the daily housekeeping run does the same; see lib/archive.ts).
   await archiveDueCycles({
