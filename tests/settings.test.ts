@@ -347,6 +347,27 @@ describe("parseSettingsUpdate", () => {
     removedGroups: ["Old", "Old"],
   };
 
+  it("accepts a report's source marker on an override, and nothing else there", () => {
+    const withSource = parseSettingsUpdate({
+      ...valid,
+      resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0, source: "report" } },
+    });
+    if (!withSource.ok) throw new Error(withSource.errors.join("; "));
+    expect(withSource.update.settings.resetOverrides.claude).toEqual({
+      weekday: 4,
+      monthDay: 1,
+      hour: 9,
+      minute: 0,
+      source: "report",
+    });
+    const bad = parseSettingsUpdate({
+      ...valid,
+      resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0, source: "panel" } },
+    });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.errors).toContain('resetOverrides.claude.source must be "report", or absent');
+  });
+
   it("accepts a complete update and normalizes ids and colours", () => {
     expect(parseSettingsUpdate(valid)).toEqual({
       ok: true,
@@ -691,6 +712,21 @@ describe("buildSettingsView", () => {
 
 describe("per-provider reset", () => {
   const base = getConfig();
+
+  it("keeps a report's source marker, and drops anything else in that field", () => {
+    const defaults = settingsFromConfig(getConfig());
+    const raw = JSON.stringify({
+      ...defaults,
+      resetOverrides: {
+        claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0, source: "report" },
+        openai: { weekday: 1, monthDay: 1, hour: 0, minute: 0, source: "someone" },
+      },
+    });
+    expect(parseStoredSettings(raw, defaults).resetOverrides).toEqual({
+      claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0, source: "report" },
+      openai: { weekday: 1, monthDay: 1, hour: 0, minute: 0 },
+    });
+  });
 
   it("resetFor falls back to the shared reset without an override", () => {
     const config = { ...base, resetOverrides: {} };

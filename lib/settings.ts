@@ -184,13 +184,24 @@ function readResetOverride(value: unknown, field: string, errors?: string[]): Re
     if (!isIntegerIn(entry.monthDay, 1, 31)) problems.push(`${field}.monthDay must be 1 to 31`);
     if (!isIntegerIn(entry.hour, 0, 23)) problems.push(`${field}.hour must be 0 to 23`);
     if (!isIntegerIn(entry.minute, 0, 59)) problems.push(`${field}.minute must be 0 to 59`);
+    // The stored reader (no `errors`) ignores a bad marker; the PUT parser reports it.
+    if (entry.source !== undefined && entry.source !== "report" && errors) {
+      problems.push(`${field}.source must be "report", or absent`);
+    }
   }
   if (problems.length > 0) {
     errors?.push(...problems);
     return null;
   }
-  const { weekday, monthDay, hour, minute } = entry as Record<string, number>;
-  return { weekday: weekday!, monthDay: monthDay!, hour: hour!, minute: minute! };
+  const { weekday, monthDay, hour, minute, source } = entry as Record<string, unknown>;
+  const override: ResetOverride = {
+    weekday: weekday as number,
+    monthDay: monthDay as number,
+    hour: hour as number,
+    minute: minute as number,
+  };
+  if (source === "report") override.source = "report";
+  return override;
 }
 
 /** The stored map, leniently: an unknown provider id or a bad entry is dropped on its own. */

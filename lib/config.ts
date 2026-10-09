@@ -168,6 +168,8 @@ export interface ResetOverride {
   monthDay: number;
   hour: number;
   minute: number;
+  /** "report": set by an official report (lib/official-report.ts), not on the panel; the panel drops it on edit. */
+  source?: "report";
 }
 
 export interface AppConfig {

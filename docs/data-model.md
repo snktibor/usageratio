@@ -91,7 +91,8 @@ deploy-time default (`lib/config.ts`) rather than failing the whole read:
   (off).
 
 `resetOverrides` (providerId → `{ weekday, monthDay, hour, minute }`) is the provider's own reset over
-the shared period and time zone; `{}` for none. A document without it reads as no overrides.
+the shared period and time zone; `{}` for none. A document without it reads as no overrides. An entry
+may carry `source?: "report"` — set by an official report; the panel drops it when the entry is edited.
 
 `PUT /api/settings`, in contrast to the lenient reader above, requires **every** field on every save —
 nothing is defaulted on write, so a client that only wants to change one field must first `GET`, edit,

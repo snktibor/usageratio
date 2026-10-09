@@ -305,7 +305,8 @@ required on every save (a document stored before some of them existed is still r
 ```
 
 `resetOverrides` is required: providerId → `{ weekday, monthDay, hour, minute }`, the provider's own
-reset over the shared period and time zone (`{}` for none).
+reset over the shared period and time zone (`{}` for none). An entry may add `source?: "report"` —
+set by an official report; the panel drops it when the entry is edited.
 
 `groups` creates or recolors — groups not listed are left untouched (so one that appeared on its own
 in the meantime, from a client report, isn't wiped out by an unrelated save). `removedGroups` only

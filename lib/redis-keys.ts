@@ -1,7 +1,7 @@
 /**
  * Redis key layout — every key name the app uses, in one place.
  *
- *   usage:settings                        STRING provider limits, shared reset/display settings, and providers' own reset moments (resetOverrides)
+ *   usage:settings                        STRING provider limits, shared reset/display settings, and providers' own reset moments (resetOverrides; an entry may carry source?: "report")
  *   usage:providers                       HASH   providerId → first-seen ms
  *   usage:events:{providerId}:{groupId}   ZSET   score = report time (epoch ms)
  *                                                 member = {"m": machineId, "t": tokens, "ts": ms,
