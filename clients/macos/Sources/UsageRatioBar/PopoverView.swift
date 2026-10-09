@@ -2,16 +2,16 @@ import AppKit
 import SwiftUI
 import UsageRatioCore
 
-/// The popover, a compact card for the selected provider: how much is used and
-/// left, a bar with a marker where the cycle stands (ahead of the even pace or
-/// not), when it runs out, and which groups and machines took how much.
-/// Every choice and setting is behind the gear.
+/// The popover, a card for the selected provider that answers three questions in
+/// order: how am I doing (the figure, a status badge, what is left), how long until
+/// the reset (the pace bar, when it runs out, when it resets), and who took it (the
+/// groups with their machines). Every choice and setting is behind the gear.
 struct PopoverView: View {
     let store: StatusStore
     @State private var showingSettings = false
 
     /// Machines listed before "+N more".
-    private static let machineRows = 6
+    private static let machineRows = 8
 
     var body: some View {
         Group {
@@ -22,25 +22,21 @@ struct PopoverView: View {
             }
         }
         .padding(16)
-        .frame(width: 300)
+        .frame(width: 320)
         .onAppear { store.refreshIfIdle() }
     }
 
     private var strings: Strings { store.strings }
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             if let payload = store.payload, let provider = store.selectedProvider {
-                Text("\(provider.label) · \(Display.periodText(payload.cycle, strings: strings))")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                summary(provider: provider, cycle: payload.cycle)
-                if provider.groups.count > 1 {
-                    groups(provider)
+                header(provider, cycle: payload.cycle)
+                summary(provider, cycle: payload.cycle)
+                if !provider.subLimits.isEmpty {
+                    subLimits(provider)
                 }
-                if !provider.machines.isEmpty {
-                    machines(provider)
-                }
+                breakdown(provider)
             } else {
                 Text(store.payload == nil ? "UsageRatio" : strings.noProviders)
                     .font(.headline)
@@ -50,30 +46,53 @@ struct PopoverView: View {
                 Label(strings.message(for: error), systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             footer
         }
     }
 
-    private func summary(provider: StatusPayload.Provider, cycle: StatusPayload.Cycle) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    // MARK: Header
+
+    private func header(_ provider: StatusPayload.Provider, cycle: StatusPayload.Cycle) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(provider.label).font(.headline)
+            Text(Display.periodText(cycle, strings: strings))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer()
+            if let status = provider.status {
+                StatusBadge(status: status, text: Display.statusText(status, strings: strings))
+            }
+        }
+    }
+
+    // MARK: Summary
+
+    private func summary(_ provider: StatusPayload.Provider, cycle: StatusPayload.Cycle) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .lastTextBaseline) {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 2) {
                     if provider.percent == nil {
                         Text(Display.tokensText(provider.tokens, strings: strings))
-                            .font(.system(size: 26, weight: .semibold).monospacedDigit())
+                            .font(.system(size: 26, weight: .semibold, design: .rounded).monospacedDigit())
                     } else {
                         Text(Display.precisePercentText(provider.percent, strings: strings))
-                            .font(.system(size: 34, weight: .semibold).monospacedDigit())
+                            .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
                             .foregroundStyle(provider.status == .good ? Color.primary : statusColor(provider.status))
                     }
                     Text(sourceText(provider)).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if let remaining = Display.remainingText(provider.percent, strings: strings) {
-                    Text(remaining)
-                        .font(.callout)
-                        .foregroundStyle((provider.percent ?? 0) > 100 ? Color.red : Color.secondary)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(remaining)
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle((provider.percent ?? 0) > 100 ? Color.red : Color.primary)
+                        Text(Display.tokensOfLimitText(provider.tokens, limit: provider.limit, strings: strings))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -87,72 +106,101 @@ struct PopoverView: View {
                 )
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(([Display.runOutText(provider, strings: strings), Display.resetText(cycle, strings: strings)]
-                    .compactMap { $0 }).joined(separator: " · "))
-                if !provider.subLimits.isEmpty {
-                    Text(provider.subLimits
-                        .map { "\($0.name): \(Display.precisePercentText($0.percent, strings: strings))" }
-                        .joined(separator: " · "))
-                }
-                if let lastReportAt = provider.lastReportAt,
-                   store.now.timeIntervalSince(lastReportAt) > Display.staleAfter {
-                    Text(strings.lastReport(Display.relative(lastReportAt, now: store.now, strings: strings)))
-                        .foregroundStyle(.orange)
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            facts(provider, cycle: cycle)
         }
     }
 
     private func sourceText(_ provider: StatusPayload.Provider) -> String {
         switch provider.source {
-        case "official": strings.sourceOfficial
-        case "estimate": strings.sourceEstimate
+        case "official": "\(strings.used) · \(strings.sourceOfficial)"
+        case "estimate": "\(strings.used) · \(strings.sourceEstimate)"
         default: strings.noLimit
         }
     }
 
-    private func groups(_ provider: StatusPayload.Provider) -> some View {
-        let fractions = Display.barFractions(provider.groups.map { $0.percent ?? $0.tokens })
-        return VStack(spacing: 6) {
-            SectionHeader(title: strings.groupsSection)
-            ForEach(Array(provider.groups.enumerated()), id: \.element.id) { index, group in
+    /// When it runs out, when it resets, and a warning while the figure is stale: one icon and line each.
+    private func facts(_ provider: StatusPayload.Provider, cycle: StatusPayload.Cycle) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let runOut = Display.runOutText(provider, strings: strings) {
+                let runsOut = provider.pace?.runOutAt != nil
+                let lasts = provider.pace?.projectedPercent != nil && !runsOut
+                Label(runOut, systemImage: runsOut ? "exclamationmark.triangle.fill" : lasts ? "checkmark.circle.fill" : "clock")
+                    .foregroundStyle(runsOut ? Color.orange : lasts ? Color.green : Color.secondary)
+            }
+            Label(
+                "\(Display.resetText(cycle, strings: strings)) · \(Display.relative(cycle.end, now: store.now, strings: strings))",
+                systemImage: "arrow.counterclockwise"
+            )
+            .foregroundStyle(.secondary)
+            if let lastReportAt = provider.lastReportAt,
+               store.now.timeIntervalSince(lastReportAt) > Display.staleAfter {
+                Label(
+                    strings.lastReport(Display.relative(lastReportAt, now: store.now, strings: strings)),
+                    systemImage: "clock.badge.exclamationmark"
+                )
+                .foregroundStyle(.orange)
+            }
+        }
+        .font(.caption)
+        .labelStyle(FactLabelStyle())
+    }
+
+    // MARK: Sub-limits
+
+    /// Each in percent of its own budget, so its bar is absolute, not against the heaviest row.
+    private func subLimits(_ provider: StatusPayload.Provider) -> some View {
+        VStack(spacing: 6) {
+            SectionHeader(title: strings.subLimitsSection)
+            ForEach(provider.subLimits) { subLimit in
                 ShareRow(
-                    name: group.id,
-                    value: value(percent: group.percent, tokens: group.tokens),
-                    fraction: fractions[index],
-                    status: Display.shareStatus(group.percent),
-                    highlighted: store.selectedScope == .group(group.id),
-                    quiet: group.tokens == 0
+                    name: subLimit.name,
+                    value: Display.precisePercentText(subLimit.percent, strings: strings),
+                    fraction: (subLimit.percent ?? 0) / 100,
+                    status: subLimit.status ?? Display.shareStatus(subLimit.percent),
+                    quiet: subLimit.percent == nil
                 )
             }
         }
     }
 
-    private func machines(_ provider: StatusPayload.Provider) -> some View {
-        let shown = Array(provider.machines.prefix(Self.machineRows))
-        let fractions = Display.barFractions(provider.machines.map { $0.percent ?? $0.tokens })
-        return VStack(spacing: 6) {
-            SectionHeader(title: strings.machinesSection)
-            ForEach(Array(shown.enumerated()), id: \.element.id) { index, machine in
-                ShareRow(
-                    name: machine.id,
-                    value: value(percent: machine.percent, tokens: machine.tokens),
-                    fraction: fractions[index],
-                    status: Display.shareStatus(machine.percent),
-                    highlighted: store.selectedScope == .machine(machine.id),
-                    quiet: machine.tokens == 0
-                )
-            }
-            if provider.machines.count > shown.count {
-                Text(strings.more(provider.machines.count - shown.count))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    // MARK: Breakdown
+
+    /// The groups with their machines under them; the machines alone while there is one group.
+    private func breakdown(_ provider: StatusPayload.Provider) -> some View {
+        let (rows, hidden) = Display.breakdown(provider, limit: Self.machineRows)
+        let nested = rows.contains { $0.kind == .group }
+        return Group {
+            if !rows.isEmpty {
+                VStack(spacing: 6) {
+                    SectionHeader(title: nested ? strings.groupsSection : strings.machinesSection)
+                    ForEach(rows, id: \.scope) { row in
+                        ShareRow(
+                            name: row.id,
+                            value: value(percent: row.percent, tokens: row.tokens),
+                            fraction: row.fraction,
+                            status: Display.shareStatus(row.percent),
+                            emphasized: row.kind == .group,
+                            indented: nested && row.kind == .machine,
+                            highlighted: store.selectedScope == row.scope,
+                            highlightedHelp: strings.shownInMenuBar,
+                            quiet: row.tokens == 0,
+                            stale: staleText(row.lastReportAt)
+                        )
+                    }
+                    if hidden > 0 {
+                        Text(strings.more(hidden))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
             }
         }
+    }
+
+    private func staleText(_ lastReportAt: Date?) -> String? {
+        guard let lastReportAt, store.now.timeIntervalSince(lastReportAt) > Display.staleAfter else { return nil }
+        return strings.lastReport(Display.relative(lastReportAt, now: store.now, strings: strings))
     }
 
     private func value(percent: Double?, tokens: Double) -> String {
@@ -161,8 +209,10 @@ struct PopoverView: View {
             : Display.precisePercentText(percent, strings: strings)
     }
 
+    // MARK: Footer
+
     private var footer: some View {
-        HStack {
+        HStack(spacing: 14) {
             Button { store.restart() } label: {
                 Label(updatedText, systemImage: "arrow.clockwise")
                     .font(.caption)
@@ -172,6 +222,16 @@ struct PopoverView: View {
             .disabled(store.isRefreshing)
             .help(strings.refresh)
             Spacer()
+            Button {
+                if let url = store.serverURL { NSWorkspace.shared.open(url) }
+            } label: {
+                Image(systemName: "safari").font(.body)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .disabled(store.serverURL == nil)
+            .help(strings.openDashboard)
+            .accessibilityLabel(strings.openDashboard)
             Button { showingSettings = true } label: {
                 Image(systemName: "gearshape").font(.body)
             }
@@ -185,6 +245,17 @@ struct PopoverView: View {
 
     private var updatedText: String {
         if store.isRefreshing { return strings.refreshing }
-        return store.lastSuccess.map { Display.relative($0, now: store.now, strings: strings) } ?? strings.refresh
+        return store.lastSuccess.map { strings.updated(Display.relative($0, now: store.now, strings: strings)) }
+            ?? strings.refresh
+    }
+}
+
+/// An icon of a fixed width, so the facts' text lines up.
+private struct FactLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            configuration.icon.frame(width: 14)
+            configuration.title
+        }
     }
 }
