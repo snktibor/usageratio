@@ -71,4 +71,21 @@ describe.skipIf(process.platform === "win32")("statusline-tee.sh", () => {
     const plain = JSON.stringify({ model: { display_name: "Sonnet" } });
     expect(run(plain).stdout.equals(spawnSync(script, [], { input: plain }).stdout)).toBe(true);
   });
+
+  it("leaves a whole file when many runs write at once", async () => {
+    const { spawn } = await import("node:child_process");
+    await Promise.all(
+      Array.from(
+        { length: 10 },
+        () =>
+          new Promise<void>((resolve) => {
+            const child = spawn("bash", [TEE, script], { env: { ...process.env, USAGERATIO_DIR: dir } });
+            child.on("close", () => resolve());
+            child.stdin.end(INPUT);
+          }),
+      ),
+    );
+    const saved = JSON.parse(readFileSync(path.join(dir, "claude-limits.json"), "utf8"));
+    expect(saved.rate_limits.seven_day.used_percentage).toBe(41.2);
+  });
 });

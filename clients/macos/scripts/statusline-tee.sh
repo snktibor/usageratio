@@ -16,11 +16,15 @@ input="$(cat)"
 
 {
   dir="${USAGERATIO_DIR:-$HOME/.usageratio}"
-  if command -v jq >/dev/null &&
-    printf '%s' "$input" | jq -e '.rate_limits.seven_day.used_percentage != null' >/dev/null; then
-    mkdir -p "$dir" &&
-      printf '%s' "$input" | jq -c '{rate_limits, observed_at: now}' >"$dir/claude-limits.json.tmp" &&
-      mv -f "$dir/claude-limits.json.tmp" "$dir/claude-limits.json"
+  if command -v jq >/dev/null && mkdir -p "$dir"; then
+    # A per-process temp file in the same folder: concurrent runs never share a half-written one.
+    tmp="$dir/claude-limits.json.$$.tmp"
+    if printf '%s' "$input" |
+      jq -ce 'select(.rate_limits.seven_day.used_percentage != null) | {rate_limits, observed_at: now}' >"$tmp" &&
+      [ -s "$tmp" ]; then
+      mv -f "$tmp" "$dir/claude-limits.json"
+    fi
+    rm -f "$tmp"
   fi
 } >/dev/null 2>&1 || true
 

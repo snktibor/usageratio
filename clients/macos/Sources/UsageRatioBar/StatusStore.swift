@@ -154,7 +154,9 @@ final class StatusStore {
     }
 
     /// Reads the providers' own limits and uploads each weekly figure newer than the last one sent.
-    private func readAndUploadLimits(base serverURL: URL, token: String) async {
+    /// Answers whether the server saved a new figure.
+    private func readAndUploadLimits(base serverURL: URL, token: String) async -> Bool {
+        var saved = false
         let readings = await LimitSources.readAll()
         sources = readings
         limits = Dictionary(
@@ -164,7 +166,8 @@ final class StatusStore {
         where UploadPolicy.shouldUpload(snapshot, lastUploaded: lastUploaded(snapshot.providerId)) {
             do {
                 switch try await reporter.send(snapshot, base: serverURL, token: token) {
-                case .accepted(_, let movedTo):
+                case .accepted(let wasSaved, let movedTo):
+                    if wasSaved { saved = true }
                     setLastUploaded(snapshot.providerId, snapshot.observedAt)
                     uploadNotes[snapshot.providerId] = nil
                     if let movedTo { movedNotes[snapshot.providerId] = movedTo }
@@ -174,9 +177,10 @@ final class StatusStore {
                     if refusal == .staleReading { setLastUploaded(snapshot.providerId, snapshot.observedAt) }
                 }
             } catch {
-                // Network or server trouble: the status lookup below reports it; the next poll retries the upload.
+                // Network or server trouble: the status lookup reports it; the next poll retries the upload.
             }
         }
+        return saved
     }
 
     /// Saves the settings screen; returns the problem to show, or nil once saved.
@@ -204,9 +208,14 @@ final class StatusStore {
         }
         isRefreshing = true
         defer { isRefreshing = false }
-        await readAndUploadLimits(base: serverURL, token: token)
         do {
             payload = try await client.fetch(base: serverURL, token: token)
+            // The uploads come after the lookup, so a slow server never delays its status; a saved
+            // figure changes the card, so look once more.
+            if await readAndUploadLimits(base: serverURL, token: token),
+               let fresh = try? await client.fetch(base: serverURL, token: token) {
+                payload = fresh
+            }
             // A group or machine gone from the list (deleted, merged) reads as the whole provider: say so in the picker too.
             if selectedScope != .total, let provider = selectedProvider,
                Display.figure(of: provider, scope: selectedScope).name == nil {
