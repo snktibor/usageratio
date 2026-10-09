@@ -27,6 +27,12 @@ final class StatusStore {
     private(set) var uploadNotes: [String: OfficialReportRefusal] = [:]
     /// A provider's weekly reset the server moved on our word; shown until the popover closes.
     private(set) var movedNotes: [String: ResetMoment] = [:]
+    /// This Mac's own report (MachineReporter): on, under which machine name and group.
+    private(set) var machineReport = MachineReportSettings.stored
+    private(set) var isReportingMachine = false
+    /// The last report that went out, and why the latest one did not, if it did not.
+    private(set) var machineReportedAt: Date? = UserDefaults.standard.object(forKey: Keys.machineReportedAt) as? Date
+    private(set) var machineReportProblem: MachineReportProblem?
 
     var selectedProviderId: String? {
         didSet { UserDefaults.standard.set(selectedProviderId, forKey: Keys.provider) }
@@ -44,6 +50,9 @@ final class StatusStore {
     @ObservationIgnored private var loop: Task<Void, Never>?
     @ObservationIgnored private var clock: Task<Void, Never>?
     @ObservationIgnored private var failures = 0
+    /// ↻ reports this Mac even when the hour is not up yet.
+    @ObservationIgnored private var forceMachineReport = false
+    @ObservationIgnored private var machineReportAttemptAt: Date?
     /// A fixed payload for previews and snapshots: never polls.
     @ObservationIgnored private var previewing = false
 
@@ -52,6 +61,7 @@ final class StatusStore {
         static let provider = "selectedProvider"
         static let scope = "selectedScope"
         static let lastUploaded = "lastUploadedLimits"
+        static let machineReportedAt = "machineReportedAt"
     }
 
     init() {
@@ -117,9 +127,11 @@ final class StatusStore {
         selectedScope = .total
     }
 
-    /// A lookup right now (after `delay`), and the five-minute rhythm from there.
-    func restart(after delay: TimeInterval = 0) {
+    /// A lookup right now (after `delay`), and the five-minute rhythm from there; `reportMachine`
+    /// (the ↻ button) also reports this Mac at once, when that is on.
+    func restart(after delay: TimeInterval = 0, reportMachine: Bool = false) {
         guard !previewing else { return }
+        if reportMachine { forceMachineReport = true }
         loop?.cancel()
         loop = Task { [weak self] in
             if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
@@ -183,6 +195,54 @@ final class StatusStore {
         return saved
     }
 
+    /// Saves this Mac's report settings; returns the problem to show, or nil once saved.
+    /// Turning it on (or renaming) reports at once.
+    func saveMachineReport(enabled: Bool, machineId: String, groupId: String) -> String? {
+        let settings = MachineReportSettings(
+            enabled: enabled,
+            machineId: machineId.trimmingCharacters(in: .whitespacesAndNewlines),
+            groupId: groupId.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        if settings.enabled, settings.machineId.isEmpty || settings.groupId.isEmpty { return strings.machineMissingFields }
+        guard settings != machineReport else { return nil }
+        settings.store()
+        machineReport = settings
+        machineReportProblem = nil
+        if settings.enabled { restart(reportMachine: true) }
+        return nil
+    }
+
+    /// Reports this Mac in the background when it is on and due (or asked for with ↻), so the
+    /// status lookup never waits on ccusage; a report that went out refreshes the figures.
+    private func reportMachineIfDue(base serverURL: URL, token: String) {
+        let force = forceMachineReport
+        forceMachineReport = false
+        let settings = machineReport
+        guard settings.enabled, !isReportingMachine else { return }
+        let lastAttempt = machineReportAttemptAt ?? machineReportedAt
+        guard force || MachineReportPolicy.isDue(lastAttempt: lastAttempt, lastFailed: machineReportProblem != nil, now: Date())
+        else { return }
+        isReportingMachine = true
+        machineReportAttemptAt = Date()
+        Task { [weak self] in
+            let outcome = await MachineReporter.run(
+                base: serverURL, token: token, machineId: settings.machineId, groupId: settings.groupId
+            )
+            guard let self else { return }
+            isReportingMachine = false
+            switch outcome {
+            case .sent:
+                machineReportProblem = nil
+                machineReportedAt = Date()
+                UserDefaults.standard.set(machineReportedAt, forKey: Keys.machineReportedAt)
+                if let fresh = try? await client.fetch(base: serverURL, token: token) { payload = fresh }
+            case .failed(let problem):
+                machineReportProblem = problem
+            }
+            now = Date()
+        }
+    }
+
     /// Saves the settings screen; returns the problem to show, or nil once saved.
     func save(serverText: String, token: String) -> String? {
         guard let url = normalizedServerURL(serverText) else { return strings.invalidURL }
@@ -206,6 +266,7 @@ final class StatusStore {
             error = .notConfigured
             return Self.interval
         }
+        reportMachineIfDue(base: serverURL, token: token)
         isRefreshing = true
         defer { isRefreshing = false }
         do {
@@ -239,5 +300,34 @@ final class StatusStore {
                 return min(Self.maxBackoff, 30 * pow(2, Double(min(failures, 6))))
             }
         }
+    }
+}
+
+/// Whether and as what the app reports this Mac, kept in UserDefaults (the token is the keychain's).
+struct MachineReportSettings: Equatable {
+    var enabled: Bool
+    var machineId: String
+    var groupId: String
+
+    private enum Keys {
+        static let enabled = "machineReportEnabled"
+        static let machineId = "machineReportMachineId"
+        static let groupId = "machineReportGroupId"
+    }
+
+    static var stored: MachineReportSettings {
+        let defaults = UserDefaults.standard
+        return MachineReportSettings(
+            enabled: defaults.bool(forKey: Keys.enabled),
+            machineId: defaults.string(forKey: Keys.machineId) ?? "",
+            groupId: defaults.string(forKey: Keys.groupId) ?? ""
+        )
+    }
+
+    func store() {
+        let defaults = UserDefaults.standard
+        defaults.set(enabled, forKey: Keys.enabled)
+        defaults.set(machineId, forKey: Keys.machineId)
+        defaults.set(groupId, forKey: Keys.groupId)
     }
 }

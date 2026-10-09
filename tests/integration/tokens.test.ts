@@ -182,13 +182,13 @@ describe("POST /api/tokens", () => {
     expect(body.tokens).toEqual([expect.objectContaining({ label: "Menu bar", scope: "read", machineId: null })]);
   });
 
-  it("issues an official token, listed with its scope", async () => {
+  it("issues an official token, bound to a machine, listed with its scope", async () => {
     const cookie = await seedSession(PIN);
     await grantSudo(cookie);
     const created = await postTokens(
       request("http://localhost/api/tokens", {
         method: "POST",
-        body: JSON.stringify({ label: "Mac menu bar", scope: "official" }),
+        body: JSON.stringify({ label: "Mac menu bar", scope: "official", machineId: "mac" }),
         headers: { cookie },
       }),
     );
@@ -197,7 +197,7 @@ describe("POST /api/tokens", () => {
     const response = await getTokens(request("http://localhost/api/tokens", { headers: { cookie } }));
     const body = (await response.json()) as { tokens: Record<string, unknown>[] };
     expect(body.tokens).toEqual([
-      expect.objectContaining({ label: "Mac menu bar", scope: "official", machineId: null }),
+      expect.objectContaining({ label: "Mac menu bar", scope: "official", machineId: "mac" }),
     ]);
   });
 

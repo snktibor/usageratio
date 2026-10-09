@@ -209,14 +209,15 @@ Describe 'report-usage-core.ps1 with each provider''s own cycle start' {
                 }
             }
         } | ConvertTo-Json -Depth 5 -Compress
-        $script:Server = Start-Job -ArgumentList $script:Port, $script:CycleJson -ScriptBlock {
-            param($Port, $Body)
+        $port = $script:Port
+        $body = $script:CycleJson
+        $script:Server = Start-Job -ScriptBlock {
             $listener = [Net.HttpListener]::new()
-            $listener.Prefixes.Add("http://localhost:$Port/")
+            $listener.Prefixes.Add("http://localhost:$($using:port)/")
             $listener.Start()
             try {
                 $context = $listener.GetContext()
-                $bytes = [Text.Encoding]::UTF8.GetBytes($Body)
+                $bytes = [Text.Encoding]::UTF8.GetBytes($using:body)
                 $context.Response.ContentType = 'application/json'
                 $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
                 $context.Response.Close()

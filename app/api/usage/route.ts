@@ -46,7 +46,7 @@ import { loadReportContext } from "@/lib/usage-store";
  *
  * 201 stored · 200 identical report already stored · 400 bad JSON/payload ·
  * 401 bad token · 403 machine_mismatch (a machine-bound token reporting for
- * another machine), or read_only_token (a "read" or "official" token, which may not report tokens) ·
+ * another machine), or read_only_token (a "read" token, which may not report tokens) ·
  * 413 body too large · 422 a registry cap (too many groups, providers or
  * machines) refused the report, with its `limit` · 429 a rate
  * limit was hit, with `retryAfterSeconds` · 500 server misconfigured ·
@@ -123,8 +123,8 @@ export const GET = withApiHandler("api/usage", async ({ request }) => {
 export const POST = withApiHandler("api/usage", async ({ request }) => {
   const auth = await requireBearerThrottled(request);
   if (auth instanceof Response) return auth;
-  // A read token (the menu bar app's) may look, never report.
-  if (auth.scope !== "ingest") return apiError("read_only_token", 403);
+  // A read token may look, never report; an official one (the menu bar app's) reports like an ingest token.
+  if (auth.scope === "read") return apiError("read_only_token", 403);
   // The demo's data is synthetic on purpose; nothing gets in.
   const readOnly = demoReadOnly();
   if (readOnly) return readOnly;

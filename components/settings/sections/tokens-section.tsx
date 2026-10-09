@@ -31,7 +31,7 @@ interface MachineTokenView {
   revokedAt: number | null;
 }
 
-/** Mirrors lib/tokens.ts's TokenScope: "read" may only look; "official" also uploads the providers' own percentages (the menu bar app). */
+/** Mirrors lib/tokens.ts's TokenScope: "read" may only look; "official" (the menu bar app's) also reports, and uploads the providers' own percentages. */
 type Scope = "ingest" | "read" | "official";
 
 type Load = { phase: "loading" } | { phase: "failed" } | { phase: "ready"; tokens: MachineTokenView[] };
@@ -142,7 +142,7 @@ export function TokensSection({
       return;
     }
     // A read token is never bound to a machine: it reports nothing to bind.
-    void performCreate(trimmedLabel, scope !== "ingest" || machineId === "" ? null : machineId, scope);
+    void performCreate(trimmedLabel, scope === "read" || machineId === "" ? null : machineId, scope);
   }
 
   async function performRevoke(token: MachineTokenView) {
@@ -193,13 +193,12 @@ export function TokensSection({
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                 <span className="min-w-0 grow truncate wrap-anywhere">{token.label}</span>
                 <span className="shrink-0 text-sm text-ink-3">
-                  {token.scope === "official"
-                    ? t("tokens_scope_official")
-                    : token.scope === "read"
-                      ? t("tokens_scope_read")
-                      : token.machineId
-                        ? t("tokens_bound_machine", { id: token.machineId })
-                        : t("tokens_any_machine")}
+                  {token.scope === "read"
+                    ? t("tokens_scope_read")
+                    : [
+                        ...(token.scope === "official" ? [t("tokens_scope_official")] : []),
+                        token.machineId ? t("tokens_bound_machine", { id: token.machineId }) : t("tokens_any_machine"),
+                      ].join(" · ")}
                 </span>
                 {token.revokedAt !== null ? (
                   <span className="shrink-0 rounded-full border border-rule px-2.5 py-0.5 text-xs text-ink-3">
@@ -271,8 +270,8 @@ export function TokensSection({
           <span className="text-sm text-ink-3">{t("tokens_machine_field")}</span>
           <select
             id={machineInputId}
-            value={scope !== "ingest" ? "" : machineId}
-            disabled={scope !== "ingest"}
+            value={scope === "read" ? "" : machineId}
+            disabled={scope === "read"}
             onChange={(event) => {
               setMachineId(event.target.value);
               setCreateProblem(null);

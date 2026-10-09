@@ -50,8 +50,34 @@ struct PopoverView: View {
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if store.machineReport.enabled {
+                machineReportLine
+            }
             footer
         }
+    }
+
+    /// This Mac's own report: going out, failed and why, or when it last went out.
+    @ViewBuilder
+    private var machineReportLine: some View {
+        Group {
+            if store.isReportingMachine {
+                Label(strings.machineReporting, systemImage: "arrow.up.circle")
+                    .foregroundStyle(.secondary)
+            } else if let problem = store.machineReportProblem {
+                Label(strings.machineReportFailed(strings.message(for: problem)), systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            } else if let reportedAt = store.machineReportedAt {
+                Label(
+                    strings.machineReported(Display.relative(reportedAt, now: store.now, strings: strings)),
+                    systemImage: "desktopcomputer"
+                )
+                .foregroundStyle(.secondary)
+            }
+        }
+        .font(.caption)
+        .labelStyle(FactLabelStyle())
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: Header
@@ -232,7 +258,7 @@ struct PopoverView: View {
 
     private var footer: some View {
         HStack(spacing: 14) {
-            Button { store.restart() } label: {
+            Button { store.restart(reportMachine: true) } label: {
                 Label(updatedText, systemImage: "arrow.clockwise")
                     .font(.caption)
             }

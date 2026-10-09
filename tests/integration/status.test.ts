@@ -205,12 +205,12 @@ describe("GET /api/status", () => {
     expect((await refused.json()).error).toBe("read_only_token");
   });
 
-  it("serves an official token too, which POST /api/usage refuses", async () => {
+  it("serves an official token too, which may also report (the menu bar app's one token)", async () => {
     const created = await createToken("Menu bar", null, new Date(), "official");
     if (!created.ok) throw new Error("token not created");
     const headers = { authorization: `Bearer ${created.token}` };
 
     expect((await GET(get(headers))).status).toBe(200);
-    expect((await report(100, headers)).status).toBe(403);
+    expect((await report(100, headers)).status).toBe(201);
   });
 });
