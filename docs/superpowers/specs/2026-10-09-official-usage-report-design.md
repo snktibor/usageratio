@@ -1,6 +1,6 @@
 # Official usage reports from the macOS app — design
 
-Date: 2026-10-09 · Status: approved in chat, awaiting spec review
+Date: 2026-10-09 · Status: approved in chat; Part 1 widened to the clients and the dashboard's cycle picker (2026-10-09)
 
 ## Goal
 
@@ -26,7 +26,9 @@ The server decides, the app only reports facts (provider, weekly %, when the win
 snapshot was taken). Cycle matching, cycle adjustment and which cycle the reading belongs to are all
 decided in one place in `lib/`, testable with Vitest, and any other client could report the same way.
 
-## Part 1 — per-provider budget cycle (server)
+## Part 1 — per-provider budget cycle
+
+### Part 1a — server
 
 - `UsageSettings` gains `resetOverrides: Record<providerId, { weekday, monthDay, hour, minute }>`.
   Period (weekly/monthly) and time zone stay shared. A provider without an entry uses the shared
@@ -43,6 +45,38 @@ decided in one place in `lib/`, testable with Vitest, and any other client could
 - Settings page: each provider gets an "own reset" switch with day and time pickers. New strings in
   `messages/en.json`, `hu.json`, `de.json`.
 - `GET /api/status` returns each provider's own `cycle`.
+- Until something sets an override (the settings panel, Part 1c, or a report, Part 2) every provider
+  keeps the shared cycle, so Part 1a ships safely on its own.
+
+### Part 1b — the reporting clients
+
+The bash and PowerShell clients ask `GET /api/usage` for the cycle, run `ccusage --since <sinceDate>`
+and send each provider's total since the cycle's start (Claude Code's hours before the start are
+trimmed with `ccusage blocks`). With per-provider cycles one report must count each provider from its
+own start:
+
+- `GET /api/usage` keeps `cycle.start` / `sinceDate` / `end` / `timeZone`, now meaning the **earliest**
+  current start of any provider (so one `ccusage` run covers them all), and adds
+  `cycle.providers: { [providerId]: { start, end } }` for every known provider.
+- `clients/shared/ccusage-providers.cjs` takes the cycle response as an extra argument of the parse
+  commands and trims each provider to its own start: days before that provider's start date are
+  dropped, and on the start date the hours before it are trimmed where hours exist (Claude Code); a
+  provider without hours keeps its whole start day, as every provider does today.
+- `report-usage-core.sh` and `report-usage-core.ps1` pass the cycle file along; their tests
+  (Pester, the installer integration test) and `tests/client-parser.test.ts` cover it.
+- The server places each provider's day/hour checkpoints in that provider's own cycle
+  (`lib/days.ts`, `lib/ingest.ts`).
+- The installed clients do not update themselves: a machine keeps reporting with its old script
+  until the installer is re-run on it. An old client counts every provider from the earliest start,
+  so a provider with a later start is over-counted on that machine. `docs/upgrading.md` says so,
+  and the release notes ask for a re-install once any provider has its own reset.
+
+### Part 1c — dashboard and settings UI
+
+- The past-cycle picker lists the **selected provider's** cycles (its archive and its own reset);
+  `?cycle=` names a start of the selected provider. Switching provider while a past cycle is shown
+  goes back to the current cycle.
+- Settings page: the per-provider "own reset" switch with day and time pickers (above).
 
 ## Part 2 — report endpoint and the `official` token scope (server)
 
@@ -126,7 +160,14 @@ Parsing and the upload decision live in `UsageRatioCore`, with Swift tests.
 
 ## Delivery
 
+Five plans, each its own PR, in this order:
+
+1. `per-provider-cycle-core` — Part 1a (settings, cycle resolution, status, dashboard's current
+   cycle, archive, housekeeping, alerts, ingest checkpoints, `GET /api/usage`, export).
+2. `per-provider-cycle-clients` — Part 1b.
+3. `per-provider-cycle-ui` — Part 1c.
+4. `official-report-endpoint` — Part 2.
+5. `macos-official-report` — Part 3.
+
 - Branch `feat/official-report`, cut from `feat/menubar-scope` (PR #12) because Part 3 builds on the
   compact card; rebased onto `main` once #12 is merged.
-- Two PRs: the server (Parts 1–2), useful on its own since a per-provider reset can be set by hand;
-  then the macOS app (Part 3).
