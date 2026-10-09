@@ -98,8 +98,17 @@ function Invoke-Ccusage {
   return $null
 }
 
+# PowerShell 7 turns ISO date strings of a JSON response into DateTime values; 5.1 keeps the string.
+function ConvertTo-IsoUtc {
+  param($Value)
+  if ($Value -is [DateTime]) {
+    return $Value.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+  }
+  return [string]$Value
+}
+
 function Read-ProviderUsage {
-  param([string]$SinceDate, [string]$TimeZone, [string]$FallbackProviders, [string]$CycleStart, [bool]$Cost)
+  param([string]$SinceDate, [string]$TimeZone, [string]$FallbackProviders, [string]$CycleStart, $CycleProviders, [bool]$Cost)
   if (-not (Test-Path -LiteralPath $parserPath)) {
     throw "$parserPath is missing; install it next to this script."
   }
@@ -110,6 +119,7 @@ function Read-ProviderUsage {
 
   $errorFile = Join-Path ([IO.Path]::GetTempPath()) ("usageratio-ccusage-{0}.log" -f [Guid]::NewGuid())
   $blocksFile = Join-Path ([IO.Path]::GetTempPath()) ("usageratio-blocks-{0}.json" -f [Guid]::NewGuid())
+  $cycleFile = Join-Path ([IO.Path]::GetTempPath()) ("usageratio-cycle-{0}.json" -f [Guid]::NewGuid())
   # Windows PowerShell 5.1 turns every redirected stderr line of a native command
   # (an npm notice, a Node deprecation warning) into a terminating error under
   # 'Stop'. Relaxed for this function only: the exit codes below decide instead.
@@ -122,8 +132,21 @@ function Read-ProviderUsage {
       $blocksRaw = Invoke-Ccusage -Attempts $attempts -CcusageArgs $blocksArgs
       if ($blocksRaw) { [IO.File]::WriteAllText($blocksFile, $blocksRaw) }
     } catch { Write-Verbose "The hourly split is optional: without it the days stay whole. ($($_.Exception.Message))" }
+    # Each provider's own cycle start (GET /api/usage's cycle.providers), for the
+    # parser to count every provider from its own; the shared start stands in for the rest.
+    $starts = [ordered]@{}
+    if ($CycleProviders) {
+      foreach ($entry in $CycleProviders.PSObject.Properties) {
+        $starts[$entry.Name] = @{ start = (ConvertTo-IsoUtc $entry.Value.start) }
+      }
+    }
+    [IO.File]::WriteAllText($cycleFile, (@{ cycle = @{ providers = $starts } } | ConvertTo-Json -Compress -Depth 5))
     $hourlyArgs = @()
-    if ($CycleStart -and (Test-Path -LiteralPath $blocksFile)) { $hourlyArgs = @($blocksFile, $CycleStart, $TimeZone) }
+    if ($CycleStart) {
+      # "-": no blocks file. 5.1 drops an empty argument, which would shift the ones after it.
+      $blocksArg = if (Test-Path -LiteralPath $blocksFile) { $blocksFile } else { '-' }
+      $hourlyArgs = @($blocksArg, $CycleStart, $TimeZone, $cycleFile)
+    }
     # Windows PowerShell 5.1 drops an empty argument, which would shift the ones after it.
     if (-not $FallbackProviders) { $FallbackProviders = ',' }
 
@@ -158,7 +181,7 @@ function Read-ProviderUsage {
     }
     return [string]$providersJson
   } finally {
-    Remove-Item -LiteralPath $errorFile, $blocksFile -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $errorFile, $blocksFile, $cycleFile -Force -ErrorAction SilentlyContinue
   }
 }
 
@@ -282,12 +305,8 @@ if ($Providers) {
     $timeZone = [string]$cycleResponse.cycle.timeZone
     $fallbackProviders = @($cycleResponse.providers) -join ','
     if (-not $sinceDate -or -not $timeZone) { throw 'The server did not return a complete cycle.' }
-    # PowerShell 7 turns ISO date strings of a JSON response into DateTime values; 5.1 keeps the string.
-    $cycleStart = $cycleResponse.cycle.start
-    if ($cycleStart -is [DateTime]) {
-      $cycleStart = $cycleStart.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-    }
-    $providersJson = Read-ProviderUsage -SinceDate $sinceDate -TimeZone $timeZone -FallbackProviders $fallbackProviders -CycleStart ([string]$cycleStart) -Cost $cost
+    $cycleStart = ConvertTo-IsoUtc $cycleResponse.cycle.start
+    $providersJson = Read-ProviderUsage -SinceDate $sinceDate -TimeZone $timeZone -FallbackProviders $fallbackProviders -CycleStart $cycleStart -CycleProviders $cycleResponse.cycle.providers -Cost $cost
   } catch {
     Write-UsageLog "ERROR: ccusage could not be read: $($_.Exception.Message)"
     exit 3
