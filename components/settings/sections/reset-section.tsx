@@ -2,7 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useId, useState } from "react";
-import { type Draft, parseTimeZone } from "@/components/settings/draft";
+import { type Draft, type DraftOwnReset, parseTimeZone } from "@/components/settings/draft";
 import { StatusLine } from "@/components/status-line";
 import { FIELD, QUIET_BUTTON } from "@/components/ui/classes";
 import { Segmented } from "@/components/ui/segmented";
@@ -36,10 +36,14 @@ export function ResetSection({
   titleId,
   draft,
   onPatch,
+  onOwnReset,
+  onPatchOwnReset,
 }: {
   titleId: string;
   draft: Draft;
   onPatch: (changes: Partial<Draft>) => void;
+  onOwnReset: (providerId: string, own: boolean) => void;
+  onPatchOwnReset: (providerId: string, changes: Partial<Omit<DraftOwnReset, "source">>) => void;
 }) {
   const locale = useLocale();
   const t = useTranslations("Settings");
@@ -160,6 +164,83 @@ export function ResetSection({
           monthDayNote: draft.period === "monthly" && draft.monthDay > 28 ? "show" : "other",
         })}
       </p>
+
+      {draft.providers.length > 0 && (
+        <fieldset className="space-y-3">
+          <legend className="text-sm text-ink-3">{t("reset_per_provider_heading")}</legend>
+          {draft.providers.map((provider) => {
+            const own = Object.hasOwn(draft.resetOverrides, provider.id)
+              ? draft.resetOverrides[provider.id]
+              : undefined;
+            const when =
+              draft.period === "weekly"
+                ? `${weekdayLong(draft.weekday, locale)} ${draft.time}`
+                : `${formatMonthDay(draft.monthDay, locale)} ${draft.time}`;
+            return (
+              <div key={provider.id} className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <label className="flex w-40 items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={own !== undefined}
+                    onChange={(event) => onOwnReset(provider.id, event.target.checked)}
+                    aria-label={t("reset_own", { label: provider.label })}
+                  />
+                  <span className="truncate">{provider.label}</span>
+                  <span className="text-sm text-ink-3">{t("reset_own_short")}</span>
+                </label>
+                {own ? (
+                  <>
+                    {draft.period === "weekly" ? (
+                      <select
+                        aria-label={t("reset_own_day", { label: provider.label })}
+                        value={own.weekday}
+                        onChange={(event) => onPatchOwnReset(provider.id, { weekday: Number(event.target.value) })}
+                        className={`w-40 ${FIELD}`}
+                      >
+                        {weekdayOrder(locale).map((weekday) => (
+                          <option key={weekday} value={weekday}>
+                            {weekdayLong(weekday, locale)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <select
+                        aria-label={t("reset_own_day", { label: provider.label })}
+                        value={own.monthDay}
+                        onChange={(event) => onPatchOwnReset(provider.id, { monthDay: Number(event.target.value) })}
+                        className={`w-40 tabular-nums ${FIELD}`}
+                      >
+                        {MONTH_DAYS.map((day) => (
+                          <option key={day} value={day}>
+                            {formatMonthDay(day, locale)}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <input
+                      type="time"
+                      step={60}
+                      required
+                      aria-label={t("reset_own_time", { label: provider.label })}
+                      value={own.time}
+                      onChange={(event) => onPatchOwnReset(provider.id, { time: event.target.value })}
+                      className={`w-32 tabular-nums ${FIELD}`}
+                    />
+                    {own.source === "report" && (
+                      <span className="basis-full text-sm text-ink-3 sm:pl-40">
+                        <span aria-hidden="true">↳ </span>
+                        {t("reset_set_by_report")}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-sm text-ink-3">{t("reset_shared_hint", { when })}</span>
+                )}
+              </div>
+            );
+          })}
+        </fieldset>
+      )}
     </section>
   );
 }

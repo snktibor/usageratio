@@ -6,13 +6,16 @@ import {
   type AlertsDraft,
   type Draft,
   type DraftGroup,
+  type DraftOwnReset,
   type DraftProvider,
   type DraftSubLimit,
   draftFrom,
   groupNameProblem,
   parseLimit,
+  patchOwnReset as patchDraftOwnReset,
   toRequest,
   withNewGroup,
+  withOwnReset,
 } from "@/components/settings/draft";
 import { problemText } from "@/components/settings/problem-text";
 import { useRouter } from "@/i18n/routing";
@@ -20,6 +23,8 @@ import type { SettingsView } from "@/lib/settings";
 
 export interface SettingsFormActions {
   patch: (changes: Partial<Draft>) => void;
+  ownReset: (providerId: string, own: boolean) => void;
+  patchOwnReset: (providerId: string, changes: Partial<Omit<DraftOwnReset, "source">>) => void;
   patchGroup: (id: string, changes: Partial<DraftGroup>) => void;
   patchProvider: (id: string, changes: Partial<DraftProvider>) => void;
   setCounted: (groupId: string, providerId: string, counted: boolean) => void;
@@ -69,6 +74,10 @@ export function useSettingsForm(
   const dirty = JSON.stringify(draft) !== JSON.stringify(baseline);
 
   const patch = (changes: Partial<Draft>) => setDraft((current) => ({ ...current, ...changes }));
+
+  const ownReset = (providerId: string, own: boolean) => setDraft((current) => withOwnReset(current, providerId, own));
+  const patchOwnReset = (providerId: string, changes: Partial<Omit<DraftOwnReset, "source">>) =>
+    setDraft((current) => patchDraftOwnReset(current, providerId, changes));
 
   const patchGroup = (id: string, changes: Partial<DraftGroup>) =>
     setDraft((current) => ({
@@ -255,6 +264,8 @@ export function useSettingsForm(
     dirty,
     actions: {
       patch,
+      ownReset,
+      patchOwnReset,
       patchGroup,
       patchProvider,
       setCounted,
