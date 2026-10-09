@@ -31,7 +31,7 @@ export type IngestResult =
       newGroup: boolean;
       newProviders: string[];
       heartbeat: boolean;
-      /** The earliest current cycle among the report's providers (the shared reset's for a heartbeat), when the settings could be read. */
+      /** The earliest of the shared reset's cycle and the report's providers' cycles (the shared reset's alone for a heartbeat), when the settings could be read. */
       cycle: { start: Date; end: Date } | null;
       tokenMode: TokenMode;
     };

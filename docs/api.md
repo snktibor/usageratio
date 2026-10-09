@@ -144,7 +144,7 @@ shared reset included), and `cycle.providers` holds each provider's own:
 }
 ```
 
-`cycle` is the earliest current cycle among the report's providers (the shared reset's for a heartbeat).
+`cycle` is the earliest of the shared reset's cycle and the report's providers' cycles (the shared reset's alone for a heartbeat).
 
 `groupRegistered` is `true` when the `groupId` wasn't on the settings panel's list yet (it's now
 auto-registered with the next free preset color). `providersRegistered` lists any provider ids seen for the first

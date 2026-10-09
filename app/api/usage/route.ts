@@ -41,7 +41,8 @@ import { loadReportContext } from "@/lib/usage-store";
  * GET with the same Bearer token returns the current cycle and its ccusage
  * `sinceDate`, so clients can build a true cycle-to-date snapshot. The `cycle`
  * is the earliest provider cycle (a provider can have its own reset), with
- * `cycle.providers` holding each provider's own start and end.
+ * `cycle.providers` holding each provider's own: a client trims every
+ * provider to its start (clients/shared/ccusage-providers.cjs).
  *
  * 201 stored · 200 identical report already stored · 400 bad JSON/payload ·
  * 401 bad token · 403 machine_mismatch (a machine-bound token reporting for
