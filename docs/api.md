@@ -107,7 +107,9 @@ truncated): 200 machines (`MAX_MACHINES`), 50 groups (`MAX_GROUPS`), 20 provider
 
 The client-facing ingest endpoint. Auth: **bearer**.
 
-**`GET /api/usage`** — the current cycle, for a client to scope its next `ccusage` run:
+**`GET /api/usage`** — the current cycle, for a client to scope its next `ccusage` run. A provider
+can have its own reset, so `cycle.start`/`end`/`sinceDate` are the earliest provider cycle's (the
+shared reset included), and `cycle.providers` holds each provider's own:
 
 ```json
 {
@@ -117,7 +119,11 @@ The client-facing ingest endpoint. Auth: **bearer**.
     "start": "2026-09-21T00:00:00.000Z",
     "end": "2026-09-28T00:00:00.000Z",
     "sinceDate": "2026-09-21",
-    "timeZone": "Europe/Budapest"
+    "timeZone": "Europe/Budapest",
+    "providers": {
+      "claude": { "start": "2026-09-17T09:00:00.000Z", "end": "2026-09-24T09:00:00.000Z" },
+      "openai": { "start": "2026-09-21T00:00:00.000Z", "end": "2026-09-28T00:00:00.000Z" }
+    }
   }
 }
 ```
@@ -219,6 +225,7 @@ times are ISO 8601. `v` only changes for a breaking change — new fields are ad
   "providers": [
     {
       "id": "claude", "label": "Claude Code",
+      "cycle": { "start": "…", "end": "…" },
       "percent": 62.4, "source": "official", "estimatedPercent": 58.91, "asOf": "…",
       "tokens": 41200000, "limit": 70000000, "status": "warning",
       "pace": { "projectedPercent": 108.03, "runOutAt": "2026-10-11T15:00:00.000Z" },
@@ -231,6 +238,8 @@ times are ISO 8601. `v` only changes for a breaking change — new fields are ad
 }
 ```
 
+- `cycle` (top level) — the shared reset's cycle; `providers[].cycle` — that provider's own, which
+  differs while it has its own reset (see [configuration.md](configuration.md#reset-and-time-zone)).
 - `percent` — how much of the budget is gone; `null` with the token limits off and no official
   reading. `source` is `"official"` when a typed official reading drives it, `"estimate"` when the
   machines' measurement does, `null` with `percent`. `estimatedPercent` is the measurement against
@@ -434,8 +443,9 @@ never again. See [clients.md](clients.md#per-machine-tokens-vs-the-master-token)
   defaults to every visible provider). Response: `200`, a file download
   (`Content-Disposition: attachment`).
   - CSV columns: `provider,groupId,machineId,timestamp,tokens,checkpoint,models,costUsd`.
-  - JSON shape: `{ generatedAt, timeZone, cycle: {start, end}, providers: [{id, label, events, history}] }`
-    — `events` are the requested cycle's raw reports, `history` is every archived cycle for that
+  - JSON shape: `{ generatedAt, timeZone, cycle: {start, end}, providers: [{id, label, cycle: {start, end}, events, history}] }`
+    — the top-level `cycle` is the earliest provider's, `providers[].cycle` the provider's own window
+    of the requested cycle; `events` are that window's raw reports, `history` is every archived cycle for that
     provider (not filtered to the requested cycle).
   - `400` bad query · `401` no session · `404` unknown provider · `503` Redis down.
 

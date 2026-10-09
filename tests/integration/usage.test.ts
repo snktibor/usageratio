@@ -169,6 +169,27 @@ describe("POST|GET /api/usage", () => {
     }
   });
 
+  it("GET gives every provider its own cycle, and the earliest one as the cycle", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-09-23T12:00:00Z"));
+      await POST(post(validReport({ providers: { claude: 100, openai: 100 }, timestamp: new Date().toISOString() })));
+      const plain = await (await GET(new Request(URL, { headers: AUTH }))).json();
+      expect(plain.cycle.start).toBe("2026-09-21T00:00:00.000Z");
+
+      await seedSettings({ resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } } });
+      const body = await (await GET(new Request(URL, { headers: AUTH }))).json();
+      expect(body.cycle.start).toBe("2026-09-17T09:00:00.000Z");
+      expect(body.cycle.sinceDate).toBe("2026-09-17");
+      expect(body.cycle.providers).toEqual({
+        claude: { start: "2026-09-17T09:00:00.000Z", end: "2026-09-24T09:00:00.000Z" },
+        openai: { start: "2026-09-21T00:00:00.000Z", end: "2026-09-28T00:00:00.000Z" },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   describe("per-machine tokens (lib/tokens.ts), alongside the master USAGE_API_TOKEN", () => {
     it("accepts an unbound per-machine token exactly like the master token", async () => {
       const issued = await createToken("laptop", null, new Date());

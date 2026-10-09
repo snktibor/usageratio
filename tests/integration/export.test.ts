@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET } from "@/app/api/export/route";
+import { getConfig } from "@/lib/config";
 import { ingestReport } from "@/lib/ingest";
+import { getRedis } from "@/lib/redis";
+import { KEYS } from "@/lib/redis-keys";
+import { serializeSettings, settingsFromConfig } from "@/lib/settings";
 import { useRedis } from "../helpers/redis-fixture";
 import { seedSession } from "../helpers/session";
 
@@ -106,5 +110,41 @@ describe("GET /api/export", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.providers[0].events).toEqual([]);
+  });
+
+  it("windows each provider by its own cycle", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-09-23T12:00:00Z"));
+      const cookie = await seedSession(PIN);
+      // The shared reset is Monday 00:00 UTC; Claude's is Thursday 09:00.
+      const settings = {
+        ...settingsFromConfig(getConfig()),
+        resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } },
+      };
+      await getRedis().set(KEYS.settings, serializeSettings(settings, new Date()));
+      for (const at of ["2026-09-16T12:00:00Z", "2026-09-18T12:00:00Z", "2026-09-22T12:00:00Z"]) {
+        const when = new Date(at);
+        const ingested = await ingestReport(
+          { machineId: "mac", groupId: "Work", providers: { claude: 500, openai: 300 }, timestamp: at },
+          when,
+        );
+        expect(ingested.ok).toBe(true);
+      }
+
+      const response = await GET(get("format=json", { cookie }));
+      const body = await response.json();
+      const claude = body.providers.find((provider: { id: string }) => provider.id === "claude");
+      const openai = body.providers.find((provider: { id: string }) => provider.id === "openai");
+      expect(claude.cycle.start).toBe("2026-09-17T09:00:00.000Z");
+      expect(claude.events.map((event: { timestamp: string }) => event.timestamp)).toEqual([
+        "2026-09-18T12:00:00.000Z",
+        "2026-09-22T12:00:00.000Z",
+      ]);
+      expect(openai.cycle.start).toBe("2026-09-21T00:00:00.000Z");
+      expect(openai.events).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
