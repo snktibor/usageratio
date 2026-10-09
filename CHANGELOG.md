@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.0](https://github.com/snktibor/usageratio/compare/v0.5.0...v0.6.0) (2026-10-09)
+
+
+### Features
+
+* group/machine selection and a compact card in the macOS menu bar app ([#12](https://github.com/snktibor/usageratio/issues/12)) ([33260b7](https://github.com/snktibor/usageratio/commit/33260b74dd1841a9f104a8aeeb347700ef232d72))
+* **macos:** redesign the menu bar card ([#14](https://github.com/snktibor/usageratio/issues/14)) ([c342510](https://github.com/snktibor/usageratio/commit/c3425102d132dfa08de9224c697b50dcadc41776))
+* upload providers' own usage from the macOS app, with a reset per provider ([#16](https://github.com/snktibor/usageratio/issues/16)) ([48f1faa](https://github.com/snktibor/usageratio/commit/48f1faa5f4355b6dac4762729f416e99902b232f))
+
 ## [0.5.0](https://github.com/snktibor/usageratio/compare/v0.4.0...v0.5.0) (2026-10-07)
 
 
