@@ -5,6 +5,7 @@ import { useCallback, useState } from "react";
 import { CycleHistory } from "@/components/cycle-history";
 import type { HistoryContext } from "@/components/dashboard-view";
 import { writeProviderCookie } from "@/components/dashboard-view";
+import { useRouter } from "@/i18n/routing";
 import { periodOfCycle } from "@/lib/cycle-options";
 import { formatCost, formatHeroPercent, formatPercent, formatTokens } from "@/lib/format";
 import type { CycleSummary } from "@/lib/history";
@@ -70,20 +71,28 @@ export function ArchivedCycleView({
   historyContext,
   timeZone,
   selectedStartMs,
+  pastCycle,
 }: {
   summaries: PastSummary[];
   historyByProvider: Record<string, CycleSummary[]>;
   historyContext: HistoryContext;
   timeZone: string;
   selectedStartMs: number;
+  pastCycle: boolean;
 }) {
+  const router = useRouter();
   const locale = useLocale();
   const t = useTranslations("Widgets");
   const [selectedId, setSelectedId] = useState(summaries[0]?.id ?? "");
-  const selectProvider = useCallback((providerId: string) => {
-    setSelectedId(providerId);
-    writeProviderCookie(providerId);
-  }, []);
+  const selectProvider = useCallback(
+    (providerId: string) => {
+      writeProviderCookie(providerId);
+      // A past cycle is the selected provider's own: another provider's would be a different week.
+      if (pastCycle) router.push("/");
+      else setSelectedId(providerId);
+    },
+    [pastCycle, router],
+  );
   const selected = summaries.find((entry) => entry.id === selectedId) ?? summaries[0];
   if (!selected) return null;
   const { summary } = selected;

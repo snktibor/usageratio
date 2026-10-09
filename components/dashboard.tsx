@@ -135,9 +135,15 @@ export async function Dashboard({
           historyContext={historyContext}
           timeZone={timeZone}
           selectedStartMs={selected.startMs}
+          pastCycle
         />
       ) : providers.length > 0 ? (
-        <DashboardView providers={providers} historyByProvider={historyByProvider} historyContext={historyContext} />
+        <DashboardView
+          providers={providers}
+          historyByProvider={historyByProvider}
+          historyContext={historyContext}
+          pastCycle={selected.kind !== "current"}
+        />
       ) : (
         <section aria-labelledby="no-providers-heading" className="mt-12 max-w-xl">
           <h2 id="no-providers-heading" className="text-xl font-medium">

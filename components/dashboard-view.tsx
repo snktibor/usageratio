@@ -11,7 +11,7 @@ import { QuotaMeter } from "@/components/quota-meter";
 import { SubLimitMeters, type SubLimitState } from "@/components/sub-limit-meters";
 import { UsageChart } from "@/components/usage-chart";
 import { EMPTY_ENTRY, useOfficialEntry, useSubLimitEntries } from "@/components/use-official-entry";
-import { Link } from "@/i18n/routing";
+import { Link, useRouter } from "@/i18n/routing";
 import type { TokenMode } from "@/lib/config";
 import type { CycleKind } from "@/lib/cycle-options";
 import type { ProviderDashboardModel } from "@/lib/dashboard";
@@ -183,17 +183,25 @@ export function DashboardView({
   providers,
   historyByProvider,
   historyContext,
+  pastCycle,
 }: {
   providers: ProviderDashboardModel[];
   historyByProvider: Record<string, CycleSummary[]>;
   historyContext: HistoryContext;
+  pastCycle: boolean;
 }) {
+  const router = useRouter();
   const [selectedId, setSelectedId] = useState(providers[0]!.id);
 
-  const selectProvider = useCallback((providerId: string) => {
-    setSelectedId(providerId);
-    writeProviderCookie(providerId);
-  }, []);
+  const selectProvider = useCallback(
+    (providerId: string) => {
+      writeProviderCookie(providerId);
+      // A past cycle is the selected provider's own: another provider's would be a different week.
+      if (pastCycle) router.push("/");
+      else setSelectedId(providerId);
+    },
+    [pastCycle, router],
+  );
 
   const selected = providers.find((provider) => provider.id === selectedId) ?? providers[0]!;
   return (

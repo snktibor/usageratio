@@ -17,6 +17,7 @@ import {
   listCycleOptions,
   parseCycleParam,
   periodOfCycle,
+  providerCycleOptions,
   selectCycle,
 } from "@/lib/cycle-options";
 import { buildProviderDashboards, type ProviderDashboardModel } from "@/lib/dashboard";
@@ -30,6 +31,7 @@ import { mergeProviderIds, providerLabel } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import {
   NEUTRAL_COLOR,
+  resetFor,
   resolveConfig,
   resolveGroupColors,
   storedProviderIds,
@@ -62,7 +64,10 @@ interface DashboardData {
  * read. A past cycle (`?cycle=`) reads everything still kept, since it may
  * lie anywhere inside the retention.
  */
-async function loadDashboard(requestedStartMs: number | null): Promise<DashboardData> {
+async function loadDashboard(
+  requestedStartMs: number | null,
+  cookieProviderId: string | undefined,
+): Promise<DashboardData> {
   const now = currentTime();
   // Demo mode only: reseeds the synthetic data once it has gone stale.
   await ensureDemoData(now);
@@ -73,7 +78,11 @@ async function loadDashboard(requestedStartMs: number | null): Promise<Dashboard
   );
   const config = resolveConfig(getConfig(), indexes.settings, providerIds);
 
-  const previousCycle = getPreviousCycle(getCycle(now, config.reset), config.reset);
+  // The past cycles on offer are the selected provider's: its own reset, its own archive.
+  const visible = visibleProviderIds(config, providerIds);
+  const selectedId = cookieProviderId && visible.includes(cookieProviderId) ? cookieProviderId : visible[0];
+  const own = selectedId ? providerCycle(now, config, selectedId) : null;
+  const previousCycle = own?.previous ?? getPreviousCycle(getCycle(now, config.reset), config.reset);
   // The previous cycle rides along: it is the footer's comparison and counter mode's baseline.
   const earliestPrevious = earliestStartMs(now, config, providerIds, "previous");
   const since =
@@ -99,13 +108,21 @@ async function loadDashboard(requestedStartMs: number | null): Promise<Dashboard
     loadOldestReportTime(providerIds, indexes.groups),
   ]);
 
-  const options = listCycleOptions({
-    now,
-    reset: config.reset,
-    archived: Object.values(historyByProvider).flat(),
-    retentionDays: config.retentionDays,
-    oldestReportMs,
-  });
+  const options = selectedId
+    ? providerCycleOptions({
+        now,
+        config,
+        providerId: selectedId,
+        history: historyByProvider[selectedId] ?? [],
+        oldestReportMs,
+      })
+    : listCycleOptions({
+        now,
+        reset: config.reset,
+        archived: Object.values(historyByProvider).flat(),
+        retentionDays: config.retentionDays,
+        oldestReportMs,
+      });
   const selection = selectCycle(options, requestedStartMs);
   const { selected } = selection;
   const isPrevious =
@@ -120,7 +137,9 @@ async function loadDashboard(requestedStartMs: number | null): Promise<Dashboard
   } else if (selected.kind === "detail") {
     const window = {
       cycle: asCycle(selected),
-      previous: selection.previous ? asCycle(selection.previous) : getPreviousCycle(asCycle(selected), config.reset),
+      previous: selection.previous
+        ? asCycle(selection.previous)
+        : getPreviousCycle(asCycle(selected), selectedId ? resetFor(config, selectedId) : config.reset),
     };
     providers = buildProviderDashboards(
       now,
@@ -174,12 +193,14 @@ export default async function Page({
   const { locale } = await params;
   if (hasLocale(routing.locales, locale)) setRequestLocale(locale);
 
+  const selectedProviderId = (await cookies()).get(PROVIDER_COOKIE)?.value;
   let data: DashboardData | null = null;
   let storageError: unknown = null;
 
   try {
     // Usage data and settings are only ever read after the session check passed.
-    if (await isAuthenticated()) data = await loadDashboard(parseCycleParam((await searchParams).cycle));
+    if (await isAuthenticated())
+      data = await loadDashboard(parseCycleParam((await searchParams).cycle), selectedProviderId);
   } catch (error) {
     storageError = error;
     log.error("dashboard.load_failed", { err: error });
@@ -190,7 +211,6 @@ export default async function Page({
   }
   if (!data) return <PinGate />;
 
-  const selectedProviderId = (await cookies()).get(PROVIDER_COOKIE)?.value;
   return (
     <Dashboard
       providers={withSelectedProviderFirst(data.providers, selectedProviderId)}

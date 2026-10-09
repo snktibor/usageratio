@@ -1,5 +1,6 @@
-import type { BudgetPeriod, ResetConfig } from "@/lib/config";
+import type { AppConfig, BudgetPeriod, ResetConfig } from "@/lib/config";
 import { type Cycle, getCycle, getPreviousCycle } from "@/lib/cycle";
+import { resetFor } from "@/lib/settings";
 
 /**
  * Which cycles the dashboard can show, and which one a `?cycle=` asks for.
@@ -131,3 +132,26 @@ export const asCycle = (option: { startMs: number; endMs: number }): Cycle => ({
   start: new Date(option.startMs),
   end: new Date(option.endMs),
 });
+
+/** One provider's cycles: its own reset, its own archive. The dashboard offers the selected provider's. */
+export function providerCycleOptions({
+  now,
+  config,
+  providerId,
+  history,
+  oldestReportMs,
+}: {
+  now: Date;
+  config: AppConfig;
+  providerId: string;
+  history: { start: number; end: number }[];
+  oldestReportMs: number | null;
+}): CycleOption[] {
+  return listCycleOptions({
+    now,
+    reset: resetFor(config, providerId),
+    archived: history,
+    retentionDays: config.retentionDays,
+    oldestReportMs,
+  });
+}
