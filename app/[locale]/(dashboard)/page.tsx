@@ -73,8 +73,7 @@ async function loadDashboard(requestedStartMs: number | null): Promise<Dashboard
   );
   const config = resolveConfig(getConfig(), indexes.settings, providerIds);
 
-  const cycle = getCycle(now, config.reset);
-  const previousCycle = getPreviousCycle(cycle, config.reset);
+  const previousCycle = getPreviousCycle(getCycle(now, config.reset), config.reset);
   // The previous cycle rides along: it is the footer's comparison and counter mode's baseline.
   const earliestPrevious = earliestStartMs(now, config, providerIds, "previous");
   const since =
@@ -91,8 +90,7 @@ async function loadDashboard(requestedStartMs: number | null): Promise<Dashboard
   await archiveDueCycles({
     providerIds,
     config,
-    cycle,
-    previousCycle,
+    now,
     eventsByProvider,
     rawOfficialUsage: indexes.officialUsage,
   });
