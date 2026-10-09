@@ -32,6 +32,9 @@ if $install; then
   pkill -x UsageRatioBar 2>/dev/null || true
   rm -rf "$HOME/Applications/UsageRatio.app"
   cp -R "$app" "$HOME/Applications/"
+  # The pass-through for Claude Code's status line (README: "Claude's own usage").
+  mkdir -p "$HOME/.usageratio"
+  install -m 0755 scripts/statusline-tee.sh "$HOME/.usageratio/statusline-tee.sh"
   open "$HOME/Applications/UsageRatio.app"
   echo "Installed to ~/Applications/UsageRatio.app"
 fi
