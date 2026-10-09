@@ -49,19 +49,27 @@ export function serializeOfficialEntry(entry: StoredOfficialEntry): string {
   return JSON.stringify(entry);
 }
 
+/** The provider a `usage:official` field belongs to: "claude" or "claude:fable" → "claude". */
+export function providerOfOfficialField(field: string): string {
+  const colon = field.indexOf(":");
+  return colon < 0 ? field : field.slice(0, colon);
+}
+
 /**
  * The stored entries whose cycle still matches, by field: what every browser
  * should show right now. One typed in a cycle that has since rolled over is
- * as good as absent.
+ * as good as absent. `cycleStart`: the current cycle's start, or, now that a
+ * provider can have its own reset, each provider's (by provider id).
  */
 export function currentOfficialEntries(
   stored: Record<string, string>,
-  cycleStartMs: number,
+  cycleStart: number | ((providerId: string) => number),
 ): Map<string, OfficialEntryView> {
+  const startOf = typeof cycleStart === "number" ? () => cycleStart : cycleStart;
   const entries = new Map<string, OfficialEntryView>();
   for (const [field, raw] of Object.entries(stored)) {
     const entry = parseStoredEntry(raw);
-    if (entry && entry.cycleStartMs === cycleStartMs)
+    if (entry && entry.cycleStartMs === startOf(providerOfOfficialField(field)))
       entries.set(field, { raw: entry.raw, enteredAt: entry.enteredAt });
   }
   return entries;
