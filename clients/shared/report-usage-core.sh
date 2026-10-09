@@ -52,6 +52,11 @@ esac
 # treats a manual machine differently: it is never "late", since it has no schedule to miss.
 REPORT_MODE="auto"
 [ "$OUTPUT_MODE" = "manual" ] && REPORT_MODE="manual"
+# USAGERATIO_REPORT_MODE wins: the menu bar app prints the readable results of
+# the manual mode, yet reports on a schedule of its own (clients/macos).
+case "${USAGERATIO_REPORT_MODE:-}" in
+  auto | manual) REPORT_MODE="$USAGERATIO_REPORT_MODE" ;;
+esac
 INTERVAL_MINUTES="${USAGERATIO_INTERVAL_MINUTES:-}"
 
 # Runs ccusage with the given arguments into the file $1: the global ccusage

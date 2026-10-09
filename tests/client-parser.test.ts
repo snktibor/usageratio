@@ -184,6 +184,29 @@ describe("ccusage provider parser", () => {
     });
   });
 
+  it.each([
+    [{}, { mode: "manual" }],
+    [{ USAGERATIO_REPORT_MODE: "auto", USAGERATIO_INTERVAL_MINUTES: "60" }, { intervalMinutes: 60 }],
+    [{ USAGERATIO_REPORT_MODE: "bogus" }, { mode: "manual" }],
+  ])("report-usage-core.sh lets USAGERATIO_REPORT_MODE override the manual output's mode: %j", (env, extra) => {
+    const payload = execFileSync("bash", ["clients/shared/report-usage-core.sh", "--tokens", "claude=5", "--dry-run"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        USAGERATIO_CONFIG: "/nonexistent/usageratio-config",
+        USAGERATIO_LOG_FILE: join(tmpdir(), "usageratio-test.log"),
+        USAGERATIO_OUTPUT_MODE: "manual",
+        USAGERATIO_MACHINE_ID: "mac",
+        USAGERATIO_GROUP_ID: "Personal",
+        USAGERATIO_INTERVAL_MINUTES: "",
+        USAGERATIO_REPORT_MODE: "",
+        ...env,
+      },
+    });
+    const { timestamp: _timestamp, ...rest } = JSON.parse(payload);
+    expect(rest).toEqual({ machineId: "mac", groupId: "Personal", providers: { claude: 5 }, ...extra });
+  });
+
   it("keeps a split within the server's limits and its provider's total", () => {
     const many = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`model-${i}`, i + 1]));
     const models = normalizeModelMap(
