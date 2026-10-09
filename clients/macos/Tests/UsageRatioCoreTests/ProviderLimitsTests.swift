@@ -52,3 +52,19 @@ not json at all
     #expect(CodexLimits.latest(inLog: "{\"timestamp\":\"2026-10-09T08:00:00Z\"}\n") == nil)
     #expect(CodexLimits.latest(inLog: "") == nil)
 }
+
+@Test func neverTrapsOnOddNumbersInTheClaudeFile() throws {
+    let huge = #"{"rate_limits":{"seven_day":{"used_percentage":10,"resets_at":1e300}},"observed_at":1738400000}"#
+    #expect(ClaudeLimits.parse(Data(huge.utf8)) == nil)
+    let observed = #"{"rate_limits":{"seven_day":{"used_percentage":10,"resets_at":1738857600}},"observed_at":1e300}"#
+    #expect(ClaudeLimits.parse(Data(observed.utf8)) == nil)
+}
+
+@Test func neverTrapsOnOddNumbersInTheCodexLog() {
+    func line(_ entry: String) -> String {
+        #"{"timestamp":"2026-10-09T08:05:00Z","payload":{"rate_limits":{"primary":"# + entry + "}}}"
+    }
+    #expect(CodexLimits.latest(inLog: line(#"{"used_percent":5,"window_minutes":1e300,"resets_at":1791900000}"#)) == nil)
+    #expect(CodexLimits.latest(inLog: line(#"{"used_percent":5,"window_minutes":10080,"resets_at":1e300}"#)) == nil)
+    #expect(CodexLimits.latest(inLog: line(#"{"used_percent":5,"window_minutes":10080,"resets_in_seconds":1e300}"#)) == nil)
+}

@@ -34,26 +34,34 @@ private func number(_ value: Any?) -> Double? {
     return double.isFinite ? double : nil
 }
 
+/// Epoch seconds a sane clock could show (to year 5138); anything else is not a time.
+let epochSeconds: ClosedRange<Double> = 0...100_000_000_000
+
+private func epochDate(_ value: Any?) -> Date? {
+    guard let seconds = number(value), epochSeconds.contains(seconds) else { return nil }
+    return Date(timeIntervalSince1970: seconds)
+}
+
 /// The file Claude Code's status line pass-through writes (clients/macos/scripts/statusline-tee.sh):
 /// Claude Code's own `rate_limits` (https://code.claude.com/docs/en/statusline) and when they were seen.
 public enum ClaudeLimits {
     public static func parse(_ data: Data) -> LimitsSnapshot? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let limits = object["rate_limits"] as? [String: Any],
-              let observed = number(object["observed_at"])
+              let observed = epochDate(object["observed_at"])
         else { return nil }
         func window(_ key: String) -> LimitWindow? {
             guard let entry = limits[key] as? [String: Any],
-                  let percent = number(entry["used_percentage"]), let resetsAt = number(entry["resets_at"])
+                  let percent = number(entry["used_percentage"]), let resetsAt = epochDate(entry["resets_at"])
             else { return nil }
-            return LimitWindow(usedPercent: percent, resetsAt: Date(timeIntervalSince1970: resetsAt))
+            return LimitWindow(usedPercent: percent, resetsAt: resetsAt)
         }
         let weekly = window("seven_day")
         let fiveHour = window("five_hour")
         guard weekly != nil || fiveHour != nil else { return nil }
         return LimitsSnapshot(
             providerId: "claude", weekly: weekly, fiveHour: fiveHour,
-            observedAt: Date(timeIntervalSince1970: observed)
+            observedAt: observed
         )
     }
 }
@@ -85,12 +93,13 @@ public enum CodexLimits {
         for key in ["primary", "secondary"] {
             guard let entry = limits[key] as? [String: Any],
                   let percent = number(entry["used_percent"]),
-                  let minutes = number(entry["window_minutes"]).map({ Int($0) })
+                  let rawMinutes = number(entry["window_minutes"]), (1...1_000_000).contains(rawMinutes)
             else { continue }
+            let minutes = Int(rawMinutes)
             let resetsAt: Date
-            if let absolute = number(entry["resets_at"]) {
-                resetsAt = Date(timeIntervalSince1970: absolute)
-            } else if let relative = number(entry["resets_in_seconds"]) {
+            if let absolute = epochDate(entry["resets_at"]) {
+                resetsAt = absolute
+            } else if let relative = number(entry["resets_in_seconds"]), (0...1_000_000_000).contains(relative) {
                 resetsAt = observedAt.addingTimeInterval(relative)
             } else {
                 continue

@@ -49,3 +49,17 @@ private let snapshot = LimitsSnapshot(
     let noWeekly = LimitsSnapshot(providerId: "claude", weekly: nil, fiveHour: nil, observedAt: .now)
     #expect(!UploadPolicy.shouldUpload(noWeekly, lastUploaded: nil))
 }
+
+@Test func buildsNoBodyForNumbersTheServerWouldRefuseOrThatTrap() {
+    func body(percent: Double = 41.2, resets: Double = 1_791_900_000, observed: Double = 1_791_533_100) -> Data? {
+        OfficialReportClient.body(for: LimitsSnapshot(
+            providerId: "claude",
+            weekly: LimitWindow(usedPercent: percent, resetsAt: Date(timeIntervalSince1970: resets)),
+            fiveHour: nil, observedAt: Date(timeIntervalSince1970: observed)))
+    }
+    #expect(body() != nil)
+    #expect(body(percent: 1001) == nil)
+    #expect(body(percent: -1) == nil)
+    #expect(body(resets: 1e300) == nil)
+    #expect(body(observed: 1e300) == nil)
+}

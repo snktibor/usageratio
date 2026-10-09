@@ -38,15 +38,22 @@ public struct OfficialReportClient: Sendable {
 
     /// The request body; nil while the snapshot has no weekly window.
     public static func body(for snapshot: LimitsSnapshot) -> Data? {
-        guard let weekly = snapshot.weekly else { return nil }
-        let milliseconds = { (date: Date) in Int((date.timeIntervalSince1970 * 1000).rounded()) }
+        guard let weekly = snapshot.weekly, (0...1000).contains(weekly.usedPercent),
+              let resetsAtMs = milliseconds(weekly.resetsAt), let observedAtMs = milliseconds(snapshot.observedAt)
+        else { return nil }
         let object: [String: Any] = [
             "providerId": snapshot.providerId,
             "usedPercent": weekly.usedPercent,
-            "resetsAtMs": milliseconds(weekly.resetsAt),
-            "observedAtMs": milliseconds(snapshot.observedAt),
+            "resetsAtMs": resetsAtMs,
+            "observedAtMs": observedAtMs,
         ]
         return try? JSONSerialization.data(withJSONObject: object)
+    }
+
+    private static func milliseconds(_ date: Date) -> Int? {
+        let seconds = date.timeIntervalSince1970
+        guard epochSeconds.contains(seconds) else { return nil }
+        return Int(exactly: (seconds * 1000).rounded())
     }
 
     private struct Accepted: Decodable {
