@@ -106,7 +106,7 @@ export const GET = withApiHandler("api/usage", async ({ request }) => {
         end: iso(cycle.end),
         sinceDate: dateInTimeZone(cycle.start, effective.reset.timeZone),
         timeZone: effective.reset.timeZone,
-        // Each provider's own: a client trims every provider to its start (clients/shared/ccusage-providers.cjs).
+        // Each provider's own cycle, for clients to trim every provider to its own start (the clients do not use it yet; see docs/upgrading.md).
         providers: Object.fromEntries(
           providerIds.map((providerId) => {
             const own = providerCycle(now, effective, providerId).cycle;

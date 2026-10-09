@@ -71,10 +71,10 @@ Self-hosting without Vercel's scheduler: see
 ## Per-provider reset
 
 A provider can now have its own budget reset moment, apart from the shared one. Nothing changes
-until one does. Once any provider has its own reset, re-run the installer on every machine: an
-older client counts every provider from the earliest cycle start, so a provider with a later reset
-would include tokens from before its own cycle. `GET /api/usage` already tells a current client each
-provider's own start (`cycle.providers`).
+until one does. Once any provider has its own reset, re-run the installer on every machine. The
+server exposes each provider's own start (`cycle.providers` of `GET /api/usage`); the reporting
+clients learn to use it in a later release. Until then, and on any machine not re-installed
+afterwards, an override makes that machine count every provider from the earliest start.
 
 ## Behaviour changes
 

@@ -144,6 +144,8 @@ shared reset included), and `cycle.providers` holds each provider's own:
 }
 ```
 
+`cycle` is the earliest current cycle among the report's providers (the shared reset's for a heartbeat).
+
 `groupRegistered` is `true` when the `groupId` wasn't on the settings panel's list yet (it's now
 auto-registered with the next free preset color). `providersRegistered` lists any provider ids seen for the first
 time. There is no equivalent `machineRegistered` flag — a new machine is simply reflected the next
@@ -238,7 +240,7 @@ times are ISO 8601. `v` only changes for a breaking change — new fields are ad
 }
 ```
 
-- `cycle` (top level) — the shared reset's cycle; `providers[].cycle` — that provider's own, which
+- `cycle` (top level) — the shared reset's cycle; per-provider figures should use `providers[].cycle`, that provider's own, which
   differs while it has its own reset (see [configuration.md](configuration.md#reset-and-time-zone)).
 - `percent` — how much of the budget is gone; `null` with the token limits off and no official
   reading. `source` is `"official"` when a typed official reading drives it, `"estimate"` when the
@@ -289,6 +291,7 @@ required on every save (a document stored before some of them existed is still r
   "useTokenLimits": false,
   "limits": { "claude": 500000, "deepseek": 750000, "openai": 1000000 },
   "reset": { "weekday": 1, "monthDay": 1, "hour": 0, "minute": 0, "timeZone": "Europe/Budapest" },
+  "resetOverrides": {},
   "showRemaining": true,
   "hiddenProviders": ["openai"],
   "excludedProviders": { "Work": ["claude", "deepseek"] },
@@ -300,6 +303,9 @@ required on every save (a document stored before some of them existed is still r
   "removedGroups": ["Old"]
 }
 ```
+
+`resetOverrides` is required: providerId → `{ weekday, monthDay, hour, minute }`, the provider's own
+reset over the shared period and time zone (`{}` for none).
 
 `groups` creates or recolors — groups not listed are left untouched (so one that appeared on its own
 in the meantime, from a client report, isn't wiped out by an unrelated save). `removedGroups` only
