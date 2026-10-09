@@ -94,7 +94,7 @@
     "audit_session_label": "Sitzung {session}",
     "api_token_explanation": "Die Kopieren-Schaltfläche der Einrichtungsseite gibt diesen zurück. Er wird mit AES-256-GCM verschlüsselt im Datenspeicher abgelegt und erscheint nie auf der Seite; jedes Speichern und Abrufen wird im Auditprotokoll erfasst. Clients authentifizieren sich weiterhin mit dem <code>USAGE_API_TOKEN</code> des Servers: Dies ist nur ihre Kopie.",
     "tokens_heading": "Tokens pro Maschine",
-    "tokens_explanation": "Ein Token pro Maschine ist ein eigener Schlüssel für eine Maschine statt des gemeinsamen <code>USAGE_API_TOKEN</code>: Jeder lässt sich einzeln widerrufen, ohne die anderen Maschinen zu berühren. An eine Maschine gebunden, gilt er nur für deren Berichte. Der gemeinsame Token funktioniert weiterhin für die Installationsprogramme. Ein „Nur lesen“-Token ist für die macOS-Menüleisten-App: Er kann die Nutzung abfragen, aber nie melden.",
+    "tokens_explanation": "Ein Token pro Maschine ist ein eigener Schlüssel für eine Maschine statt des gemeinsamen <code>USAGE_API_TOKEN</code>: Jeder lässt sich einzeln widerrufen, ohne die anderen Maschinen zu berühren. An eine Maschine gebunden, gilt er nur für deren Berichte. Der gemeinsame Token funktioniert weiterhin für die Installationsprogramme. Ein „Nur lesen“-Token ist für die macOS-Menüleisten-App: Er kann die Nutzung abfragen, aber nie melden. Damit die App auch die offiziellen Prozentwerte der Anbieter hochladen kann, braucht sie ein Token mit „Lesen und offizielle Nutzung hochladen“.",
     "tokens_load_failed": "Die Tokens konnten nicht geladen werden.",
     "tokens_empty": "Noch keine Tokens pro Maschine.",
     "tokens_label_field": "Bezeichnung",

@@ -11,6 +11,7 @@ All source: `app/api/**/route.ts`, shared helpers in `lib/api.ts`.
 - [`GET /api/health`](#get-apihealth)
 - [`GET`/`PUT /api/settings`](#getput-apisettings)
 - [`PUT /api/official-usage`](#put-apiofficial-usage)
+- [`POST /api/official-usage/report`](#post-apiofficial-usagereport)
 - [`GET /api/setup`](#get-apisetup)
 - [`GET`/`PUT /api/api-token`, `POST /api/api-token/reveal`, `GET /api/api-token/audit`](#the-stored-api-token)
 - [`GET`/`POST /api/tokens`, `DELETE /api/tokens/[id]`](#per-machine-tokens)
@@ -66,6 +67,9 @@ The full `ApiErrorCode` union (`lib/api.ts`):
 | `too_many_groups` / `too_many_providers` / `too_many_machines` / `too_many_tokens` | 422 | A registry cap would be exceeded; `limit` gives the cap. |
 | `machine_mismatch` | 403 | A machine-bound per-machine token reported for a different `machineId`. |
 | `read_only_token` | 403 | A "read" or "official" per-machine token tried to report (`POST /api/usage`); it may not report tokens. |
+| `official_scope_required` | 403 | `POST /api/official-usage/report` needs an "official" token. |
+| `period_not_weekly` | 409 | An official report was sent to a monthly dashboard; the figure is a weekly window. |
+| `stale_reading` | 409 | An official report whose window already reset, or that was read before the provider's current cycle began. |
 | `no_token` | 404 | Nothing stored to reveal (`POST /api/api-token/reveal`). |
 | `token_unreadable` | 409 | The stored API token can't be decrypted with any known key. |
 | `groups_have_reports` | 409 | A settings save tried to remove a group that still has stored reports. |
@@ -335,6 +339,28 @@ field, written on a debounced pause after typing (or dragging the slider), not o
 field's own cycle, from the dashboard it was typed on. `200 { "ok": true, "enteredAt": <ms> }` ·
 `400` invalid JSON/payload · `401` no session · `403` foreign origin · `413`/`415` bad body · `503`
 Redis down.
+
+## `POST /api/official-usage/report`
+
+Auth: **Bearer** token with the `official` scope (`403 official_scope_required` otherwise). A
+provider's own weekly usage percentage, read on a machine by the macOS menu bar app, stored as the
+dashboard's official reading. 1 KB body, 120 calls per token per hour.
+
+```json
+{ "providerId": "claude", "usedPercent": 41.2, "resetsAtMs": 1758704400000, "observedAtMs": 1758628200000 }
+```
+
+`usedPercent` is 0–1000; `resetsAtMs` is when the provider's weekly window resets and must lie within
+a week after `observedAtMs` (when the figure was read, not in the future). The server decides, in order:
+a monthly dashboard is refused (`409 period_not_weekly`); a window that already reset is refused
+(`409 stale_reading`); if the provider's cycle end differs from `resetsAtMs` by more than 15 minutes its
+reset is moved to the window's (weekday, hour and minute in the dashboard's time zone, marked as set by
+a report; the provider's month day is kept); a reading taken before the (new) cycle began is refused
+(`409 stale_reading`); a reading no newer than the figure already stored for that cycle is not written.
+
+`200 { "ok": true, "saved": <bool>, "cycleChanged": <bool>, "reset": { "weekday", "hour", "minute" } | null }`
+· `400` invalid JSON/payload · `401` bad token · `403` wrong scope or demo mode (`demo_read_only`) ·
+`409` as above · `413`/`415` bad body · `429` rate limited · `503` Redis down.
 
 ## `GET /api/setup`
 

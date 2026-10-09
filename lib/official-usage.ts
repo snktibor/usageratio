@@ -75,6 +75,12 @@ export function currentOfficialEntries(
   return entries;
 }
 
+/** One stored entry, with the cycle it was saved for; null when it does not parse. */
+export function parseStoredOfficialEntry(raw: string): { view: OfficialEntryView; cycleStartMs: number } | null {
+  const entry = parseStoredEntry(raw);
+  return entry && { view: { raw: entry.raw, enteredAt: entry.enteredAt }, cycleStartMs: entry.cycleStartMs };
+}
+
 export interface OfficialUsageUpdate {
   providerId: string;
   subLimitId: string | null;

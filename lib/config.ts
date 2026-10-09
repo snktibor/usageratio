@@ -138,6 +138,8 @@ export const CYCLE_RATE_LIMIT_PER_TOKEN = 120;
 
 /** GET /api/status: lookups per token, per hour (the menu bar app polls every 5 minutes, 12 an hour). */
 export const STATUS_RATE_LIMIT_PER_TOKEN = 120;
+/** POST /api/official-usage/report calls per token per hour. */
+export const OFFICIAL_REPORT_RATE_LIMIT_PER_TOKEN = 120;
 
 /** Failed Bearer tokens per IP, per minute, on either method of /api/usage and on GET /api/status. */
 export const UNAUTH_RATE_LIMIT_PER_IP = 60;
