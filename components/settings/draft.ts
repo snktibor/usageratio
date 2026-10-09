@@ -1,4 +1,4 @@
-import { type AlertsFormat, type BudgetPeriod, isValidTimeZone } from "@/lib/config";
+import { type AlertsFormat, type BudgetPeriod, isValidTimeZone, type ResetOverride } from "@/lib/config";
 import {
   MAX_ALERT_THRESHOLDS,
   MAX_GROUPS,
@@ -88,6 +88,8 @@ export interface Draft {
   time: string;
   /** IANA name; the cycle's reset and the clients' day split both use it. */
   timeZone: string;
+  /** Carried back unchanged: the panel does not edit them yet. */
+  resetOverrides: Record<string, ResetOverride>;
   showRemaining: boolean;
   groups: DraftGroup[];
   /** Taken off the list in this session; kept whole so a refused removal can be put back. */
@@ -103,6 +105,7 @@ export interface SettingsRequest {
   useTokenLimits: boolean;
   limits: Record<string, number>;
   reset: { weekday: number; monthDay: number; hour: number; minute: number; timeZone: string };
+  resetOverrides: Record<string, ResetOverride>;
   showRemaining: boolean;
   hiddenProviders: string[];
   excludedProviders: Record<string, string[]>;
@@ -143,8 +146,17 @@ export type DraftProblem =
   | { code: "alerts_need_at_least_one_threshold" };
 
 export function draftFrom(view: SettingsView): Draft {
-  const { period, useTokenLimits, limits, reset, showRemaining, hiddenProviders, excludedProviders, subLimits } =
-    view.settings;
+  const {
+    period,
+    useTokenLimits,
+    limits,
+    reset,
+    resetOverrides,
+    showRemaining,
+    hiddenProviders,
+    excludedProviders,
+    subLimits,
+  } = view.settings;
   const twoDigits = (value: number) => String(value).padStart(2, "0");
   return {
     period,
@@ -170,6 +182,7 @@ export function draftFrom(view: SettingsView): Draft {
     monthDay: reset.monthDay,
     time: `${twoDigits(reset.hour)}:${twoDigits(reset.minute)}`,
     timeZone: reset.timeZone,
+    resetOverrides,
     showRemaining,
     groups: view.groups.map((group) => ({
       ...group,
@@ -379,6 +392,7 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
         minute: Number(time[2]),
         timeZone,
       },
+      resetOverrides: draft.resetOverrides,
       showRemaining: draft.showRemaining,
       hiddenProviders: draft.providers.filter((provider) => !provider.visible).map((provider) => provider.id),
       // Only the groups on the list: a removed group takes its exclusions with it.

@@ -160,6 +160,16 @@ export interface ResetConfig {
   timeZone: string;
 }
 
+/** A provider's own reset moment, over the shared period and time zone (see lib/settings.ts `resetFor`). */
+export interface ResetOverride {
+  /** Weekly budgets: 0 = Sunday … 6 = Saturday */
+  weekday: number;
+  /** Monthly budgets: 1–31 */
+  monthDay: number;
+  hour: number;
+  minute: number;
+}
+
 export interface AppConfig {
   /** False: no token limit is used anywhere; see DEFAULT_USE_TOKEN_LIMITS. */
   useTokenLimits: boolean;
@@ -168,6 +178,8 @@ export interface AppConfig {
   /** Saved token budgets by provider/account id. */
   providerLimits: Record<string, number>;
   reset: ResetConfig;
+  /** providerId → its own reset moment; a provider without one uses `reset`. */
+  resetOverrides: Record<string, ResetOverride>;
   /** False: the dashboard never states the tokens left, nor the overage. */
   showRemaining: boolean;
   /** Providers the dashboard leaves out, account picker included; their reports are still stored. */
@@ -258,6 +270,7 @@ export function getConfig(env: Record<string, string | undefined> = process.env)
     limit,
     providerLimits: {},
     reset,
+    resetOverrides: {},
     showRemaining: DEFAULT_SHOW_REMAINING,
     hiddenProviders: [],
     excludedProviders: {},

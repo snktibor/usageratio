@@ -7,6 +7,8 @@ import {
   type BudgetPeriod,
   DEFAULT_ALERTS,
   isValidTimeZone,
+  type ResetConfig,
+  type ResetOverride,
 } from "@/lib/config";
 import { MAX_PROVIDERS, mergeProviderIds, normalizeProviderId, providerLabel } from "@/lib/providers";
 import {
@@ -56,6 +58,12 @@ export interface UsageSettings {
     /** IANA time zone; validated on save, see `parseSettingsUpdate`. */
     timeZone: string;
   };
+  /**
+   * providerId → its own reset moment (weekday, month day, hour, minute) over
+   * the shared period and time zone. Absent: the provider uses `reset`.
+   * Set on the settings panel, or by an official report (lib/official-report.ts).
+   */
+  resetOverrides: Record<string, ResetOverride>;
   /**
    * False: the dashboard never states the tokens left, nor the overage. Only
    * matters with the token limits on: without a limit nothing is left to count.
@@ -161,6 +169,65 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 // ── Budget ───────────────────────────────────────────────────────────────────
 
+function copyResetOverrides(overrides: Record<string, ResetOverride>): Record<string, ResetOverride> {
+  return Object.fromEntries(Object.entries(overrides).map(([providerId, override]) => [providerId, { ...override }]));
+}
+
+/** One override entry: each field checked, the whole entry kept or dropped together. */
+function readResetOverride(value: unknown, field: string, errors?: string[]): ResetOverride | null {
+  const entry = asRecord(value);
+  const problems: string[] = [];
+  if (!entry) {
+    problems.push(`${field} must be a JSON object`);
+  } else {
+    if (!isIntegerIn(entry.weekday, 0, 6)) problems.push(`${field}.weekday must be 0 (Sunday) to 6 (Saturday)`);
+    if (!isIntegerIn(entry.monthDay, 1, 31)) problems.push(`${field}.monthDay must be 1 to 31`);
+    if (!isIntegerIn(entry.hour, 0, 23)) problems.push(`${field}.hour must be 0 to 23`);
+    if (!isIntegerIn(entry.minute, 0, 59)) problems.push(`${field}.minute must be 0 to 59`);
+  }
+  if (problems.length > 0) {
+    errors?.push(...problems);
+    return null;
+  }
+  const { weekday, monthDay, hour, minute } = entry as Record<string, number>;
+  return { weekday: weekday!, monthDay: monthDay!, hour: hour!, minute: minute! };
+}
+
+/** The stored map, leniently: an unknown provider id or a bad entry is dropped on its own. */
+function readResetOverrides(stored: Record<string, unknown>): Record<string, ResetOverride> {
+  const overrides: Record<string, ResetOverride> = {};
+  for (const [rawProvider, value] of Object.entries(stored).slice(0, MAX_PROVIDERS)) {
+    const providerId = normalizeProviderId(rawProvider);
+    const override = providerId && readResetOverride(value, rawProvider);
+    if (providerId && override && !Object.hasOwn(overrides, providerId)) overrides[providerId] = override;
+  }
+  return overrides;
+}
+
+/** The PUT body's map: every problem is reported. */
+function parseResetOverrides(value: unknown, errors: string[]): Record<string, ResetOverride> {
+  const body = asRecord(value);
+  if (!body || Object.keys(body).length > MAX_PROVIDERS) {
+    errors.push(`resetOverrides must be a JSON object of at most ${MAX_PROVIDERS} providers`);
+    return {};
+  }
+  const overrides: Record<string, ResetOverride> = {};
+  for (const [rawProvider, entry] of Object.entries(body)) {
+    const providerId = normalizeProviderId(rawProvider);
+    if (!providerId) {
+      errors.push(`resetOverrides.${rawProvider} has an invalid provider id`);
+      continue;
+    }
+    if (Object.hasOwn(overrides, providerId)) {
+      errors.push(`resetOverrides.${rawProvider} is listed twice after normalization`);
+      continue;
+    }
+    const override = readResetOverride(entry, `resetOverrides.${providerId}`, errors);
+    if (override) overrides[providerId] = override;
+  }
+  return overrides;
+}
+
 /** The budget part of a configuration: the defaults while nothing is saved. */
 export function settingsFromConfig(config: AppConfig, providerIds: string[] = []): UsageSettings {
   const { period, weekday, monthDay, hour, minute, timeZone } = config.reset;
@@ -172,6 +239,7 @@ export function settingsFromConfig(config: AppConfig, providerIds: string[] = []
       providers.map((providerId) => [providerId, config.providerLimits[providerId] ?? config.limit]),
     ),
     reset: { weekday, monthDay, hour, minute, timeZone },
+    resetOverrides: copyResetOverrides(config.resetOverrides),
     showRemaining: config.showRemaining,
     hiddenProviders: [...config.hiddenProviders],
     excludedProviders: copyExclusions(config.excludedProviders),
@@ -186,6 +254,7 @@ export function applySettings(config: AppConfig, settings: UsageSettings): AppCo
     useTokenLimits: settings.useTokenLimits,
     providerLimits: { ...settings.limits },
     reset: { ...config.reset, period: settings.period, ...settings.reset },
+    resetOverrides: copyResetOverrides(settings.resetOverrides),
     showRemaining: settings.showRemaining,
     hiddenProviders: [...settings.hiddenProviders],
     excludedProviders: copyExclusions(settings.excludedProviders),
@@ -211,6 +280,7 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
   const reset = asRecord(doc.reset) ?? {};
   const storedExclusions = asRecord(doc.excludedProviders);
   const storedSubLimits = asRecord(doc.subLimits);
+  const storedOverrides = asRecord(doc.resetOverrides);
   const storedAlerts = asRecord(doc.alerts);
   const limits = { ...defaults.limits };
   const storedLimits = asRecord(doc.limits);
@@ -241,6 +311,8 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
           ? reset.timeZone
           : defaults.reset.timeZone,
     },
+    // Documents saved before per-provider resets existed lack the field: every provider uses `reset`.
+    resetOverrides: storedOverrides ? readResetOverrides(storedOverrides) : defaults.resetOverrides,
     // Documents saved before the switch existed lack the field: they keep the default.
     showRemaining: typeof doc.showRemaining === "boolean" ? doc.showRemaining : defaults.showRemaining,
     // Documents saved before these existed lack them: every provider shows, and counts everywhere.
@@ -284,9 +356,15 @@ export function storedProviderIds(raw: string | null): string[] {
   }
 }
 
-/** Effective configuration for one selected provider. */
+/** The reset one provider's cycle runs on: its override over the shared period and time zone. */
+export function resetFor(config: AppConfig, providerId: string): ResetConfig {
+  const override = Object.hasOwn(config.resetOverrides, providerId) ? config.resetOverrides[providerId] : undefined;
+  return override ? { ...config.reset, ...override } : config.reset;
+}
+
+/** Effective configuration for one selected provider: its limit and its reset. */
 export function configForProvider(config: AppConfig, providerId: string): AppConfig {
-  return { ...config, limit: config.providerLimits[providerId] ?? config.limit };
+  return { ...config, limit: config.providerLimits[providerId] ?? config.limit, reset: resetFor(config, providerId) };
 }
 
 // ── Providers on the dashboard ───────────────────────────────────────────────
@@ -614,6 +692,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
   if (typeof reset.timeZone !== "string" || !isValidTimeZone(reset.timeZone)) {
     errors.push("reset.timeZone must be a valid IANA time zone name");
   }
+  const resetOverrides = parseResetOverrides(body.resetOverrides, errors);
   if (typeof body.showRemaining !== "boolean") errors.push("showRemaining must be true or false");
   const hiddenProviders = parseProviderList(body.hiddenProviders, "hiddenProviders", errors);
   const excludedProviders = parseExclusions(body.excludedProviders, errors);
@@ -664,6 +743,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
           minute: reset.minute as number,
           timeZone: reset.timeZone as string,
         },
+        resetOverrides,
         showRemaining: body.showRemaining as boolean,
         hiddenProviders,
         excludedProviders,

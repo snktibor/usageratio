@@ -3,6 +3,7 @@ import { getConfig, isValidTimeZone } from "@/lib/config";
 import { getCycle } from "@/lib/cycle";
 import { MAX_PROVIDERS } from "@/lib/providers";
 import {
+  applySettings,
   buildSettingsView,
   configForProvider,
   countsForProvider,
@@ -15,6 +16,7 @@ import {
   parseSettingsUpdate,
   parseStoredSettings,
   randomGroupColor,
+  resetFor,
   resolveConfig,
   resolveGroupColors,
   serializeGroupEntry,
@@ -34,6 +36,7 @@ const MONTHLY: UsageSettings = {
   useTokenLimits: true,
   limits: { claude: 2_000_000, deepseek: 1_250_000 },
   reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30, timeZone: "America/New_York" },
+  resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } },
   showRemaining: false,
   hiddenProviders: ["openai"],
   excludedProviders: { Work: ["claude", "deepseek"] },
@@ -70,6 +73,7 @@ describe("stored settings", () => {
       useTokenLimits: false,
       limits: {},
       reset: { weekday: 1, monthDay: 1, hour: 0, minute: 0, timeZone: "UTC" },
+      resetOverrides: {},
       showRemaining: true,
       hiddenProviders: [],
       excludedProviders: {},
@@ -93,6 +97,7 @@ describe("stored settings", () => {
       // No provider is known yet: the seed limit has nowhere to apply until one reports.
       limits: {},
       reset: { weekday: 3, monthDay: 1, hour: 6, minute: 15, timeZone: "Asia/Tokyo" },
+      resetOverrides: {},
       showRemaining: true,
       hiddenProviders: [],
       excludedProviders: {},
@@ -152,6 +157,7 @@ describe("stored settings", () => {
       // v1's global `limit` would apply to every already-known provider; none is known here.
       limits: {},
       reset: { weekday: 1, monthDay: 31, hour: 0, minute: 45, timeZone: "UTC" },
+      resetOverrides: {},
       showRemaining: true,
       hiddenProviders: [],
       excludedProviders: {},
@@ -171,6 +177,7 @@ describe("stored settings", () => {
       limits: {},
       // The document has no `reset.timeZone` (it predates the field): the default zone wins.
       reset: { ...MONTHLY.reset, timeZone: DEFAULTS.reset.timeZone },
+      resetOverrides: {},
       showRemaining: true,
       hiddenProviders: [],
       excludedProviders: {},
@@ -308,6 +315,7 @@ describe("parseSettingsUpdate", () => {
     useTokenLimits: true,
     limits: { claude: 2_000_000, deepseek: 1_250_000 },
     reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30, timeZone: "America/New_York" },
+    resetOverrides: { Claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } },
     showRemaining: false,
     hiddenProviders: ["OpenAI", "openai"],
     excludedProviders: { " Work ": ["claude", "deepseek"], Home: [] },
@@ -353,6 +361,35 @@ describe("parseSettingsUpdate", () => {
     });
   });
 
+  it("normalizes the reset overrides' provider ids", () => {
+    const result = parseSettingsUpdate(valid);
+    if (!result.ok) throw new Error(result.errors.join("; "));
+    expect(result.update.settings.resetOverrides).toEqual({ claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } });
+  });
+
+  it("requires resetOverrides, and checks every field of every entry", () => {
+    const { resetOverrides: _, ...missing } = valid;
+    expect(parseSettingsUpdate(missing)).toMatchObject({ ok: false });
+    const bad = parseSettingsUpdate({
+      ...valid,
+      resetOverrides: { claude: { weekday: 7, monthDay: 0, hour: 24, minute: 60 } },
+    });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) {
+      expect(bad.errors).toEqual(
+        expect.arrayContaining([
+          "resetOverrides.claude.weekday must be 0 (Sunday) to 6 (Saturday)",
+          "resetOverrides.claude.monthDay must be 1 to 31",
+          "resetOverrides.claude.hour must be 0 to 23",
+          "resetOverrides.claude.minute must be 0 to 59",
+        ]),
+      );
+    }
+    expect(
+      parseSettingsUpdate({ ...valid, resetOverrides: { "!!": { weekday: 1, monthDay: 1, hour: 0, minute: 0 } } }).ok,
+    ).toBe(false);
+  });
+
   it("accepts up to 20 alert thresholds, sorted", () => {
     expect(MAX_ALERT_THRESHOLDS).toBe(20);
     const thresholds = Array.from({ length: 20 }, (_, i) => 100 - i * 5);
@@ -371,7 +408,7 @@ describe("parseSettingsUpdate", () => {
   it("defaults nothing: every budget field is required", () => {
     const result = parseSettingsUpdate({});
     expect(result.ok).toBe(false);
-    expect(!result.ok && result.errors).toHaveLength(13);
+    expect(!result.ok && result.errors).toHaveLength(14);
     expect(!result.ok && result.errors).toContain(
       `hiddenProviders must be an array of at most ${MAX_PROVIDERS} provider ids`,
     );
@@ -649,5 +686,68 @@ describe("buildSettingsView", () => {
     expect(view.settings.limits).toEqual({});
     expect(view.groups).toEqual([]);
     expect(view.timeZone).toBe(config.reset.timeZone);
+  });
+});
+
+describe("per-provider reset", () => {
+  const base = getConfig();
+
+  it("resetFor falls back to the shared reset without an override", () => {
+    const config = { ...base, resetOverrides: {} };
+    expect(resetFor(config, "claude")).toEqual(config.reset);
+  });
+
+  it("resetFor lays a provider's override over the shared period and time zone", () => {
+    const config = {
+      ...base,
+      reset: { ...base.reset, period: "weekly" as const, timeZone: "Europe/Budapest" },
+      resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 15 } },
+    };
+    expect(resetFor(config, "claude")).toEqual({
+      period: "weekly",
+      timeZone: "Europe/Budapest",
+      weekday: 4,
+      monthDay: 1,
+      hour: 9,
+      minute: 15,
+    });
+    expect(resetFor(config, "openai")).toEqual(config.reset);
+  });
+
+  it("configForProvider carries the provider's reset", () => {
+    const config = { ...base, resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } } };
+    expect(configForProvider(config, "claude").reset.weekday).toBe(4);
+    expect(configForProvider(config, "openai").reset).toEqual(config.reset);
+  });
+
+  it("stored overrides round-trip, and bad entries are dropped one by one", () => {
+    const defaults = settingsFromConfig(base);
+    const raw = JSON.stringify({
+      ...defaults,
+      resetOverrides: {
+        Claude: { weekday: 4, monthDay: 1, hour: 9, minute: 15 },
+        openai: { weekday: 9, monthDay: 1, hour: 0, minute: 0 },
+        "": { weekday: 1, monthDay: 1, hour: 0, minute: 0 },
+      },
+    });
+    expect(parseStoredSettings(raw, defaults).resetOverrides).toEqual({
+      claude: { weekday: 4, monthDay: 1, hour: 9, minute: 15 },
+    });
+  });
+
+  it("a document without the field keeps no override", () => {
+    const defaults = settingsFromConfig(base);
+    const { resetOverrides: _, ...withoutField } = defaults;
+    expect(parseStoredSettings(JSON.stringify(withoutField), defaults).resetOverrides).toEqual({});
+  });
+
+  it("applySettings and settingsFromConfig carry the overrides", () => {
+    const settings = {
+      ...settingsFromConfig(base),
+      resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } },
+    };
+    const config = applySettings(base, settings);
+    expect(config.resetOverrides).toEqual(settings.resetOverrides);
+    expect(settingsFromConfig(config).resetOverrides).toEqual(settings.resetOverrides);
   });
 });
