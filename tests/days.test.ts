@@ -75,6 +75,16 @@ describe("reportCheckpoints", () => {
     ]);
   });
 
+  it("bounds each provider by its own cycle start", () => {
+    const startOf = (providerId: string) =>
+      providerId === "claude" ? Date.parse("2026-09-20T00:00:00Z") : CYCLE_START;
+    const checkpoints = reportCheckpoints(report("2026-09-22T11:49:28Z", days), ZONE, startOf);
+    expect(checkpoints.filter((c) => c.providerId === "claude").map((c) => c.ts)).toEqual([
+      Date.parse("2026-09-21T22:00:00Z"),
+    ]);
+    expect(checkpoints.filter((c) => c.providerId === "openai")).toHaveLength(1);
+  });
+
   it("leaves the day in progress to the report itself", () => {
     expect(reportCheckpoints(report("2026-09-21T21:59:59Z", days), ZONE, CYCLE_START)).toHaveLength(1);
     // A report made right at midnight already closes the day before it: for both providers.

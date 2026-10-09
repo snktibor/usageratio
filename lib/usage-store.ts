@@ -1,7 +1,7 @@
 import type { UsageEvent } from "@/lib/aggregate";
 import { MAX_MACHINES } from "@/lib/config";
 import type { KnownMachine } from "@/lib/dashboard";
-import { reportCheckpoints } from "@/lib/days";
+import { type CycleStart, reportCheckpoints } from "@/lib/days";
 import { type CycleSummary, HISTORY_RETENTION, parseCycleSummary, serializeCycleSummary } from "@/lib/history";
 import { type OfficialUsageUpdate, officialUsageField, storedEntryFor } from "@/lib/official-usage";
 import { MAX_PROVIDERS, mergeProviderIds, normalizeProviderId } from "@/lib/providers";
@@ -189,7 +189,7 @@ async function checkRegistryCaps(report: UsageReport, heartbeat: boolean): Promi
 /**
  * Persists one report, and the checkpoints of its split by day inside its
  * cycle (`cycle`: the time zone the clients split the days in, and the start
- * of the cycle the report falls in; null stores the report alone).
+ * of the cycle the report falls in, or each provider's; null stores the report alone).
  * `duplicate` is true when the identical report was already stored;
  * `newGroup` when its group was unknown and got registered with a random colour.
  *
@@ -207,7 +207,7 @@ export async function storeReport(
   report: UsageReport,
   now: Date,
   retentionDays: number,
-  cycle: { timeZone: string; startMs: number } | null,
+  cycle: { timeZone: string; startMs: CycleStart } | null,
 ): Promise<StoreReportResult> {
   const providers = Object.entries(report.providers);
   const heartbeat = providers.length === 0;
@@ -218,8 +218,11 @@ export async function storeReport(
   if (refused === "too_many_machines") return { ok: false, refused, limit: MAX_MACHINES };
 
   const oldestMs = now.getTime() - retentionDays * DAY_MS;
+  const startOf = cycle && (typeof cycle.startMs === "number" ? () => cycle.startMs as number : cycle.startMs);
   const checkpoints =
-    cycle && !heartbeat ? reportCheckpoints(report, cycle.timeZone, Math.max(cycle.startMs, oldestMs)) : [];
+    cycle && startOf && !heartbeat
+      ? reportCheckpoints(report, cycle.timeZone, (providerId) => Math.max(startOf(providerId), oldestMs))
+      : [];
 
   const tx = getRedis().multi();
   const plan = new TxPlan();

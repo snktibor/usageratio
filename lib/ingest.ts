@@ -1,6 +1,7 @@
 import { getConfig, type TokenMode } from "@/lib/config";
 import { getCycle } from "@/lib/cycle";
-import { resolveConfig } from "@/lib/settings";
+import { earliestCycle } from "@/lib/provider-cycles";
+import { resetFor, resolveConfig } from "@/lib/settings";
 import { loadRawSettings, type StoreReportRefusal, storeReport } from "@/lib/usage-store";
 import { parseUsageReport, type UsageReport } from "@/lib/validation";
 
@@ -30,7 +31,7 @@ export type IngestResult =
       newGroup: boolean;
       newProviders: string[];
       heartbeat: boolean;
-      /** The cycle `now` falls in, when the settings could be read. */
+      /** The earliest current cycle among the report's providers (the shared reset's for a heartbeat), when the settings could be read. */
       cycle: { start: Date; end: Date } | null;
       tokenMode: TokenMode;
     };
@@ -44,8 +45,8 @@ export async function ingestReport(body: unknown, now: Date): Promise<IngestResu
   // A failed read falls back to the env/default zone and skips the cycle
   // lookup entirely, so the report is still stored, just without checkpoints.
   const rawSettings = await loadRawSettings().catch(() => undefined);
-  const reset = rawSettings === undefined ? null : resolveConfig(config, rawSettings).reset;
-  const timeZone = reset?.timeZone ?? config.reset.timeZone;
+  const resolved = rawSettings === undefined ? null : resolveConfig(config, rawSettings);
+  const timeZone = resolved?.reset.timeZone ?? config.reset.timeZone;
 
   const parsed = parseUsageReport(body, {
     now,
@@ -55,17 +56,20 @@ export async function ingestReport(body: unknown, now: Date): Promise<IngestResu
   });
   if (!parsed.ok) return { ok: false, errors: parsed.errors };
 
-  // The cycle the report falls in bounds its checkpoints (lib/days.ts). A report
-  // must not fail over it: without the settings it is stored alone, and the
-  // next report brings the same checkpoints along.
-  const reportCycle = reset && {
-    timeZone: reset.timeZone,
-    startMs: getCycle(new Date(parsed.report.timestampMs), reset).start.getTime(),
+  // The cycle the report falls in bounds its checkpoints (lib/days.ts): each
+  // provider's own, since a provider can have its own reset. A report must
+  // not fail over it: without the settings it is stored alone, and the next
+  // report brings the same checkpoints along.
+  const reportAt = new Date(parsed.report.timestampMs);
+  const reportCycle = resolved && {
+    timeZone: resolved.reset.timeZone,
+    startMs: (providerId: string) => getCycle(reportAt, resetFor(resolved, providerId)).start.getTime(),
   };
 
   const stored = await storeReport(parsed.report, now, config.retentionDays, reportCycle);
   if (!stored.ok) return stored;
 
-  const cycle = reset && getCycle(now, reset);
+  // The earliest current cycle among the report's providers: what the client counted from.
+  const cycle = resolved && earliestCycle(now, resolved, Object.keys(parsed.report.providers)).cycle;
   return { report: parsed.report, ...stored, cycle, tokenMode: config.tokenMode };
 }
