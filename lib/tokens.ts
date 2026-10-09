@@ -38,18 +38,18 @@ export const LAST_USED_REFRESH_MS = 60 * 60 * 1000;
 export const REVOKED_RETENTION_DAYS = 90;
 
 /**
- * What a token may do: "ingest" reports usage (POST /api/usage) and reads,
- * "read" only reads (GET /api/status, for the macOS menu bar app), so one
- * that leaks from a laptop's keychain cannot write fake reports.
+ * "ingest" reports usage; "read" only reads (the menu bar app's status);
+ * "official" reads too, and uploads a provider's own usage percentage
+ * (POST /api/official-usage/report). Neither of the last two may report tokens.
  */
-export type TokenScope = "ingest" | "read";
-export const TOKEN_SCOPES: readonly TokenScope[] = ["ingest", "read"];
+export type TokenScope = "ingest" | "read" | "official";
+export const TOKEN_SCOPES: readonly TokenScope[] = ["ingest", "read", "official"];
 
 export interface MachineToken {
   /** Public, stable across the token's life: `tk_` + 8 base32 characters. Never secret. */
   id: string;
   label: string;
-  /** Bound machine (POST /api/usage's `machineId`), or null for a token any machine may use. Always null for "read". */
+  /** Bound machine (POST /api/usage's `machineId`), or null for a token any machine may use. Always null for "read" and "official". */
   machineId: string | null;
   /** Absent in entries stored before scopes existed: those read as "ingest", which is what they could do. */
   scope: TokenScope;
@@ -114,7 +114,7 @@ function parseStored(raw: string): MachineToken | null {
     id: entry.id,
     label: entry.label,
     machineId: typeof entry.machineId === "string" ? entry.machineId : null,
-    scope: entry.scope === "read" ? "read" : "ingest",
+    scope: entry.scope === "read" || entry.scope === "official" ? entry.scope : "ingest",
     createdAt: entry.createdAt,
     lastUsedAt: typeof entry.lastUsedAt === "number" ? entry.lastUsedAt : null,
     revokedAt: typeof entry.revokedAt === "number" ? entry.revokedAt : null,
@@ -157,7 +157,7 @@ export async function createToken(
   const record: MachineToken = {
     id,
     label,
-    machineId: scope === "read" ? null : machineId,
+    machineId: scope === "ingest" ? machineId : null,
     scope,
     createdAt: now.getTime(),
     lastUsedAt: null,

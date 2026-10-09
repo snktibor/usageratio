@@ -103,6 +103,7 @@
     "tokens_scope_field": "Access",
     "tokens_scope_ingest": "Reports usage",
     "tokens_scope_read": "Read only (menu bar app)",
+    "tokens_scope_official": "Read and upload official usage (menu bar app)",
     "tokens_create_button": "Create token",
     "tokens_label_problem": "Enter a label of 1-{max} characters.",
     "tokens_created_heading": "New token",

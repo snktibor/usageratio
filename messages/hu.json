@@ -103,6 +103,7 @@
     "tokens_scope_field": "Jogosultság",
     "tokens_scope_ingest": "Jelentést küld",
     "tokens_scope_read": "Csak olvasás (menüsáv app)",
+    "tokens_scope_official": "Olvasás és hivatalos % feltöltése (menüsáv app)",
     "tokens_create_button": "Token létrehozása",
     "tokens_label_problem": "Adj meg egy 1-{max} karakteres címkét.",
     "tokens_created_heading": "Új token",

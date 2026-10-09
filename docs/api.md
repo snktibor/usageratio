@@ -65,7 +65,7 @@ The full `ApiErrorCode` union (`lib/api.ts`):
 | `sudo_invalid` | 401 | Wrong PIN presented to `POST /api/auth/sudo` (`attemptsLeft` when known). |
 | `too_many_groups` / `too_many_providers` / `too_many_machines` / `too_many_tokens` | 422 | A registry cap would be exceeded; `limit` gives the cap. |
 | `machine_mismatch` | 403 | A machine-bound per-machine token reported for a different `machineId`. |
-| `read_only_token` | 403 | A "read" per-machine token tried to report (`POST /api/usage`); it may only read. |
+| `read_only_token` | 403 | A "read" or "official" per-machine token tried to report (`POST /api/usage`); it may not report tokens. |
 | `no_token` | 404 | Nothing stored to reveal (`POST /api/api-token/reveal`). |
 | `token_unreadable` | 409 | The stored API token can't be decrypted with any known key. |
 | `groups_have_reports` | 409 | A settings save tried to remove a group that still has stored reports. |
@@ -368,9 +368,11 @@ never again. See [clients.md](clients.md#per-machine-tokens-vs-the-master-token)
 - **`GET /api/tokens`** → `{ "tokens": [{id, label, machineId, scope, createdAt, lastUsedAt, revokedAt}] }`
   (never the token or its hash). `401` no session · `503` Redis down.
 - **`POST /api/tokens`** (session + sudo, same-origin) `{ "label": "…", "machineId"?: "…", "scope"?:
-  "ingest" | "read" }` → `201 { "id", "token" }`. `scope` defaults to `"ingest"`; a `"read"` token (the
+  "ingest" | "read" | "official" }` → `201 { "id", "token" }`. `scope` defaults to `"ingest"`; a `"read"` token (the
   [menu bar app](#get-apistatus)'s) only reads `GET /api/status` and `GET /api/usage`, is refused by
-  `POST /api/usage` with `403 read_only_token`, and takes no `machineId`. `400` invalid body · `401` no
+  `POST /api/usage` with `403 read_only_token`, and takes no `machineId`. An `"official"` token reads the
+  same and may also upload a provider's own usage percentage (`POST /api/official-usage/report`); it is
+  refused by `POST /api/usage` likewise and takes no `machineId`. `400` invalid body · `401` no
   session · `403` foreign origin, demo mode, or no sudo grant · `413`/`415` bad body ·
   `422 too_many_tokens` (with `limit`, 100) · `503` Redis down.
 - **`DELETE /api/tokens/[id]`** (session + sudo, same-origin) → `200 { "ok": true }`, idempotent.

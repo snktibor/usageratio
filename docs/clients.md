@@ -133,6 +133,9 @@ A token created with the access **Read only (menu bar app)** (`scope: "read"`) i
 reporting: `GET /api/status` and `GET /api/usage` accept it, `POST /api/usage` refuses it with
 `403 read_only_token`. It is what the menu bar app below keeps in its keychain.
 
+An **official** token (`scope: "official"`) reads the same, and is also what the menu bar app needs to
+upload the providers' own usage percentages; it too is refused by `POST /api/usage`.
+
 ## The macOS menu bar app
 
 `clients/macos` is a small native app (SwiftUI, no dependencies) that shows one provider's usage

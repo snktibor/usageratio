@@ -198,6 +198,14 @@ describe("POST|GET /api/usage", () => {
       expect(response.status).toBe(201);
     });
 
+    it("refuses an official token with 403 read_only_token", async () => {
+      const issued = await createToken("menu bar", null, new Date(), "official");
+      if (!issued.ok) throw new Error("unreachable");
+      const response = await POST(post(validReport(), { authorization: `Bearer ${issued.token}` }));
+      expect(response.status).toBe(403);
+      expect((await response.json()).error).toBe("read_only_token");
+    });
+
     it("answers 401 once that token is revoked", async () => {
       const issued = await createToken("laptop", null, new Date());
       if (!issued.ok) throw new Error("unreachable");

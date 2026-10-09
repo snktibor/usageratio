@@ -103,6 +103,7 @@
     "tokens_scope_field": "Berechtigung",
     "tokens_scope_ingest": "Meldet Nutzung",
     "tokens_scope_read": "Nur lesen (Menüleisten-App)",
+    "tokens_scope_official": "Lesen und offizielle Nutzung hochladen (Menüleisten-App)",
     "tokens_create_button": "Token erstellen",
     "tokens_label_problem": "Gib eine Bezeichnung mit 1-{max} Zeichen ein.",
     "tokens_created_heading": "Neues Token",
