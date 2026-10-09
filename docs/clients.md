@@ -141,8 +141,10 @@ uploads the providers' own usage percentages.
 
 `clients/macos` is a small native app (SwiftUI, no dependencies) that shows one provider's usage
 percentage in the macOS menu bar, and every provider's figures, sub-limits, pace and the reset
-countdown in a popover. It reads [`GET /api/status`](api.md#get-apistatus) every five minutes with a
-read-only token. It is not part of the setup packages: build it on the Mac that runs it — the
+countdown in a popover. It reads [`GET /api/status`](api.md#get-apistatus) every five minutes, and
+can report the Mac's own usage hourly with the same reporter core as the scripts, in place of the
+cron job (its README says how to move over without losing a figure). It is not part of the setup
+packages: build it on the Mac that runs it — the
 Command Line Tools are enough, no Xcode or Apple Developer account. See
 [clients/macos/README.md](../clients/macos/README.md).
 
