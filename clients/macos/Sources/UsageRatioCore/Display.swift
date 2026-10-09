@@ -142,4 +142,73 @@ public enum Display {
         let top = values.max() ?? 0
         return values.map { top > 0 ? max(0, $0) / top : 0 }
     }
+
+    /// "41.2M / 70M tokens" while there is a limit, "41.2M tokens" otherwise.
+    public static func tokensOfLimitText(_ tokens: Double, limit: Double?, strings: Strings) -> String {
+        let compact = { (value: Double) in value.formatted(.number.notation(.compactName).locale(strings.locale)) }
+        guard let limit, limit > 0 else { return tokensText(tokens, strings: strings) }
+        return strings.tokensOfLimit(compact(tokens), compact(limit))
+    }
+
+    /// The status badge's wording.
+    public static func statusText(_ status: QuotaStatus, strings: Strings) -> String {
+        switch status {
+        case .good: strings.statusGood
+        case .warning: strings.statusWarning
+        case .critical: strings.statusCritical
+        }
+    }
+
+    /// One row of the breakdown: a group, or a machine under its group.
+    public struct BreakdownRow: Equatable, Sendable {
+        public enum Kind: Equatable, Sendable { case group, machine }
+        public let kind: Kind
+        public let id: String
+        public let percent: Double?
+        public let tokens: Double
+        /// Its bar against the heaviest group (or machine, when the machines stand alone).
+        public let fraction: Double
+        /// A machine's newest report; nil for a group.
+        public let lastReportAt: Date?
+        public let scope: MenuBarScope
+    }
+
+    /// The breakdown as a tree: every group with its machines under it, in the server's order.
+    /// With one group (or none) the machines stand alone, since the group would only repeat the total.
+    /// At most `limit` machines are listed; the rest is counted in `hidden`.
+    public static func breakdown(
+        _ provider: StatusPayload.Provider, limit: Int
+    ) -> (rows: [BreakdownRow], hidden: Int) {
+        let value = { (percent: Double?, tokens: Double) in percent ?? tokens }
+        let nested = provider.groups.count > 1
+        let shown = Array(provider.machines.prefix(limit))
+        let hidden = provider.machines.count - shown.count
+        let top = (nested ? provider.groups.map { value($0.percent, $0.tokens) } : shown.map { value($0.percent, $0.tokens) })
+            .max() ?? 0
+        let fraction = { (percent: Double?, tokens: Double) in top > 0 ? max(0, value(percent, tokens)) / top : 0 }
+        let machineRow = { (machine: StatusPayload.Machine) in
+            BreakdownRow(
+                kind: .machine, id: machine.id, percent: machine.percent, tokens: machine.tokens,
+                fraction: fraction(machine.percent, machine.tokens), lastReportAt: machine.lastReportAt,
+                scope: .machine(machine.id)
+            )
+        }
+        guard nested else { return (shown.map(machineRow), hidden) }
+
+        var rows: [BreakdownRow] = []
+        var placed = Set<String>()
+        for group in provider.groups {
+            rows.append(BreakdownRow(
+                kind: .group, id: group.id, percent: group.percent, tokens: group.tokens,
+                fraction: fraction(group.percent, group.tokens), lastReportAt: nil, scope: .group(group.id)
+            ))
+            for machine in shown where machine.groupId == group.id {
+                rows.append(machineRow(machine))
+                placed.insert(machine.id)
+            }
+        }
+        // A machine whose group is not listed (should not happen): at the end, rather than lost.
+        rows += shown.filter { !placed.contains($0.id) }.map(machineRow)
+        return (rows, hidden)
+    }
 }

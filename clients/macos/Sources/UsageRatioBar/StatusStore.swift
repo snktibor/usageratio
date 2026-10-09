@@ -29,12 +29,14 @@ final class StatusStore {
         didSet { UserDefaults.standard.set(selectedScope.storage, forKey: Keys.scope) }
     }
 
-    let strings = Strings.forPreferredLanguages()
+    let strings: Strings
 
     @ObservationIgnored private let client = StatusClient()
     @ObservationIgnored private var loop: Task<Void, Never>?
     @ObservationIgnored private var clock: Task<Void, Never>?
     @ObservationIgnored private var failures = 0
+    /// A fixed payload for previews and snapshots: never polls.
+    @ObservationIgnored private var previewing = false
 
     private enum Keys {
         static let server = "serverURL"
@@ -43,6 +45,7 @@ final class StatusStore {
     }
 
     init() {
+        strings = Strings.forPreferredLanguages()
         serverURL = UserDefaults.standard.string(forKey: Keys.server).flatMap(normalizedServerURL)
         selectedProviderId = UserDefaults.standard.string(forKey: Keys.provider)
         selectedScope = MenuBarScope(storage: UserDefaults.standard.string(forKey: Keys.scope))
@@ -60,6 +63,21 @@ final class StatusStore {
         }
         restart()
     }
+
+#if DEBUG
+    /// A store that shows `payload` as of `now` and never touches the network or the keychain:
+    /// for previews and the offscreen snapshots that check the card's layout.
+    init(preview payload: StatusPayload, now: Date, strings: Strings, scope: MenuBarScope = .total) {
+        self.strings = strings
+        self.payload = payload
+        self.now = now
+        self.lastSuccess = now
+        self.selectedScope = scope
+        self.serverURL = URL(string: "https://usage.example.com")
+        self.hasToken = true
+        self.previewing = true
+    }
+#endif
 
     var selectedProvider: StatusPayload.Provider? {
         Display.selectedProvider(in: payload, id: selectedProviderId)
@@ -83,6 +101,7 @@ final class StatusStore {
 
     /// A lookup right now (after `delay`), and the five-minute rhythm from there.
     func restart(after delay: TimeInterval = 0) {
+        guard !previewing else { return }
         loop?.cancel()
         loop = Task { [weak self] in
             if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
