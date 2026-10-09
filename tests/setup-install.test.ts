@@ -40,7 +40,13 @@ interface Stub {
   server: Server;
 }
 
-async function startServer(): Promise<Stub> {
+const DEFAULT_CYCLE = {
+  tokenMode: "snapshot",
+  providers: ["claude"],
+  cycle: { sinceDate: "2026-09-21", timeZone: "Europe/Budapest" },
+};
+
+async function startServer(cycleResponse: unknown = DEFAULT_CYCLE): Promise<Stub> {
   const reports: Record<string, unknown>[] = [];
   const server = createServer((request, response) => {
     if (request.headers.authorization !== `Bearer ${TOKEN}`) {
@@ -48,13 +54,7 @@ async function startServer(): Promise<Stub> {
       return;
     }
     if (request.method === "GET") {
-      response.writeHead(200, { "Content-Type": "application/json" }).end(
-        JSON.stringify({
-          tokenMode: "snapshot",
-          providers: ["claude"],
-          cycle: { sinceDate: "2026-09-21", timeZone: "Europe/Budapest" },
-        }),
-      );
+      response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(cycleResponse));
       return;
     }
     let body = "";
@@ -192,6 +192,45 @@ describe.skipIf(process.platform === "win32").each(OS_CASES)(
       expect(stub.reports).toEqual([
         expect.objectContaining({ machineId: hostMachineId, groupId: "Otthoni gép", providers: { claude: 1234 } }),
       ]);
+    });
+
+    it("counts every provider from its own cycle start", async () => {
+      await new Promise((resolve) => stub.server.close(resolve));
+      stub = await startServer({
+        tokenMode: "snapshot",
+        providers: ["claude", "openai"],
+        cycle: {
+          start: "2026-09-20T22:00:00.000Z",
+          end: "2026-09-27T22:00:00.000Z",
+          sinceDate: "2026-09-21",
+          timeZone: "Europe/Budapest",
+          providers: {
+            // Claude resets on Thursday at midnight in Budapest; OpenAI on Monday.
+            claude: { start: "2026-09-23T22:00:00.000Z", end: "2026-09-30T22:00:00.000Z" },
+            openai: { start: "2026-09-20T22:00:00.000Z", end: "2026-09-27T22:00:00.000Z" },
+          },
+        },
+      });
+      tool(
+        "ccusage",
+        `cat <<'JSON'\n${JSON.stringify({
+          daily: [
+            {
+              date: "2026-09-21",
+              agents: [
+                { agent: "claude", totalTokens: 1234 },
+                { agent: "codex", totalTokens: 50 },
+              ],
+            },
+            { date: "2026-09-24", agents: [{ agent: "claude", totalTokens: 100 }] },
+          ],
+        })}\nJSON`,
+      );
+
+      const result = await run(await unpack("auto", "Home"), env({ USAGERATIO_API_TOKEN: TOKEN }));
+
+      expect(result.code).toBe(0);
+      expect(stub.reports).toEqual([expect.objectContaining({ providers: { claude: 100, openai: 50 } })]);
     });
 
     it("installs the manual reporter behind a sync-tokens alias, once", async () => {
