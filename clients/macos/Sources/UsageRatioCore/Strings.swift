@@ -67,6 +67,22 @@ public struct Strings: Sendable {
     public let invalidURL: String
     public let missingToken: String
 
+    // The card.
+    /// under the big percentage
+    public let used: String
+    /// "41.2M / 70M tokens": used and the limit, compact
+    public let tokensOfLimit: @Sendable (String, String) -> String
+    /// "Updated 5 min ago", in the footer
+    public let updated: @Sendable (String) -> String
+    /// The status badge in the header.
+    public let statusGood: String
+    public let statusWarning: String
+    public let statusCritical: String
+    /// The tooltip of the icon that marks what the menu bar shows.
+    public let shownInMenuBar: String
+    /// Above a provider's sub-limits, as the dashboard names them.
+    public let subLimitsSection: String
+
     /// "en", "hu" or "de": the one the strings and the formatters use.
     public let languageCode: String
 
@@ -147,6 +163,14 @@ public struct Strings: Sendable {
         saved: "Saved",
         invalidURL: "Enter an https:// address.",
         missingToken: "Paste a token.",
+        used: "used",
+        tokensOfLimit: { "\($0) / \($1) tokens" },
+        updated: { "Updated \($0)" },
+        statusGood: "On track",
+        statusWarning: "Warning",
+        statusCritical: "Critical",
+        shownInMenuBar: "Shown in the menu bar",
+        subLimitsSection: "Sub-limits",
         languageCode: "en"
     )
 
@@ -199,6 +223,14 @@ public struct Strings: Sendable {
         saved: "Elmentve",
         invalidURL: "Adj meg egy https:// címet.",
         missingToken: "Illessz be egy tokent.",
+        used: "felhasználva",
+        tokensOfLimit: { "\($0) / \($1) token" },
+        updated: { "Frissítve: \($0)" },
+        statusGood: "Rendben",
+        statusWarning: "Figyelem",
+        statusCritical: "Kritikus",
+        shownInMenuBar: "Ez látszik a menüsávban",
+        subLimitsSection: "Alkeretek",
         languageCode: "hu"
     )
 
@@ -251,6 +283,14 @@ public struct Strings: Sendable {
         saved: "Gesichert",
         invalidURL: "Gib eine https://-Adresse ein.",
         missingToken: "Füge einen Token ein.",
+        used: "verbraucht",
+        tokensOfLimit: { "\($0) / \($1) Tokens" },
+        updated: { "Aktualisiert \($0)" },
+        statusGood: "Im Rahmen",
+        statusWarning: "Warnung",
+        statusCritical: "Kritisch",
+        shownInMenuBar: "In der Menüleiste",
+        subLimitsSection: "Unterkontingente",
         languageCode: "de"
     )
 }

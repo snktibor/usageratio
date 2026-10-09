@@ -154,3 +154,56 @@ private func fixturePayload() throws -> StatusPayload {
     #expect(Display.barFractions([]) == [])
 }
 
+
+@Test func nestsTheMachinesUnderTheirGroups() throws {
+    let claude = try fixturePayload().providers[0]
+    let (rows, hidden) = Display.breakdown(claude, limit: 8)
+    #expect(hidden == 0)
+    #expect(rows.map(\.id) == ["Personal", "mac-studio", "macbook", "Work", "work-pc"])
+    #expect(rows.map(\.kind) == [.group, .machine, .machine, .group, .machine])
+    // Every bar against the heaviest group, so a machine's bar is a part of its group's.
+    #expect(rows[0].fraction == 1)
+    #expect(abs(rows[1].fraction - 33.3 / 41.6) < 0.001)
+    #expect(rows[2].lastReportAt == claude.machines[1].lastReportAt)
+    #expect(rows[0].lastReportAt == nil)
+    #expect(rows[3].scope == .group("Work"))
+    #expect(rows[4].scope == .machine("work-pc"))
+
+    // The cap counts machines, not groups: the groups still all appear.
+    let (capped, left) = Display.breakdown(claude, limit: 2)
+    #expect(capped.map(\.id) == ["Personal", "mac-studio", "macbook", "Work"])
+    #expect(left == 1)
+}
+
+@Test func listsTheMachinesAloneUnderOneGroup() throws {
+    let json = """
+    {"v":1,"generatedAt":"2026-10-07T09:12:00Z",
+     "cycle":{"period":"weekly","start":"2026-10-05T07:00:00Z","end":"2026-10-12T07:00:00Z","timeZone":"UTC"},
+     "providers":[{"id":"claude","label":"X","percent":null,"source":null,"estimatedPercent":null,
+       "asOf":"2026-10-07T09:12:00Z","tokens":30,"limit":null,"status":null,"pace":null,"subLimits":[],
+       "groups":[{"id":"Solo","percent":null,"tokens":30}],
+       "machines":[{"id":"a","groupId":"Solo","percent":null,"tokens":20,"lastReportAt":"2026-10-07T09:00:00Z"},
+                   {"id":"b","groupId":"Solo","percent":null,"tokens":10,"lastReportAt":"2026-10-07T09:00:00Z"}],
+       "lastReportAt":"2026-10-07T09:00:00Z"}]}
+    """
+    let solo = try StatusPayload.decode(Data(json.utf8)).providers[0]
+    let (rows, hidden) = Display.breakdown(solo, limit: 8)
+    #expect(rows.map(\.id) == ["a", "b"])
+    #expect(rows.allSatisfy { $0.kind == .machine })
+    // No percentage: the bars follow the tokens, against the heaviest machine.
+    #expect(rows.map(\.fraction) == [1, 0.5])
+    #expect(hidden == 0)
+    #expect(Display.breakdown(provider(percent: 50), limit: 8).rows.isEmpty)
+}
+
+@Test func statesTheTokensAgainstTheLimit() {
+    #expect(Display.tokensOfLimitText(41_200_000, limit: 70_000_000, strings: .en) == "41M / 70M tokens")
+    #expect(Display.tokensOfLimitText(1_500_000, limit: nil, strings: .en) == "1.5M tokens")
+    #expect(Display.tokensOfLimitText(1_500_000, limit: 0, strings: .en) == "1.5M tokens")
+}
+
+@Test func namesTheStatus() {
+    #expect(Display.statusText(.good, strings: .hu) == "Rendben")
+    #expect(Display.statusText(.warning, strings: .en) == "Warning")
+    #expect(Display.statusText(.critical, strings: .de) == "Kritisch")
+}
