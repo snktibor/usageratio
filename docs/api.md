@@ -66,7 +66,7 @@ The full `ApiErrorCode` union (`lib/api.ts`):
 | `sudo_invalid` | 401 | Wrong PIN presented to `POST /api/auth/sudo` (`attemptsLeft` when known). |
 | `too_many_groups` / `too_many_providers` / `too_many_machines` / `too_many_tokens` | 422 | A registry cap would be exceeded; `limit` gives the cap. |
 | `machine_mismatch` | 403 | A machine-bound per-machine token reported for a different `machineId`. |
-| `read_only_token` | 403 | A "read" or "official" per-machine token tried to report (`POST /api/usage`); it may not report tokens. |
+| `read_only_token` | 403 | A "read" per-machine token tried to report (`POST /api/usage`); it may not report tokens. |
 | `official_scope_required` | 403 | `POST /api/official-usage/report` needs an "official" token. |
 | `period_not_weekly` | 409 | An official report was sent to a monthly dashboard; the figure is a weekly window. |
 | `stale_reading` | 409 | An official report whose window already reset, or that was read before the provider's current cycle began. |
@@ -396,9 +396,10 @@ never again. See [clients.md](clients.md#per-machine-tokens-vs-the-master-token)
 - **`POST /api/tokens`** (session + sudo, same-origin) `{ "label": "…", "machineId"?: "…", "scope"?:
   "ingest" | "read" | "official" }` → `201 { "id", "token" }`. `scope` defaults to `"ingest"`; a `"read"` token (the
   [menu bar app](#get-apistatus)'s) only reads `GET /api/status` and `GET /api/usage`, is refused by
-  `POST /api/usage` with `403 read_only_token`, and takes no `machineId`. An `"official"` token reads the
-  same and may also upload a provider's own usage percentage (`POST /api/official-usage/report`); it is
-  refused by `POST /api/usage` likewise and takes no `machineId`. `400` invalid body · `401` no
+  `POST /api/usage` with `403 read_only_token`, and takes no `machineId`. An `"official"` token (the
+  menu bar app's one key) reads the same, reports through `POST /api/usage` like an ingest token
+  (bound to its `machineId` when given one), and may also upload a provider's own usage percentage
+  (`POST /api/official-usage/report`). `400` invalid body · `401` no
   session · `403` foreign origin, demo mode, or no sudo grant · `413`/`415` bad body ·
   `422 too_many_tokens` (with `limit`, 100) · `503` Redis down.
 - **`DELETE /api/tokens/[id]`** (session + sudo, same-origin) → `200 { "ok": true }`, idempotent.

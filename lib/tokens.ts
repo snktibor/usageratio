@@ -38,9 +38,10 @@ export const LAST_USED_REFRESH_MS = 60 * 60 * 1000;
 export const REVOKED_RETENTION_DAYS = 90;
 
 /**
- * "ingest" reports usage; "read" only reads (the menu bar app's status);
- * "official" reads too, and uploads a provider's own usage percentage
- * (POST /api/official-usage/report). Neither of the last two may report tokens.
+ * "ingest" reports usage; "read" only reads (the menu bar app's status), and may
+ * not report; "official" is the menu bar app's one token for everything: it reads,
+ * reports the machine's usage like an ingest token, and uploads a provider's own
+ * usage percentage (POST /api/official-usage/report).
  */
 export type TokenScope = "ingest" | "read" | "official";
 export const TOKEN_SCOPES: readonly TokenScope[] = ["ingest", "read", "official"];
@@ -49,7 +50,7 @@ export interface MachineToken {
   /** Public, stable across the token's life: `tk_` + 8 base32 characters. Never secret. */
   id: string;
   label: string;
-  /** Bound machine (POST /api/usage's `machineId`), or null for a token any machine may use. Always null for "read" and "official". */
+  /** Bound machine (POST /api/usage's `machineId`), or null for a token any machine may use. Always null for "read", which reports nothing. */
   machineId: string | null;
   /** Absent in entries stored before scopes existed: those read as "ingest", which is what they could do. */
   scope: TokenScope;
@@ -157,7 +158,7 @@ export async function createToken(
   const record: MachineToken = {
     id,
     label,
-    machineId: scope === "ingest" ? machineId : null,
+    machineId: scope === "read" ? null : machineId,
     scope,
     createdAt: now.getTime(),
     lastUsedAt: null,

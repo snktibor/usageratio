@@ -194,12 +194,23 @@ describe("authenticateToken", () => {
     expect(token).toMatchObject({ scope: "read", machineId: null });
   });
 
-  it("issues an official token unbound, even when a machine is passed, and verifies it with that scope", async () => {
+  it("issues an official token bound to its machine, and verifies it with that scope", async () => {
     const created = await createToken("menu bar", "mac-studio", new Date(0), "official");
     if (!created.ok) throw new Error("unreachable");
     const [token] = await listTokens();
-    expect(token).toMatchObject({ scope: "official", machineId: null });
-    expect(await authenticateToken(created.token, new Date(0))).toMatchObject({ ok: true, scope: "official" });
+    expect(token).toMatchObject({ scope: "official", machineId: "mac-studio" });
+    expect(await authenticateToken(created.token, new Date(0))).toMatchObject({
+      ok: true,
+      scope: "official",
+      machineId: "mac-studio",
+    });
+  });
+
+  it("issues a read token unbound, even when a machine is passed", async () => {
+    const created = await createToken("viewer", "mac-studio", new Date(0), "read");
+    if (!created.ok) throw new Error("unreachable");
+    const [token] = await listTokens();
+    expect(token).toMatchObject({ scope: "read", machineId: null });
   });
 
   it("parses a stored official entry back as official", async () => {

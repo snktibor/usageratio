@@ -131,10 +131,11 @@ client's next report fail with a generic `401` — nothing on the client side di
 
 A token created with the access **Read only (menu bar app)** (`scope: "read"`) is for reading, not
 reporting: `GET /api/status` and `GET /api/usage` accept it, `POST /api/usage` refuses it with
-`403 read_only_token`. It is what the menu bar app below keeps in its keychain.
+`403 read_only_token`. The menu bar app below can show the usage with it, nothing more.
 
-An **official** token (`scope: "official"`) reads the same, and is also what the menu bar app needs to
-upload the providers' own usage percentages; it too is refused by `POST /api/usage`.
+A **Menu bar app** token (`scope: "official"`) is the app's one key for everything: it reads the same,
+reports the machine's usage like any per-machine token (bind it to the machine the app runs on), and
+uploads the providers' own usage percentages.
 
 ## The macOS menu bar app
 
