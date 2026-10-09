@@ -63,6 +63,7 @@
     "group_name_rules": "A csoportnév 1–64 karakter lehet: betű, szám, szóköz, pont, kötőjel és aláhúzás, az elején betűvel vagy számmal.",
     "at_least_one_visible_account": "Legalább egy szolgáltatónak látszania kell a dashboardon.",
     "reset_time_format_error": "Add meg a reset időpontját óra:perc formában, például 00:00.",
+    "invalid_own_reset_time": "{label} saját nullázási idejét óra:perc alakban add meg, pl. 09:00.",
     "token_saved": "A token elmentve.",
     "token_modified": "A token módosítva.",
     "session_expired": "A munkamenet lejárt. Lépj be újra a PIN-kóddal, utána mentsd újra a tokent.",

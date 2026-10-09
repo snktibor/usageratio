@@ -63,6 +63,7 @@
     "group_name_rules": "The group name can be 1-64 characters: letter, number, space, dot, hyphen, underscore, starting with a letter or number.",
     "at_least_one_visible_account": "At least one provider must be visible on the dashboard.",
     "reset_time_format_error": "Provide the reset time in hour:minute format, e.g., 00:00.",
+    "invalid_own_reset_time": "Give {label}'s own reset time as hour:minute, e.g. 09:00.",
     "token_saved": "Token saved.",
     "token_modified": "Token modified.",
     "session_expired": "Session expired. Log in again with the PIN code, then save the token.",
