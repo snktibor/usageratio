@@ -4,7 +4,7 @@ import { getConfig } from "@/lib/config";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { deleteMachine, moveMachine } from "@/lib/manage-store";
 import { normalizeProviderId } from "@/lib/providers";
-import { resolveConfig } from "@/lib/settings";
+import { resetFor, resolveConfig } from "@/lib/settings";
 import { loadRawSettings } from "@/lib/usage-store";
 import { parseId } from "@/lib/validation";
 
@@ -79,7 +79,7 @@ export async function PATCH(request: Request, context: { params: Promise<Params>
       {
         merge: parsed.merge,
         mode: config.tokenMode,
-        reset: config.reset,
+        reset: resetFor(config, segments.providerId),
         retentionDays: config.retentionDays,
         now: new Date(),
       },

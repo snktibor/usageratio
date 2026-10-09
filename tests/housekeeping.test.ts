@@ -293,6 +293,60 @@ describe("runHousekeeping", () => {
       const report = await runHousekeeping(NOW, { dryRun: false });
       expect(report.history).toEqual({ archived: 0, ids: [] });
     });
+    describe("with a provider's own reset", () => {
+      // Claude resets Thursdays 09:00 UTC; the shared reset is Monday 00:00 UTC.
+      const OVERRIDE_NOW = new Date("2026-09-23T12:00:00Z");
+
+      async function seedOverride() {
+        const settings = {
+          ...settingsFromConfig(getConfig()),
+          resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } },
+        };
+        await getRedis().set("usage:settings", serializeSettings(settings, OVERRIDE_NOW));
+      }
+
+      async function reportAt(providerId: string, at: string) {
+        const result = await ingestReport(
+          {
+            machineId: "mac",
+            groupId: "Personal",
+            providers: { [providerId]: 100 },
+            timestamp: at,
+          },
+          new Date(at),
+        );
+        if (!result.ok) throw new Error(JSON.stringify(result));
+      }
+
+      it("archives each provider's previous cycle on its own boundaries", async () => {
+        await seedOverride();
+        await reportAt("claude", "2026-09-12T10:00:00Z");
+        await reportAt("openai", "2026-09-15T10:00:00Z");
+
+        const report = await runHousekeeping(OVERRIDE_NOW, { dryRun: false });
+
+        expect(report.history.ids.sort()).toEqual(["claude", "openai"]);
+        const history = await loadHistory(["claude", "openai"]);
+        expect(history.claude?.[0]).toMatchObject({
+          start: Date.parse("2026-09-10T09:00:00Z"),
+          end: Date.parse("2026-09-17T09:00:00Z"),
+        });
+        expect(history.openai?.[0]).toMatchObject({ start: Date.parse("2026-09-14T00:00:00Z") });
+      });
+
+      it("keeps an official entry of the provider's current cycle and drops one of its previous", async () => {
+        await seedOverride();
+        await getRedis().hset("usage:official", {
+          claude: JSON.stringify({ raw: "40", enteredAt: 1, cycleStartMs: Date.parse("2026-09-17T09:00:00Z") }),
+          "claude:sub": JSON.stringify({ raw: "30", enteredAt: 1, cycleStartMs: Date.parse("2026-09-10T09:00:00Z") }),
+        });
+
+        const report = await runHousekeeping(OVERRIDE_NOW, { dryRun: false });
+
+        expect(report.officialUsage.ids).toEqual(["claude:sub"]);
+        expect(await getRedis().hexists("usage:official", "claude")).toBe(1);
+      });
+    });
   });
 
   it("uses settingsFromConfig-shaped defaults without crashing when settings hold real limits", async () => {

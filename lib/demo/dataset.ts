@@ -638,6 +638,7 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
         minute: reset.minute,
         timeZone: reset.timeZone,
       },
+      resetOverrides: {},
       showRemaining: true,
       hiddenProviders: [],
       excludedProviders: { Lab: ["openai"] },

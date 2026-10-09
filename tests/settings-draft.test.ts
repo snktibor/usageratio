@@ -8,8 +8,10 @@ import {
   parseModelParts,
   parseSharePercent,
   parseTimeZone,
+  patchOwnReset,
   toRequest,
   withAlertThreshold,
+  withOwnReset,
 } from "@/components/settings/draft";
 import { getConfig } from "@/lib/config";
 import { buildSettingsView, MAX_ALERT_THRESHOLDS, MAX_GROUPS, MAX_LIMIT, parseSettingsUpdate } from "@/lib/settings";
@@ -320,5 +322,47 @@ describe("withAlertThreshold", () => {
     const full = Array.from({ length: MAX_ALERT_THRESHOLDS }, (_, i) => i + 1);
     expect(withAlertThreshold(full, "60")).toEqual({ problem: { code: "max_alert_thresholds_reached" } });
     expect(withAlertThreshold(full, "5")).toEqual({ thresholds: full });
+  });
+});
+
+describe("per-provider resets", () => {
+  const ownView = buildSettingsView(
+    {
+      ...config,
+      resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 5, source: "report" } },
+    },
+    [],
+    ["claude", "openai"],
+    {},
+  );
+  const draft = draftFrom(ownView);
+
+  it("draftFrom turns an override into editable text, keeping its source", () => {
+    expect(draft.resetOverrides).toEqual({ claude: { weekday: 4, monthDay: 1, time: "09:05", source: "report" } });
+  });
+
+  it("switching one on starts from the shared reset; switching it off removes it", () => {
+    const on = withOwnReset(draft, "openai", true);
+    expect(on.resetOverrides.openai).toEqual({ weekday: draft.weekday, monthDay: draft.monthDay, time: draft.time });
+    expect(withOwnReset(on, "openai", false).resetOverrides).not.toHaveProperty("openai");
+  });
+
+  it("an edit drops the report's source marker", () => {
+    const edited = patchOwnReset(draft, "claude", { time: "10:00" });
+    expect(edited.resetOverrides.claude).toEqual({ weekday: 4, monthDay: 1, time: "10:00" });
+  });
+
+  it("toRequest sends hour and minute, with the source while it is still there", () => {
+    const result = toRequest(draft);
+    if (!("request" in result)) throw new Error(JSON.stringify(result.problem));
+    expect(result.request.resetOverrides).toEqual({
+      claude: { weekday: 4, monthDay: 1, hour: 9, minute: 5, source: "report" },
+    });
+  });
+
+  it("refuses an own reset whose time is not HH:MM", () => {
+    expect(toRequest(patchOwnReset(draft, "claude", { time: "9" }))).toEqual({
+      problem: { code: "invalid_own_reset_time", label: "Claude" },
+    });
   });
 });

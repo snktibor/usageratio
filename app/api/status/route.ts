@@ -10,8 +10,9 @@ import { loadStatus } from "@/lib/status";
  *   Authorization: Bearer <token>
  *
  * Any valid bearer token is accepted: the shared USAGE_API_TOKEN, a
- * per-machine "ingest" token, or a "read" one minted for the menu bar app
- * (lib/tokens.ts), which can do nothing but this and GET /api/usage.
+ * per-machine "ingest" token, or a "read" or "official" one minted for the menu bar
+ * app (lib/tokens.ts); those two cannot report tokens, and only "official" may
+ * also upload a provider's own percentage (POST /api/official-usage/report).
  * Allowed in demo mode, since it only reads.
  *
  * 200 ok · 401 bad token · 429 a rate limit was hit, with

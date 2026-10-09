@@ -6,9 +6,10 @@ import {
   INGEST_RATE_LIMIT_GLOBAL,
   INGEST_RATE_LIMIT_PER_MACHINE,
 } from "@/lib/config";
-import { dateInTimeZone, getCycle } from "@/lib/cycle";
+import { dateInTimeZone } from "@/lib/cycle";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { ingestReport } from "@/lib/ingest";
+import { earliestCycle, providerCycle } from "@/lib/provider-cycles";
 import { mergeProviderIds } from "@/lib/providers";
 import { hit } from "@/lib/rate-limit";
 import { defer } from "@/lib/request-context";
@@ -38,11 +39,14 @@ import { loadReportContext } from "@/lib/usage-store";
  * A `groupId` that is not on the settings panel's list is added to it with a
  * random colour (`"groupRegistered": true` in the response).
  * GET with the same Bearer token returns the current cycle and its ccusage
- * `sinceDate`, so clients can build a true cycle-to-date snapshot.
+ * `sinceDate`, so clients can build a true cycle-to-date snapshot. The `cycle`
+ * is the earliest provider cycle (a provider can have its own reset), with
+ * `cycle.providers` holding each provider's own: a client trims every
+ * provider to its start (clients/shared/ccusage-providers.cjs).
  *
  * 201 stored · 200 identical report already stored · 400 bad JSON/payload ·
  * 401 bad token · 403 machine_mismatch (a machine-bound token reporting for
- * another machine), or read_only_token (a "read" token, which may only GET) ·
+ * another machine), or read_only_token (a "read" or "official" token, which may not report tokens) ·
  * 413 body too large · 422 a registry cap (too many groups, providers or
  * machines) refused the report, with its `limit` · 429 a rate
  * limit was hit, with `retryAfterSeconds` · 500 server misconfigured ·
@@ -90,16 +94,26 @@ export const GET = withApiHandler("api/usage", async ({ request }) => {
   const context = await loadReportContext();
   const providerIds = mergeProviderIds(context.providerIds, storedProviderIds(context.settings));
   const effective = resolveConfig(config, context.settings, providerIds);
-  const cycle = getCycle(new Date(), effective.reset);
+  const now = new Date();
+  // One ccusage run covers every provider: it starts at the earliest provider cycle.
+  const { cycle } = earliestCycle(now, effective, providerIds);
+  const iso = (date: Date) => date.toISOString();
   return json(
     {
       tokenMode: effective.tokenMode,
       providers: providerIds,
       cycle: {
-        start: cycle.start.toISOString(),
-        end: cycle.end.toISOString(),
+        start: iso(cycle.start),
+        end: iso(cycle.end),
         sinceDate: dateInTimeZone(cycle.start, effective.reset.timeZone),
         timeZone: effective.reset.timeZone,
+        // Each provider's own cycle, for clients to trim every provider to its own start (the clients do not use it yet; see docs/upgrading.md).
+        providers: Object.fromEntries(
+          providerIds.map((providerId) => {
+            const own = providerCycle(now, effective, providerId).cycle;
+            return [providerId, { start: iso(own.start), end: iso(own.end) }];
+          }),
+        ),
       },
     },
     200,
@@ -110,7 +124,7 @@ export const POST = withApiHandler("api/usage", async ({ request }) => {
   const auth = await requireBearerThrottled(request);
   if (auth instanceof Response) return auth;
   // A read token (the menu bar app's) may look, never report.
-  if (auth.scope === "read") return apiError("read_only_token", 403);
+  if (auth.scope !== "ingest") return apiError("read_only_token", 403);
   // The demo's data is synthetic on purpose; nothing gets in.
   const readOnly = demoReadOnly();
   if (readOnly) return readOnly;

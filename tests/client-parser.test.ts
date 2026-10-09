@@ -16,7 +16,7 @@ type DayMap = Record<
   string,
   { providers: Record<string, number>; models?: ModelMap; hours?: Record<string, Record<string, number>> }
 >;
-type Hourly = { blocks: unknown; cycleStartMs: number; timeZone: string } | null;
+type Hourly = { blocks: unknown; cycleStartMs: number; timeZone: string; starts?: Record<string, number> } | null;
 const PARSER = join(__dirname, "../clients/shared/ccusage-providers.cjs");
 const {
   MAX_DAYS,
@@ -610,6 +610,82 @@ describe("ccusage split by hour", () => {
       // A missing blocks file only means no hours.
       expect(JSON.parse(run("parse", "claude", join(dir, "none.json"), hourlyArgs[1]!, hourlyArgs[2]!))).toEqual({
         claude: 250,
+        openai: 10,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  describe("with each provider's own cycle start", () => {
+    // 11:00 in Budapest on Sunday: the 08:00 UTC hour is before it, the 10:00 one after.
+    const claudeStart = Date.parse("2026-09-20T09:00:00Z");
+    const own = (starts: Record<string, number>, list: unknown[] | null = blocks): Hourly => ({
+      blocks: list === null ? null : { blocks: list },
+      cycleStartMs: Date.parse("2026-09-19T11:00:00Z"),
+      timeZone: "Europe/Budapest",
+      starts,
+    });
+
+    it("counts a provider from its own start: earlier days drop out, the start day loses its earlier hours", () => {
+      expect(parseCcusageProviders(daily, [], own({ claude: claudeStart }))).toEqual({ claude: 100, openai: 10 });
+      const days = parseCcusageDays(daily, own({ claude: claudeStart }));
+      expect(days).not.toHaveProperty("2026-09-19");
+      expect(days["2026-09-20"]).toEqual({
+        providers: { claude: 20, openai: 10 },
+        models: { claude: { "claude-opus-5": 20 }, openai: { "gpt-5-codex": 10 } },
+        hours: { claude: { "2026-09-20T10:00:00Z": 20 } },
+      });
+    });
+
+    it("drops whole days by date when there are no hours", () => {
+      expect(parseCcusageProviders(daily, [], own({ claude: claudeStart }, null))).toEqual({ claude: 130, openai: 10 });
+    });
+
+    it("still names a provider whose every day is before its start, at 0", () => {
+      expect(parseCcusageProviders(daily, [], own({ openai: Date.parse("2026-09-21T00:00:00Z") }, null))).toEqual({
+        claude: 250,
+        openai: 0,
+      });
+    });
+
+    it("leaves a provider without its own start on the shared one", () => {
+      expect(parseCcusageUsage(daily, [], own({}))).toEqual(parseCcusageUsage(daily, [], hourly()));
+    });
+  });
+
+  it("reads each provider's start from the cycle file on the command line", () => {
+    const dir = mkdtempSync(join(tmpdir(), "usageratio-starts-"));
+    try {
+      const blocksFile = join(dir, "blocks.json");
+      const cycleFile = join(dir, "cycle.json");
+      writeFileSync(blocksFile, JSON.stringify({ blocks }));
+      writeFileSync(
+        cycleFile,
+        JSON.stringify({
+          tokenMode: "snapshot",
+          providers: ["claude", "openai"],
+          cycle: {
+            start: "2026-09-19T11:00:00.000Z",
+            sinceDate: "2026-09-19",
+            timeZone: "Europe/Budapest",
+            providers: {
+              claude: { start: "2026-09-20T09:00:00.000Z", end: "2026-09-27T09:00:00.000Z" },
+              openai: { start: "2026-09-19T11:00:00.000Z", end: "2026-09-26T11:00:00.000Z" },
+            },
+          },
+        }),
+      );
+      const run = (...args: string[]) =>
+        execFileSync("node", [PARSER, ...args], { input: JSON.stringify(daily), encoding: "utf8" });
+      const shared = ["2026-09-19T11:00:00.000Z", "Europe/Budapest"];
+
+      expect(JSON.parse(run("parse", "claude", blocksFile, ...shared, cycleFile))).toEqual({ claude: 100, openai: 10 });
+      // "-": no blocks file; the days are still cut by date.
+      expect(JSON.parse(run("parse", "claude", "-", ...shared, cycleFile))).toEqual({ claude: 130, openai: 10 });
+      // A missing or broken cycle file: every provider on the shared start, as before.
+      expect(JSON.parse(run("parse", "claude", blocksFile, ...shared, join(dir, "none.json")))).toEqual({
+        claude: 230,
         openai: 10,
       });
     } finally {

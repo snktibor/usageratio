@@ -110,6 +110,41 @@ public enum Display {
         strings.reset(shortDate(cycle.end, strings: strings))
     }
 
+    /// The provider's own cycle (start and end) under the payload's period and time zone; the payload's cycle without one.
+    public static func cycle(of provider: StatusPayload.Provider, in payload: StatusPayload) -> StatusPayload.Cycle {
+        guard let own = provider.cycle else { return payload.cycle }
+        return StatusPayload.Cycle(
+            period: payload.cycle.period, start: own.start, end: own.end, timeZone: payload.cycle.timeZone
+        )
+    }
+
+    /// "5-hour window: 23% · resets 14:30".
+    public static func fiveHourText(_ window: LimitWindow, strings: Strings) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = strings.locale
+        formatter.setLocalizedDateFormatFromTemplate("jmm")
+        return strings.fiveHourWindow(percentText(window.usedPercent), formatter.string(from: window.resetsAt))
+    }
+
+    /// "Thursday 09:00": the weekday (0 = Sunday) and time a cycle resets at, as the dashboard writes it.
+    public static func momentText(_ moment: ResetMoment, strings: Strings) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = strings.locale
+        let names = formatter.standaloneWeekdaySymbols ?? []
+        var day = names.indices.contains(moment.weekday) ? names[moment.weekday] : ""
+        if strings.languageCode == "hu" { day = day.lowercased() }
+        return "\(day) " + String(format: "%02d:%02d", moment.hour, moment.minute)
+    }
+
+    /// Why an upload was declined.
+    public static func uploadNoteText(_ refusal: OfficialReportRefusal, strings: Strings) -> String {
+        switch refusal {
+        case .notOfficialToken: strings.uploadNotOfficialToken
+        case .periodNotWeekly: strings.uploadMonthly
+        case .staleReading: strings.uploadStale
+        }
+    }
+
     /// "weekly" / "monthly", after the provider's name.
     public static func periodText(_ cycle: StatusPayload.Cycle, strings: Strings) -> String {
         cycle.period == "monthly" ? strings.monthly : strings.weekly

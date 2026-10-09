@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as postAlertsTest } from "@/app/api/alerts/test/route";
 import { PUT as putOfficialUsage } from "@/app/api/official-usage/route";
 import { POST as postUsage } from "@/app/api/usage/route";
+import { checkOfficialUsageAlerts } from "@/lib/alerts";
 import { getConfig } from "@/lib/config";
 import { getCycle } from "@/lib/cycle";
 import { getRedis } from "@/lib/redis";
+import { KEYS } from "@/lib/redis-keys";
 import { flushDeferred } from "@/lib/request-context";
 import { serializeSettings, settingsFromConfig, type UsageSettings } from "@/lib/settings";
 import en from "@/messages/en.json";
@@ -112,6 +114,28 @@ describe("threshold alerts, wired into the routes", () => {
       expect(response.status).toBe(200);
       await flushDeferred();
       expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("judges a figure against the provider's own cycle when its reset differs from the shared one", async () => {
+      await seedSettings({
+        useTokenLimits: false,
+        alerts: {
+          webhookUrl: "https://hooks.example.com/x",
+          thresholds: [90],
+          perProvider: true,
+          format: "generic",
+          locale: "en",
+        },
+        resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } },
+      });
+      const fetchSpy = mockFetch();
+      const now = new Date("2026-09-23T12:00:00Z");
+      const cycleStartMs = Date.parse("2026-09-17T09:00:00Z");
+
+      await checkOfficialUsageAlerts({ providerId: "claude", subLimitId: null, raw: "95", cycleStartMs }, now);
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(await getRedis().exists(KEYS.alert("claude", cycleStartMs, 90))).toBe(1);
     });
 
     it("does not alert from the official figure while the token limits are on", async () => {

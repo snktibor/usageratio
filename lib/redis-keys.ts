@@ -1,7 +1,7 @@
 /**
  * Redis key layout — every key name the app uses, in one place.
  *
- *   usage:settings                        STRING provider limits and shared reset/display settings
+ *   usage:settings                        STRING provider limits, shared reset/display settings, and providers' own reset moments (resetOverrides; an entry may carry source?: "report")
  *   usage:providers                       HASH   providerId → first-seen ms
  *   usage:events:{providerId}:{groupId}   ZSET   score = report time (epoch ms)
  *                                                 member = {"m": machineId, "t": tokens, "ts": ms,
@@ -28,7 +28,7 @@
  *                                   "lastUsedAt","revokedAt"}: per-machine API tokens, an
  *                                   alternative to the shared USAGE_API_TOKEN that can be
  *                                   individually revoked (see lib/tokens.ts); "scope" is
- *                                   "ingest" (absent in older entries) or "read". The field is the
+ *                                   "ingest" (absent in older entries), "read" or "official". The field is the
  *                                   token's own hash, never its plaintext, which is shown once at
  *                                   creation and not stored.
  *

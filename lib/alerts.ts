@@ -58,9 +58,13 @@ export interface EvaluateAlertsParams {
   now: Date;
 }
 
-/** `UsageSettings` splits the reset's period from its other fields; `getCycle` (lib/cycle.ts) wants them together. */
-function resetConfigOf(settings: Pick<UsageSettings, "period" | "reset">): ResetConfig {
-  return { ...settings.reset, period: settings.period };
+/** One provider's reset: `UsageSettings` splits the period off, and keeps the providers' own moments apart. */
+function resetConfigOf(
+  settings: Pick<UsageSettings, "period" | "reset" | "resetOverrides">,
+  providerId: string,
+): ResetConfig {
+  const override = Object.hasOwn(settings.resetOverrides, providerId) ? settings.resetOverrides[providerId] : undefined;
+  return { ...settings.reset, ...override, period: settings.period };
 }
 
 /** `NEXT_PUBLIC_SITE_URL`, else the Vercel production domain; omitted when neither is set. */
@@ -191,12 +195,12 @@ export async function checkIngestAlerts(report: UsageReport, now: Date): Promise
     const { alerts } = settings;
     if (!alerts.webhookUrl || !settings.useTokenLimits) return;
 
-    const cycle = getCycle(now, resetConfigOf(settings));
-    const startMs = cycle.start.getTime();
-    const endMs = cycle.end.getTime();
-
     for (const providerId of providerIds) {
       if (!alerts.perProvider && settings.hiddenProviders.includes(providerId)) continue;
+
+      const cycle = getCycle(now, resetConfigOf(settings, providerId));
+      const startMs = cycle.start.getTime();
+      const endMs = cycle.end.getTime();
 
       const { eventsByProvider } = await loadEvents([providerId], indexes.groups, startMs);
       const events = (eventsByProvider[providerId] ?? []).filter((event) =>
@@ -241,7 +245,7 @@ export async function checkOfficialUsageAlerts(update: OfficialUsageUpdate, now:
     if (!alerts.webhookUrl || settings.useTokenLimits) return;
     if (!alerts.perProvider && settings.hiddenProviders.includes(update.providerId)) return;
 
-    const cycle = getCycle(now, resetConfigOf(settings));
+    const cycle = getCycle(now, resetConfigOf(settings, update.providerId));
     if (cycle.start.getTime() !== update.cycleStartMs) return;
 
     await evaluateAlerts({

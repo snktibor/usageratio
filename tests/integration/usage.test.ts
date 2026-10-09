@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET, POST } from "@/app/api/usage/route";
-import { MAX_GROUPS } from "@/lib/settings";
+import { getConfig } from "@/lib/config";
+import { getRedis } from "@/lib/redis";
+import { KEYS } from "@/lib/redis-keys";
+import { MAX_GROUPS, serializeSettings, settingsFromConfig, type UsageSettings } from "@/lib/settings";
 import { createToken, revokeToken } from "@/lib/tokens";
 import { useRedis } from "../helpers/redis-fixture";
 
@@ -10,6 +13,11 @@ const AUTH = { authorization: `Bearer ${SERVER_TOKEN}` };
 
 function post(body: unknown, headers: Record<string, string> = {}): Request {
   return new Request(URL, { method: "POST", body: JSON.stringify(body), headers: { ...AUTH, ...headers } });
+}
+
+async function seedSettings(overrides: Partial<UsageSettings>): Promise<void> {
+  const settings: UsageSettings = { ...settingsFromConfig(getConfig()), ...overrides };
+  await getRedis().set(KEYS.settings, serializeSettings(settings, new Date()));
 }
 
 function validReport(overrides: Record<string, unknown> = {}) {
@@ -124,12 +132,78 @@ describe("POST|GET /api/usage", () => {
     expect(body.cycle.timeZone).toBeTruthy();
   });
 
+  it("bounds each provider's checkpoints by its own cycle", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-09-23T12:00:00Z"));
+      // The shared reset is Monday 00:00 UTC; Claude's is Thursday 09:00.
+      await seedSettings({ resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } } });
+      const days: Record<string, { providers: Record<string, number> }> = {};
+      for (let d = 16; d <= 23; d++) days[`2026-09-${d}`] = { providers: { claude: 100, openai: 50 } };
+      const response = await POST(
+        post(validReport({ providers: { claude: 800, openai: 400 }, days, timestamp: new Date().toISOString() })),
+      );
+      expect(response.status).toBe(201);
+
+      const checkpointScores = async (providerId: string) => {
+        const raw = (await getRedis().zrange(KEYS.events(providerId, "Personal"), 0, -1, { withScores: true })) as (
+          | string
+          | number
+        )[];
+        const scores: number[] = [];
+        for (let i = 0; i < raw.length; i += 2) {
+          if (JSON.parse(String(raw[i])).c === 1) scores.push(Number(raw[i + 1]));
+        }
+        return scores;
+      };
+      const claude = await checkpointScores("claude");
+      const openai = await checkpointScores("openai");
+      expect(claude.length).toBeGreaterThan(0);
+      expect(claude.every((ts) => ts > Date.parse("2026-09-17T09:00:00Z"))).toBe(true);
+      // Its own cycle began before the shared one: the days in between are kept.
+      expect(claude).toContain(Date.parse("2026-09-18T00:00:00Z"));
+      expect(openai.length).toBeGreaterThan(0);
+      expect(openai.every((ts) => ts > Date.parse("2026-09-21T00:00:00Z"))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("GET gives every provider its own cycle, and the earliest one as the cycle", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-09-23T12:00:00Z"));
+      await POST(post(validReport({ providers: { claude: 100, openai: 100 }, timestamp: new Date().toISOString() })));
+      const plain = await (await GET(new Request(URL, { headers: AUTH }))).json();
+      expect(plain.cycle.start).toBe("2026-09-21T00:00:00.000Z");
+
+      await seedSettings({ resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } } });
+      const body = await (await GET(new Request(URL, { headers: AUTH }))).json();
+      expect(body.cycle.start).toBe("2026-09-17T09:00:00.000Z");
+      expect(body.cycle.sinceDate).toBe("2026-09-17");
+      expect(body.cycle.providers).toEqual({
+        claude: { start: "2026-09-17T09:00:00.000Z", end: "2026-09-24T09:00:00.000Z" },
+        openai: { start: "2026-09-21T00:00:00.000Z", end: "2026-09-28T00:00:00.000Z" },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   describe("per-machine tokens (lib/tokens.ts), alongside the master USAGE_API_TOKEN", () => {
     it("accepts an unbound per-machine token exactly like the master token", async () => {
       const issued = await createToken("laptop", null, new Date());
       if (!issued.ok) throw new Error("unreachable");
       const response = await POST(post(validReport(), { authorization: `Bearer ${issued.token}` }));
       expect(response.status).toBe(201);
+    });
+
+    it("refuses an official token with 403 read_only_token", async () => {
+      const issued = await createToken("menu bar", null, new Date(), "official");
+      if (!issued.ok) throw new Error("unreachable");
+      const response = await POST(post(validReport(), { authorization: `Bearer ${issued.token}` }));
+      expect(response.status).toBe(403);
+      expect((await response.json()).error).toBe("read_only_token");
     });
 
     it("answers 401 once that token is revoked", async () => {

@@ -1,7 +1,7 @@
 import { apiError, json, requireSession, withApiHandler } from "@/lib/api";
 import { currentTime } from "@/lib/clock";
 import { getConfig } from "@/lib/config";
-import { dateInTimeZone, getCycle, getPreviousCycle } from "@/lib/cycle";
+import { dateInTimeZone } from "@/lib/cycle";
 import {
   buildExportCsv,
   buildExportJsonPayload,
@@ -9,6 +9,7 @@ import {
   exportFilename,
   parseExportQuery,
 } from "@/lib/export";
+import { earliestCycle, earliestStartMs, providerCycle } from "@/lib/provider-cycles";
 import { mergeProviderIds, providerLabel } from "@/lib/providers";
 import { resolveConfig, storedProviderIds, visibleProviderIds } from "@/lib/settings";
 import { loadEvents, loadHistory, loadIndexes } from "@/lib/usage-store";
@@ -22,7 +23,8 @@ import { loadEvents, loadHistory, loadIndexes } from "@/lib/usage-store";
  *   GET ?format=csv|json &cycle=current|previous (default "current") &provider=<id> (default: every visible provider)
  *
  * CSV columns: provider,groupId,machineId,timestamp,tokens,checkpoint,models,costUsd
- * JSON shape: { generatedAt, timeZone, cycle: {start,end}, providers: [{ id, label, events, history }] }
+ * JSON shape: { generatedAt, timeZone, cycle: {start,end}, providers: [{ id, label, cycle: {start,end}, events, history }] }
+ * (the top-level cycle is the earliest provider's; each provider carries its own window)
  *
  * 200 ok (a file download, `Content-Disposition: attachment`) · 400 bad query ·
  * 401 no session · 404 unknown provider · 503 Redis down
@@ -45,26 +47,37 @@ export const GET = withApiHandler("api/export", async ({ url }) => {
   if (providerId && !allProviderIds.includes(providerId)) return apiError("not_found", 404);
 
   const config = resolveConfig(getConfig(), indexes.settings, allProviderIds);
-  const cycle = getCycle(now, config.reset);
-  const previousCycle = getPreviousCycle(cycle, config.reset);
-  const window = cycleChoice === "previous" ? previousCycle : cycle;
-  const windowMs = { startMs: window.start.getTime(), endMs: window.end.getTime() };
-
-  // One round trip covers both cycles, whichever was asked for.
-  const { eventsByProvider } = await loadEvents(allProviderIds, indexes.groups, previousCycle.start.getTime());
   const targetProviderIds = providerId ? [providerId] : visibleProviderIds(config, allProviderIds);
+  const windowOf = (id: string) => {
+    const { cycle, previous } = providerCycle(now, config, id);
+    const window = cycleChoice === "previous" ? previous : cycle;
+    return { startMs: window.start.getTime(), endMs: window.end.getTime() };
+  };
+  const earliest = earliestCycle(now, config, targetProviderIds);
+  const earliestWindow = cycleChoice === "previous" ? earliest.previous : earliest.cycle;
+
+  // One round trip covers both cycles of every provider, whichever was asked for.
+  const { eventsByProvider } = await loadEvents(
+    allProviderIds,
+    indexes.groups,
+    earliestStartMs(now, config, targetProviderIds, "previous"),
+  );
   const historyByProvider = await loadHistory(targetProviderIds);
 
   const input: ExportInput = {
     generatedAtMs: now.getTime(),
     timeZone: config.reset.timeZone,
-    cycle: windowMs,
-    providers: targetProviderIds.map((id) => ({
-      id,
-      label: providerLabel(id),
-      events: (eventsByProvider[id] ?? []).filter((event) => event.ts >= windowMs.startMs && event.ts < windowMs.endMs),
-      history: historyByProvider[id] ?? [],
-    })),
+    cycle: { startMs: earliestWindow.start.getTime(), endMs: earliestWindow.end.getTime() },
+    providers: targetProviderIds.map((id) => {
+      const window = windowOf(id);
+      return {
+        id,
+        label: providerLabel(id),
+        cycle: window,
+        events: (eventsByProvider[id] ?? []).filter((event) => event.ts >= window.startMs && event.ts < window.endMs),
+        history: historyByProvider[id] ?? [],
+      };
+    }),
   };
 
   const filename = exportFilename(providerId, dateInTimeZone(now, config.reset.timeZone), format);

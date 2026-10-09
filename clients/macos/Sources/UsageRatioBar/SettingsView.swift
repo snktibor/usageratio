@@ -15,6 +15,7 @@ struct SettingsView: View {
     @State private var token = ""
     @State private var problem: String?
     @State private var saved = false
+    @State private var justCopied = false
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     private var strings: Strings { store.strings }
@@ -26,6 +27,7 @@ struct SettingsView: View {
                 display(payload)
             }
             connection
+            sourcesSection
             general
         }
         .onAppear { server = store.serverURL?.absoluteString ?? "" }
@@ -121,6 +123,51 @@ struct SettingsView: View {
                 .keyboardShortcut(.defaultAction)
                 .controlSize(.small)
             }
+        }
+    }
+
+    private var sourcesSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SectionHeader(title: strings.sourcesSection)
+            sourceRow(strings.sourceClaude, reading: store.sources.claude)
+            if store.sources.claude.snapshot == nil {
+                Text(strings.statusLineHint)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button(justCopied ? strings.copied : strings.copyStatusLineCommand) { copyStatusLineCommand() }
+                        .controlSize(.small)
+                    Spacer()
+                }
+            }
+            sourceRow(strings.sourceCodex, reading: store.sources.codex)
+        }
+    }
+
+    private func sourceRow(_ name: String, reading: SourceReading) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(name).font(.callout)
+            Spacer(minLength: 8)
+            if let seen = reading.snapshot?.observedAt ?? reading.fileDate {
+                Text(strings.sourceSeen(Display.relative(seen, now: store.now, strings: strings)))
+            } else {
+                Text(strings.sourceMissing)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    private func copyStatusLineCommand() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(
+            "\"command\": \"~/.usageratio/statusline-tee.sh ~/.claude/statusline.sh\"", forType: .string
+        )
+        justCopied = true
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            justCopied = false
         }
     }
 

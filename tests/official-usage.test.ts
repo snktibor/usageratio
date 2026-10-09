@@ -4,6 +4,7 @@ import {
   OFFICIAL_USAGE_RAW_MAX_LENGTH,
   officialUsageField,
   parseOfficialUsageUpdate,
+  providerOfOfficialField,
   serializeOfficialEntry,
   storedEntryFor,
 } from "@/lib/official-usage";
@@ -156,5 +157,26 @@ describe("storedEntryFor / currentOfficialEntries — round trip", () => {
     );
     expect(entries.get("claude")).toEqual({ raw: "80", enteredAt: 1 });
     expect(entries.get("claude:fable")).toEqual({ raw: "20", enteredAt: 2 });
+  });
+});
+
+describe("currentOfficialEntries — per provider", () => {
+  it("checks each field against its own provider's cycle start", () => {
+    const CLAUDE_START = Date.parse("2026-09-17T09:00:00Z");
+    const stored = {
+      claude: serializeOfficialEntry({ raw: "41", enteredAt: 1, cycleStartMs: CLAUDE_START }),
+      "claude:fable": serializeOfficialEntry({ raw: "12", enteredAt: 2, cycleStartMs: CLAUDE_START }),
+      openai: serializeOfficialEntry({ raw: "30", enteredAt: 3, cycleStartMs: CLAUDE_START }),
+    };
+    const startOf = (providerId: string) => (providerId === "claude" ? CLAUDE_START : CYCLE_START);
+    const entries = currentOfficialEntries(stored, startOf);
+    expect([...entries.keys()].sort()).toEqual(["claude", "claude:fable"]);
+  });
+});
+
+describe("providerOfOfficialField", () => {
+  it("reads the provider id off a provider's or a sub-limit's field", () => {
+    expect(providerOfOfficialField("claude")).toBe("claude");
+    expect(providerOfOfficialField("claude:fable")).toBe("claude");
   });
 });

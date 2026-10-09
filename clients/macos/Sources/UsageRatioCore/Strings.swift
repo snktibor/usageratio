@@ -83,6 +83,23 @@ public struct Strings: Sendable {
     /// Above a provider's sub-limits, as the dashboard names them.
     public let subLimitsSection: String
 
+    /// percent, time
+    public let fiveHourWindow: @Sendable (String, String) -> String
+    public let uploadNotOfficialToken: String
+    public let uploadMonthly: String
+    public let uploadStale: String
+    /// provider label, weekday and time
+    public let cycleMoved: @Sendable (String, String) -> String
+    public let sourcesSection: String
+    public let sourceClaude: String
+    public let sourceCodex: String
+    public let sourceMissing: String
+    /// relative time
+    public let sourceSeen: @Sendable (String) -> String
+    public let statusLineHint: String
+    public let copyStatusLineCommand: String
+    public let copied: String
+
     /// "en", "hu" or "de": the one the strings and the formatters use.
     public let languageCode: String
 
@@ -154,9 +171,9 @@ public struct Strings: Sendable {
         groupsSection: "Groups",
         machinesSection: "Machines",
         serverLabel: "Server URL",
-        tokenLabel: "Read token",
+        tokenLabel: "Token",
         tokenSaved: "A token is saved; leave this empty to keep it.",
-        tokenHint: "Create one on the dashboard: Settings → Tokens, access “Read only (menu bar app)”.",
+        tokenHint: "Read and upload official usage (menu bar app)",
         launchAtLogin: "Open at login",
         launchAtLoginFailed: "The login item could not be changed.",
         save: "Save",
@@ -171,6 +188,19 @@ public struct Strings: Sendable {
         statusCritical: "Critical",
         shownInMenuBar: "Shown in the menu bar",
         subLimitsSection: "Sub-limits",
+        fiveHourWindow: { "5-hour window: \($0) · resets \($1)" },
+        uploadNotOfficialToken: "Not uploaded: the token needs “Read and upload official usage” access (Settings → Tokens on the dashboard).",
+        uploadMonthly: "Not uploaded: the dashboard's cycle is monthly.",
+        uploadStale: "Not uploaded: the reading is from a window that is over.",
+        cycleMoved: { "\($0)'s cycle now resets \($1)" },
+        sourcesSection: "Sources",
+        sourceClaude: "Claude (status line)",
+        sourceCodex: "Codex (session log)",
+        sourceMissing: "not found",
+        sourceSeen: { "seen \($0)" },
+        statusLineHint: "Point Claude Code's status line at the pass-through; your own script runs unchanged.",
+        copyStatusLineCommand: "Copy the settings line",
+        copied: "Copied",
         languageCode: "en"
     )
 
@@ -214,9 +244,9 @@ public struct Strings: Sendable {
         groupsSection: "Csoportok",
         machinesSection: "Gépek",
         serverLabel: "Szerver címe",
-        tokenLabel: "Olvasó token",
+        tokenLabel: "Token",
         tokenSaved: "Van elmentett token; hagyd üresen, ha marad.",
-        tokenHint: "A dashboardon hozd létre: Beállítások → Tokenek, jogosultság: „Csak olvasás (menüsáv app)”.",
+        tokenHint: "Olvasás és hivatalos % feltöltése (menüsáv app)",
         launchAtLogin: "Indítás bejelentkezéskor",
         launchAtLoginFailed: "Nem sikerült módosítani az indítási elemet.",
         save: "Mentés",
@@ -231,6 +261,19 @@ public struct Strings: Sendable {
         statusCritical: "Kritikus",
         shownInMenuBar: "Ez látszik a menüsávban",
         subLimitsSection: "Alkeretek",
+        fiveHourWindow: { "5 órás ablak: \($0) · nullázódik \($1)" },
+        uploadNotOfficialToken: "Nincs feltöltve: a token jogosultsága nem „Olvasás és hivatalos % feltöltése” (dashboard → Beállítások → Tokenek).",
+        uploadMonthly: "Nincs feltöltve: a dashboard ciklusa havi.",
+        uploadStale: "Nincs feltöltve: a mérés egy már lezárt ablakból való.",
+        cycleMoved: { "\($0) ciklusa mostantól: \($1)" },
+        sourcesSection: "Források",
+        sourceClaude: "Claude (status line)",
+        sourceCodex: "Codex (munkamenet-napló)",
+        sourceMissing: "nincs meg",
+        sourceSeen: { "utoljára: \($0)" },
+        statusLineHint: "Állítsd a Claude Code status line-ját az átvezető szkriptre; a saját szkripted változatlanul fut.",
+        copyStatusLineCommand: "Beállítás-sor másolása",
+        copied: "Kimásolva",
         languageCode: "hu"
     )
 
@@ -274,9 +317,9 @@ public struct Strings: Sendable {
         groupsSection: "Gruppen",
         machinesSection: "Maschinen",
         serverLabel: "Server-URL",
-        tokenLabel: "Lese-Token",
+        tokenLabel: "Token",
         tokenSaved: "Ein Token ist gespeichert; leer lassen, um ihn zu behalten.",
-        tokenHint: "Im Dashboard erstellen: Einstellungen → Tokens, Berechtigung „Nur lesen (Menüleisten-App)“.",
+        tokenHint: "Lesen und offizielle Nutzung hochladen (Menüleisten-App)",
         launchAtLogin: "Beim Anmelden öffnen",
         launchAtLoginFailed: "Das Anmeldeobjekt ließ sich nicht ändern.",
         save: "Sichern",
@@ -291,6 +334,19 @@ public struct Strings: Sendable {
         statusCritical: "Kritisch",
         shownInMenuBar: "In der Menüleiste",
         subLimitsSection: "Unterkontingente",
+        fiveHourWindow: { "5-Stunden-Fenster: \($0) · Reset \($1)" },
+        uploadNotOfficialToken: "Nicht hochgeladen: dem Token fehlt die Berechtigung „Lesen und offizielle Nutzung hochladen“ (Dashboard → Einstellungen → Tokens).",
+        uploadMonthly: "Nicht hochgeladen: der Zyklus des Dashboards ist monatlich.",
+        uploadStale: "Nicht hochgeladen: der Wert stammt aus einem abgelaufenen Fenster.",
+        cycleMoved: { "Zyklus von \($0) jetzt: \($1)" },
+        sourcesSection: "Quellen",
+        sourceClaude: "Claude (Statuszeile)",
+        sourceCodex: "Codex (Sitzungsprotokoll)",
+        sourceMissing: "nicht gefunden",
+        sourceSeen: { "zuletzt \($0)" },
+        statusLineHint: "Leite die Statuszeile von Claude Code über das Durchreich-Skript; dein eigenes Skript läuft unverändert.",
+        copyStatusLineCommand: "Einstellungszeile kopieren",
+        copied: "Kopiert",
         languageCode: "de"
     )
 }

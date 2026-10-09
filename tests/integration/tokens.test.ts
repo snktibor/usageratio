@@ -182,6 +182,25 @@ describe("POST /api/tokens", () => {
     expect(body.tokens).toEqual([expect.objectContaining({ label: "Menu bar", scope: "read", machineId: null })]);
   });
 
+  it("issues an official token, listed with its scope", async () => {
+    const cookie = await seedSession(PIN);
+    await grantSudo(cookie);
+    const created = await postTokens(
+      request("http://localhost/api/tokens", {
+        method: "POST",
+        body: JSON.stringify({ label: "Mac menu bar", scope: "official" }),
+        headers: { cookie },
+      }),
+    );
+    expect(created.status).toBe(201);
+
+    const response = await getTokens(request("http://localhost/api/tokens", { headers: { cookie } }));
+    const body = (await response.json()) as { tokens: Record<string, unknown>[] };
+    expect(body.tokens).toEqual([
+      expect.objectContaining({ label: "Mac menu bar", scope: "official", machineId: null }),
+    ]);
+  });
+
   it("answers 201 with a fresh id and token, storing only the token's hash", async () => {
     const cookie = await seedSession(PIN);
     await grantSudo(cookie);
