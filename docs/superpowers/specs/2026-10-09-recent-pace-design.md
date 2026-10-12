@@ -29,6 +29,8 @@ official reading is typed in (`components/ground-truth-input.tsx` → `applyGrou
 interface RecentPace {
   /** Epoch ms: where the current pace began (the change point, or the window's start). */
   sinceMs: number;
+  /** Epoch ms: the window's end, the newest report. */
+  untilMs: number;
   /** True when a change point was found; false when the whole window is one pace. */
   changed: boolean;
   /** The current pace over the cycle's average pace; 0 when nothing was used since `sinceMs`. */
@@ -49,14 +51,15 @@ interface RecentPace {
 
 ### The window
 
-- **End:** the last hourly sample of `model.timeline.times` at or before the provider's newest
-  report (the largest `lastSeenAt` of `model.machines`). The hour that is still being reported
-  never reads as idle time. The final sample of `times` ("now") is never an end: it is not on the
-  hourly grid.
+- **End:** the provider's newest report (the largest `lastSeenAt` of `model.machines`, at most
+  `model.generatedAt`). The time after it, not reported yet, never reads as idle.
 - **Start:** 8 hours before the end, but not before the cycle's start.
 - **Bins:** the increments between consecutive hourly samples in the window, summed over
-  `model.timeline.groups` (the same tokens as `model.total`, a separate sub-limit's left out).
-  At most 8 bins, at least 1.
+  `model.timeline.groups` (the same tokens as `model.total`, a separate sub-limit's left out), and a
+  last one from the last hourly sample to the newest report, which holds the timeline's latest value.
+  A last bin shorter than 30 minutes joins the one before it: a report a few seconds past the hour
+  carries that hour. The rates are compared per bin, weighted by its length. At least one hour of
+  data in all.
 
 ### The change point
 
@@ -100,6 +103,7 @@ ratio `formatFactor`.
 ```ts
 recent: {
   since: string;          // ISO 8601
+  until: string;          // ISO 8601, the window's end
   changed: boolean;
   ratio: number;          // rounded to two decimals
   runOutAt: string | null;

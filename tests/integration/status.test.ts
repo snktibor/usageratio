@@ -113,6 +113,30 @@ describe("GET /api/status", () => {
     expect(claude?.groups[0]).toMatchObject({ id: "Personal", percent: 40 });
   });
 
+  it("states the pace of the last hours", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      // Wednesday 12:00 UTC: the default cycle started Monday 00:00, 60 h ago.
+      vi.setSystemTime(new Date("2026-09-23T12:00:00Z"));
+      await seedSettings({ useTokenLimits: true, limits: { claude: 10_000 } });
+      await report(2500);
+
+      const body = (await (await GET(get())).json()) as StatusPayload;
+      const claude = body.providers.find((provider) => provider.id === "claude")!;
+      // All of it in the last hour: 60 times the cycle's average, and 7,500 left at 2,500 an hour.
+      expect(claude.pace?.recent).toEqual({
+        since: "2026-09-23T11:00:00.000Z",
+        until: "2026-09-23T12:00:00.000Z",
+        changed: true,
+        ratio: 60,
+        runOutAt: "2026-09-23T15:00:00.000Z",
+      });
+      expect(keys(claude.pace!.recent!)).toEqual(keys(FIXTURE.providers[0]!.pace!.recent!));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("gives a provider with its own reset its own cycle", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
