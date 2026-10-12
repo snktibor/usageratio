@@ -43,6 +43,25 @@ private func fixture() throws -> Data {
     #expect(payload.providers[1].machines.isEmpty)
 }
 
+@Test func decodesTheRecentPace() throws {
+    let recent = try #require(StatusPayload.decode(fixture()).providers[0].pace?.recent)
+    #expect(recent.changed)
+    #expect(recent.ratio == 2.4)
+    #expect(recent.since == Date(timeIntervalSince1970: 1_791_356_400))
+    #expect(recent.until == Date(timeIntervalSince1970: 1_791_363_600))
+    #expect(recent.runOutAt == Date(timeIntervalSince1970: 1_791_396_000))
+}
+
+@Test func readsAServerWithoutTheRecentPace() throws {
+    var json = try #require(String(data: fixture(), encoding: .utf8))
+    let start = try #require(json.range(of: ",\n        \"recent\": {"))
+    let end = try #require(json.range(of: "}", range: start.upperBound..<json.endIndex))
+    json.removeSubrange(start.lowerBound..<end.upperBound)
+    let pace = try #require(StatusPayload.decode(Data(json.utf8)).providers[0].pace)
+    #expect(pace.recent == nil)
+    #expect(pace.projectedPercent == 108.03)
+}
+
 @Test func readsAnUnknownStatusAsNil() throws {
     var json = try #require(String(data: fixture(), encoding: .utf8))
     json = json.replacingOccurrences(of: "\"status\": \"warning\",\n      \"pace\"", with: "\"status\": \"exhausted\",\n      \"pace\"")

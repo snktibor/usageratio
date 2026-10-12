@@ -164,6 +164,43 @@ public enum Display {
         return pace.projectedPercent == nil ? strings.tooEarly : strings.lastsUntilReset
     }
 
+    /// "Current pace (since 14:00, 2.4×): runs out in 9h 15m, 23:10", or that it lasts, or that
+    /// nothing was used; nil while there is no percentage or nothing to tell.
+    public static func recentPaceText(_ provider: StatusPayload.Provider, now: Date, strings: Strings) -> String? {
+        guard provider.percent != nil, let recent = provider.pace?.recent else { return nil }
+        let window = recent.changed
+            ? strings.recentSince(nearMomentText(recent.since, now: now, strings: strings))
+            : strings.recentLastHours(Int((recent.until.timeIntervalSince(recent.since) / 3600).rounded()))
+        if recent.ratio == 0 { return strings.recentIdle(window) }
+        let ratio = recent.ratio.formatted(.number.precision(.fractionLength(0...1)).locale(strings.locale)) + "×"
+        guard let runOutAt = recent.runOutAt else { return strings.recentLasts(window, ratio) }
+        return strings.recentRunsOut(
+            window, ratio, durationText(runOutAt.timeIntervalSince(now), strings: strings),
+            nearMomentText(runOutAt, now: now, strings: strings)
+        )
+    }
+
+    /// "14:00" on the same day as `now`, "Thursday 23:10" on another.
+    public static func nearMomentText(_ date: Date, now: Date, strings: Strings) -> String {
+        guard Calendar.current.isDate(date, inSameDayAs: now) else { return shortDate(date, strings: strings) }
+        let formatter = DateFormatter()
+        formatter.locale = strings.locale
+        formatter.setLocalizedDateFormatFromTemplate("jmm")
+        return formatter.string(from: date)
+    }
+
+    /// "9h 15m" ("9 ó 15 p"): the two largest units, at least a minute.
+    static func durationText(_ interval: TimeInterval, strings: Strings) -> String {
+        let formatter = DateComponentsFormatter()
+        var calendar = Calendar.current
+        calendar.locale = strings.locale
+        formatter.calendar = calendar
+        formatter.unitsStyle = .abbreviated
+        formatter.allowedUnits = [.day, .hour, .minute]
+        formatter.maximumUnitCount = 2
+        return formatter.string(from: max(60, interval)) ?? ""
+    }
+
     /// "37.5% left", or "Over by 12.5%" past the limit; nil while there is no percentage.
     public static func remainingText(_ percent: Double?, strings: Strings) -> String? {
         guard let percent else { return nil }

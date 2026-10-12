@@ -8,9 +8,10 @@ private func provider(
     id: String = "claude",
     percent: Double? = 50,
     pace: StatusPayload.Pace? = nil,
+    recent: String = "null",
     lastReportAt: Date? = now
 ) -> StatusPayload.Provider {
-    let pace = pace.map { "{\"projectedPercent\": \($0.projectedPercent.map { "\($0)" } ?? "null"), \"runOutAt\": \($0.runOutAt == nil ? "null" : "\"2026-10-11T15:00:00Z\"")}" } ?? "null"
+    let pace = pace.map { "{\"projectedPercent\": \($0.projectedPercent.map { "\($0)" } ?? "null"), \"runOutAt\": \($0.runOutAt == nil ? "null" : "\"2026-10-11T15:00:00Z\""), \"recent\": \(recent)}" } ?? "null"
     let json = """
     {"v":1,"generatedAt":"2026-10-07T09:12:00Z",
      "cycle":{"period":"weekly","start":"2026-10-05T07:00:00Z","end":"2026-10-12T07:00:00Z","timeZone":"UTC"},
@@ -113,6 +114,46 @@ private func fixturePayload() throws -> StatusPayload {
     // The helper's runOutAt, in this Mac's time zone.
     let runOutAt = try! Date("2026-10-11T15:00:00Z", strategy: .iso8601)
     #expect(runsOut == "Runs out \(Display.shortDate(runOutAt, strings: strings))")
+}
+
+/// `pace.recent` as the server sends it: a window from `since` to `now`.
+private func recentJSON(since: Date, changed: Bool, ratio: Double, runOutAt: Date?) -> String {
+    let runOut = runOutAt.map { "\"\($0.ISO8601Format())\"" } ?? "null"
+    return """
+    {"since":"\(since.ISO8601Format())","until":"\(now.ISO8601Format())","changed":\(changed),\
+    "ratio":\(ratio),"runOutAt":\(runOut)}
+    """
+}
+
+@Test func describesTheCurrentPace() {
+    let strings = Strings.en
+    let pace = StatusPayload.Pace(projectedPercent: 80, runOutAt: nil)
+    let since = now.addingTimeInterval(-2 * 3600)
+    let runOutAt = now.addingTimeInterval(9.25 * 3600)
+    let text = { (recent: String) in Display.recentPaceText(provider(pace: pace, recent: recent), now: now, strings: strings) }
+
+    #expect(Display.recentPaceText(provider(percent: nil), now: now, strings: strings) == nil)
+    #expect(text("null") == nil)
+    let sinceText = Display.nearMomentText(since, now: now, strings: strings)
+    #expect(text(recentJSON(since: since, changed: true, ratio: 2.4, runOutAt: runOutAt))
+        == "Current pace (since \(sinceText), 2.4×): runs out in 9h 15m, \(Display.nearMomentText(runOutAt, now: now, strings: strings))")
+    #expect(text(recentJSON(since: since, changed: true, ratio: 0.4, runOutAt: nil))
+        == "Current pace (since \(sinceText), 0.4×): lasts until the reset")
+    #expect(text(recentJSON(since: since, changed: true, ratio: 0, runOutAt: nil))
+        == "Current pace: nothing used since \(sinceText)")
+    #expect(text(recentJSON(since: now.addingTimeInterval(-8 * 3600), changed: false, ratio: 1.1, runOutAt: nil))
+        == "Current pace (in the last 8 h, 1.1×): lasts until the reset")
+}
+
+@Test func writesANearMomentAsTheTimeAloneOnTheSameDay() {
+    let strings = Strings.en
+    let clock = DateFormatter()
+    clock.locale = strings.locale
+    clock.setLocalizedDateFormatFromTemplate("jmm")
+    let sameDay = Calendar.current.startOfDay(for: now).addingTimeInterval(60)
+    #expect(Display.nearMomentText(sameDay, now: now, strings: strings) == clock.string(from: sameDay))
+    let dayBefore = sameDay.addingTimeInterval(-2 * 3600)
+    #expect(Display.nearMomentText(dayBefore, now: now, strings: strings) == Display.shortDate(dayBefore, strings: strings))
 }
 
 @Test func picksTheFirstSpokenLanguage() {

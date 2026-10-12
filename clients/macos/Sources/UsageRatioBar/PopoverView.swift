@@ -146,7 +146,8 @@ struct PopoverView: View {
         }
     }
 
-    /// When it runs out, when it resets, and a warning while the figure is stale: one icon and line each.
+    /// When it runs out, at the average and at the current pace, when it resets, and a warning while
+    /// the figure is stale: one icon and line each.
     private func facts(_ provider: StatusPayload.Provider, cycle: StatusPayload.Cycle) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             if let runOut = Display.runOutText(provider, strings: strings) {
@@ -154,6 +155,11 @@ struct PopoverView: View {
                 let lasts = provider.pace?.projectedPercent != nil && !runsOut
                 Label(runOut, systemImage: runsOut ? "exclamationmark.triangle.fill" : lasts ? "checkmark.circle.fill" : "clock")
                     .foregroundStyle(runsOut ? Color.orange : lasts ? Color.green : Color.secondary)
+            }
+            if let recent = Display.recentPaceText(provider, now: store.now, strings: strings) {
+                Label(recent, systemImage: "bolt.fill")
+                    .foregroundStyle(provider.pace?.recent?.runOutAt != nil ? Color.orange : Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Label(
                 "\(Display.resetText(cycle, strings: strings)) · \(Display.relative(cycle.end, now: store.now, strings: strings))",

@@ -17,6 +17,16 @@ public struct Strings: Sendable {
     public let runsOut: @Sendable (String) -> String
     public let lastsUntilReset: String
     public let tooEarly: String
+    /// time
+    public let recentSince: @Sendable (String) -> String
+    /// whole hours
+    public let recentLastHours: @Sendable (Int) -> String
+    /// window, ratio, duration, time
+    public let recentRunsOut: @Sendable (String, String, String, String) -> String
+    /// window, ratio
+    public let recentLasts: @Sendable (String, String) -> String
+    /// window
+    public let recentIdle: @Sendable (String) -> String
     /// weekday and time
     public let reset: @Sendable (String) -> String
     public let sourceOfficial: String
@@ -182,6 +192,11 @@ public struct Strings: Sendable {
         runsOut: { "Runs out \($0)" },
         lastsUntilReset: "Lasts until the reset",
         tooEarly: "Too early for a pace",
+        recentSince: { "since \($0)" },
+        recentLastHours: { "in the last \($0) h" },
+        recentRunsOut: { "Current pace (\($0), \($1)): runs out in \($2), \($3)" },
+        recentLasts: { "Current pace (\($0), \($1)): lasts until the reset" },
+        recentIdle: { "Current pace: nothing used \($0)" },
         reset: { "Reset: \($0)" },
         sourceOfficial: "official",
         sourceEstimate: "estimate",
@@ -276,6 +291,11 @@ public struct Strings: Sendable {
         runsOut: { "Elfogy: \($0)" },
         lastsUntilReset: "Kitart a resetig",
         tooEarly: "A tempóhoz még korai",
+        recentSince: { "\($0) óta" },
+        recentLastHours: { "az elmúlt \($0) órában" },
+        recentRunsOut: { "Mostani tempó (\($0), \($1)): elfogy \($2) múlva, \($3)" },
+        recentLasts: { "Mostani tempó (\($0), \($1)): kitart a resetig" },
+        recentIdle: { "Mostani tempó: \($0) nincs fogyás" },
         reset: { "Reset: \($0)" },
         sourceOfficial: "hivatalos",
         sourceEstimate: "becsült",
@@ -370,6 +390,11 @@ public struct Strings: Sendable {
         runsOut: { "Aufgebraucht \($0)" },
         lastsUntilReset: "Reicht bis zum Reset",
         tooEarly: "Für ein Tempo noch zu früh",
+        recentSince: { "seit \($0)" },
+        recentLastHours: { "in den letzten \($0) Std." },
+        recentRunsOut: { "Aktuelles Tempo (\($0), \($1)): aufgebraucht in \($2), \($3)" },
+        recentLasts: { "Aktuelles Tempo (\($0), \($1)): reicht bis zum Reset" },
+        recentIdle: { "Aktuelles Tempo: \($0) nichts verbraucht" },
         reset: { "Reset: \($0)" },
         sourceOfficial: "offiziell",
         sourceEstimate: "geschätzt",
