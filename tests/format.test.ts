@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCost, formatCostOrDash, formatMonthDay, formatPercent } from "@/lib/format";
+import { formatCost, formatCostOrDash, formatMonthDay, formatPercent, formatRecentMoment } from "@/lib/format";
 
 describe("formatPercent", () => {
   it('marks a tiny non-zero share with the locale\'s own "less than" percent form', () => {
@@ -44,5 +44,20 @@ describe("formatMonthDay", () => {
   it("uses a bare number for English", () => {
     expect(formatMonthDay(21, "en")).toBe("21");
     expect(formatMonthDay(1, "en")).toBe("1");
+  });
+});
+
+describe("formatRecentMoment", () => {
+  // Wednesday 12:00 in Budapest.
+  const now = Date.parse("2026-09-23T10:00:00Z");
+
+  it("gives the time alone on the same day, in the dashboard's time zone", () => {
+    expect(formatRecentMoment(Date.parse("2026-09-23T08:00:00Z"), now, "Europe/Budapest", "en")).toBe("10:00");
+    // 00:30 Wednesday in Budapest, still Tuesday in UTC.
+    expect(formatRecentMoment(Date.parse("2026-09-22T22:30:00Z"), now, "Europe/Budapest", "en")).toBe("00:30");
+  });
+
+  it("adds the weekday on an earlier day", () => {
+    expect(formatRecentMoment(Date.parse("2026-09-22T20:00:00Z"), now, "Europe/Budapest", "en")).toBe("Tuesday 22:00");
   });
 });

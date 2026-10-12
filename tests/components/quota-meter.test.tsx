@@ -77,4 +77,50 @@ describe("QuotaMeter", () => {
 
     expect(screen.queryByText(/at API list prices/)).toBeNull();
   });
+
+  describe("the current pace", () => {
+    // Budapest time: the cycle started Monday 00:00, NOW is 60 h into it.
+    const config = {
+      ...getConfig({}),
+      useTokenLimits: true,
+      limit: 1_000_000,
+      tokenMode: "delta" as const,
+      reset: { ...getConfig({}).reset, timeZone: "Europe/Budapest" },
+    };
+    /** 200k early on, then one report an hour up to NOW. */
+    function render(lastHours: number[]) {
+      const events = [
+        { machineId: "mac", groupId: "Work", tokens: 200_000, ts: CYCLE_START + 10 * HOUR },
+        ...lastHours.map((tokens, index) => ({
+          machineId: "mac",
+          groupId: "Work",
+          tokens,
+          ts: CYCLE_START + (61 - lastHours.length + index) * HOUR,
+        })),
+      ];
+      const model = buildDashboard(NOW, config, snapshot({ events }));
+      renderWithIntl(<QuotaMeter model={model} view={applyGroundTruth(model, null)} />);
+    }
+
+    it("says when a burst of the last hours would use the budget up", () => {
+      render([5_000, 5_000, 5_000, 5_000, 5_000, 5_000, 40_000, 40_000]);
+      expect(
+        screen.getByText(
+          /Current pace \(since 10:00, 7\.74× the average\): runs out in about 17 hours 15 minutes, around Thursday 05:15\./,
+        ),
+      ).toBeTruthy();
+    });
+
+    it("names the whole window when the pace did not change", () => {
+      render(Array(8).fill(10_000));
+      expect(
+        screen.getByText(/Current pace \(over the last 8 hours, 2\.14× the average\): runs out in about 3 days/),
+      ).toBeTruthy();
+    });
+
+    it("says since when nothing was used", () => {
+      render([30_000, 30_000, 30_000, 30_000, 30_000, 30_000, 0, 0]);
+      expect(screen.getByText(/Current pace: nothing used since 10:00\./)).toBeTruthy();
+    });
+  });
 });

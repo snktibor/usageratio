@@ -8,13 +8,18 @@ import {
   formatCycleMoment,
   formatDateTime,
   formatDuration,
+  formatFactor,
   formatHeroPercent,
   formatPercent,
+  formatRecentMoment,
   formatTokens,
 } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
 import type { Translator } from "@/lib/i18n";
 import type { QuotaAssessment } from "@/lib/quota";
+import { type RecentPace, recentPace } from "@/lib/recent-pace";
+
+const HOUR = 3_600_000;
 
 /** Fill carries severity; the track is a dimmer step of the same colour. */
 const STATUS_STYLE = {
@@ -89,6 +94,27 @@ function paceSentence(
   return t("projected_total", { projected: formatPercent(pace.projectedTotal / limit, locale) });
 }
 
+/** The last hours' pace next to the average: from when, how much faster or slower, and how long it lasts. */
+function recentPaceSentence(
+  model: DashboardModel,
+  recent: RecentPace,
+  t: Translator<"Widgets">,
+  locale: string,
+): string {
+  const window = recent.changed
+    ? t("recent_pace_since", { time: formatRecentMoment(recent.sinceMs, model.generatedAt, model.timeZone, locale) })
+    : t("recent_pace_last_hours", { hours: Math.round((recent.untilMs - recent.sinceMs) / HOUR) });
+  if (recent.ratio === 0) return t("recent_pace_idle", { window });
+  const ratio = formatFactor(recent.ratio, locale);
+  if (recent.runOutAt === null) return t("recent_pace_lasts", { window, ratio });
+  return t("recent_pace_runs_out", {
+    window,
+    ratio,
+    duration: formatDuration(recent.runOutAt - model.generatedAt, locale),
+    moment: formatMoment(recent.runOutAt, model, locale),
+  });
+}
+
 function meterAttributes(
   model: DashboardModel,
   quota: QuotaAssessment | null,
@@ -142,6 +168,7 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
   const nowFraction = model.cycle.elapsedFraction;
   const nowAlign = nowFraction < 0.05 ? "translate-x-0" : nowFraction > 0.95 ? "-translate-x-full" : "-translate-x-1/2";
   const elapsedNote = t("cycle_elapsed", { percent: formatPercent(nowFraction, locale) });
+  const recent = closed ? null : recentPace(model, view);
 
   return (
     <section aria-labelledby="quota-heading">
@@ -221,6 +248,7 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
           <span>
             <strong className="font-medium text-ink">{statusLabel(quota, t)}</strong>{" "}
             {paceSentence(model, view, quota, t, locale)}
+            {recent && ` ${recentPaceSentence(model, recent, t, locale)}`}
           </span>
         ) : (
           <span>

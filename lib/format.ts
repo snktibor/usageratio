@@ -101,6 +101,13 @@ export function formatWeekdayTime(ms: number, timeZone: string, locale: string):
   return zoned(ms, timeZone, locale, { weekday: "long", hour: "2-digit", minute: "2-digit" });
 }
 
+/** "14:05" on the same day as `nowMs`, else "kedd 22:00": where a recent stretch of time began. */
+export function formatRecentMoment(ms: number, nowMs: number, timeZone: string, locale: string): string {
+  // en-CA writes a plain YYYY-MM-DD: the calendar day in that zone.
+  const day = (value: number) => new Intl.DateTimeFormat("en-CA", { timeZone }).format(value);
+  return day(ms) === day(nowMs) ? formatClock(ms, timeZone, locale) : formatWeekdayTime(ms, timeZone, locale);
+}
+
 /** "szept. 21. 00:00" */
 export function formatDateTime(ms: number, timeZone: string, locale: string): string {
   return zoned(ms, timeZone, locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
