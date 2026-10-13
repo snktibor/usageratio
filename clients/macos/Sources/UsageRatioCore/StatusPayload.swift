@@ -65,6 +65,27 @@ public struct StatusPayload: Decodable, Equatable, Sendable {
     public struct Pace: Decodable, Equatable, Sendable {
         public let projectedPercent: Double?
         public let runOutAt: Date?
+        /// The last hours' pace; nil while there is nothing to tell, and from a server without it.
+        public let recent: RecentPace?
+
+        public init(projectedPercent: Double?, runOutAt: Date?, recent: RecentPace? = nil) {
+            self.projectedPercent = projectedPercent
+            self.runOutAt = runOutAt
+            self.recent = recent
+        }
+    }
+
+    /// The pace since the change found in the last 8 hours (lib/recent-pace.ts), or over all of them.
+    public struct RecentPace: Decodable, Equatable, Sendable {
+        public let since: Date
+        /// The window's end: the newest report.
+        public let until: Date
+        /// True when the pace changed at `since`; false when `since` is just the window's start.
+        public let changed: Bool
+        /// The current pace over the cycle's average; 0 when nothing was used since `since`.
+        public let ratio: Double
+        /// Nil when it lasts until the reset at this pace.
+        public let runOutAt: Date?
     }
 
     public struct SubLimit: Decodable, Equatable, Sendable, Identifiable {

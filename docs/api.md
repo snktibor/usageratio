@@ -234,7 +234,10 @@ times are ISO 8601. `v` only changes for a breaking change — new fields are ad
       "cycle": { "start": "…", "end": "…" },
       "percent": 62.4, "source": "official", "estimatedPercent": 58.91, "asOf": "…",
       "tokens": 41200000, "limit": 70000000, "status": "warning",
-      "pace": { "projectedPercent": 108.03, "runOutAt": "2026-10-11T15:00:00.000Z" },
+      "pace": {
+        "projectedPercent": 108.03, "runOutAt": "2026-10-11T15:00:00.000Z",
+        "recent": { "since": "…", "until": "…", "changed": true, "ratio": 2.4, "runOutAt": "2026-10-07T18:00:00.000Z" }
+      },
       "subLimits": [{ "id": "fable", "name": "Fable", "percent": 80.1, "source": "provider", "status": "warning" }],
       "groups": [{ "id": "Personal", "percent": 41.6, "tokens": 27466667 }],
       "machines": [{ "id": "mac-studio", "groupId": "Personal", "percent": 33.3, "tokens": 22000000, "lastReportAt": "…" }],
@@ -252,7 +255,13 @@ times are ISO 8601. `v` only changes for a breaking change — new fields are ad
   the token limit either way (`null` without one).
 - `status` — `good` / `warning` / `critical` (lib/quota.ts); `pace` — the linear projection for the
   cycle (`projectedPercent` `null` while too early) and when the budget runs out at that pace
-  (`runOutAt` `null` if it lasts); both `null` with `percent`.
+  (`runOutAt` `null` if it lasts); both `null` with `percent`. `pace.recent` is the last hours' pace
+  (lib/recent-pace.ts): within the 8 hours up to the newest report (`until`) it finds where the pace
+  changed by 1.5× or more (`changed`; otherwise `since` is the window's start), states that pace
+  against the cycle's average (`ratio`, 0 when nothing was used since `since`) and when the budget
+  runs out if it keeps up (`runOutAt`, `null` if it lasts until the reset). It is `null` with less than
+  an hour of data, once every machine has been silent for over 2 hours, with nothing used this cycle,
+  or with the budget already gone. It never changes `status`.
 - `subLimits[].source` — `official`, `provider` (a share of the provider's official figure) or
   `measured`; `percent` is of its own budget, `null` while unknown.
 - `groups` / `machines` — the dashboard's breakdown, heaviest first (machines silent this cycle last,
