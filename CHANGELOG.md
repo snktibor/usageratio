@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/snktibor/usageratio/compare/v0.6.0...v0.7.0) (2026-10-13)
+
+
+### Features
+
+* say how long the budget lasts at the current pace ([#23](https://github.com/snktibor/usageratio/issues/23)) ([dcd0510](https://github.com/snktibor/usageratio/commit/dcd0510a6583d33a8ae4a029165859dfbd8bdb23))
+
 ## [0.6.0](https://github.com/snktibor/usageratio/compare/v0.5.0...v0.6.0) (2026-10-09)
 
 
