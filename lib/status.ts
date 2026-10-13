@@ -9,6 +9,7 @@ import { currentOfficialEntries, type OfficialEntryView } from "@/lib/official-u
 import { earliestStartMs, providerCycle } from "@/lib/provider-cycles";
 import { mergeProviderIds } from "@/lib/providers";
 import type { QuotaAssessment, QuotaStatus } from "@/lib/quota";
+import { type RecentPace, recentPace } from "@/lib/recent-pace";
 import { resolveConfig, storedProviderIds } from "@/lib/settings";
 import { loadEvents, loadIndexes } from "@/lib/usage-store";
 
@@ -72,6 +73,19 @@ export interface StatusProvider {
     projectedPercent: number | null;
     /** When the budget runs out at the current pace; null if it lasts until the reset. */
     runOutAt: string | null;
+    /** The last hours' pace (lib/recent-pace.ts); null while there is nothing to tell. */
+    recent: {
+      /** Where the current pace began: the change point found in the last 8 hours, or the window's start. */
+      since: string;
+      /** The window's end: the newest report. */
+      until: string;
+      /** True when a change point was found. */
+      changed: boolean;
+      /** The current pace over the cycle's average; 0 when nothing was used since `since`. */
+      ratio: number;
+      /** When the budget runs out at the current pace; null if it lasts until the reset. */
+      runOutAt: string | null;
+    } | null;
   } | null;
   subLimits: StatusSubLimit[];
   /** Its groups this cycle, the heaviest first. */
@@ -99,11 +113,18 @@ function readingOf(entry: OfficialEntryView | null | undefined) {
   return percent === null ? null : { percent, atMs: entry.enteredAt };
 }
 
-function paceOf(quota: QuotaAssessment): StatusProvider["pace"] {
+function paceOf(quota: QuotaAssessment, recent: RecentPace | null): StatusProvider["pace"] {
   const { projectedTotal, runOutAt } = quota.pace;
   return {
     projectedPercent: projectedTotal === null ? null : percentOf(projectedTotal / quota.limit),
     runOutAt: runOutAt === null ? null : iso(runOutAt),
+    recent: recent && {
+      since: iso(recent.sinceMs),
+      until: iso(recent.untilMs),
+      changed: recent.changed,
+      ratio: Math.round(recent.ratio * 100) / 100,
+      runOutAt: recent.runOutAt === null ? null : iso(recent.runOutAt),
+    },
   };
 }
 
@@ -123,7 +144,7 @@ function providerStatus(provider: ProviderDashboardModel): StatusProvider {
     tokens: model.total,
     limit: model.quota?.limit ?? null,
     status: view.quota?.status ?? null,
-    pace: view.quota ? paceOf(view.quota) : null,
+    pace: view.quota ? paceOf(view.quota, recentPace(model, view)) : null,
     subLimits: model.subLimits.map((sub) => {
       const subView = applySubLimitReading(model, view, sub, readingOf(provider.subLimitEntries[sub.id]));
       return {
