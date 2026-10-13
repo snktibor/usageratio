@@ -243,7 +243,9 @@ Describe 'report-usage-core.ps1 with each provider''s own cycle start' {
         $env:USAGERATIO_API_TOKEN = 'test-token'
         $result = Invoke-Core -Arguments @('-DryRun', '-ConfigPath', $script:ConfigPath)
 
-        $result.ExitCode | Should -Be 0
+        $log = if (Test-Path -LiteralPath $script:LogFile) { Get-Content -LiteralPath $script:LogFile -Raw } else { '' }
+        $server = Receive-Job -Job $script:Server -Keep 2>&1 | Out-String
+        $result.ExitCode | Should -Be 0 -Because "LOG: $log SERVER: $server STATE: $($script:Server.State) OUT: $($result.Output)"
         $payload = $result.Output | ConvertFrom-Json
         $payload.providers.claude | Should -Be 0
         $payload.providers.openai | Should -Be 500
