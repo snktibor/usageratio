@@ -192,7 +192,7 @@ Describe 'the fake ccusage/npx used above' {
 
 Describe 'report-usage-core.ps1 with each provider''s own cycle start' {
     BeforeAll {
-        # A one-request HTTP stub of GET /api/usage, in a background job so the child process can reach it.
+        # An HTTP stub of GET /api/usage, in a background job so the child process can reach it.
         $script:Port = Get-Random -Minimum 20000 -Maximum 40000
         $script:CycleJson = @{
             tokenMode = 'snapshot'
@@ -215,12 +215,20 @@ Describe 'report-usage-core.ps1 with each provider''s own cycle start' {
             $listener = [Net.HttpListener]::new()
             $listener.Prefixes.Add("http://localhost:$($using:port)/")
             $listener.Start()
+            # Serves until AfterAll stops the job: on Windows, stopping http.sys right after a
+            # response resets the connection before the client has read it.
             try {
-                $context = $listener.GetContext()
-                $bytes = [Text.Encoding]::UTF8.GetBytes($using:body)
-                $context.Response.ContentType = 'application/json'
-                $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
-                $context.Response.Close()
+                while ($true) {
+                    $pending = $listener.GetContextAsync()
+                    # Short waits, so Stop-Job can end the loop.
+                    while (-not $pending.Wait(200)) { }
+                    $context = $pending.Result
+                    $bytes = [Text.Encoding]::UTF8.GetBytes($using:body)
+                    $context.Response.ContentType = 'application/json'
+                    $context.Response.ContentLength64 = $bytes.Length
+                    $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+                    $context.Response.Close()
+                }
             } finally { $listener.Stop() }
         }
         # Wait until the stub listens.

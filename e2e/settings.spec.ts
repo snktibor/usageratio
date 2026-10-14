@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { REAL_API_TOKEN } from "./env";
 import { expect, test } from "./fixtures";
 
@@ -12,6 +13,15 @@ test.afterEach(async ({ cspViolations }) => {
 });
 
 test.describe.configure({ mode: "serial" });
+
+/**
+ * Waits until React has taken over the server-rendered page: hydration puts
+ * back a value typed in before it. The sections load their lists only then,
+ * so once none says "Loading status..." the form is live.
+ */
+async function untilLive(page: Page) {
+  await expect(page.getByText("Loading status...")).toHaveCount(0);
+}
 
 // The settings cannot be saved before any provider has reported (PUT /api/settings wants 1-20 limits).
 test.beforeAll(async ({ request }) => {
@@ -29,6 +39,7 @@ test.beforeAll(async ({ request }) => {
 
 test("a saved change is still there after a reload", async ({ page }) => {
   await page.goto("/en/settings");
+  await untilLive(page);
   const time = page.getByLabel("Time", { exact: true });
   const before = await time.inputValue();
   const changed = before === "06:30" ? "07:30" : "06:30";
@@ -39,6 +50,7 @@ test("a saved change is still there after a reload", async ({ page }) => {
   await expect(page.getByText("Saved.")).toBeVisible();
 
   await page.reload();
+  await untilLive(page);
   await expect(page.getByLabel("Time", { exact: true })).toHaveValue(changed);
 
   await page.getByLabel("Time", { exact: true }).fill(before);
@@ -48,6 +60,7 @@ test("a saved change is still there after a reload", async ({ page }) => {
 
 test("leaving with unsaved changes asks first, and staying keeps them", async ({ page }) => {
   await page.goto("/en/settings");
+  await untilLive(page);
   const time = page.getByLabel("Time", { exact: true });
   const before = await time.inputValue();
   await time.fill(before === "05:15" ? "05:45" : "05:15");
