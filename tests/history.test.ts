@@ -3,6 +3,8 @@ import type { UsageEvent } from "@/lib/aggregate";
 import {
   archivedOfficialEntries,
   type CycleSummary,
+  finalUsageOf,
+  groupSharesOf,
   HISTORY_RETENTION,
   HISTORY_TOP_MODELS,
   officialPercentForCycle,
@@ -198,6 +200,40 @@ describe("serializeCycleSummary / parseCycleSummary", () => {
     expect(parseCycleSummary(JSON.stringify({ ...summary, groups: { Work: "100" } }))).toBeNull();
     expect(parseCycleSummary(JSON.stringify({ ...summary, total: "not a number" }))).toBeNull();
     expect(parseCycleSummary(JSON.stringify({ ...summary, cost: "not a number" }))).toBeNull();
+  });
+});
+
+describe("finalUsageOf / groupSharesOf", () => {
+  const base: CycleSummary = {
+    v: 1,
+    start: WINDOW.startMs,
+    end: WINDOW.endMs,
+    total: 1_000,
+    limit: null,
+    official: null,
+    groups: { Work: 750, Personal: 250, Idle: 0 },
+    machines: 2,
+    models: {},
+    subLimits: {},
+    archivedAt: WINDOW.endMs,
+  };
+
+  it("splits the official percentage between the groups by their measured tokens, heaviest first", () => {
+    const entry = { ...base, official: 80, limit: 2_000 };
+    expect(finalUsageOf(entry)).toBe(0.8);
+    expect(groupSharesOf(entry)).toEqual([
+      { groupId: "Work", tokens: 750, share: 0.75, quotaShare: 0.6 },
+      { groupId: "Personal", tokens: 250, share: 0.25, quotaShare: 0.2 },
+    ]);
+  });
+
+  it("falls back to the share of the token limit, and to no quota share with neither", () => {
+    const limited = { ...base, limit: 4_000 };
+    expect(finalUsageOf(limited)).toBe(0.25);
+    expect(groupSharesOf(limited).map((group) => group.quotaShare)).toEqual([0.1875, 0.0625]);
+
+    expect(finalUsageOf(base)).toBeNull();
+    expect(groupSharesOf(base).map((group) => group.quotaShare)).toEqual([null, null]);
   });
 });
 

@@ -1,13 +1,14 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronRightIcon } from "@/components/icons";
+import { Segmented } from "@/components/ui/segmented";
 import { Link } from "@/i18n/routing";
 import { formatTokenTick, niceScale } from "@/lib/chart";
 import type { CycleKind } from "@/lib/cycle-options";
 import { formatCycleRange, formatHeroPercent, formatPercent, formatTokens } from "@/lib/format";
-import type { CycleSummary } from "@/lib/history";
+import { type CycleSummary, groupSharesOf } from "@/lib/history";
 import type { Translator } from "@/lib/i18n";
 import { NEUTRAL_COLOR } from "@/lib/settings";
 
@@ -57,14 +58,67 @@ const VISIBLE_ROWS = 3;
 const MAX_BAR_WIDTH = 40;
 /** Below this much room per column, only every other date label fits under the chart. */
 const LABEL_ROOM = 52;
+/** The gap between two groups stacked in one column. */
+const SEGMENT_GAP = 1;
 
-/** The groups of a cycle, heaviest first, with their share of it. */
-function groupShares(entry: CycleSummary): { groupId: string; tokens: number; share: number }[] {
-  const entries = Object.entries(entry.groups).filter(([, tokens]) => tokens > 0);
-  const total = entries.reduce((sum, [, tokens]) => sum + tokens, 0);
-  return entries
-    .sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
-    .map(([groupId, tokens]) => ({ groupId, tokens, share: total > 0 ? tokens / total : 0 }));
+/**
+ * One bar per cycle, or each bar split between the groups by their measured
+ * tokens. The choice is the viewer's own, remembered in this browser only
+ * (with storage blocked it lasts until the page is left), so opening another
+ * cycle keeps it.
+ */
+type ChartView = "total" | "groups";
+const VIEW_KEY = "usageratio_history_view";
+const viewListeners = new Set<() => void>();
+let chosenView: ChartView | null = null;
+
+function readView(): ChartView {
+  if (chosenView) return chosenView;
+  try {
+    return localStorage.getItem(VIEW_KEY) === "groups" ? "groups" : "total";
+  } catch {
+    return "total";
+  }
+}
+
+function writeView(view: ChartView) {
+  chosenView = view;
+  try {
+    localStorage.setItem(VIEW_KEY, view);
+  } catch {
+    // Storage blocked: `chosenView` still carries it for this page.
+  }
+  for (const listener of viewListeners) listener();
+}
+
+function subscribeView(listener: () => void) {
+  // Another tab's choice wins over this one's.
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== VIEW_KEY) return;
+    chosenView = null;
+    listener();
+  };
+  viewListeners.add(listener);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    viewListeners.delete(listener);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+function useChartView(): ChartView {
+  return useSyncExternalStore(subscribeView, readView, () => "total");
+}
+
+/** The groups of every cycle on the chart, heaviest overall first: the same order, and stacking, in each column. */
+function groupOrderOf(history: CycleSummary[]): string[] {
+  const totals = new Map<string, number>();
+  for (const entry of history) {
+    for (const [groupId, tokens] of Object.entries(entry.groups)) {
+      if (tokens > 0) totals.set(groupId, (totals.get(groupId) ?? 0) + tokens);
+    }
+  }
+  return [...totals].sort(([a, x], [b, y]) => y - x || a.localeCompare(b)).map(([groupId]) => groupId);
 }
 
 /** How much of the budget the cycle came to: the official figure, else the share of its token limit. */
@@ -87,11 +141,13 @@ function FinalUsage({ entry, t, locale }: { entry: CycleSummary; t: Translator<"
 function HistoryChart({
   history,
   timeZone,
+  groupColors,
   t,
   locale,
 }: {
   history: CycleSummary[];
   timeZone: string;
+  groupColors: Record<string, string>;
   t: Translator<"Widgets">;
   locale: string;
 }) {
@@ -101,6 +157,9 @@ function HistoryChart({
   // Only a crosshair moved by the keyboard is read out: a pointer would flood the screen reader.
   const [announce, setAnnounce] = useState(false);
   const hintId = useId();
+  const viewName = useId();
+  const view = useChartView();
+  const byGroup = view === "groups";
 
   useLayoutEffect(() => {
     const plot = plotRef.current;
@@ -118,6 +177,20 @@ function HistoryChart({
   const metric = pickMetric(history);
   const values = chronological.map((entry) => metricValueOf(entry, metric));
   const isPercent = metric !== "measured";
+  const groupOrder = groupOrderOf(history);
+  const colorOf = (groupId: string) => groupColors[groupId] ?? NEUTRAL_COLOR;
+  // Each column's value split between its groups by their measured tokens, bottom to top in `groupOrder`.
+  const segments = chronological.map((entry, index) => {
+    const value = values[index]!;
+    if (value === null) return [];
+    const shares = new Map(groupSharesOf(entry).map((group) => [group.groupId, group.share]));
+    return groupOrder.flatMap((groupId) => {
+      const share = shares.get(groupId);
+      return share === undefined ? [] : [{ groupId, value: value * share }];
+    });
+  });
+  const groupCells = (index: number) =>
+    groupOrder.map((groupId) => segments[index]!.find((segment) => segment.groupId === groupId));
 
   const scale = niceScale(
     Math.max(0, ...values.filter((value): value is number => value !== null)),
@@ -142,7 +215,9 @@ function HistoryChart({
 
   const readout = (index: number) => {
     const value = values[index]!;
-    return `${rangeOf(chronological[index]!)}: ${value === null ? t("history_value_unknown") : formatValue(value)}`;
+    const head = `${rangeOf(chronological[index]!)}: ${value === null ? t("history_value_unknown") : formatValue(value)}`;
+    if (!byGroup || segments[index]!.length === 0) return head;
+    return `${head} (${segments[index]!.map((segment) => `${segment.groupId} ${formatValue(segment.value)}`).join(", ")})`;
   };
 
   const pointAt = (clientX: number) => {
@@ -179,7 +254,24 @@ function HistoryChart({
 
   return (
     <div className="mt-5">
-      <p className="text-sm text-ink-3">{t(`history_metric_note_${metric}`)}</p>
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+        <p className="max-w-xl text-sm text-ink-3">
+          {t(`history_metric_note_${metric}`)}
+          {byGroup && ` ${t("history_groups_note")}`}
+        </p>
+        <div role="radiogroup" aria-label={t("history_view_label")}>
+          <Segmented
+            name={viewName}
+            size="sm"
+            value={view}
+            onChange={writeView}
+            options={[
+              { value: "total", label: t("history_view_total") },
+              { value: "groups", label: t("history_view_groups") },
+            ]}
+          />
+        </div>
+      </div>
       <div
         ref={plotRef}
         role="group"
@@ -216,6 +308,32 @@ function HistoryChart({
             {chronological.map((entry, index) => {
               const value = values[index]!;
               const y = value === null ? height - UNKNOWN_BAR_HEIGHT : yOf(value);
+              const stack = segments[index]!;
+              if (byGroup && stack.length > 0) {
+                // Bottom up; while a column is pointed at, the others step back.
+                let bottom = height;
+                return (
+                  <g key={entry.start} opacity={active === null || index === active ? 1 : 0.45}>
+                    {stack.map((segment, position) => {
+                      const top = yOf(stack.slice(0, position + 1).reduce((sum, s) => sum + s.value, 0));
+                      const gap = position > 0 ? SEGMENT_GAP : 0;
+                      const rect = (
+                        <rect
+                          key={segment.groupId}
+                          x={xOf(index) - barWidth / 2}
+                          y={top}
+                          width={barWidth}
+                          height={Math.max(0, bottom - top - gap)}
+                          rx={1.5}
+                          fill={colorOf(segment.groupId)}
+                        />
+                      );
+                      bottom = top;
+                      return rect;
+                    })}
+                  </g>
+                );
+              }
               return (
                 <rect
                   key={entry.start}
@@ -254,6 +372,20 @@ function HistoryChart({
             <p className="mt-1 font-medium text-ink tabular-nums">
               {values[active] === null ? t("history_value_unknown") : formatValue(values[active]!)}
             </p>
+            {byGroup && segments[active]!.length > 0 && (
+              <ul className="mt-1.5 space-y-0.5">
+                {[...segments[active]!].reverse().map((segment) => (
+                  <li key={segment.groupId} className="flex items-center gap-1.5 text-ink-2">
+                    <span
+                      className="size-2 shrink-0 rounded-[2px]"
+                      style={{ backgroundColor: colorOf(segment.groupId) }}
+                    />
+                    <span className="truncate">{segment.groupId}</span>
+                    <span className="ml-auto pl-3 tabular-nums">{formatValue(segment.value)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 
@@ -283,6 +415,17 @@ function HistoryChart({
           )}
       </div>
 
+      {byGroup && groupOrder.length > 0 && (
+        <ul aria-hidden="true" className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-2">
+          {groupOrder.map((groupId) => (
+            <li key={groupId} className="flex min-w-0 items-center gap-1.5">
+              <span className="size-2 shrink-0 rounded-[2px]" style={{ backgroundColor: colorOf(groupId) }} />
+              <span className="wrap-anywhere">{groupId}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
       <details className="mt-2 text-sm">
         <summary className="w-fit cursor-pointer text-ink-3 transition-colors hover:text-ink">{t("as_table")}</summary>
         <div className="mt-3 overflow-x-auto">
@@ -293,6 +436,12 @@ function HistoryChart({
                 <th scope="col" className="py-2 pr-4 font-normal">
                   {t("history_cycle_column")}
                 </th>
+                {byGroup &&
+                  groupOrder.map((groupId) => (
+                    <th key={groupId} scope="col" className="py-2 pl-4 text-right font-normal">
+                      {groupId}
+                    </th>
+                  ))}
                 <th scope="col" className="py-2 pl-4 text-right font-normal">
                   {t("history_value_column")}
                 </th>
@@ -304,6 +453,12 @@ function HistoryChart({
                   <th scope="row" className="py-2 pr-4 font-normal text-ink-2">
                     {rangeOf(entry)}
                   </th>
+                  {byGroup &&
+                    groupCells(index).map((cell, column) => (
+                      <td key={groupOrder[column]} className="py-2 pl-4 text-right text-ink-2">
+                        {cell ? formatValue(cell.value) : "–"}
+                      </td>
+                    ))}
                   <td className="py-2 pl-4 text-right">
                     {values[index] === null ? t("history_value_unknown") : formatValue(values[index]!)}
                   </td>
@@ -384,7 +539,9 @@ export function CycleHistory({
         <>
           <p className="mt-1 text-sm text-ink-3">{t("history_intro")}</p>
           {/* One column says nothing a row does not: the chart waits for a second cycle to compare. */}
-          {history.length >= 2 && <HistoryChart history={history} timeZone={timeZone} t={t} locale={locale} />}
+          {history.length >= 2 && (
+            <HistoryChart history={history} timeZone={timeZone} groupColors={groupColors} t={t} locale={locale} />
+          )}
 
           {/* The rules stay put; the rows scroll between them, their hover bleeding into the gutters as before. */}
           <div className="mt-6 border-y border-hairline">
@@ -396,7 +553,7 @@ export function CycleHistory({
               {/* biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics once list-style is none */}
               <ul ref={listRef} role="list">
                 {history.map((entry) => {
-                  const groups = groupShares(entry);
+                  const groups = groupSharesOf(entry);
                   const summaryOnly = kinds[entry.start] === "summary";
                   const current = entry.start === selectedStartMs;
                   return (
@@ -456,7 +613,14 @@ export function CycleHistory({
                                     style={{ backgroundColor: groupColors[group.groupId] ?? NEUTRAL_COLOR }}
                                   />
                                   <span className="wrap-anywhere">{group.groupId}</span>
-                                  <span className="tabular-nums text-ink-3">{formatPercent(group.share, locale)}</span>
+                                  <span className="tabular-nums text-ink-3">
+                                    {group.quotaShare === null
+                                      ? formatPercent(group.share, locale)
+                                      : t("history_group_shares", {
+                                          quota: formatPercent(group.quotaShare, locale),
+                                          share: formatPercent(group.share, locale),
+                                        })}
+                                  </span>
                                 </span>
                               ))}
                             </span>
