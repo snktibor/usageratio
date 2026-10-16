@@ -44,7 +44,9 @@
  *                                       HISTORY_RETENTION cycles. The cycle right before the
  *                                       current one is written once it has ended, by the first
  *                                       dashboard render or the daily housekeeping run, whichever
- *                                       comes first (lib/archive.ts).
+ *                                       comes first (lib/archive.ts). Its official figure can be
+ *                                       corrected later; the summary is then rewritten in place
+ *                                       (`saveArchivedOfficial` in lib/usage-store.ts).
  *
  * One time-ordered set per provider/group makes all filters native commands:
  * provider and group are in the key, a period is a score range. The reset

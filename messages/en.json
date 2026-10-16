@@ -440,6 +440,9 @@
     "end_row": "end ({moment})",
     "final_official_consumption": "Official consumption at the end of the cycle",
     "official_not_archived": "No official percentage was recorded for {label} in this cycle: the figures below are only what the machines measured.",
+    "official_correct": "Correct",
+    "official_correct_done": "Done",
+    "official_correct_hint": "Enter where {label}'s limit stood when this cycle ended: the figures below are recalculated from it, and it is saved as this cycle's final official percentage.",
     "cycle_closed": "Cycle closed.",
     "cycle_closed_used": "By its end, {percent} of the budget was used.",
     "cycle_closed_unknown": "Without an official percentage or a token limit, only the measured tokens and their proportions are known.",
@@ -469,7 +472,7 @@
   "Cycles": {
     "back_to_current": "Back to the current cycle",
     "past_banner_title": "You are looking at a past cycle",
-    "past_banner_body": "Read-only: every figure is final, the charts run to the end of the cycle, and the official percentage is the one archived with it.",
+    "past_banner_body": "Every figure is final and the charts run to the end of the cycle. Only the official percentage archived with it can still be corrected, if it went stale before the reset.",
     "summary_banner_title": "A past cycle, summary only",
     "summary_banner_body": "Its reports are no longer stored (they are kept for {days} days at most): only the summary archived at its end is left, so there are no charts over time and no machine list.",
     "unknown_cycle": "That cycle is not available: the current one is shown instead."

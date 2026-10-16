@@ -3,6 +3,7 @@ import {
   currentOfficialEntries,
   OFFICIAL_USAGE_RAW_MAX_LENGTH,
   officialUsageField,
+  parseArchivedOfficialUpdate,
   parseOfficialUsageUpdate,
   providerOfOfficialField,
   serializeOfficialEntry,
@@ -178,5 +179,29 @@ describe("providerOfOfficialField", () => {
   it("reads the provider id off a provider's or a sub-limit's field", () => {
     expect(providerOfOfficialField("claude")).toBe("claude");
     expect(providerOfOfficialField("claude:fable")).toBe("claude");
+  });
+});
+
+describe("parseArchivedOfficialUpdate", () => {
+  it("reads the typed text as a percentage", () => {
+    expect(parseArchivedOfficialUpdate({ providerId: "Claude", raw: "100", cycleStartMs: CYCLE_START })).toEqual({
+      ok: true,
+      update: { providerId: "claude", cycleStartMs: CYCLE_START, official: 100 },
+    });
+    const comma = parseArchivedOfficialUpdate({ providerId: "claude", raw: "82,5 %", cycleStartMs: CYCLE_START });
+    expect(comma.ok && comma.update.official).toBe(82.5);
+  });
+
+  it("reads an empty text as clearing the figure", () => {
+    const parsed = parseArchivedOfficialUpdate({ providerId: "claude", raw: " ", cycleStartMs: CYCLE_START });
+    expect(parsed).toEqual({ ok: true, update: { providerId: "claude", cycleStartMs: CYCLE_START, official: null } });
+  });
+
+  it("rejects a figure outside 0–100, a bad provider and a missing cycle", () => {
+    const parsed = parseArchivedOfficialUpdate({ providerId: "", raw: "120", cycleStartMs: "x" });
+    expect(parsed.ok).toBe(false);
+    expect(!parsed.ok && parsed.errors).toHaveLength(3);
+    expect(parseArchivedOfficialUpdate({ providerId: "claude", raw: 100, cycleStartMs: CYCLE_START }).ok).toBe(false);
+    expect(parseArchivedOfficialUpdate(null).ok).toBe(false);
   });
 });

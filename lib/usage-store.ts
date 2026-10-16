@@ -681,6 +681,33 @@ export async function archiveCycle(providerId: string, summary: CycleSummary): P
 }
 
 /**
+ * Corrects the official percentage archived with one of `providerId`'s cycles
+ * (null clears it), keeping every other field of its summary. The summary is
+ * replaced as a whole: `ZREMRANGEBYSCORE` on its start, then `ZADD`, in one
+ * transaction, so two corrections racing each other still leave exactly one
+ * summary of the cycle (the later one's). Returns false, writing nothing, when
+ * the cycle has no readable summary to correct.
+ */
+export async function saveArchivedOfficial(
+  providerId: string,
+  cycleStartMs: number,
+  official: number | null,
+): Promise<boolean> {
+  const key = KEYS.history(providerId);
+  const members = await getRedis().zrange(key, cycleStartMs, cycleStartMs, { byScore: true });
+  const summary = (Array.isArray(members) ? members : [])
+    .map((member) => parseCycleSummary(String(member)))
+    .find((entry): entry is CycleSummary => entry !== null && entry.start === cycleStartMs);
+  if (!summary) return false;
+
+  const tx = getRedis().multi();
+  tx.zremrangebyscore(key, cycleStartMs, cycleStartMs);
+  tx.zadd(key, { score: cycleStartMs, member: serializeCycleSummary({ ...summary, official }) });
+  await tx.exec();
+  return true;
+}
+
+/**
  * The start of the newest archived cycle, per provider; null where nothing is
  * archived yet. One round trip: a dashboard read uses this to decide whether
  * the previous cycle still needs archiving (see app/[locale]/(dashboard)/page.tsx).

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "@/i18n/routing";
 import type { OfficialEntryView } from "@/lib/official-usage";
 
 /** An official-usage field: its text as typed, and when that was. */
@@ -38,15 +39,14 @@ function toEntry(server: OfficialEntryView | undefined | null): Entry {
 
 type PutResult = { ok: true } | { ok: false; reason: SaveProblem };
 
-async function putOfficialUsage(body: {
-  providerId: string;
-  subLimitId: string | null;
-  raw: string;
-  cycleStartMs: number;
-}): Promise<PutResult> {
+/** The current cycle's field (app/api/official-usage/route.ts), or a finished cycle's archived figure (…/archived). */
+async function putOfficialUsage(
+  path: "/api/official-usage" | "/api/official-usage/archived",
+  body: { providerId: string; subLimitId?: string | null; raw: string; cycleStartMs: number },
+): Promise<PutResult> {
   let response: Response;
   try {
-    response = await fetch("/api/official-usage", {
+    response = await fetch(path, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -58,7 +58,10 @@ async function putOfficialUsage(body: {
   }
   if (response.ok) return { ok: true };
   if (response.status === 401) return { ok: false, reason: "unauthorized" };
-  if (response.status === 400 || response.status === 403) return { ok: false, reason: "rejected" };
+  // 404: the finished cycle has no archived summary to correct.
+  if (response.status === 400 || response.status === 403 || response.status === 404) {
+    return { ok: false, reason: "rejected" };
+  }
   return { ok: false, reason: "storage" };
 }
 
@@ -72,12 +75,19 @@ async function putOfficialUsage(body: {
  * The returned status reflects only the last write attempt: a fresh change
  * always starts a fresh "saving" attempt, so editing after a failure is
  * itself the retry.
+ *
+ * `closedAtMs`, the end of a finished cycle, makes it a correction of the
+ * figure archived with that cycle (lib/history.ts): it stands for the cycle's
+ * end, not for when it was typed, and once saved the page is refreshed so the
+ * previous-cycles list below shows it too (a past cycle has no auto-refresh).
  */
 export function useOfficialEntry(
   providerId: string,
   cycleStartMs: number,
   server: OfficialEntryView | null,
+  closedAtMs: number | null = null,
 ): [Entry, (raw: string) => void, EntryStatus] {
+  const router = useRouter();
   const [entry, setEntry] = useState<Entry>(() => toEntry(server));
   const [status, setStatus] = useState<EntryStatus>(IDLE_STATUS);
   const pending = useRef(false);
@@ -90,22 +100,27 @@ export function useOfficialEntry(
 
   const update = useCallback(
     (raw: string) => {
-      const next: Entry = raw.trim() === "" ? EMPTY_ENTRY : { raw, enteredAt: Date.now() };
+      const next: Entry = raw.trim() === "" ? EMPTY_ENTRY : { raw, enteredAt: closedAtMs ?? Date.now() };
       setEntry(next);
       setStatus({ status: "saving", problem: null });
       pending.current = true;
       clearTimeout(timer.current);
       timer.current = setTimeout(() => {
-        void putOfficialUsage({ providerId, subLimitId: null, raw: next.raw, cycleStartMs })
-          .then((result) =>
-            setStatus(result.ok ? { status: "saved", problem: null } : { status: "failed", problem: result.reason }),
-          )
+        const saved =
+          closedAtMs === null
+            ? putOfficialUsage("/api/official-usage", { providerId, subLimitId: null, raw: next.raw, cycleStartMs })
+            : putOfficialUsage("/api/official-usage/archived", { providerId, raw: next.raw, cycleStartMs });
+        void saved
+          .then((result) => {
+            setStatus(result.ok ? { status: "saved", problem: null } : { status: "failed", problem: result.reason });
+            if (result.ok && closedAtMs !== null) router.refresh();
+          })
           .finally(() => {
             pending.current = false;
           });
       }, DEBOUNCE_MS);
     },
-    [providerId, cycleStartMs],
+    [providerId, cycleStartMs, closedAtMs, router],
   );
 
   return [entry, update, status];
@@ -166,7 +181,7 @@ export function useSubLimitEntries(
       timers.current.set(
         subLimitId,
         setTimeout(() => {
-          void putOfficialUsage({ providerId, subLimitId, raw: next.raw, cycleStartMs })
+          void putOfficialUsage("/api/official-usage", { providerId, subLimitId, raw: next.raw, cycleStartMs })
             .then((result) =>
               setStatuses((current) =>
                 new Map(current).set(

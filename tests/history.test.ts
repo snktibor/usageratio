@@ -13,7 +13,7 @@ import {
 import { serializeOfficialEntry } from "@/lib/official-usage";
 import { getRedis } from "@/lib/redis";
 import type { SubLimit } from "@/lib/sub-limits";
-import { archiveCycle, loadHistory, loadNewestArchivedStarts } from "@/lib/usage-store";
+import { archiveCycle, loadHistory, loadNewestArchivedStarts, saveArchivedOfficial } from "@/lib/usage-store";
 import { useRedis } from "./helpers/redis-fixture";
 
 const HOUR = 3_600_000;
@@ -328,5 +328,38 @@ describe("archiveCycle / loadHistory / loadNewestArchivedStarts", () => {
     await getRedis().zadd("usage:history:claude", { score: 2 * HOUR, member: "not json" });
     const history = await loadHistory(["claude"]);
     expect(history.claude?.map((entry) => entry.start)).toEqual([HOUR]);
+  });
+});
+
+describe("saveArchivedOfficial", () => {
+  useRedis();
+
+  it("corrects the archived figure and keeps every other field", async () => {
+    const summary = { ...summaryAt(HOUR), total: 1234, official: 82, groups: { work: 1234 } };
+    await archiveCycle("claude", summary);
+    await archiveCycle("claude", summaryAt(2 * HOUR));
+
+    expect(await saveArchivedOfficial("claude", HOUR, 100)).toBe(true);
+    const history = await loadHistory(["claude"]);
+    expect(history.claude).toHaveLength(2);
+    expect(history.claude?.[1]).toEqual({ ...summary, official: 100 });
+    expect(history.claude?.[0]?.official).toBeNull();
+  });
+
+  it("clears the figure with null, and leaves one summary of the cycle after several corrections", async () => {
+    await archiveCycle("claude", { ...summaryAt(HOUR), official: 82 });
+    await saveArchivedOfficial("claude", HOUR, 90);
+    await saveArchivedOfficial("claude", HOUR, null);
+    const raw = await getRedis().zrange("usage:history:claude", 0, -1);
+    expect(raw).toHaveLength(1);
+    expect((await loadHistory(["claude"])).claude?.[0]?.official).toBeNull();
+  });
+
+  it("writes nothing for a cycle that has no archived summary", async () => {
+    await archiveCycle("claude", summaryAt(HOUR));
+    expect(await saveArchivedOfficial("claude", 2 * HOUR, 100)).toBe(false);
+    expect(await saveArchivedOfficial("openai", HOUR, 100)).toBe(false);
+    expect((await loadHistory(["claude"])).claude?.map((entry) => entry.start)).toEqual([HOUR]);
+    expect(await getRedis().exists("usage:history:openai")).toBe(0);
   });
 });
