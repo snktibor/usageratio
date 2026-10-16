@@ -177,6 +177,15 @@ export function ExportIcon({ className }: IconProps) {
   );
 }
 
+export function LogOutIcon({ className }: IconProps) {
+  return (
+    <Glyph className={className}>
+      <path d="M6.2 13.4H3.8c-.7 0-1.2-.5-1.2-1.2V3.8c0-.7.5-1.2 1.2-1.2h2.4" />
+      <path d="M10.6 11 13.6 8l-3-3M13.6 8H6" />
+    </Glyph>
+  );
+}
+
 /** The GitHub mark: a solid logo, so it breaks from `Glyph`'s stroke-only style. */
 export function GitHubIcon({ className }: IconProps) {
   return (
