@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CycleHistory } from "@/components/cycle-history";
 import type { CycleSummary } from "@/lib/history";
@@ -86,14 +86,17 @@ describe("CycleHistory", () => {
     expect(newerLink.textContent).toContain("62.0%");
     expect(newerLink.textContent).toContain("official");
     expect(newerLink.textContent).toContain("120,000 tokens measured · 3 machines");
-    // The groups' shares are written out, not only drawn.
-    expect(newerLink.textContent).toContain("Work75%");
-    expect(newerLink.textContent).toContain("Personal25%");
+    // The groups' shares are written out, not only drawn: of the quota (62% split 3:1), and of the tokens.
+    expect(newerLink.textContent).toContain("Work47% of quota · 75% of tokens");
+    expect(newerLink.textContent).toContain("Personal16% of quota · 25% of tokens");
 
     // No official figure and no token limit for the older cycle: said so, not a stale or zero percentage.
     const olderLink = within(older!).getByRole("link");
     expect(olderLink.textContent).toContain("–");
     expect(olderLink.textContent).toContain("no official figure");
+    // Nothing to split, either: only the group's share of the tokens.
+    expect(olderLink.textContent).toContain("Work100%");
+    expect(olderLink.textContent).not.toContain("of quota");
   });
 
   it("marks the cycle on screen, and the ones that only have a summary left", () => {
@@ -128,5 +131,34 @@ describe("CycleHistory", () => {
     const link = screen.getByRole("link");
     expect(link.textContent).toContain("25.0%");
     expect(link.textContent).toContain("of the token limit, measured");
+  });
+
+  it("splits the bars between the groups on request, and remembers the choice", () => {
+    localStorage.removeItem("usageratio_history_view");
+    const { unmount } = renderHistory([NEWER, OLDER]);
+    const total = screen.getByRole("radio", { name: "Total" }) as HTMLInputElement;
+    expect(total.checked).toBe(true);
+    // The table follows the chart: one column per group once the bars are split.
+    expect(screen.queryByRole("columnheader", { name: "Work" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("radio", { name: "By group" }));
+    expect((screen.getByRole("radio", { name: "By group" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText(/Each bar is split between the groups/)).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Work" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Personal" })).toBeTruthy();
+    const newerRow = screen.getAllByRole("row").find((row) => row.textContent?.includes("62%"))!;
+    expect(
+      within(newerRow)
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent),
+    ).toEqual(["47%", "16%", "62%"]);
+    expect(localStorage.getItem("usageratio_history_view")).toBe("groups");
+    unmount();
+
+    // Another cycle opened: still split.
+    renderHistory([NEWER, OLDER]);
+    expect((screen.getByRole("radio", { name: "By group" }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole("radio", { name: "Total" }));
+    expect(localStorage.getItem("usageratio_history_view")).toBe("total");
   });
 });

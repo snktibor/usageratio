@@ -181,6 +181,49 @@ export function archivedOfficialEntries(
   return entries;
 }
 
+/**
+ * How much of the quota a finished cycle came to (0–1): its official
+ * percentage, else the measured share of its token limit; null with neither.
+ */
+export function finalUsageOf(entry: CycleSummary): number | null {
+  const percent = finalPercentOf(entry);
+  return percent === null ? null : percent / 100;
+}
+
+/** `finalUsageOf` as a percentage (0–100), the unit the history chart's bars are in. */
+function finalPercentOf(entry: CycleSummary): number | null {
+  if (entry.official !== null) return entry.official;
+  return entry.limit !== null && entry.limit > 0 ? (entry.total / entry.limit) * 100 : null;
+}
+
+export interface GroupShare {
+  groupId: string;
+  tokens: number;
+  /** Of the cycle's measured tokens (0–1). */
+  share: number;
+  /** Of the quota (0–1): the cycle's final usage split by the measured shares; null when that usage is unknown. */
+  quotaShare: number | null;
+}
+
+/**
+ * A cycle's groups, heaviest first, with their share of its measured tokens
+ * and of its quota: the final usage (`finalUsageOf`) split between them by
+ * their measured tokens, the way the live dashboard splits the official
+ * percentage (lib/dashboard.ts).
+ */
+export function groupSharesOf(entry: CycleSummary): GroupShare[] {
+  const entries = Object.entries(entry.groups).filter(([, tokens]) => tokens > 0);
+  const total = entries.reduce((sum, [, tokens]) => sum + tokens, 0);
+  // Split in percent, then scaled down: the same arithmetic as the chart's stacked bars, so both round alike.
+  const percent = finalPercentOf(entry);
+  return entries
+    .sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
+    .map(([groupId, tokens]) => {
+      const share = total > 0 ? tokens / total : 0;
+      return { groupId, tokens, share, quotaShare: percent === null ? null : (percent * share) / 100 };
+    });
+}
+
 // ── (De)serialization ────────────────────────────────────────────────────────
 
 function isFiniteNumber(value: unknown): value is number {
