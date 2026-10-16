@@ -1,7 +1,7 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useId } from "react";
+import { useId, useState } from "react";
 import { StopCircleIcon } from "@/components/icons";
 import { StatusLine } from "@/components/status-line";
 import type { EntryStatus } from "@/components/use-official-entry";
@@ -26,17 +26,26 @@ interface GroundTruthInputProps {
   onProviderChange: (providerId: string) => void;
   /** Under the field: the provider's sub-limits, if it has any. */
   children?: React.ReactNode;
-  /** A finished cycle: the figure archived with it is shown, never edited. */
+  /**
+   * A finished cycle: the figure archived with it is shown, and only edited
+   * once asked to (a correction, say 82% → 100%, of a figure that went stale
+   * before the reset; see components/use-official-entry.ts `closedAtMs`).
+   */
   readOnly?: boolean;
 }
 
 function hint(
   { invalid, enteredAt, view, timeZone, providerLabel, readOnly: readOnlyCycle }: GroundTruthInputProps,
+  correcting: boolean,
   t: Translator<"Widgets">,
   locale: string,
 ): string {
   if (invalid) return t("number_between_0_100");
-  if (readOnlyCycle && !view.calibrated) return t("official_not_archived", { label: providerLabel });
+  if (readOnlyCycle && !view.calibrated) {
+    return correcting
+      ? t("official_correct_hint", { label: providerLabel })
+      : t("official_not_archived", { label: providerLabel });
+  }
   if (!view.calibrated) {
     if (!view.inTokens) {
       return t("enter_official_no_token", { label: providerLabel });
@@ -73,6 +82,8 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
     props;
   const fieldId = useId();
   const hintId = useId();
+  const [correcting, setCorrecting] = useState(false);
+  const editable = !readOnly || correcting;
 
   // Left alone, the slider rests on the measured figure (on 0 without a token limit): dragging starts from what is known.
   const sliderFraction = (view.calibrated ? view.quota?.usedFraction : view.measured.usedFraction) ?? 0;
@@ -86,8 +97,12 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
       }`}
     >
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-hairline pb-4">
-        {readOnly ? (
+        {readOnly && !correcting ? (
           <h2 className="text-base font-medium">{t("final_official_consumption")}</h2>
+        ) : readOnly ? (
+          <label htmlFor={fieldId} className="text-base font-medium">
+            {t("final_official_consumption")}
+          </label>
         ) : (
           <label htmlFor={fieldId} className="text-base font-medium">
             {t("current_official_consumption")}
@@ -109,13 +124,20 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
         </label>
       </div>
 
-      {readOnly ? (
-        <p className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+      {!editable ? (
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
           <span className="text-sm text-ink-3">{t("real_percentage", { label: providerLabel })}</span>
           <span className={`text-2xl font-medium tabular-nums ${raw === "" ? "text-ink-3" : "text-ink"}`}>
             {raw === "" ? "–" : formatHeroPercent(Number(raw) / 100, locale)}
           </span>
-        </p>
+          <button
+            type="button"
+            onClick={() => setCorrecting(true)}
+            className="ml-auto shrink-0 self-center rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
+          >
+            {t("official_correct")}
+          </button>
+        </div>
       ) : (
         <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
           <span className="text-sm text-ink-3">{t("real_percentage", { label: providerLabel })}</span>
@@ -158,14 +180,27 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
               }`}
             />
 
-            {raw !== "" && (
-              <button
-                type="button"
-                onClick={() => onChange("")}
-                className="order-2 ml-auto shrink-0 rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink sm:order-3 sm:ml-0"
-              >
-                {t("delete")}
-              </button>
+            {(raw !== "" || readOnly) && (
+              <span className="order-2 ml-auto flex shrink-0 gap-2 sm:order-3 sm:ml-0">
+                {raw !== "" && (
+                  <button
+                    type="button"
+                    onClick={() => onChange("")}
+                    className="rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
+                  >
+                    {t("delete")}
+                  </button>
+                )}
+                {readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => setCorrecting(false)}
+                    className="rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
+                  >
+                    {t("official_correct_done")}
+                  </button>
+                )}
+              </span>
             )}
           </div>
         </div>
@@ -173,7 +208,7 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
 
       <p id={hintId} className={`mt-4 flex max-w-3xl items-start gap-2 text-sm ${invalid ? "text-ink" : "text-ink-3"}`}>
         {invalid && <StopCircleIcon className="mt-0.5 shrink-0 text-critical" />}
-        <span>{hint(props, t, locale)}</span>
+        <span>{hint(props, correcting, t, locale)}</span>
       </p>
       {status.status === "failed" && status.problem && (
         <div className="mt-2">

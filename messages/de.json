@@ -440,6 +440,9 @@
     "end_row": "Ende ({moment})",
     "final_official_consumption": "Offizieller Verbrauch am Ende des Zyklus",
     "official_not_archived": "Für {label} wurde in diesem Zyklus kein offizieller Prozentwert festgehalten: Unten steht nur, was die Maschinen gemessen haben.",
+    "official_correct": "Korrigieren",
+    "official_correct_done": "Fertig",
+    "official_correct_hint": "Gib ein, wo das Limit von {label} am Ende dieses Zyklus stand: Die Zahlen unten werden daraus neu berechnet, und es wird als endgültiger offizieller Prozentwert des Zyklus gespeichert.",
     "cycle_closed": "Zyklus abgeschlossen.",
     "cycle_closed_used": "Bis zu seinem Ende wurden {percent} des Kontingents verbraucht.",
     "cycle_closed_unknown": "Ohne offiziellen Prozentwert und Token-Limit sind nur die gemessenen Token und ihre Anteile bekannt.",
@@ -469,7 +472,7 @@
   "Cycles": {
     "back_to_current": "Zurück zum aktuellen Zyklus",
     "past_banner_title": "Du siehst einen früheren Zyklus",
-    "past_banner_body": "Nur lesbar: Alle Zahlen sind endgültig, die Diagramme reichen bis zum Ende des Zyklus, und der offizielle Prozentwert ist der mit ihm archivierte.",
+    "past_banner_body": "Alle Zahlen sind endgültig, und die Diagramme reichen bis zum Ende des Zyklus. Nur der mit ihm archivierte offizielle Prozentwert lässt sich noch korrigieren, falls er vor dem Reset veraltet war.",
     "summary_banner_title": "Früherer Zyklus, nur Zusammenfassung",
     "summary_banner_body": "Seine Meldungen sind nicht mehr gespeichert (sie werden höchstens {days} Tage aufbewahrt): Übrig ist nur die bei seinem Ende archivierte Zusammenfassung, daher gibt es keine Verlaufsdiagramme und keine Maschinenliste.",
     "unknown_cycle": "Dieser Zyklus ist nicht verfügbar: Stattdessen wird der aktuelle angezeigt."

@@ -1,13 +1,16 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import { CycleHistory } from "@/components/cycle-history";
 import type { HistoryContext } from "@/components/dashboard-view";
 import { writeProviderCookie } from "@/components/dashboard-view";
+import { StatusLine } from "@/components/status-line";
+import { useOfficialEntry } from "@/components/use-official-entry";
 import { useRouter } from "@/i18n/routing";
 import { periodOfCycle } from "@/lib/cycle-options";
 import { formatCost, formatHeroPercent, formatPercent, formatTokens } from "@/lib/format";
+import { parseOfficialPercent } from "@/lib/ground-truth";
 import type { CycleSummary } from "@/lib/history";
 import { modelKey, modelLabel } from "@/lib/models";
 import { NEUTRAL_COLOR } from "@/lib/settings";
@@ -61,6 +64,101 @@ function ShareList({
 }
 
 /**
+ * The cycle's final official percentage, as archived with it, and its
+ * correction (say 82% → 100%, a figure that went stale before the reset):
+ * written back into the summary (app/api/official-usage/archived/route.ts).
+ * Without one, the measured share of the token limit stands in for it.
+ */
+function ArchivedOfficialFigure({ providerId, summary }: { providerId: string; summary: CycleSummary }) {
+  const locale = useLocale();
+  const t = useTranslations("Widgets");
+  const fieldId = useId();
+  const [correcting, setCorrecting] = useState(false);
+  const [entry, setEntry, status] = useOfficialEntry(
+    providerId,
+    summary.start,
+    summary.official === null ? null : { raw: String(summary.official), enteredAt: summary.end },
+    summary.end,
+  );
+  const { percent: official, invalid } = parseOfficialPercent(entry.raw);
+  const limitShare = summary.limit !== null && summary.limit > 0 ? summary.total / summary.limit : null;
+
+  return (
+    <div>
+      <dt className="text-sm text-ink-3">
+        {correcting ? (
+          <label htmlFor={fieldId}>{t("final_official_consumption")}</label>
+        ) : (
+          t("final_official_consumption")
+        )}
+      </dt>
+      {correcting ? (
+        <dd className="mt-1 flex flex-wrap items-center gap-2">
+          <span className="relative">
+            <input
+              id={fieldId}
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              maxLength={7}
+              placeholder="–"
+              value={entry.raw}
+              onChange={(event) => setEntry(event.target.value)}
+              aria-invalid={invalid || undefined}
+              className="block w-24 rounded-md border border-rule bg-page py-1 pl-3 pr-8 text-2xl font-medium tabular-nums text-ink placeholder:text-ink-3"
+            />
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-lg text-ink-3"
+            >
+              %
+            </span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setCorrecting(false)}
+            className="rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
+          >
+            {t("official_correct_done")}
+          </button>
+        </dd>
+      ) : (
+        <dd className="mt-1 flex items-center gap-3">
+          <span className="text-2xl font-medium tabular-nums">
+            {official !== null
+              ? formatHeroPercent(official / 100, locale)
+              : limitShare !== null
+                ? formatHeroPercent(limitShare, locale)
+                : "–"}
+          </span>
+          <button
+            type="button"
+            onClick={() => setCorrecting(true)}
+            className="rounded-md border border-rule px-2.5 py-1 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
+          >
+            {t("official_correct")}
+          </button>
+        </dd>
+      )}
+      <dd className={`text-sm ${correcting ? "mt-1.5 " : ""}${invalid ? "text-ink" : "text-ink-3"}`}>
+        {invalid
+          ? t("number_between_0_100")
+          : official !== null
+            ? t("history_final_official")
+            : limitShare !== null
+              ? t("history_final_limit")
+              : t("history_final_unknown")}
+      </dd>
+      {status.status === "failed" && status.problem && (
+        <dd className="mt-2">
+          <StatusLine tone="problem">{t(`official_save_failed_${status.problem}`)}</StatusLine>
+        </dd>
+      )}
+    </div>
+  );
+}
+
+/**
  * A cycle older than the raw reports' retention: all that is left of it is
  * each provider's archived summary (lib/history.ts), shown as it was frozen.
  * No chart over time, no machine list: those needed the reports.
@@ -96,7 +194,6 @@ export function ArchivedCycleView({
   const selected = summaries.find((entry) => entry.id === selectedId) ?? summaries[0];
   if (!selected) return null;
   const { summary } = selected;
-  const limitShare = summary && summary.limit !== null && summary.limit > 0 ? summary.total / summary.limit : null;
 
   return (
     <main className="mt-10 space-y-16 sm:mt-12">
@@ -124,23 +221,11 @@ export function ArchivedCycleView({
 
         {summary ? (
           <dl className="mt-5 grid grid-cols-1 gap-x-10 gap-y-5 sm:grid-cols-3">
-            <div>
-              <dt className="text-sm text-ink-3">{t("final_official_consumption")}</dt>
-              <dd className="mt-1 text-2xl font-medium tabular-nums">
-                {summary.official !== null
-                  ? formatHeroPercent(summary.official / 100, locale)
-                  : limitShare !== null
-                    ? formatHeroPercent(limitShare, locale)
-                    : "–"}
-              </dd>
-              <dd className="text-sm text-ink-3">
-                {summary.official !== null
-                  ? t("history_final_official")
-                  : limitShare !== null
-                    ? t("history_final_limit")
-                    : t("history_final_unknown")}
-              </dd>
-            </div>
+            <ArchivedOfficialFigure
+              key={`${selected.id}:${summary.start}`}
+              providerId={selected.id}
+              summary={summary}
+            />
             <div>
               <dt className="text-sm text-ink-3">{t("measured_usage")}</dt>
               <dd className="mt-1 text-2xl font-medium">

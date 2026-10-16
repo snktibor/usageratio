@@ -440,6 +440,9 @@
     "end_row": "vége ({moment})",
     "final_official_consumption": "Hivatalos fogyasztás a ciklus végén",
     "official_not_archived": "Ebben a ciklusban nem került rögzítésre hivatalos százalék a(z) {label} fiókhoz: lent csak a gépek által mért adatok látszanak.",
+    "official_correct": "Javítás",
+    "official_correct_done": "Kész",
+    "official_correct_hint": "Írd be, hol állt a(z) {label} limitje a ciklus végén: a lenti számok ebből számolódnak újra, és ez lesz a ciklus végső hivatalos százaléka.",
     "cycle_closed": "Lezárt ciklus.",
     "cycle_closed_used": "A végére a keret {percent}-a fogyott el.",
     "cycle_closed_unknown": "Hivatalos százalék és tokenkeret nélkül csak a mért tokenek és arányaik ismertek.",
@@ -469,7 +472,7 @@
   "Cycles": {
     "back_to_current": "Vissza az aktuálishoz",
     "past_banner_title": "Egy korábbi ciklust nézel",
-    "past_banner_body": "Csak olvasható: minden szám végleges, a grafikonok a ciklus végéig tartanak, a hivatalos százalék pedig az, amelyik vele együtt archiválódott.",
+    "past_banner_body": "Minden szám végleges, a grafikonok a ciklus végéig tartanak. Csak a vele archivált hivatalos százalék javítható még, ha a reset előtt elavult.",
     "summary_banner_title": "Korábbi ciklus, csak összegzés",
     "summary_banner_body": "A nyers jelentései már nincsenek meg (legfeljebb {days} napig őrződnek): csak a lezárásakor archivált összegzés maradt meg, ezért nincs időbeli grafikon és géplista.",
     "unknown_cycle": "Ilyen ciklus nem érhető el: helyette az aktuális látszik."

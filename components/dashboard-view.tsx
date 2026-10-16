@@ -38,7 +38,7 @@ export interface HistoryContext {
  * The part of the dashboard an official usage figure can restate. The server
  * sends what the machines measured; the recalculation happens here, as the
  * figure is typed. A finished cycle (`model.closed`) shows the figure archived
- * with it instead, and takes none.
+ * with it instead, which can still be corrected.
  */
 function ProviderView({
   selected,
@@ -56,7 +56,13 @@ function ProviderView({
   const locale = useLocale();
   const t = useTranslations("Dashboard");
   const model = selected.dashboard;
-  const [entry, setEntry, entryStatus] = useOfficialEntry(selected.id, model.cycle.startMs, selected.officialEntry);
+  const [entry, setEntry, entryStatus] = useOfficialEntry(
+    selected.id,
+    model.cycle.startMs,
+    selected.officialEntry,
+    // A finished cycle's figure is its archived one: a correction is written there.
+    model.closed ? model.cycle.endMs : null,
+  );
   const { percent, invalid } = parseOfficialPercent(entry.raw);
 
   const view = useMemo(
