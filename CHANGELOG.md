@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/snktibor/usageratio/compare/v0.8.0...v0.9.0) (2026-10-16)
+
+
+### Features
+
+* show past cycles' group quota shares and a per-group history chart ([#28](https://github.com/snktibor/usageratio/issues/28)) ([66b362d](https://github.com/snktibor/usageratio/commit/66b362de5bbceb17b9e368ab62aae0b31cdbe34a))
+
 ## [0.8.0](https://github.com/snktibor/usageratio/compare/v0.7.0...v0.8.0) (2026-10-16)
 
 
