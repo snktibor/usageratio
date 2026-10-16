@@ -4,7 +4,7 @@ import { ArchivedCycleView, type PastSummary } from "@/components/archived-cycle
 import { AutoRefresh } from "@/components/auto-refresh";
 import { CycleBar } from "@/components/cycle-bar";
 import { DashboardView, type HistoryContext } from "@/components/dashboard-view";
-import { DownloadIcon, ExportIcon, GitHubIcon, SlidersIcon } from "@/components/icons";
+import { DownloadIcon, ExportIcon, GitHubIcon, LogOutIcon, SlidersIcon } from "@/components/icons";
 import { Link } from "@/i18n/routing";
 import { getConfig } from "@/lib/config";
 import type { CycleOption, CycleSelection } from "@/lib/cycle-options";
@@ -91,9 +91,10 @@ export async function Dashboard({
       {/* A past cycle does not change any more. */}
       {selected.kind === "current" && <AutoRefresh />}
 
-      <header className="flex items-center justify-between gap-4">
+      {/* The narrowest phones get the buttons on a row of their own rather than a page wider than the screen. */}
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <p className="text-lg font-medium tracking-tight">usageratio</p>
-        <div className="flex items-center gap-3 text-sm text-ink-3 sm:gap-4">
+        <div className="ml-auto flex items-center gap-2 text-sm text-ink-3 sm:gap-4">
           <span title={t("dashboard_updated_title", { refreshedAt })} className="mr-1">
             <span className="sr-only sm:not-sr-only">{t("dashboard_updated_prefix")}</span>
             {refreshedAt}
@@ -117,9 +118,10 @@ export async function Dashboard({
             <form action={logout}>
               <button
                 type="submit"
-                className="rounded-md border border-rule px-3 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
+                className="flex items-center gap-2 rounded-md border border-rule px-2.5 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink sm:px-3"
               >
-                {t("dashboard_logout")}
+                <LogOutIcon />
+                <span className="sr-only sm:not-sr-only">{t("dashboard_logout")}</span>
               </button>
             </form>
           )}
