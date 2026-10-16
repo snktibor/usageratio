@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/snktibor/usageratio/compare/v0.7.0...v0.8.0) (2026-10-16)
+
+
+### Features
+
+* implement archived official percentage correction ([1b47ba5](https://github.com/snktibor/usageratio/commit/1b47ba5eb2d732f6850123375f3941ba3b56c10c))
+
+
+### Bug Fixes
+
+* keep the dashboard header within the screen on phones ([#27](https://github.com/snktibor/usageratio/issues/27)) ([b47ff30](https://github.com/snktibor/usageratio/commit/b47ff300236bd4df87c5d58f9538fca5f7bbbb0d))
+
 ## [0.7.0](https://github.com/snktibor/usageratio/compare/v0.6.0...v0.7.0) (2026-10-13)
 
 
