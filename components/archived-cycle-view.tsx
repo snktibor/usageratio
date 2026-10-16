@@ -11,7 +11,7 @@ import { useRouter } from "@/i18n/routing";
 import { periodOfCycle } from "@/lib/cycle-options";
 import { formatCost, formatHeroPercent, formatPercent, formatTokens } from "@/lib/format";
 import { parseOfficialPercent } from "@/lib/ground-truth";
-import type { CycleSummary } from "@/lib/history";
+import { type CycleSummary, groupSharesOf } from "@/lib/history";
 import { modelKey, modelLabel } from "@/lib/models";
 import { NEUTRAL_COLOR } from "@/lib/settings";
 
@@ -22,14 +22,15 @@ export interface PastSummary {
   summary: CycleSummary | null;
 }
 
-/** Rows of a name and an amount, heaviest first, each with a bar of its share. */
+/** Rows of a name and an amount, heaviest first, each with a bar of its share (and, when given, its share of the quota). */
 function ShareList({
   rows,
   locale,
 }: {
-  rows: { key: string; label: string; tokens: number; color: string }[];
+  rows: { key: string; label: string; tokens: number; color: string; quotaShare?: number | null }[];
   locale: string;
 }) {
+  const t = useTranslations("Widgets");
   const total = rows.reduce((sum, row) => sum + row.tokens, 0);
   return (
     <ul className="mt-3 border-t border-hairline">
@@ -47,7 +48,16 @@ function ShareList({
                 <span className="wrap-anywhere">{row.label}</span>
               </span>
               <span className="shrink-0 tabular-nums">
-                {formatTokens(row.tokens, locale)} <span className="text-ink-3">· {formatPercent(share, locale)}</span>
+                {formatTokens(row.tokens, locale)}{" "}
+                <span className="text-ink-3">
+                  ·{" "}
+                  {row.quotaShare === undefined || row.quotaShare === null
+                    ? formatPercent(share, locale)
+                    : t("history_group_shares", {
+                        quota: formatPercent(row.quotaShare, locale),
+                        share: formatPercent(share, locale),
+                      })}
+                </span>
               </span>
             </div>
             <span aria-hidden="true" className="mt-1.5 block h-1.5 w-full rounded-r-[3px] bg-hairline">
@@ -260,15 +270,13 @@ export function ArchivedCycleView({
           </h2>
           <ShareList
             locale={locale}
-            rows={Object.entries(summary.groups)
-              .filter(([, tokens]) => tokens > 0)
-              .sort(([, a], [, b]) => b - a)
-              .map(([groupId, tokens]) => ({
-                key: groupId,
-                label: groupId,
-                tokens,
-                color: historyContext.groupColors[groupId] ?? NEUTRAL_COLOR,
-              }))}
+            rows={groupSharesOf(summary).map((group) => ({
+              key: group.groupId,
+              label: group.groupId,
+              tokens: group.tokens,
+              color: historyContext.groupColors[group.groupId] ?? NEUTRAL_COLOR,
+              quotaShare: group.quotaShare,
+            }))}
           />
         </section>
       )}
