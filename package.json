@@ -1,6 +1,6 @@
 {
   "name": "usageratio",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "private": true,
   "description": "A lightweight, self-hosted usage tracker for weekly or monthly token budgets across multiple AI providers or accounts.",
   "license": "GPL-3.0-or-later",

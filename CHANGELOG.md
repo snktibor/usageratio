@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/snktibor/usageratio/compare/v0.9.0...v0.9.1) (2026-10-19)
+
+
+### Documentation
+
+* **claude:** work on feature branches and squash-merge pull requests ([#30](https://github.com/snktibor/usageratio/issues/30)) ([e862ee7](https://github.com/snktibor/usageratio/commit/e862ee7999e8edc4f93dba316df1febe7b6682a2))
+
 ## [0.9.0](https://github.com/snktibor/usageratio/compare/v0.8.0...v0.9.0) (2026-10-16)
 
 
