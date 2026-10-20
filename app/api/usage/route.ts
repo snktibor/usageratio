@@ -42,7 +42,8 @@ import { loadReportContext } from "@/lib/usage-store";
  * `sinceDate`, so clients can build a true cycle-to-date snapshot. The `cycle`
  * is the earliest provider cycle (a provider can have its own reset), with
  * `cycle.providers` holding each provider's own: a client trims every
- * provider to its start (clients/shared/ccusage-providers.cjs).
+ * provider to its start (clients/shared/ccusage-providers.cjs). `cost: true`
+ * asks every client to price its usage (the settings' cost estimate).
  *
  * 201 stored · 200 identical report already stored · 400 bad JSON/payload ·
  * 401 bad token · 403 machine_mismatch (a machine-bound token reporting for
@@ -102,6 +103,8 @@ export const GET = withApiHandler("api/usage", async ({ request }) => {
     {
       tokenMode: effective.tokenMode,
       providers: providerIds,
+      // The settings' cost estimate: every client prices its usage too, not only the ones set up with COST=1.
+      cost: effective.costEstimate,
       cycle: {
         start: iso(cycle.start),
         end: iso(cycle.end),

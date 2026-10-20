@@ -41,6 +41,22 @@ export function formatCostOrDash(usd: number | undefined, locale: string): strin
   return usd === undefined ? "–" : formatCost(usd, locale);
 }
 
+/** 0.039 → "39 Wh", 1.42 → "1,4 kWh": an energy estimate (lib/resources.ts), so two significant digits at most. */
+export function formatEnergy(kWh: number, locale: string): string {
+  const [amount, unit] = kWh < 1 ? [kWh * 1000, "Wh"] : [kWh, "kWh"];
+  return `${new Intl.NumberFormat(locale, { maximumSignificantDigits: amount < 100 ? 2 : 3 }).format(amount)} ${unit}`;
+}
+
+/** 0.26 → "260 mL", 6.4 → "6,4 L": a water estimate (lib/resources.ts), as formatEnergy. */
+export function formatWater(litres: number, locale: string): string {
+  const [amount, unit] = litres < 1 ? [litres * 1000, "milliliter"] : [litres, "liter"];
+  return new Intl.NumberFormat(locale, {
+    style: "unit",
+    unit,
+    maximumSignificantDigits: amount < 100 ? 2 : 3,
+  }).format(amount);
+}
+
 /** Same as formatPercent, but always with one decimal for the hero figure below 100%. */
 export function formatHeroPercent(fraction: number, locale: string): string {
   return new Intl.NumberFormat(locale, {

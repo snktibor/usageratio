@@ -219,7 +219,8 @@ function Get-Setting {
 
 # "cost": true / USAGERATIO_COST=1: estimate cost from ccusage's own (cached,
 # --offline) API price list. Off by default: a subscription plan (Claude Max,
-# ChatGPT Pro...) is not billed this way.
+# ChatGPT Pro...) is not billed this way. The server's cost estimate switch
+# (GET /api/usage `cost`) turns it on for every machine too.
 function Get-BoolSetting {
   param($Config, [string]$Name, [string]$EnvName)
   $fromEnv = [Environment]::GetEnvironmentVariable($EnvName)
@@ -306,7 +307,9 @@ if ($Providers) {
     $fallbackProviders = @($cycleResponse.providers) -join ','
     if (-not $sinceDate -or -not $timeZone) { throw 'The server did not return a complete cycle.' }
     $cycleStart = ConvertTo-IsoUtc $cycleResponse.cycle.start
-    $providersJson = Read-ProviderUsage -SinceDate $sinceDate -TimeZone $timeZone -FallbackProviders $fallbackProviders -CycleStart $cycleStart -CycleProviders $cycleResponse.cycle.providers -Cost $cost
+    # The machine's own cost opt-in, or the server's cost estimate switch (an older server sends neither).
+    $cycleCost = $cost -or ($cycleResponse.cost -eq $true)
+    $providersJson = Read-ProviderUsage -SinceDate $sinceDate -TimeZone $timeZone -FallbackProviders $fallbackProviders -CycleStart $cycleStart -CycleProviders $cycleResponse.cycle.providers -Cost $cycleCost
   } catch {
     Write-UsageLog "ERROR: ccusage could not be read: $($_.Exception.Message)"
     exit 3

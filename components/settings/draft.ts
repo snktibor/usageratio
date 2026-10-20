@@ -100,6 +100,7 @@ export interface Draft {
   /** providerId → its own reset; absent: the shared one. */
   resetOverrides: Record<string, DraftOwnReset>;
   showRemaining: boolean;
+  costEstimate: boolean;
   groups: DraftGroup[];
   /** Taken off the list in this session; kept whole so a refused removal can be put back. */
   removed: DraftGroup[];
@@ -116,6 +117,7 @@ export interface SettingsRequest {
   reset: { weekday: number; monthDay: number; hour: number; minute: number; timeZone: string };
   resetOverrides: Record<string, ResetOverride>;
   showRemaining: boolean;
+  costEstimate: boolean;
   hiddenProviders: string[];
   excludedProviders: Record<string, string[]>;
   subLimits: Record<string, SubLimit[]>;
@@ -163,6 +165,7 @@ export function draftFrom(view: SettingsView): Draft {
     reset,
     resetOverrides,
     showRemaining,
+    costEstimate,
     hiddenProviders,
     excludedProviders,
     subLimits,
@@ -204,6 +207,7 @@ export function draftFrom(view: SettingsView): Draft {
       ]),
     ),
     showRemaining,
+    costEstimate,
     groups: view.groups.map((group) => ({
       ...group,
       colorText: group.color,
@@ -452,6 +456,7 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
       },
       resetOverrides,
       showRemaining: draft.showRemaining,
+      costEstimate: draft.costEstimate,
       hiddenProviders: draft.providers.filter((provider) => !provider.visible).map((provider) => provider.id),
       // Only the groups on the list: a removed group takes its exclusions with it.
       excludedProviders: Object.fromEntries(

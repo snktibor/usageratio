@@ -4,6 +4,7 @@ import { type Cycle, getCycle, getDaySegments, getPreviousCycle } from "@/lib/cy
 import { type OfficialEntryView, officialUsageField } from "@/lib/official-usage";
 import { providerLabel } from "@/lib/providers";
 import { assessQuota, type QuotaAssessment } from "@/lib/quota";
+import { estimateResources, type ResourceEstimate } from "@/lib/resources";
 import {
   configForProvider,
   countsForProvider,
@@ -110,6 +111,8 @@ export interface DashboardModel {
     byMachine: Record<string, number>;
     /** modelId (without its snapshot date) → dollars. */
     byModel: Record<string, number>;
+    /** The energy and water behind `total`, only with the settings' cost estimate on (lib/resources.ts). */
+    resources?: ResourceEstimate;
   };
   machines: {
     machineId: string;
@@ -270,6 +273,7 @@ export function buildDashboard(
         byModel: Object.fromEntries(
           timeline.models.filter((m) => m.cost !== undefined).map((m) => [m.modelId, m.cost!]),
         ),
+        ...(config.costEstimate && { resources: estimateResources(costSummary.total) }),
       }
     : undefined;
 

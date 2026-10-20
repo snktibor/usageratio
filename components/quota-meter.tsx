@@ -8,11 +8,13 @@ import {
   formatCycleMoment,
   formatDateTime,
   formatDuration,
+  formatEnergy,
   formatFactor,
   formatHeroPercent,
   formatPercent,
   formatRecentMoment,
   formatTokens,
+  formatWater,
 } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
 import type { Translator } from "@/lib/i18n";
@@ -195,9 +197,25 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
 
       {model.cost && (
         <p className="relative mt-2 flex items-center gap-1.5 text-sm text-ink-3">
-          <span>{t("cost_estimate", { amount: formatCost(model.cost.total, locale) })}</span>
+          {/* Each figure stays whole on a narrow screen: the line only breaks between them. */}
+          <span>
+            {t("cost_estimate", { amount: formatCost(model.cost.total, locale) })}
+            {model.cost.resources && (
+              <>
+                {" · "}
+                <span className="whitespace-nowrap">
+                  {t("resource_energy", { energy: formatEnergy(model.cost.resources.energyKwh, locale) })}
+                </span>
+                {" · "}
+                <span className="whitespace-nowrap">
+                  {t("resource_water", { water: formatWater(model.cost.resources.waterLitres, locale) })}
+                </span>
+              </>
+            )}
+          </span>
           <InfoTip label={t("cost_estimate_tooltip_aria")}>
             <span className="block">{t("cost_estimate_tooltip")}</span>
+            {model.cost.resources && <span className="mt-2 block">{t("resource_estimate_tooltip")}</span>}
           </InfoTip>
         </p>
       )}

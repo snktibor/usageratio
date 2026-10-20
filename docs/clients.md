@@ -116,6 +116,13 @@ checkbox on the Setup page's package settings, which sets `cost: true` in the ge
 provider) and `modelCosts` (USD, per model) to the report. These are **estimates from list prices**, not
 your actual bill. See [api.md](api.md) for the field shapes.
 
+The dashboard's **Estimate cost, energy and water** setting ([configuration.md](configuration.md#budget-and-token-limits))
+turns the same estimate on for every machine at once: `GET /api/usage` then answers `"cost": true`,
+and a client prices its usage as if it had opted in itself. A client older than this switch ignores
+it, and needs setting up again. The price list is the one bundled with the installed `ccusage`, so a
+model newer than that version counts as $0 — keep `ccusage` up to date (or use the `npx` runner, which
+always takes the latest).
+
 ## Per-machine tokens vs. the master token
 
 Every install route above uses the one shared `USAGE_API_TOKEN` — the Setup page has no notion of

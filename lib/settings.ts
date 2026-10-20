@@ -70,6 +70,12 @@ export interface UsageSettings {
    */
   showRemaining: boolean;
   /**
+   * True: the cycle endpoint asks every machine to price its usage at API list
+   * prices (GET /api/usage `cost`), and the dashboard shows the energy and
+   * water behind that cost (lib/resources.ts). Off by default.
+   */
+  costEstimate: boolean;
+  /**
    * Providers the dashboard does not show, not even in its account picker.
    * Their reports are still stored: shown again, a provider has its history.
    */
@@ -252,6 +258,7 @@ export function settingsFromConfig(config: AppConfig, providerIds: string[] = []
     reset: { weekday, monthDay, hour, minute, timeZone },
     resetOverrides: copyResetOverrides(config.resetOverrides),
     showRemaining: config.showRemaining,
+    costEstimate: config.costEstimate,
     hiddenProviders: [...config.hiddenProviders],
     excludedProviders: copyExclusions(config.excludedProviders),
     subLimits: copySubLimits(config.subLimits),
@@ -267,6 +274,7 @@ export function applySettings(config: AppConfig, settings: UsageSettings): AppCo
     reset: { ...config.reset, period: settings.period, ...settings.reset },
     resetOverrides: copyResetOverrides(settings.resetOverrides),
     showRemaining: settings.showRemaining,
+    costEstimate: settings.costEstimate,
     hiddenProviders: [...settings.hiddenProviders],
     excludedProviders: copyExclusions(settings.excludedProviders),
     subLimits: copySubLimits(settings.subLimits),
@@ -326,6 +334,7 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
     resetOverrides: storedOverrides ? readResetOverrides(storedOverrides) : defaults.resetOverrides,
     // Documents saved before the switch existed lack the field: they keep the default.
     showRemaining: typeof doc.showRemaining === "boolean" ? doc.showRemaining : defaults.showRemaining,
+    costEstimate: typeof doc.costEstimate === "boolean" ? doc.costEstimate : defaults.costEstimate,
     // Documents saved before these existed lack them: every provider shows, and counts everywhere.
     hiddenProviders: Array.isArray(doc.hiddenProviders)
       ? readProviderList(doc.hiddenProviders)
@@ -705,6 +714,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
   }
   const resetOverrides = parseResetOverrides(body.resetOverrides, errors);
   if (typeof body.showRemaining !== "boolean") errors.push("showRemaining must be true or false");
+  if (typeof body.costEstimate !== "boolean") errors.push("costEstimate must be true or false");
   const hiddenProviders = parseProviderList(body.hiddenProviders, "hiddenProviders", errors);
   const excludedProviders = parseExclusions(body.excludedProviders, errors);
   const subLimits = parseSubLimits(body.subLimits, errors);
@@ -756,6 +766,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
         },
         resetOverrides,
         showRemaining: body.showRemaining as boolean,
+        costEstimate: body.costEstimate as boolean,
         hiddenProviders,
         excludedProviders,
         subLimits,

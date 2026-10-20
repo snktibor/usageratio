@@ -18,6 +18,7 @@ function draftWith(overrides: Draft["resetOverrides"]): Draft {
     timeZone: "Europe/Budapest",
     resetOverrides: overrides,
     showRemaining: true,
+    costEstimate: false,
     groups: [],
     removed: [],
     newGroupName: "",

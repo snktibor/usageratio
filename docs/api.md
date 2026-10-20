@@ -119,6 +119,7 @@ shared reset included), and `cycle.providers` holds each provider's own:
 {
   "tokenMode": "snapshot",
   "providers": ["claude", "deepseek", "openai"],
+  "cost": false,
   "cycle": {
     "start": "2026-09-21T00:00:00.000Z",
     "end": "2026-09-28T00:00:00.000Z",
@@ -131,6 +132,9 @@ shared reset included), and `cycle.providers` holds each provider's own:
   }
 }
 ```
+
+`cost` is the settings' cost estimate switch: `true` asks the client to price its usage at API list
+prices (send `costs`/`modelCosts`) even without a cost opt-in of its own.
 
 `200` ok · `401` bad/missing token · `429` rate limited.
 
@@ -306,6 +310,7 @@ required on every save (a document stored before some of them existed is still r
   "reset": { "weekday": 1, "monthDay": 1, "hour": 0, "minute": 0, "timeZone": "Europe/Budapest" },
   "resetOverrides": {},
   "showRemaining": true,
+  "costEstimate": false,
   "hiddenProviders": ["openai"],
   "excludedProviders": { "Work": ["claude", "deepseek"] },
   "subLimits": {

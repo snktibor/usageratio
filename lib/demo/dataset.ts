@@ -640,6 +640,8 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
       },
       resetOverrides: {},
       showRemaining: true,
+      // The demo's reports carry a cost already: with this on, the dashboard shows its energy and water too.
+      costEstimate: true,
       hiddenProviders: [],
       excludedProviders: { Lab: ["openai"] },
       subLimits: {

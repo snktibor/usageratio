@@ -91,6 +91,7 @@ describe("correcting a finished cycle's official percentage", () => {
         timeZone="Europe/Budapest"
         selectedStartMs={START}
         pastCycle
+        costEstimate={false}
       />,
     );
 

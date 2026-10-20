@@ -38,6 +38,7 @@ const MONTHLY: UsageSettings = {
   reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30, timeZone: "America/New_York" },
   resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } },
   showRemaining: false,
+  costEstimate: true,
   hiddenProviders: ["openai"],
   excludedProviders: { Work: ["claude", "deepseek"] },
   subLimits: {
@@ -75,6 +76,7 @@ describe("stored settings", () => {
       reset: { weekday: 1, monthDay: 1, hour: 0, minute: 0, timeZone: "UTC" },
       resetOverrides: {},
       showRemaining: true,
+      costEstimate: false,
       hiddenProviders: [],
       excludedProviders: {},
       subLimits: {},
@@ -99,6 +101,7 @@ describe("stored settings", () => {
       reset: { weekday: 3, monthDay: 1, hour: 6, minute: 15, timeZone: "Asia/Tokyo" },
       resetOverrides: {},
       showRemaining: true,
+      costEstimate: false,
       hiddenProviders: [],
       excludedProviders: {},
       subLimits: {},
@@ -159,6 +162,7 @@ describe("stored settings", () => {
       reset: { weekday: 1, monthDay: 31, hour: 0, minute: 45, timeZone: "UTC" },
       resetOverrides: {},
       showRemaining: true,
+      costEstimate: false,
       hiddenProviders: [],
       excludedProviders: {},
       subLimits: {},
@@ -179,6 +183,7 @@ describe("stored settings", () => {
       reset: { ...MONTHLY.reset, timeZone: DEFAULTS.reset.timeZone },
       resetOverrides: {},
       showRemaining: true,
+      costEstimate: false,
       hiddenProviders: [],
       excludedProviders: {},
       subLimits: {},
@@ -317,6 +322,7 @@ describe("parseSettingsUpdate", () => {
     reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30, timeZone: "America/New_York" },
     resetOverrides: { Claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } },
     showRemaining: false,
+    costEstimate: true,
     hiddenProviders: ["OpenAI", "openai"],
     excludedProviders: { " Work ": ["claude", "deepseek"], Home: [] },
     subLimits: {
@@ -429,7 +435,7 @@ describe("parseSettingsUpdate", () => {
   it("defaults nothing: every budget field is required", () => {
     const result = parseSettingsUpdate({});
     expect(result.ok).toBe(false);
-    expect(!result.ok && result.errors).toHaveLength(14);
+    expect(!result.ok && result.errors).toHaveLength(15);
     expect(!result.ok && result.errors).toContain(
       `hiddenProviders must be an array of at most ${MAX_PROVIDERS} provider ids`,
     );
@@ -461,6 +467,8 @@ describe("parseSettingsUpdate", () => {
     ["a missing remaining-tokens switch", { ...valid, showRemaining: undefined }],
     ["the switch given as text", { ...valid, showRemaining: "false" }],
     ["the switch given as a number", { ...valid, showRemaining: 0 }],
+    ["a missing cost estimate switch", { ...valid, costEstimate: undefined }],
+    ["the cost estimate switch given as text", { ...valid, costEstimate: "true" }],
     ["hidden providers that are not a list", { ...valid, hiddenProviders: "openai" }],
     ["a hidden provider that is no id", { ...valid, hiddenProviders: ["bad/provider"] }],
     [

@@ -32,6 +32,18 @@ typed in — no "tokens remaining" figure exists to show. With it on, each visib
 own token budget field (1 to 1,000,000,000,000 tokens), and **Show remaining tokens** additionally
 controls whether the "remaining/over" figure is displayed (it doesn't affect what's measured).
 
+**Estimate cost, energy and water** is off by default. On, the cycle endpoint asks every machine to
+price its usage at API list prices — as if each had the Setup page's
+[cost opt-in](clients.md#the-opt-in-cost-estimate) — and the dashboard adds the energy and water
+behind that cost to the cost line, and to an archived cycle's summary. Both are napkin estimates
+scaled from the cost (`lib/resources.ts`): about 78 Wh per list-price dollar, after
+[Simon P. Couch's coding-agent estimate](https://simonpcouch.com/blog/2026-01-20-cc-impact/) (built on
+Epoch AI's GPT-4o figure, with Anthropic's price ratios between token types), and 4.2 L of water per
+kWh — data-centre cooling plus electricity generation, the U.S. average in
+[Li et al., "Making AI Less Thirsty"](https://arxiv.org/abs/2304.03271) (0.55 L/kWh on site +
+1.17 PUE × 3.14 L/kWh off site). Off, a machine set up with its own cost opt-in still reports a cost,
+shown without the energy and water.
+
 ### Sub-limits
 
 A budget measured on some of a provider's models only — e.g. a separate cap for one model family

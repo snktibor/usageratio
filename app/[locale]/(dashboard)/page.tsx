@@ -57,6 +57,8 @@ interface DashboardData {
   exportCycle: "current" | "previous" | null;
   /** groupId → colour, for the archived summaries. */
   groupColors: Record<string, string>;
+  /** The settings' cost estimate (lib/resources.ts), for the archived summaries. */
+  costEstimate: boolean;
 }
 
 /**
@@ -169,6 +171,7 @@ async function loadDashboard(
     selection,
     exportCycle: selected.kind === "current" ? "current" : isPrevious ? "previous" : null,
     groupColors: Object.fromEntries(groups.map((group) => [group.groupId, colors.get(group.groupId) ?? NEUTRAL_COLOR])),
+    costEstimate: config.costEstimate,
   };
 }
 
@@ -222,6 +225,7 @@ export default async function Page({
       selection={data.selection}
       exportCycle={data.exportCycle}
       groupColors={data.groupColors}
+      costEstimate={data.costEstimate}
     />
   );
 }
