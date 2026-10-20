@@ -16,7 +16,7 @@ local development and tests.
 
 | Key | Type | Shape | Retention | Written by |
 | --- | --- | --- | --- | --- |
-| `usage:settings` | STRING | JSON: `{v, period, useTokenLimits, limits, reset, resetOverrides, showRemaining, hiddenProviders, excludedProviders, subLimits, alerts, updatedAt}` — see [the settings document](#the-settings-document) | Forever (one document) | `PUT /api/settings` (`lib/usage-store.ts` `saveSettings`) |
+| `usage:settings` | STRING | JSON: `{v, period, useTokenLimits, limits, reset, resetOverrides, showRemaining, costEstimate, hiddenProviders, excludedProviders, subLimits, alerts, updatedAt}` — see [the settings document](#the-settings-document) | Forever (one document) | `PUT /api/settings` (`lib/usage-store.ts` `saveSettings`) |
 | `usage:providers` | HASH | `providerId → firstSeenMs` | Pruned by housekeeping once dead (no events, no live machine, unreferenced by settings, older than the retention window) | First report of a new provider (`HSETNX`); `npm run seed` |
 | `usage:events:{providerId}:{groupId}` | ZSET | score = report time (epoch ms); member = JSON `{"m": machineId, "t": tokens, "ts": ms, "b"?: {modelId: tokens}, "$"?: costUsd, "$b"?: {modelId: costUsd}, "c"?: 1}` — `"c":1` marks a day/hour checkpoint, not a real report | Self-pruning: every write also trims members older than `RETENTION_DAYS` (70) and re-sets the key's own TTL to `(RETENTION_DAYS + 1)` days | `POST /api/usage` (`storeReport`) |
 | `usage:groups` | HASH | `groupId → JSON {"color": "#rrggbb", "ts": firstSeenMs}` (a bare number in entries older than group colors) | Pruned by housekeeping once a group has zero events across every provider and is old enough | `POST /api/usage` (auto-register, `HSETNX`), `PUT /api/settings` (create/recolor) |
@@ -83,8 +83,8 @@ deploy-time default (`lib/config.ts`) rather than failing the whole read:
 - **v1**: a single global `limit` (no per-provider budgets). On read, that value is projected onto
   every provider already known (nothing to seed it onto on a completely fresh install).
 - **v2**: per-provider `limits` and everything else except `reset.timeZone` and `alerts`. Fields added
-  to v2 over time (`useTokenLimits`, `showRemaining`, `hiddenProviders`, `excludedProviders`,
-  `subLimits`) are read with their defaults when a document predates them. A v2 document has no time
+  to v2 over time (`useTokenLimits`, `showRemaining`, `costEstimate`, `hiddenProviders`,
+  `excludedProviders`, `subLimits`) are read with their defaults when a document predates them. A v2 document has no time
   zone, so it uses the deploy-time one (`RESET_TIMEZONE` env, else UTC).
 - **v3** (current, `{v: 3, ...}`): adds `reset.timeZone` (an IANA name, validated with
   `Intl.DateTimeFormat`) and `alerts`. A document without `alerts` reads as `alerts.webhookUrl: null`

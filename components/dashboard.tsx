@@ -61,6 +61,7 @@ export async function Dashboard({
   selection,
   exportCycle,
   groupColors,
+  costEstimate,
 }: {
   /** Empty for a cycle known only from its archived summaries (`summaries`), and on a fresh install. */
   providers: ProviderDashboardModel[];
@@ -75,6 +76,8 @@ export async function Dashboard({
   /** What the export menu downloads; null: the endpoint cannot export the cycle on screen. */
   exportCycle: "current" | "previous" | null;
   groupColors: Record<string, string>;
+  /** The settings' cost estimate: the archived summaries show the energy and water behind their cost. */
+  costEstimate: boolean;
 }) {
   const locale = await getLocale();
   const t = await getTranslations("HomePage");
@@ -138,6 +141,7 @@ export async function Dashboard({
           timeZone={timeZone}
           selectedStartMs={selected.startMs}
           pastCycle
+          costEstimate={costEstimate}
         />
       ) : providers.length > 0 ? (
         <DashboardView

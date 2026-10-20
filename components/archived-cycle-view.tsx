@@ -9,10 +9,11 @@ import { StatusLine } from "@/components/status-line";
 import { useOfficialEntry } from "@/components/use-official-entry";
 import { useRouter } from "@/i18n/routing";
 import { periodOfCycle } from "@/lib/cycle-options";
-import { formatCost, formatHeroPercent, formatPercent, formatTokens } from "@/lib/format";
+import { formatCost, formatEnergy, formatHeroPercent, formatPercent, formatTokens, formatWater } from "@/lib/format";
 import { parseOfficialPercent } from "@/lib/ground-truth";
 import { type CycleSummary, groupSharesOf } from "@/lib/history";
 import { modelKey, modelLabel } from "@/lib/models";
+import { estimateResources } from "@/lib/resources";
 import { NEUTRAL_COLOR } from "@/lib/settings";
 
 /** One provider's archived summary of the cycle on screen; null when it has none (it did not report then). */
@@ -180,6 +181,7 @@ export function ArchivedCycleView({
   timeZone,
   selectedStartMs,
   pastCycle,
+  costEstimate,
 }: {
   summaries: PastSummary[];
   historyByProvider: Record<string, CycleSummary[]>;
@@ -187,6 +189,8 @@ export function ArchivedCycleView({
   timeZone: string;
   selectedStartMs: number;
   pastCycle: boolean;
+  /** The settings' cost estimate: show the energy and water behind an archived cost (lib/resources.ts). */
+  costEstimate: boolean;
 }) {
   const router = useRouter();
   const locale = useLocale();
@@ -204,6 +208,7 @@ export function ArchivedCycleView({
   const selected = summaries.find((entry) => entry.id === selectedId) ?? summaries[0];
   if (!selected) return null;
   const { summary } = selected;
+  const resources = costEstimate && summary?.cost !== undefined ? estimateResources(summary.cost) : null;
 
   return (
     <main className="mt-10 space-y-16 sm:mt-12">
@@ -255,6 +260,15 @@ export function ArchivedCycleView({
                 <dt className="text-sm text-ink-3">{t("cost")}</dt>
                 <dd className="mt-1 text-2xl font-medium">{formatCost(summary.cost, locale)}</dd>
                 <dd className="text-sm text-ink-3">{t("summary_cost_note")}</dd>
+              </div>
+            )}
+            {resources && (
+              <div>
+                <dt className="text-sm text-ink-3">{t("resources")}</dt>
+                <dd className="mt-1 text-2xl font-medium">
+                  {formatEnergy(resources.energyKwh, locale)} · {formatWater(resources.waterLitres, locale)}
+                </dd>
+                <dd className="text-sm text-ink-3">{t("summary_resource_note")}</dd>
               </div>
             )}
           </dl>

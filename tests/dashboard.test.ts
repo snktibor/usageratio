@@ -524,6 +524,19 @@ describe("buildDashboard — cost", () => {
     expect(model.cost?.byMachine).toEqual({ "win-1": 4.5 });
     expect(model.cost?.byGroup).toEqual({ Work: 4.5 });
   });
+
+  it("adds the energy and water behind the cost only with the settings' cost estimate on", () => {
+    const events = [{ ...report("win-1", "Work", 150_000, 10), costUsd: 10 }];
+    expect(buildDashboard(NOW, config, snapshot({ events })).cost?.resources).toBeUndefined();
+    const resources = buildDashboard(NOW, { ...config, costEstimate: true }, snapshot({ events })).cost?.resources;
+    expect(resources?.energyKwh).toBeCloseTo(0.78);
+    expect(resources?.waterLitres).toBeCloseTo(3.276);
+  });
+
+  it("has nothing to add with the cost estimate on while no event carries a cost", () => {
+    const events = [report("win-1", "Work", 150_000, 10)];
+    expect(buildDashboard(NOW, { ...config, costEstimate: true }, snapshot({ events })).cost).toBeUndefined();
+  });
 });
 
 describe("buildProviderDashboards — which provider counts where", () => {

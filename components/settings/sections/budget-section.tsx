@@ -90,6 +90,19 @@ export function BudgetSection({
           </label>
         </div>
       )}
+
+      <label className="flex cursor-pointer items-start gap-3">
+        <input
+          type="checkbox"
+          checked={draft.costEstimate}
+          onChange={(event) => onPatch({ costEstimate: event.target.checked })}
+          className="mt-1 size-4 shrink-0 cursor-pointer accent-ink"
+        />
+        <span>
+          {t("cost_estimate")}
+          <span className="mt-0.5 block text-sm text-ink-3">{t("cost_estimate_explanation")}</span>
+        </span>
+      </label>
     </section>
   );
 }

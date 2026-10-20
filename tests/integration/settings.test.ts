@@ -15,6 +15,7 @@ const VALID_UPDATE = {
   reset: { weekday: 1, monthDay: 1, hour: 0, minute: 0, timeZone: "UTC" },
   resetOverrides: {},
   showRemaining: true,
+  costEstimate: false,
   hiddenProviders: [],
   excludedProviders: {},
   subLimits: {},

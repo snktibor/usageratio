@@ -18,7 +18,8 @@
         {
           "agent": "codex",
           "modelsUsed": ["gpt-5-codex"],
-          "totalTokens": 500
+          "totalTokens": 500,
+          "totalCost": 0.5
         }
       ]
     }

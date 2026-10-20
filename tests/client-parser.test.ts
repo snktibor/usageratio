@@ -677,6 +677,17 @@ describe("ccusage split by hour", () => {
     });
   });
 
+  it('answers "1" to cycle-cost only when the server\'s cycle asks every client to price its usage', () => {
+    const cycleCost = (input: unknown) =>
+      execFileSync("node", [PARSER, "cycle-cost"], { input: JSON.stringify(input), encoding: "utf8" });
+    const cycle = { providers: ["claude"], cycle: { start: "2026-09-19T11:00:00.000Z" } };
+    expect(cycleCost({ ...cycle, cost: true })).toBe("1");
+    expect(cycleCost({ ...cycle, cost: false })).toBe("");
+    // An older server sends no switch at all; anything but a JSON true is off.
+    expect(cycleCost(cycle)).toBe("");
+    expect(cycleCost({ ...cycle, cost: "true" })).toBe("");
+  }, 30_000);
+
   it("reads each provider's start from the cycle file on the command line", () => {
     const dir = mkdtempSync(join(tmpdir(), "usageratio-starts-"));
     try {

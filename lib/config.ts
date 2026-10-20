@@ -52,6 +52,14 @@ export const DEFAULT_RESET: ResetConfig = {
  */
 export const DEFAULT_SHOW_REMAINING = true;
 
+/**
+ * Whether every machine is asked to price its usage at API list prices, and
+ * the dashboard shows the energy and water behind it (lib/resources.ts). Off:
+ * only a machine set up with its own cost opt-in sends a cost. A seed like the
+ * ones above: the settings panel has the switch.
+ */
+export const DEFAULT_COST_ESTIMATE = false;
+
 /** How an alert webhook's message is shaped; see lib/alerts.ts and lib/webhook.ts. */
 export type AlertsFormat = "generic" | "slack" | "discord";
 
@@ -186,6 +194,8 @@ export interface AppConfig {
   resetOverrides: Record<string, ResetOverride>;
   /** False: the dashboard never states the tokens left, nor the overage. */
   showRemaining: boolean;
+  /** True: every machine prices its usage, and the dashboard shows its energy and water; see DEFAULT_COST_ESTIMATE. */
+  costEstimate: boolean;
   /** Providers the dashboard leaves out, account picker included; their reports are still stored. */
   hiddenProviders: string[];
   /** groupId → the providers whose reports from that group the dashboard leaves out. */
@@ -276,6 +286,7 @@ export function getConfig(env: Record<string, string | undefined> = process.env)
     reset,
     resetOverrides: {},
     showRemaining: DEFAULT_SHOW_REMAINING,
+    costEstimate: DEFAULT_COST_ESTIMATE,
     hiddenProviders: [],
     excludedProviders: {},
     subLimits: {},

@@ -21,6 +21,7 @@ import { loadGroupActivity, loadIndexes, saveSettings } from "@/lib/usage-store"
  *            "limits": { "claude": 500000 },                     kept even while unused
  *            "reset": { "weekday": 1, "monthDay": 1, "hour": 0, "minute": 0 },
  *            "showRemaining": true,                              false hides the tokens left
+ *            "costEstimate": false,                              true: every machine prices its usage
  *            "hiddenProviders": ["openai"],                      not on the dashboard; one must stay
  *            "excludedProviders": { "Work": ["claude"] },        group → providers it does not count for
  *            "groups": [{ "id": "Work", "color": "#3987e5" }],   create or recolour; others stay

@@ -97,6 +97,7 @@ read_provider_tokens() {
   local cycle_since
   local cycle_timezone
   local cycle_providers
+  local cycle_cost
   local -a ccusage_args
   local -a blocks_args
   local -a hourly_args
@@ -119,7 +120,12 @@ read_provider_tokens() {
   cycle_providers="$(node "$CCUSAGE_PARSER" cycle-providers <"$cycle_file" 2>>"$error_file")" || return 1
   # Only the hours need the exact start: without it the days are sent whole.
   cycle_start="$(node "$CCUSAGE_PARSER" cycle-start <"$cycle_file" 2>/dev/null)" || cycle_start=""
-  if [ "$COST" = "1" ]; then
+  # The machine's own COST=1, or the server's cost estimate switch (an older server sends neither).
+  cycle_cost="$COST"
+  if [ "$cycle_cost" != "1" ]; then
+    cycle_cost="$(node "$CCUSAGE_PARSER" cycle-cost <"$cycle_file" 2>/dev/null)" || cycle_cost=""
+  fi
+  if [ "$cycle_cost" = "1" ]; then
     # --offline: ccusage's cached price list, so a cron job never reaches the network for pricing.
     ccusage_args=(daily --json --by-agent --breakdown --offline --since "$cycle_since" --timezone "$cycle_timezone")
   else
@@ -161,7 +167,7 @@ read_provider_tokens() {
     rm -f "$WORK_DIR/models.json"
   node "$CCUSAGE_PARSER" parse-days "$cycle_providers" "${hourly_args[@]}" <"$output_file" >"$WORK_DIR/days.json" 2>/dev/null ||
     rm -f "$WORK_DIR/days.json"
-  if [ "$COST" = "1" ]; then
+  if [ "$cycle_cost" = "1" ]; then
     node "$CCUSAGE_PARSER" parse-costs "$cycle_providers" "${hourly_args[@]}" <"$output_file" >"$WORK_DIR/costs.json" 2>/dev/null ||
       rm -f "$WORK_DIR/costs.json"
   fi
@@ -178,6 +184,7 @@ MACHINE_ID=""
 GROUP_ID=""
 # "1": estimate cost from ccusage's own (cached, --offline) API price list. Off by
 # default: a subscription plan (Claude Max, ChatGPT Pro...) is not billed this way.
+# The server's cost estimate switch (GET /api/usage `cost`) turns it on for every machine too.
 COST=""
 if [ -d "$HOME/Library/Logs" ]; then
   LOG_FILE="$HOME/Library/Logs/usageratio.log"

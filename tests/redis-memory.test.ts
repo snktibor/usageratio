@@ -292,6 +292,7 @@ describe("the application's store code on the memory store", () => {
       reset: { weekday: 1, monthDay: 1, hour: 0, minute: 0, timeZone: "Europe/Budapest" },
       resetOverrides: {},
       showRemaining: true,
+      costEstimate: false,
       hiddenProviders: [],
       excludedProviders: {},
       subLimits: {},

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { formatCost, formatCostOrDash, formatMonthDay, formatPercent, formatRecentMoment } from "@/lib/format";
+import {
+  formatCost,
+  formatCostOrDash,
+  formatEnergy,
+  formatMonthDay,
+  formatPercent,
+  formatRecentMoment,
+  formatWater,
+} from "@/lib/format";
 
 describe("formatPercent", () => {
   it('marks a tiny non-zero share with the locale\'s own "less than" percent form', () => {
@@ -21,6 +29,23 @@ describe("formatCost", () => {
   it("formats a USD amount with the locale's own currency conventions", () => {
     expect(formatCost(12.3456, "en")).toBe("$12.35");
     expect(formatCost(0, "en")).toBe("$0.00");
+  });
+});
+
+describe("formatEnergy", () => {
+  it("gives watt-hours below a kilowatt-hour, and two significant digits at most below 100", () => {
+    expect(formatEnergy(0.039, "en")).toBe("39 Wh");
+    expect(formatEnergy(0.0004, "en")).toBe("0.4 Wh");
+    expect(formatEnergy(1.365, "hu")).toBe("1,4 kWh");
+    expect(formatEnergy(123.4, "en")).toBe("123 kWh");
+  });
+});
+
+describe("formatWater", () => {
+  it("gives millilitres below a litre, in the locale's own unit form", () => {
+    expect(formatWater(0.26, "en")).toBe("260 mL");
+    expect(formatWater(5.733, "en")).toBe("5.7 L");
+    expect(formatWater(5.733, "de")).toBe("5,7 l");
   });
 });
 
