@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.0](https://github.com/snktibor/usageratio/compare/v0.9.0...v0.10.0) (2026-10-20)
+
+
+### Features
+
+* add an optional cost, energy and water estimate ([#34](https://github.com/snktibor/usageratio/issues/34)) ([c68a255](https://github.com/snktibor/usageratio/commit/c68a25581917faff1c1ee468d340e4658338e9aa))
+
+
+### Documentation
+
+* **claude:** work on feature branches and squash-merge pull requests ([#30](https://github.com/snktibor/usageratio/issues/30)) ([e862ee7](https://github.com/snktibor/usageratio/commit/e862ee7999e8edc4f93dba316df1febe7b6682a2))
+
 ## [0.9.0](https://github.com/snktibor/usageratio/compare/v0.8.0...v0.9.0) (2026-10-16)
 
 
