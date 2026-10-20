@@ -45,7 +45,8 @@ export interface CycleSummary {
   total: number;
   /**
    * The API-list-price cost estimate ($) for the whole cycle, present only
-   * when at least one event of it carried one (an opt-in; lib/setup.ts COST).
+   * when at least one event of it carried one. The page shows it only with
+   * the settings' cost estimate on.
    */
   cost?: number;
   /** The provider's token limit in that cycle; null while the token limits were off. */

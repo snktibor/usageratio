@@ -76,7 +76,7 @@ export async function Dashboard({
   /** What the export menu downloads; null: the endpoint cannot export the cycle on screen. */
   exportCycle: "current" | "previous" | null;
   groupColors: Record<string, string>;
-  /** The settings' cost estimate: the archived summaries show the energy and water behind their cost. */
+  /** The settings' cost estimate: the archived summaries show their cost, energy and water only with it on. */
   costEstimate: boolean;
 }) {
   const locale = await getLocale();

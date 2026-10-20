@@ -33,8 +33,6 @@ export function PackageSettings({
   setGroup,
   machine,
   setMachine,
-  cost,
-  setCost,
   groups,
   check,
   ids,
@@ -47,8 +45,6 @@ export function PackageSettings({
   setGroup: (group: string) => void;
   machine: string;
   setMachine: (machine: string) => void;
-  cost: boolean;
-  setCost: (cost: boolean) => void;
   groups: SetupGroup[];
   check: SettingsCheck;
   ids: { group: string; groupNote: string; machine: string; machineNote: string };
@@ -147,19 +143,6 @@ export function PackageSettings({
           <FieldNote id={ids.machineNote} problem={machineProblem} hint={t("machine_hint")} />
         </div>
       </div>
-
-      <label className="mt-6 flex cursor-pointer items-start gap-3 border-t border-hairline pt-6">
-        <input
-          type="checkbox"
-          checked={cost}
-          onChange={(event) => setCost(event.target.checked)}
-          className="mt-1 size-4 shrink-0 cursor-pointer accent-ink"
-        />
-        <span>
-          {t("cost_opt_in")}
-          <span className="mt-0.5 block text-sm text-ink-3">{t("cost_opt_in_hint")}</span>
-        </span>
-      </label>
     </section>
   );
 }

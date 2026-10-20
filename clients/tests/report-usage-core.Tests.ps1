@@ -197,8 +197,6 @@ Describe 'report-usage-core.ps1 with each provider''s own cycle start' {
         $script:CycleJson = @{
             tokenMode = 'snapshot'
             providers = @('claude', 'openai')
-            # The settings' cost estimate: the client prices its usage without a cost opt-in of its own.
-            cost      = $true
             cycle     = @{
                 start     = '2026-01-05T00:00:00Z'
                 end       = '2026-01-12T00:00:00Z'
@@ -259,7 +257,7 @@ Describe 'report-usage-core.ps1 with each provider''s own cycle start' {
         $payload.providers.openai | Should -Be 500
     }
 
-    It 'prices its usage when the server''s cycle asks for it, without a cost opt-in of its own' {
+    It 'always prices its usage at API list prices' {
         $env:USAGERATIO_API_URL = "http://localhost:$script:Port/api/usage"
         $env:USAGERATIO_API_TOKEN = 'test-token'
         $result = Invoke-Core -Arguments @('-DryRun', '-ConfigPath', $script:ConfigPath)

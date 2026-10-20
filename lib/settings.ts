@@ -70,9 +70,9 @@ export interface UsageSettings {
    */
   showRemaining: boolean;
   /**
-   * True: the cycle endpoint asks every machine to price its usage at API list
-   * prices (GET /api/usage `cost`), and the dashboard shows the energy and
-   * water behind that cost (lib/resources.ts). Off by default.
+   * True: the dashboard shows the API-list-price cost the clients send with
+   * every report, and the energy and water behind it (lib/resources.ts).
+   * Off by default: the page then names no cost at all.
    */
   costEstimate: boolean;
   /**

@@ -481,15 +481,18 @@ describe("buildDashboard — timeline", () => {
 });
 
 describe("buildDashboard — cost", () => {
+  // The settings' cost estimate on: the switch decides whether the page names a cost at all.
+  const shown = { ...config, costEstimate: true };
+
   it("has no cost field at all when nothing in the window carries one", () => {
-    const model = buildDashboard(NOW, config, snapshot({ events: [report("win-1", "Work", 150_000, 10)] }));
+    const model = buildDashboard(NOW, shown, snapshot({ events: [report("win-1", "Work", 150_000, 10)] }));
     expect(model.cost).toBeUndefined();
   });
 
   it("gains an optional cost field, by group, machine and model, once at least one event carries one", () => {
     const model = buildDashboard(
       NOW,
-      config,
+      shown,
       snapshot({
         events: [
           {
@@ -507,17 +510,18 @@ describe("buildDashboard — cost", () => {
       byGroup: { Work: 4.5, Personal: 1.2 },
       byMachine: { "win-1": 4.5, mac: 1.2 },
       byModel: { "claude-opus-4-5": 4.5 },
+      resources: { energyKwh: expect.closeTo(0.4446), waterLitres: expect.closeTo(1.86732) },
     });
   });
 
   it("leaves a machine that never sent a cost figure out of byMachine/byGroup", () => {
     const model = buildDashboard(
       NOW,
-      config,
+      shown,
       snapshot({
         events: [
           { ...report("win-1", "Work", 150_000, 10), costUsd: 4.5 },
-          report("mac", "Personal", 100_000, 20), // no cost: this client never opted in
+          report("mac", "Personal", 100_000, 20), // no cost: an older client, set up without COST=1
         ],
       }),
     );
@@ -525,17 +529,19 @@ describe("buildDashboard — cost", () => {
     expect(model.cost?.byGroup).toEqual({ Work: 4.5 });
   });
 
-  it("adds the energy and water behind the cost only with the settings' cost estimate on", () => {
-    const events = [{ ...report("win-1", "Work", 150_000, 10), costUsd: 10 }];
-    expect(buildDashboard(NOW, config, snapshot({ events })).cost?.resources).toBeUndefined();
-    const resources = buildDashboard(NOW, { ...config, costEstimate: true }, snapshot({ events })).cost?.resources;
-    expect(resources?.energyKwh).toBeCloseTo(0.78);
-    expect(resources?.waterLitres).toBeCloseTo(3.276);
-  });
-
-  it("has nothing to add with the cost estimate on while no event carries a cost", () => {
-    const events = [report("win-1", "Work", 150_000, 10)];
-    expect(buildDashboard(NOW, { ...config, costEstimate: true }, snapshot({ events })).cost).toBeUndefined();
+  it("names no cost at all with the cost estimate off, not even a model's", () => {
+    const events = [
+      {
+        ...report("win-1", "Work", 150_000, 10),
+        costUsd: 4.5,
+        modelCosts: { "claude-opus-4-5": 4.5 },
+        models: { "claude-opus-4-5": 150_000 },
+      },
+    ];
+    const hidden = buildDashboard(NOW, config, snapshot({ events }));
+    expect(hidden.cost).toBeUndefined();
+    expect(hidden.timeline.models.map((model) => model.cost)).toEqual([undefined]);
+    expect(buildDashboard(NOW, shown, snapshot({ events })).timeline.models.map((model) => model.cost)).toEqual([4.5]);
   });
 });
 

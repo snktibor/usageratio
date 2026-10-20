@@ -33,7 +33,7 @@ import type { ReportMode, UsageReport } from "@/lib/validation";
  *                                                        "$b": {modelId: costUsd}, "c": 1, "x": 1}
  *                                              ("b", the split by model, only from clients that send one;
  *                                              "$"/"$b", the API-list-price cost estimate and its split by
- *                                              model, only from a client that opted in (lib/setup.ts COST);
+ *                                              model, from clients that send one (older ones only with COST=1);
  *                                              "c" marks a day's checkpoint, see lib/days.ts; "x" a merged
  *                                              machine's carry-over, see lib/machine-merge.ts)
  *   usage:groups            HASH  groupId   → {"color": "#rrggbb", "ts": first-seen ms}
@@ -298,7 +298,7 @@ export function parseEvent(raw: unknown, groupId: string): UsageEvent | null {
     if (!Number.isFinite(t) || t < 0 || !Number.isFinite(ts)) return null;
     const models = parseModelSplit(b);
     // Same shape a token split has (finite, non-negative), just fractional dollars: lenient about
-    // an older member, or one from a client that never opted into cost, having neither field.
+    // an older member, or one from a client that sends no cost, having neither field.
     const costUsd = typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : undefined;
     const modelCosts = parseModelSplit(modelCostsRaw);
     return {

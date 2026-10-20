@@ -81,7 +81,7 @@ the same store behind a PIN session; a threshold alert fires a webhook the same 
 | **Previous-cycles history** | A bar per past cycle, with the same official-percentage detail on hover. |
 | **CSV / JSON export** | The current or a previous cycle's raw reports, filterable by provider. |
 | **Threshold alerts** | A webhook per crossed percentage, formatted for Slack or Discord, or as plain JSON for anything else. |
-| **Opt-in cost estimate** | An approximate USD figure from `ccusage`'s own API list prices — off by default, and never a substitute for a subscription's real billing. |
+| **Cost, energy and water estimate** | An approximate USD figure from `ccusage`'s own API list prices, with the energy and water behind it — off by default (a settings switch), and never a substitute for a subscription's real billing. |
 | **One-click client install** | A ready-to-run ZIP or copy-paste package for macOS, Linux, or Windows, plus an install-free one-shot command for a single report. |
 | **Per-machine revocable tokens** | An alternative to the shared bearer token that can be issued and revoked per machine from the settings panel. |
 | **Machine, group, and provider management** | Rename, recolor, re-group, or remove any of them from the dashboard, without touching a client. |

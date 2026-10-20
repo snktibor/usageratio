@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  ageOf,
+  formatAgo,
   formatCost,
   formatCostOrDash,
   formatEnergy,
@@ -30,6 +32,11 @@ describe("formatCost", () => {
     expect(formatCost(12.3456, "en")).toBe("$12.35");
     expect(formatCost(0, "en")).toBe("$0.00");
   });
+
+  it('writes the dollar sign, never "USD", in every locale', () => {
+    expect(formatCost(4.57, "hu").replace(/\s/g, " ")).toBe("4,57 $");
+    expect(formatCost(4.57, "de").replace(/\s/g, " ")).toBe("4,57 $");
+  });
 });
 
 describe("formatEnergy", () => {
@@ -54,8 +61,35 @@ describe("formatCostOrDash", () => {
     expect(formatCostOrDash(undefined, "en")).toBe("–");
   });
 
-  it("formats the amount otherwise", () => {
-    expect(formatCostOrDash(4.5, "en")).toBe("$4.50");
+  it("rounds to whole dollars, to keep a table column narrow", () => {
+    expect(formatCostOrDash(4.5, "en")).toBe("$5");
+    expect(formatCostOrDash(1234.4, "en")).toBe("$1,234");
+    expect(formatCostOrDash(12.3456, "hu").replace(/\s/g, " ")).toBe("12 $");
+  });
+
+  it("says less than a dollar rather than $0 for a cost that rounds away", () => {
+    expect(formatCostOrDash(0.3, "en")).toBe("<$1");
+    expect(formatCostOrDash(0, "en")).toBe("$0");
+  });
+});
+
+describe("ageOf", () => {
+  const NOW = Date.parse("2026-10-20T12:00:00Z");
+  const MINUTE = 60_000;
+
+  it("is null under a minute, then whole minutes, hours (under two days) and days", () => {
+    expect(ageOf(NOW - 59_000, NOW)).toBeNull();
+    expect(ageOf(NOW - 21 * MINUTE, NOW)).toEqual({ count: 21, unit: "minute" });
+    expect(ageOf(NOW - 150 * MINUTE, NOW)).toEqual({ count: 2, unit: "hour" });
+    expect(ageOf(NOW - 47 * 60 * MINUTE, NOW)).toEqual({ count: 47, unit: "hour" });
+    expect(ageOf(NOW - 72 * 60 * MINUTE, NOW)).toEqual({ count: 3, unit: "day" });
+    // A clock running ahead of the server is "now", never a negative age.
+    expect(ageOf(NOW + 5 * MINUTE, NOW)).toBeNull();
+  });
+
+  it("is the very unit formatAgo words in full", () => {
+    expect(formatAgo(NOW - 21 * MINUTE, NOW, "hu", "most")).toBe("21 perccel ezelőtt");
+    expect(formatAgo(NOW - 30_000, NOW, "en", "now")).toBe("now");
   });
 });
 

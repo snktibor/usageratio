@@ -768,11 +768,6 @@ function cycleProviders(input) {
   return document.providers.map(slug).filter(Boolean).join(",");
 }
 
-/** "1" when the server's cycle response asks every client to price its usage (its `cost` switch), "" otherwise. */
-function cycleCost(input) {
-  return asObject(input)?.cost === true ? "1" : "";
-}
-
 function readStdin() {
   return new Promise((resolve, reject) => {
     let input = "";
@@ -872,10 +867,6 @@ async function main() {
   }
   if (command === "cycle-providers") {
     process.stdout.write(cycleProviders(parsed));
-    return;
-  }
-  if (command === "cycle-cost") {
-    process.stdout.write(cycleCost(parsed));
     return;
   }
   throw new Error(`unknown command: ${command}`);

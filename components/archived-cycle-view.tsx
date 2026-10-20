@@ -189,7 +189,7 @@ export function ArchivedCycleView({
   timeZone: string;
   selectedStartMs: number;
   pastCycle: boolean;
-  /** The settings' cost estimate: show the energy and water behind an archived cost (lib/resources.ts). */
+  /** The settings' cost estimate: an archived cost, and the energy and water behind it (lib/resources.ts), show only with it on. */
   costEstimate: boolean;
 }) {
   const router = useRouter();
@@ -208,7 +208,8 @@ export function ArchivedCycleView({
   const selected = summaries.find((entry) => entry.id === selectedId) ?? summaries[0];
   if (!selected) return null;
   const { summary } = selected;
-  const resources = costEstimate && summary?.cost !== undefined ? estimateResources(summary.cost) : null;
+  const cost = costEstimate ? summary?.cost : undefined;
+  const resources = cost !== undefined ? estimateResources(cost) : null;
 
   return (
     <main className="mt-10 space-y-16 sm:mt-12">
@@ -255,10 +256,10 @@ export function ArchivedCycleView({
                   })}`}
               </dd>
             </div>
-            {summary.cost !== undefined && (
+            {cost !== undefined && (
               <div>
                 <dt className="text-sm text-ink-3">{t("cost")}</dt>
-                <dd className="mt-1 text-2xl font-medium">{formatCost(summary.cost, locale)}</dd>
+                <dd className="mt-1 text-2xl font-medium">{formatCost(cost, locale)}</dd>
                 <dd className="text-sm text-ink-3">{t("summary_cost_note")}</dd>
               </div>
             )}
