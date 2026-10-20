@@ -31,14 +31,26 @@ export function formatLimitShare(fraction: number | null, locale: string): strin
   return fraction === null ? "–" : formatPercent(fraction, locale);
 }
 
-/** 12.3456 → "$12.35": an API-list-price cost estimate, never a real bill. */
+/** 12.3456 → "$12.35" ("12,35 $" in Hungarian): an API-list-price cost estimate, never a real bill. */
 export function formatCost(usd: number, locale: string): string {
-  return new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(usd);
+  return new Intl.NumberFormat(locale, { style: "currency", currency: "USD", currencyDisplay: "narrowSymbol" }).format(
+    usd,
+  );
 }
 
-/** A machine's or group's cost, as formatCost; "–" when it never sent one. */
+/**
+ * A machine's or group's cost in a table column, in whole dollars to keep the
+ * column narrow: 12.3456 → "$12", a cost that would round to $0 "<$1"; "–" when it never sent one.
+ */
 export function formatCostOrDash(usd: number | undefined, locale: string): string {
-  return usd === undefined ? "–" : formatCost(usd, locale);
+  if (usd === undefined) return "–";
+  const whole = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+    currencyDisplay: "narrowSymbol",
+    maximumFractionDigits: 0,
+  });
+  return usd > 0 && usd < 0.5 ? `<${whole.format(1)}` : whole.format(usd);
 }
 
 /** 0.039 → "39 Wh", 1.42 → "1,4 kWh": an energy estimate (lib/resources.ts), so two significant digits at most. */
@@ -184,13 +196,19 @@ export function formatDuration(ms: number, locale: string): string {
 
 /** Age of a report: "most", "12 perce", "3 órája", "2 napja". `nowLabel` is the caller's translated "now" string. */
 export function formatAgo(ms: number, now: number, locale: string, nowLabel: string): string {
-  const age = Math.max(0, now - ms);
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "always", style: "long" });
+  const age = ageOf(ms, now);
+  if (!age) return nowLabel;
+  return new Intl.RelativeTimeFormat(locale, { numeric: "always", style: "long" }).format(-age.count, age.unit);
+}
 
-  if (age < MINUTE) {
-    return nowLabel;
-  }
-  if (age < HOUR) return rtf.format(-Math.floor(age / MINUTE), "minute");
-  if (age < 2 * DAY) return rtf.format(-Math.floor(age / HOUR), "hour");
-  return rtf.format(-Math.floor(age / DAY), "day");
+/**
+ * How long ago `ms` was, in the unit formatAgo states it in; null under a
+ * minute ("now"). For a short form such as "21m", worded by the messages.
+ */
+export function ageOf(ms: number, now: number): { count: number; unit: "minute" | "hour" | "day" } | null {
+  const age = Math.max(0, now - ms);
+  if (age < MINUTE) return null;
+  if (age < HOUR) return { count: Math.floor(age / MINUTE), unit: "minute" };
+  if (age < 2 * DAY) return { count: Math.floor(age / HOUR), unit: "hour" };
+  return { count: Math.floor(age / DAY), unit: "day" };
 }

@@ -411,6 +411,7 @@
     "aria_quota": "Kontingent von {label}",
     "cycle_elapsed": "{percent} des Zyklus sind vergangen",
     "now": "jetzt",
+    "ago_short": "{unit, select, minute {{count} Min.} hour {{count} Std.} other {{count} T.}}",
     "reset": "Reset",
     "token_count": "{count} Token",
     "official_slider_aria": "Aktueller offizieller {label}-Verbrauch, Regler",

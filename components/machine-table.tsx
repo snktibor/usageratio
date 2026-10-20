@@ -3,6 +3,7 @@ import { CalibratedNote, Swatch } from "@/components/group-breakdown";
 import { CheckCircleIcon, ClockIcon, InfoCircleIcon, MoonIcon } from "@/components/icons";
 import type { DashboardModel, MachineHealth } from "@/lib/dashboard";
 import {
+  ageOf,
   formatAgo,
   formatCostOrDash,
   formatDateTime,
@@ -37,6 +38,8 @@ function LastReport({ machine, model }: { machine: Machine; model: DashboardMode
   const locale = useLocale();
   const t = useTranslations("Widgets");
   const { icon: HealthIcon, iconColor } = HEALTH_ICON[machine.health];
+  const age = ageOf(machine.lastSeenAt, model.generatedAt);
+  const ago = formatAgo(machine.lastSeenAt, model.generatedAt, locale, t("now"));
   // A finished cycle: its last report is a date; how the machine is doing today is not this page's story.
   if (model.closed) {
     return (
@@ -49,12 +52,14 @@ function LastReport({ machine, model }: { machine: Machine; model: DashboardMode
     <span className="flex items-center gap-2 whitespace-nowrap">
       <HealthIcon className={`shrink-0 ${iconColor}`} />
       <span>{t(HEALTH_LABEL_KEY[machine.health])}</span>
+      {/* "21m" keeps the column narrow; the hover and screen readers get "21 minutes ago". */}
       <time
         dateTime={new Date(machine.lastSeenAt).toISOString()}
-        title={formatDateTime(machine.lastSeenAt, model.timeZone, locale)}
+        title={`${ago} · ${formatDateTime(machine.lastSeenAt, model.timeZone, locale)}`}
         className="text-sm text-ink-3"
       >
-        {formatAgo(machine.lastSeenAt, model.generatedAt, locale, t("now"))}
+        <span aria-hidden="true">{age ? t("ago_short", age) : t("now")}</span>
+        <span className="sr-only">{ago}</span>
       </time>
     </span>
   );

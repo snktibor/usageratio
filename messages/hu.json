@@ -411,6 +411,7 @@
     "aria_quota": "{label} keret",
     "cycle_elapsed": "a ciklus {percent}-a telt el",
     "now": "most",
+    "ago_short": "{unit, select, minute {{count}p} hour {{count}ó} other {{count}n}}",
     "reset": "Reset",
     "token_count": "{count} token",
     "official_slider_aria": "Aktuális hivatalos {label} fogyasztás, csúszka",

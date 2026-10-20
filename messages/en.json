@@ -411,6 +411,7 @@
     "aria_quota": "{label} quota",
     "cycle_elapsed": "{percent} of the cycle has elapsed",
     "now": "now",
+    "ago_short": "{unit, select, minute {{count}m} hour {{count}h} other {{count}d}}",
     "reset": "Reset",
     "token_count": "{count} tokens",
     "official_slider_aria": "Current official {label} consumption, slider",
