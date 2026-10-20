@@ -98,8 +98,9 @@ export interface DashboardModel {
   /** The provider's sub-limits (such as Claude's Fable), each as its models measured it. */
   subLimits: SubLimitModel[];
   /**
-   * An API-list-price cost estimate for this cycle, present only when at
-   * least one event of the window carried one (an opt-in; lib/setup.ts COST).
+   * An API-list-price cost estimate for this cycle, present only with the
+   * settings' cost estimate on and at least one event of the window carrying
+   * one (older clients sent one only when set up with COST=1).
    * Fictional for a subscription plan (Claude Max, ChatGPT Pro...): the UI
    * must always label it as an estimate, never a bill.
    */
@@ -111,8 +112,8 @@ export interface DashboardModel {
     byMachine: Record<string, number>;
     /** modelId (without its snapshot date) → dollars. */
     byModel: Record<string, number>;
-    /** The energy and water behind `total`, only with the settings' cost estimate on (lib/resources.ts). */
-    resources?: ResourceEstimate;
+    /** The energy and water behind `total` (lib/resources.ts). */
+    resources: ResourceEstimate;
   };
   machines: {
     machineId: string;
@@ -264,8 +265,9 @@ export function buildDashboard(
     snapshot.events,
   );
 
-  const costSummary = summarizeCost(split.main, { startMs, endMs });
-  const cost = costSummary.hasCost
+  // The clients price every report; the page shows it only with the settings' cost estimate on.
+  const costSummary = config.costEstimate ? summarizeCost(split.main, { startMs, endMs }) : null;
+  const cost = costSummary?.hasCost
     ? {
         total: costSummary.total,
         byGroup: costSummary.byGroup,
@@ -273,7 +275,7 @@ export function buildDashboard(
         byModel: Object.fromEntries(
           timeline.models.filter((m) => m.cost !== undefined).map((m) => [m.modelId, m.cost!]),
         ),
-        ...(config.costEstimate && { resources: estimateResources(costSummary.total) }),
+        resources: estimateResources(costSummary.total),
       }
     : undefined;
 
@@ -306,7 +308,10 @@ export function buildDashboard(
       machines: g.machines,
       color: colorOf.get(g.groupId) ?? NEUTRAL_COLOR,
     })),
-    timeline,
+    // Each model's cost is left out with the rest, so the model chart names none either.
+    timeline: config.costEstimate
+      ? timeline
+      : { ...timeline, models: timeline.models.map(({ cost: _cost, ...model }) => model) },
     ...(cost && { cost }),
     subLimits: measureSubLimits(
       subLimits,

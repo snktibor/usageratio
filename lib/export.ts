@@ -70,7 +70,7 @@ export interface ExportEventRow {
   tokens: number;
   checkpoint: boolean;
   models: Record<string, number> | null;
-  /** API-list-price cost estimate ($), present only when the event carried one (an opt-in; lib/setup.ts COST). */
+  /** API-list-price cost estimate ($), present only when the event carried one. */
   costUsd?: number;
 }
 

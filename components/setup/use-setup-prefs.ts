@@ -8,8 +8,6 @@ export interface SetupPrefs {
   route?: string;
   group?: string;
   machine?: string;
-  /** The cost-estimate opt-in; cookies written before it was saved lack it. */
-  cost?: boolean;
 }
 
 /** The saved choices in a `document.cookie` string; null when there are none, or they do not parse. */
@@ -23,13 +21,7 @@ export function parseSetupPrefs(cookies: string): SetupPrefs | null {
 }
 
 /** The `document.cookie` assignment that saves `prefs` for a year. */
-export function setupPrefsCookie(prefs: {
-  os: SetupOs;
-  route: InstallRoute;
-  group: string;
-  machine: string;
-  cost: boolean;
-}): string {
+export function setupPrefsCookie(prefs: { os: SetupOs; route: InstallRoute; group: string; machine: string }): string {
   const oneYear = 60 * 60 * 24 * 365;
   return `${SETUP_PREFS_COOKIE}=${encodeURIComponent(JSON.stringify(prefs))}; path=/; max-age=${oneYear}; samesite=lax`;
 }

@@ -155,7 +155,7 @@ function reportsOfModel(events: UsageEvent[], key: string): UsageEvent[] {
 
 /**
  * A model's cost ($) this cycle so far, summed over every machine that named
- * it in a split; undefined when nothing did (no client opted into cost, or
+ * it in a split; undefined when nothing did (no client sent a cost, or
  * none tied this particular model's cost down). Cost is always cycle-to-date
  * snapshot semantics (lib/aggregate.ts `costOfSeriesUntil`), independent of
  * the provider's own token mode.

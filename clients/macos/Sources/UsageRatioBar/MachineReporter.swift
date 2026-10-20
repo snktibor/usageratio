@@ -6,7 +6,7 @@ import UsageRatioCore
 /// (clients/shared/report-usage-core.sh and ccusage-providers.cjs, bundled into
 /// Contents/Resources/reporter by scripts/build-app.sh), so the numbers come out
 /// exactly as the cron job's would. The script's own config file, when there is
-/// one, is still read by it (PATH, COST); the app's server, token, machine and
+/// one, is still read by it (PATH); the app's server, token, machine and
 /// group win through the environment, and the token never touches the disk.
 enum MachineReporter {
     /// ccusage through npx may first download itself.

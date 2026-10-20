@@ -108,7 +108,7 @@ function ConvertTo-IsoUtc {
 }
 
 function Read-ProviderUsage {
-  param([string]$SinceDate, [string]$TimeZone, [string]$FallbackProviders, [string]$CycleStart, $CycleProviders, [bool]$Cost)
+  param([string]$SinceDate, [string]$TimeZone, [string]$FallbackProviders, [string]$CycleStart, $CycleProviders)
   if (-not (Test-Path -LiteralPath $parserPath)) {
     throw "$parserPath is missing; install it next to this script."
   }
@@ -150,10 +150,9 @@ function Read-ProviderUsage {
     # Windows PowerShell 5.1 drops an empty argument, which would shift the ones after it.
     if (-not $FallbackProviders) { $FallbackProviders = ',' }
 
-    # --offline: ccusage's cached price list, so a scheduled task never reaches the network for pricing.
-    $ccusageArgs = @('daily', '--json', '--by-agent', '--breakdown')
-    $ccusageArgs += if ($Cost) { '--offline' } else { '--no-cost' }
-    $ccusageArgs += @('--since', $SinceDate, '--timezone', $TimeZone)
+    # Every report is priced at API list prices; the dashboard shows it only with its cost estimate on.
+    # --offline: the price list bundled with ccusage, so a scheduled task never reaches the network for pricing.
+    $ccusageArgs = @('daily', '--json', '--by-agent', '--breakdown', '--offline', '--since', $SinceDate, '--timezone', $TimeZone)
     $raw = Invoke-Ccusage -Attempts $attempts -CcusageArgs $ccusageArgs -ErrorFile $errorFile
     if (-not $raw) {
       $details = if (Test-Path -LiteralPath $errorFile) { Get-Content -LiteralPath $errorFile -Raw } else { '' }
@@ -164,7 +163,7 @@ function Read-ProviderUsage {
       $details = if (Test-Path -LiteralPath $errorFile) { Get-Content -LiteralPath $errorFile -Raw } else { '' }
       throw "The ccusage JSON could not be converted. $details"
     }
-    # The splits by model, by day and (opted in) by cost are optional: without them the report still goes out.
+    # The splits by model, by day and by cost are optional: without them the report still goes out.
     try {
       $splitJson = $raw | & $node.Source $parserPath parse-models $FallbackProviders @hourlyArgs 2> $null
       if ($LASTEXITCODE -eq 0 -and $splitJson) { $script:modelsJson = [string]$splitJson }
@@ -173,12 +172,10 @@ function Read-ProviderUsage {
       $daysSplitJson = $raw | & $node.Source $parserPath parse-days $FallbackProviders @hourlyArgs 2> $null
       if ($LASTEXITCODE -eq 0 -and $daysSplitJson) { $script:daysJson = [string]$daysSplitJson }
     } catch { Write-Verbose "The split by day is optional: the report goes out without it. ($($_.Exception.Message))" }
-    if ($Cost) {
-      try {
-        $costsSplitJson = $raw | & $node.Source $parserPath parse-costs $FallbackProviders @hourlyArgs 2> $null
-        if ($LASTEXITCODE -eq 0 -and $costsSplitJson) { $script:costsJson = [string]$costsSplitJson }
-      } catch { Write-Verbose "The split by cost is optional: the report goes out without it. ($($_.Exception.Message))" }
-    }
+    try {
+      $costsSplitJson = $raw | & $node.Source $parserPath parse-costs $FallbackProviders @hourlyArgs 2> $null
+      if ($LASTEXITCODE -eq 0 -and $costsSplitJson) { $script:costsJson = [string]$costsSplitJson }
+    } catch { Write-Verbose "The split by cost is optional: the report goes out without it. ($($_.Exception.Message))" }
     return [string]$providersJson
   } finally {
     Remove-Item -LiteralPath $errorFile, $blocksFile, $cycleFile -Force -ErrorAction SilentlyContinue
@@ -217,18 +214,6 @@ function Get-Setting {
   return $Default
 }
 
-# "cost": true / USAGERATIO_COST=1: estimate cost from ccusage's own (cached,
-# --offline) API price list. Off by default: a subscription plan (Claude Max,
-# ChatGPT Pro...) is not billed this way. The server's cost estimate switch
-# (GET /api/usage `cost`) turns it on for every machine too.
-function Get-BoolSetting {
-  param($Config, [string]$Name, [string]$EnvName)
-  $fromEnv = [Environment]::GetEnvironmentVariable($EnvName)
-  if ($fromEnv) { return $fromEnv -eq '1' -or $fromEnv -eq 'true' }
-  if ($Config -and $Config.PSObject.Properties[$Name]) { return [bool]$Config.$Name }
-  return $false
-}
-
 $config = $null
 if (Test-Path -LiteralPath $ConfigPath) {
   try {
@@ -244,7 +229,6 @@ $apiUrl = Get-Setting $config 'apiUrl' 'USAGERATIO_API_URL'
 $apiToken = Get-Setting $config 'apiToken' 'USAGERATIO_API_TOKEN'
 $machineId = Get-Setting $config 'machineId' 'USAGERATIO_MACHINE_ID' ([Environment]::MachineName)
 $groupId = Get-Setting $config 'groupId' 'USAGERATIO_GROUP_ID'
-$cost = Get-BoolSetting $config 'cost' 'USAGERATIO_COST'
 $headers = @{ Authorization = "Bearer $apiToken" }
 
 # Windows PowerShell 5.1 on older systems does not offer TLS 1.2 by default.
@@ -273,8 +257,8 @@ if (-not $nodeCommand) {
 # --- Provider snapshots -------------------------------------------------------
 
 $providersJson = $null
-# Each provider's split by model, the snapshot's split by day, and (opted in) by
-# cost, as JSON; only ccusage readings have them.
+# Each provider's split by model, the snapshot's split by day, and by cost, as
+# JSON; only ccusage readings have them.
 $modelsJson = $null
 $daysJson = $null
 $costsJson = $null
@@ -307,9 +291,7 @@ if ($Providers) {
     $fallbackProviders = @($cycleResponse.providers) -join ','
     if (-not $sinceDate -or -not $timeZone) { throw 'The server did not return a complete cycle.' }
     $cycleStart = ConvertTo-IsoUtc $cycleResponse.cycle.start
-    # The machine's own cost opt-in, or the server's cost estimate switch (an older server sends neither).
-    $cycleCost = $cost -or ($cycleResponse.cost -eq $true)
-    $providersJson = Read-ProviderUsage -SinceDate $sinceDate -TimeZone $timeZone -FallbackProviders $fallbackProviders -CycleStart $cycleStart -CycleProviders $cycleResponse.cycle.providers -Cost $cycleCost
+    $providersJson = Read-ProviderUsage -SinceDate $sinceDate -TimeZone $timeZone -FallbackProviders $fallbackProviders -CycleStart $cycleStart -CycleProviders $cycleResponse.cycle.providers
   } catch {
     Write-UsageLog "ERROR: ccusage could not be read: $($_.Exception.Message)"
     exit 3

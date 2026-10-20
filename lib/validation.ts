@@ -42,15 +42,15 @@ export interface UsageReport {
   days: DayUsage[];
   /**
    * An API-list-price estimate of what the tokens would have cost, in USD,
-   * cycle-to-date: providerId → dollars. Only from a client that opted in
-   * (lib/setup.ts COST); empty `{}` otherwise, or from an older client that
-   * never sends it. Fictional for a subscription plan (Claude Max, ChatGPT
+   * cycle-to-date: providerId → dollars, from ccusage's price list. Empty `{}`
+   * from a client that sends none (an older one only did when set up with
+   * COST=1), or that ccusage gave no price. Fictional for a subscription plan (Claude Max, ChatGPT
    * Pro...) — the dashboard must label it as an estimate, never a bill.
    */
   costs: Record<string, number>;
   /**
    * `costs` split by model, like `models`: providerId → modelId → dollars.
-   * Empty for clients that do not send one, or did not opt into cost at all.
+   * Empty for clients that do not send one.
    */
   modelCosts: Record<string, Record<string, number>>;
   /** Event time in epoch milliseconds. */

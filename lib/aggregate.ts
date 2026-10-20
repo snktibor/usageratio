@@ -11,8 +11,8 @@ export interface UsageEvent {
   models?: Record<string, number>;
   /**
    * An API-list-price estimate of `tokens`, in USD, cycle-to-date, when the
-   * client opted into cost (lib/setup.ts COST); absent otherwise, including
-   * from every older client and from a checkpoint (lib/days.ts never splits
+   * client sent one (older clients only did when set up with COST=1); absent
+   * otherwise, including from a checkpoint (lib/days.ts never splits
    * cost by day). Fictional for a subscription plan — never a real bill.
    */
   costUsd?: number;
@@ -187,7 +187,7 @@ export function summarizeUsage(events: UsageEvent[], window: TimeWindow, mode: T
   return { total, groups, series };
 }
 
-// ── Cost (an opt-in, API-list-price estimate) ───────────────────────────────
+// ── Cost (an API-list-price estimate) ─────────────────────────────────────
 
 export interface CostSummary {
   total: number;
@@ -220,7 +220,7 @@ export function costOfSeriesUntil(events: UsageEvent[], startMs: number, endsMs:
 /**
  * The window's cost, by machine and by group, and in total; only over the
  * machines that reported a cost figure at all in the window (a machine that
- * never opted in is simply left out, rather than shown at $0). Mirrors
+ * sent none is simply left out, rather than shown at $0). Mirrors
  * `summarizeUsage`, minus the token-mode/share/report bookkeeping cost has no use for.
  */
 export function summarizeCost(events: UsageEvent[], window: TimeWindow): CostSummary {

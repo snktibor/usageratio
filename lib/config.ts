@@ -53,10 +53,9 @@ export const DEFAULT_RESET: ResetConfig = {
 export const DEFAULT_SHOW_REMAINING = true;
 
 /**
- * Whether every machine is asked to price its usage at API list prices, and
- * the dashboard shows the energy and water behind it (lib/resources.ts). Off:
- * only a machine set up with its own cost opt-in sends a cost. A seed like the
- * ones above: the settings panel has the switch.
+ * Whether the dashboard shows the API-list-price cost the clients send, and
+ * the energy and water behind it (lib/resources.ts). A seed like the ones
+ * above: the settings panel has the switch.
  */
 export const DEFAULT_COST_ESTIMATE = false;
 
@@ -194,7 +193,7 @@ export interface AppConfig {
   resetOverrides: Record<string, ResetOverride>;
   /** False: the dashboard never states the tokens left, nor the overage. */
   showRemaining: boolean;
-  /** True: every machine prices its usage, and the dashboard shows its energy and water; see DEFAULT_COST_ESTIMATE. */
+  /** True: the dashboard shows the cost estimate, with its energy and water; see DEFAULT_COST_ESTIMATE. */
   costEstimate: boolean;
   /** Providers the dashboard leaves out, account picker included; their reports are still stored. */
   hiddenProviders: string[];

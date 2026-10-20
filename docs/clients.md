@@ -6,7 +6,7 @@ troubleshoot them.
 - [How a client works](#how-a-client-works)
 - [Installing from the Setup page](#installing-from-the-setup-page)
 - [OS matrix](#os-matrix)
-- [The opt-in cost estimate](#the-opt-in-cost-estimate)
+- [The cost estimate](#the-cost-estimate)
 - [Per-machine tokens vs. the master token](#per-machine-tokens-vs-the-master-token)
 - [The macOS menu bar app](#the-macos-menu-bar-app)
 - [Command-line install](#command-line-install)
@@ -26,7 +26,7 @@ Every client — automatic or manual, macOS/Linux or Windows — runs the same c
    cycle (`sinceDate`, `timeZone`) and its known provider list. See [api.md](api.md) for the exact
    response shape.
 2. **Reading usage:** it runs `ccusage daily --json --by-agent --breakdown --since <sinceDate>
-   --timezone <tz>` (plus `--no-cost`, or `--offline` when the cost estimate is on — see below),
+   --timezone <tz> --offline` (`--offline`: priced from the list bundled with `ccusage` — see below),
    filtered to the days since the cycle started, and for Claude Code specifically also `ccusage blocks
    --json --offline --session-length 1 --since <sinceDate> --timezone <tz>` to get whole-hour blocks.
    `ccusage` runs from the earliest provider's start; the parser then trims each provider to its own
@@ -39,8 +39,8 @@ Every client — automatic or manual, macOS/Linux or Windows — runs the same c
 3. **Building the payload:** the parser (`clients/shared/ccusage-providers.cjs`) turns `ccusage`'s
    output into `providers` (running total per provider for the cycle, in `snapshot` mode — the
    server's default, see [data-model.md](data-model.md)), a per-model breakdown (`models`), a
-   per-day breakdown (`days`, with an hourly breakdown for Claude Code where available), and, if the
-   cost estimate is on, `costs`/`modelCosts`. The full field-by-field schema and its limits are in
+   per-day breakdown (`days`, with an hourly breakdown for Claude Code where available), and the
+   cost estimate, `costs`/`modelCosts`. The full field-by-field schema and its limits are in
    [api.md](api.md).
 4. **Sending it:** `POST /api/usage` with the same Bearer token. `201` means it was stored; `200` with
    `"duplicate": true` means the exact same report already existed (harmless, no double-counting); a
@@ -106,22 +106,19 @@ report sets `USAGERATIO_JITTER_MAX=0` to skip the wait. **Random delay (Windows)
 is created with `-RandomDelay (New-TimeSpan -Minutes 5)` on its daily trigger, then repeats hourly for
 the rest of the day with no further per-run delay.
 
-## The opt-in cost estimate
+## The cost estimate
 
-Off by default (a subscription plan isn't billed per token). Turning it on — the **cost_opt_in**
-checkbox on the Setup page's package settings, which sets `cost: true` in the generated config
-(`COST=1` in the macOS/Linux config file, `"cost": true` in `config.json` on Windows, or a
-`USAGERATIO_COST=1` line in the one-shot command) — makes the client run `ccusage` with `--offline`
-(its own cached list-price data, no network call) instead of `--no-cost`, and adds `costs` (USD, per
-provider) and `modelCosts` (USD, per model) to the report. These are **estimates from list prices**, not
-your actual bill. See [api.md](api.md) for the field shapes.
+Every client prices its usage: it runs `ccusage` with `--offline` (the price list bundled with
+`ccusage`, no network call) and adds `costs` (USD, per provider) and `modelCosts` (USD, per model) to
+the report. These are **estimates from API list prices**, not your actual bill: a subscription plan
+isn't billed per token. See [api.md](api.md) for the field shapes.
 
-The dashboard's **Estimate cost, energy and water** setting ([configuration.md](configuration.md#budget-and-token-limits))
-turns the same estimate on for every machine at once: `GET /api/usage` then answers `"cost": true`,
-and a client prices its usage as if it had opted in itself. A client older than this switch ignores
-it, and needs setting up again. The price list is the one bundled with the installed `ccusage`, so a
-model newer than that version counts as $0 — keep `ccusage` up to date (or use the `npx` runner, which
-always takes the latest).
+The dashboard shows them only with its **Show the cost, energy and water estimate** setting on
+([configuration.md](configuration.md#budget-and-token-limits)), off by default. A client older than
+this sent a cost only when set up with the Setup page's former cost checkbox (`COST=1`); updating it
+is enough, and a leftover `COST`/`cost` line in its config is ignored. Because the price list is the one
+bundled with the installed `ccusage`, a model newer than that version counts as $0 — keep `ccusage` up
+to date (or use the `npx` runner, which takes the pinned version).
 
 ## Per-machine tokens vs. the master token
 
@@ -211,7 +208,7 @@ Setup page's ZIP for Windows in manual mode: its `install.cmd` creates them.
 
 Every config value can be overridden per-run with an environment variable prefixed
 `USAGERATIO_` (`USAGERATIO_API_URL`, `USAGERATIO_API_TOKEN`, `USAGERATIO_MACHINE_ID`,
-`USAGERATIO_GROUP_ID`, `USAGERATIO_COST`, …) — handy for testing without touching the config file:
+`USAGERATIO_GROUP_ID`, …) — handy for testing without touching the config file:
 
 ```bash
 USAGERATIO_API_URL=http://localhost:3000/api/usage USAGERATIO_API_TOKEN=test \
@@ -247,8 +244,7 @@ required file is missing, or `config.json` doesn't parse).
 ## Config and log files
 
 See the [OS matrix](#os-matrix) table above for the paths. The config file's keys are always
-`API_URL`, `API_TOKEN`, `MACHINE_ID`, `GROUP_ID`, and optionally `COST` (shell) / `cost` (Windows
-`config.json`); the macOS/Linux installer also adds a `PATH=` line when Node isn't found in one of the
+`API_URL`, `API_TOKEN`, `MACHINE_ID` and `GROUP_ID`; the macOS/Linux installer also adds a `PATH=` line when Node isn't found in one of the
 usual locations (nvm, Volta, Homebrew), so the cron job can find it too. `USAGERATIO_LOG_FILE`
 overrides the log path on any OS. Logs self-trim to the last 500 lines once they pass 1000, so they
 don't grow unbounded on a machine that's never rebooted.

@@ -7,27 +7,19 @@ function stored(assignment: string): string {
 }
 
 describe("setup prefs cookie", () => {
-  it("keeps the cost-estimate choice", () => {
-    const cookie = setupPrefsCookie({ os: "macos", route: "zip", group: "Work", machine: "mac-1", cost: true });
+  it("keeps the client's last choices", () => {
+    const cookie = setupPrefsCookie({ os: "macos", route: "zip", group: "Work", machine: "mac-1" });
     expect(parseSetupPrefs(`other=1; ${stored(cookie)}`)).toEqual({
       os: "macos",
       route: "zip",
       group: "Work",
       machine: "mac-1",
-      cost: true,
     });
   });
 
-  it("keeps an explicit opt-out too", () => {
-    const cookie = setupPrefsCookie({ os: "linux", route: "manual", group: "Personal", machine: "", cost: false });
-    expect(parseSetupPrefs(stored(cookie))?.cost).toBe(false);
-  });
-
-  it("still reads a cookie written before cost was saved", () => {
-    const old = `usageratio-setup=${encodeURIComponent(JSON.stringify({ os: "windows", route: "oneShot", group: "Work", machine: "pc" }))}`;
-    const prefs = parseSetupPrefs(old);
-    expect(prefs).toEqual({ os: "windows", route: "oneShot", group: "Work", machine: "pc" });
-    expect(prefs?.cost).toBeUndefined();
+  it("still reads a cookie written while the setup page had a cost opt-in", () => {
+    const old = `usageratio-setup=${encodeURIComponent(JSON.stringify({ os: "windows", route: "oneShot", group: "Work", machine: "pc", cost: true }))}`;
+    expect(parseSetupPrefs(old)).toMatchObject({ os: "windows", route: "oneShot", group: "Work", machine: "pc" });
   });
 
   it("is null without the cookie, or with one that does not parse", () => {

@@ -119,7 +119,6 @@ shared reset included), and `cycle.providers` holds each provider's own:
 {
   "tokenMode": "snapshot",
   "providers": ["claude", "deepseek", "openai"],
-  "cost": false,
   "cycle": {
     "start": "2026-09-21T00:00:00.000Z",
     "end": "2026-09-28T00:00:00.000Z",
@@ -132,9 +131,6 @@ shared reset included), and `cycle.providers` holds each provider's own:
   }
 }
 ```
-
-`cost` is the settings' cost estimate switch: `true` asks the client to price its usage at API list
-prices (send `costs`/`modelCosts`) even without a cost opt-in of its own.
 
 `200` ok · `401` bad/missing token · `429` rate limited.
 
@@ -207,7 +203,7 @@ time `GET /api/machines` is read.
 | `models` | no | Per provider, up to 20 models (`MAX_MODELS_PER_PROVIDER`), 60 total (`MAX_MODELS_PER_REPORT`). Every named provider must be in `providers`; a provider's models may not sum to more than its own total (may sum to less — not every token is attributable). |
 | `days` | no | Up to 32 days (`MAX_REPORT_DAYS`), keyed `"YYYY-MM-DD"` (in the cycle's time zone). Each day: `providers` (must be a subset of the top-level `providers`, summing to no more than each provider's total across all days), optional `models` (same rules as top-level), optional `hours`. |
 | `days.*.hours` | no | Up to 25 entries per provider per day (`MAX_DAY_HOURS`) — the extra one covers a DST fall-back day. Keys are `"YYYY-MM-DDTHH:00:00Z"`, must fall inside that calendar day, summing to no more than the day's total for that provider. Only stored as day/hour checkpoints in `snapshot` mode. |
-| `costs` | no | Opt-in (see [clients.md](clients.md#the-opt-in-cost-estimate)). Per provider, a non-negative number up to 10,000,000 (`MAX_COST_USD` — headroom, not a real budget). Every named provider must be in `providers`. |
+| `costs` | no | The API-list-price estimate (see [clients.md](clients.md#the-cost-estimate)). Per provider, a non-negative number up to 10,000,000 (`MAX_COST_USD` — headroom, not a real budget). Every named provider must be in `providers`. |
 | `modelCosts` | no | Per provider (must be in `costs`), per model, same caps as `models`; a provider's models may not sum to more than its own cost there (0.01 rounding slack, `COST_EPSILON`). |
 | `mode` | no | `"auto"` (default when absent) or `"manual"` — which client wrapper sent it; drives the dashboard's machine-health indicator. |
 | `intervalMinutes` | no | 5–1440. The auto client's own reporting interval, when it differs from the server's default — so a machine on a custom schedule isn't flagged "late" between reports. |
@@ -379,7 +375,7 @@ a report; the provider's month day is kept); a reading taken before the (new) cy
 ## `GET /api/setup`
 
 Auth: **session** (redirects `303` to `/setup` without one, rather than a JSON 401 — it's meant to be
-opened as a link/download). `?os=macos|linux|windows&mode=auto|manual&group=Work&machine=win-desktop&cost=1`.
+opened as a link/download). `?os=macos|linux|windows&mode=auto|manual&group=Work&machine=win-desktop`.
 Returns the Setup page's ZIP: `200 application/zip` with `Content-Disposition: attachment` · `303` no
 session · `400` bad parameters · `503` Redis down. Contains no secret — see
 [clients.md](clients.md#installing-from-the-setup-page).

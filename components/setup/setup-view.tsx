@@ -62,7 +62,6 @@ export function SetupView({
   const [route, setRoute] = useState(initialRoute);
   const [group, setGroup] = useState(groups[0]?.id ?? "Personal");
   const [machine, setMachine] = useState("");
-  const [cost, setCost] = useState(false);
   const skipPrefsWrite = useRef(true);
   const ids = {
     group: useId(),
@@ -73,7 +72,7 @@ export function SetupView({
     notes: useId(),
   };
 
-  // Restores the client's last group/machine/tab/cost choice, and its last os when the URL didn't ask for one explicitly.
+  // Restores the client's last group/machine/tab choice, and its last os when the URL didn't ask for one explicitly.
   // Runs before the effect below rewrites the address, so it still sees the address the page was opened with.
   useEffect(() => {
     const saved = readSetupPrefs();
@@ -88,7 +87,6 @@ export function SetupView({
       }
       if (saved.group) setGroup(saved.group);
       if (saved.machine) setMachine(saved.machine);
-      if (typeof saved.cost === "boolean") setCost(saved.cost);
     }
   }, []);
 
@@ -102,11 +100,11 @@ export function SetupView({
       skipPrefsWrite.current = false;
       return;
     }
-    writeSetupPrefs({ os, route, group, machine, cost });
-  }, [os, route, group, machine, cost]);
+    writeSetupPrefs({ os, route, group, machine });
+  }, [os, route, group, machine]);
 
   const check = checkMachineSettings(group, machine);
-  const settings = check.ok ? { apiUrl, groupId: check.groupId, machineId: check.machineId, cost } : null;
+  const settings = check.ok ? { apiUrl, groupId: check.groupId, machineId: check.machineId } : null;
   const files = packageFiles(os, mode).filter((file) => !file.zipOnly);
   const name = packageName(os, mode);
   const zipHref = settings
@@ -116,7 +114,6 @@ export function SetupView({
         group: settings.groupId,
         machine: settings.machineId,
         locale,
-        ...(cost && { cost: "1" }),
       })}`
     : null;
 
@@ -152,8 +149,6 @@ export function SetupView({
         setGroup={setGroup}
         machine={machine}
         setMachine={setMachine}
-        cost={cost}
-        setCost={setCost}
         groups={groups}
         check={check}
         ids={ids}
@@ -186,7 +181,7 @@ export function SetupView({
           hidden={route !== "oneShot"}
           os={os}
           settings={settings}
-          draft={{ apiUrl, groupId: group.trim(), machineId: machine.trim(), cost }}
+          draft={{ apiUrl, groupId: group.trim(), machineId: machine.trim() }}
           tokenStatus={tokenStatus}
           blobs={oneShot}
         />

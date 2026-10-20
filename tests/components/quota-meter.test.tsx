@@ -47,8 +47,8 @@ describe("QuotaMeter", () => {
     expect(screen.queryByRole("meter")).toBeNull();
   });
 
-  it("shows the cost estimate line once an event of the cycle carries one", () => {
-    const config = getConfig({});
+  it("shows the cost estimate line, with its energy and water, once an event of the cycle carries one", () => {
+    const config = { ...getConfig({}), costEstimate: true };
     const model = buildDashboard(
       NOW,
       config,
@@ -62,10 +62,26 @@ describe("QuotaMeter", () => {
 
     expect(screen.getByText(/\$12\.35/)).toBeTruthy();
     expect(screen.getByText(/at API list prices/)).toBeTruthy();
+    expect(screen.getByText("≈ 963 Wh")).toBeTruthy();
+    expect(screen.getByText("≈ 4 L of water")).toBeTruthy();
+  });
+
+  it("has no cost line with the cost estimate off, even when an event carries a cost", () => {
+    const model = buildDashboard(
+      NOW,
+      getConfig({}),
+      snapshot({
+        events: [{ machineId: "mac", groupId: "Work", tokens: 150_000, ts: CYCLE_START + 10 * HOUR, costUsd: 12.3456 }],
+      }),
+    );
+
+    renderWithIntl(<QuotaMeter model={model} view={applyGroundTruth(model, null)} />);
+
+    expect(screen.queryByText(/at API list prices/)).toBeNull();
   });
 
   it("has no cost line while nothing in the cycle carries a cost figure", () => {
-    const config = getConfig({});
+    const config = { ...getConfig({}), costEstimate: true };
     const model = buildDashboard(
       NOW,
       config,

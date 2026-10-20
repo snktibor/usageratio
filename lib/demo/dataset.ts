@@ -54,9 +54,9 @@ export const DEMO_HOURLY_PROVIDERS: readonly string[] = ["claude"];
 
 /**
  * A rough API-list-price, USD per token, for the models of the two providers
- * the demo opts into cost for (so a screenshot has something to show; ccusage
- * itself is what the real client reads this from). DeepSeek and Gemini are
- * left out on purpose: not every provider's client has to opt in.
+ * the demo prices (so a screenshot has something to show; ccusage itself is
+ * what the real client reads this from). DeepSeek and Gemini are left out on
+ * purpose: not every model has a price in ccusage's list.
  */
 const DEMO_COST_PER_TOKEN: Record<string, number> = {
   "claude-opus-4-5-20251101": 22.5 / 1_000_000,
@@ -338,7 +338,7 @@ function addInto(target: Record<string, number>, source: Record<string, number>)
 /**
  * A model split's cost ($), from DEMO_COST_PER_TOKEN; null when none of the
  * split's models has a rate (DeepSeek, Gemini): those providers' reports
- * simply carry no cost, the same as any client that never opted in.
+ * simply carry no cost, the same as a model ccusage has no price for.
  */
 function costOfSplit(split: Record<string, number>): { total: number; byModel: Record<string, number> } | null {
   const byModel: Record<string, number> = {};
@@ -580,7 +580,7 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
       providers[providerId] = total;
       if (Object.keys(split).length > 0) {
         models[providerId] = split;
-        // The two providers with a demo opt-in (Claude, OpenAI): a plausible cost estimate,
+        // The two providers the demo prices (Claude, OpenAI): a plausible cost estimate,
         // computed from the very same split by model rather than a whole separate reading.
         const cost = costOfSplit(split);
         if (cost) {
@@ -640,7 +640,7 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
       },
       resetOverrides: {},
       showRemaining: true,
-      // The demo's reports carry a cost already: with this on, the dashboard shows its energy and water too.
+      // The demo's reports carry a cost: with this on, the dashboard shows it, with its energy and water.
       costEstimate: true,
       hiddenProviders: [],
       excludedProviders: { Lab: ["openai"] },
