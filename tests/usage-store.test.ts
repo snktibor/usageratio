@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getConfig, MAX_MACHINES } from "@/lib/config";
 import { type CycleSummary, serializeCycleSummary } from "@/lib/history";
 import { MAX_PROVIDERS } from "@/lib/providers";
@@ -499,15 +499,7 @@ describe("storeReport — the counting basis", () => {
     expect(eventsByProvider.claude![0]).not.toHaveProperty("basisMs");
   });
 
-  it("drops the snapshot reports a restart made stale", async () => {
-    await storeOk(report({ timestamp: "2026-09-22T15:00:00Z", providers: { claude: 9000 } }), NOW, 70, {
-      timeZone: "UTC",
-      startMs: S,
-    });
-    await storeOk(report({ timestamp: "2026-09-22T16:00:00Z", providers: { claude: 300 } }), NOW, 70, {
-      timeZone: "UTC",
-      startMs: R,
-    });
+  describe("after a restart at R", () => {
     const resets = {
       claude: {
         v: 1 as const,
@@ -527,7 +519,43 @@ describe("storeReport — the counting basis", () => {
         autoOffCycleStartMs: null,
       },
     };
-    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0, resets);
-    expect(eventsByProvider.claude!.map((event) => event.tokens)).toEqual([300]);
+    const tokensOf = async (withResets: Record<string, ProviderResets>) => {
+      const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0, withResets);
+      return eventsByProvider.claude!.map((event) => event.tokens);
+    };
+
+    beforeEach(async () => {
+      vi.stubEnv("TOKEN_MODE", "snapshot");
+      // Made after R but counted from S, the shared cycle start; then one counted from R.
+      await storeOk(report({ timestamp: "2026-09-22T15:00:00Z", providers: { claude: 9000 } }), NOW, 70, {
+        timeZone: "UTC",
+        startMs: S,
+      });
+      await storeOk(report({ timestamp: "2026-09-22T16:00:00Z", providers: { claude: 300 } }), NOW, 70, {
+        timeZone: "UTC",
+        startMs: R,
+      });
+    });
+    afterEach(() => vi.unstubAllEnvs());
+
+    it("drops the snapshot reports a restart made stale", async () => {
+      expect(await tokensOf(resets)).toEqual([300]);
+    });
+
+    it("keeps both without the restart", async () => {
+      expect(await tokensOf({})).toEqual([9000, 300]);
+    });
+
+    it("reads a member with a damaged stamp as unstamped, which a restart does not drop", async () => {
+      await getRedis().zadd(KEYS.events("claude", "Personal"), {
+        score: Date.parse("2026-09-22T17:00:00Z"),
+        member: JSON.stringify({ m: "linux", t: 50, ts: Date.parse("2026-09-22T17:00:00Z"), s: "yesterday" }),
+      });
+      const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0, resets);
+      const damaged = eventsByProvider.claude!.filter((event) => event.machineId === "linux");
+      expect(damaged).toHaveLength(1);
+      expect(damaged[0]).not.toHaveProperty("basisMs");
+      expect(eventsByProvider.claude!.map((event) => event.tokens)).toEqual([300, 50]);
+    });
   });
 });

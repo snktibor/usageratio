@@ -268,6 +268,15 @@ describe("retaggedOfficialEntries", () => {
     const tagAt = (atMs: number) => (atMs < CYCLE.startMs ? null : atMs >= R ? R : CYCLE.startMs);
     expect(retaggedOfficialEntries(stored, "claude", tagAt)).toEqual({ claude: entry(R + HOUR, R) });
   });
+
+  it("keeps the window's reset a report stored with the figure", () => {
+    const resetsAtMs = CYCLE.endMs;
+    const stored = {
+      claude: JSON.stringify({ raw: "5", enteredAt: R + HOUR, cycleStartMs: CYCLE.startMs, resetsAtMs }),
+    };
+    const retagged = retaggedOfficialEntries(stored, "claude", () => R);
+    expect(JSON.parse(retagged.claude!)).toEqual({ raw: "5", enteredAt: R + HOUR, cycleStartMs: R, resetsAtMs });
+  });
 });
 
 describe("request bodies", () => {

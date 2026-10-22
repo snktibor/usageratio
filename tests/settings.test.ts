@@ -17,6 +17,7 @@ import {
   parseSettingsUpdate,
   parseStoredSettings,
   randomGroupColor,
+  readStoredResetOverride,
   resetFor,
   resetModeOf,
   resolveConfig,
@@ -392,6 +393,23 @@ describe("parseSettingsUpdate", () => {
     const bad = parseSettingsUpdate({ ...valid, resetModes: { claude: "sideways" } });
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.errors).toContain('resetModes.claude must be "keep" or "restart"');
+  });
+
+  it("reports a reset mode map that is no object, too long, or names a provider badly", () => {
+    const errorsOf = (resetModes: unknown) => {
+      const result = parseSettingsUpdate({ ...valid, resetModes });
+      if (result.ok) throw new Error("accepted");
+      return result.errors;
+    };
+    const tooMany = Object.fromEntries(Array.from({ length: MAX_PROVIDERS + 1 }, (_, i) => [`p${i}`, "keep"]));
+    const message = `resetModes must be a JSON object of at most ${MAX_PROVIDERS} providers`;
+    expect(errorsOf(["keep"])).toContain(message);
+    expect(errorsOf("keep")).toContain(message);
+    expect(errorsOf(tooMany)).toContain(message);
+    expect(errorsOf({ "bad/provider": "keep" })).toContain("resetModes.bad/provider has an invalid provider id");
+    expect(errorsOf({ claude: "keep", Claude: "restart" })).toContain(
+      "resetModes.Claude is listed twice after normalization",
+    );
   });
 
   it("accepts a restart's source marker on an override", () => {
@@ -851,5 +869,36 @@ describe("withResetOverride / ownResetOf", () => {
     expect(ownResetOf(set, "openai")).toEqual(own);
     expect(ownResetOf(withResetOverride(set, "openai", null), "openai")).toBeNull();
     expect(ownResetOf(config, "openai")).toBeNull();
+  });
+});
+
+describe("readStoredResetOverride", () => {
+  it("reads a stored own reset, with the marker of a restart", () => {
+    expect(readStoredResetOverride({ weekday: 2, monthDay: 22, hour: 14, minute: 0, source: "reset" })).toEqual({
+      weekday: 2,
+      monthDay: 22,
+      hour: 14,
+      minute: 0,
+      source: "reset",
+    });
+    expect(readStoredResetOverride({ weekday: 4, monthDay: 1, hour: 9, minute: 0 })).toEqual({
+      weekday: 4,
+      monthDay: 1,
+      hour: 9,
+      minute: 0,
+    });
+  });
+
+  it("ignores a marker it does not know, and reads a damaged entry as none", () => {
+    expect(readStoredResetOverride({ weekday: 4, monthDay: 1, hour: 9, minute: 0, source: "panel" })).toEqual({
+      weekday: 4,
+      monthDay: 1,
+      hour: 9,
+      minute: 0,
+    });
+    expect(readStoredResetOverride({ weekday: 7, monthDay: 1, hour: 9, minute: 0 })).toBeNull();
+    expect(readStoredResetOverride({ weekday: 4, monthDay: 1, hour: 9 })).toBeNull();
+    expect(readStoredResetOverride("Thursday")).toBeNull();
+    expect(readStoredResetOverride(null)).toBeNull();
   });
 });

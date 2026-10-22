@@ -51,6 +51,25 @@ describe("parseProviderResets / serializeProviderResets", () => {
     expect(parseProviderResets(serializeProviderResets(resets))).toEqual(resets);
   });
 
+  it("round-trips a restart with the own reset it replaced, marker included", () => {
+    const previousOverride = { weekday: 2, monthDay: 22, hour: 14, minute: 0, source: "reset" as const };
+    const resets: ProviderResets = {
+      v: 1,
+      events: [reset({ kind: "restart", previousOverride })],
+      autoOffCycleStartMs: null,
+    };
+    expect(parseProviderResets(serializeProviderResets(resets))).toEqual(resets);
+  });
+
+  it("reads a restart whose previous own reset is damaged as one that used the shared reset", () => {
+    const doc = JSON.stringify({
+      v: 1,
+      events: [reset({ kind: "restart", previousOverride: { weekday: 9, monthDay: 1, hour: 0, minute: 0 } })],
+      autoOffCycleStartMs: null,
+    });
+    expect(parseProviderResets(doc).events).toEqual([reset({ kind: "restart", previousOverride: null })]);
+  });
+
   it("reads damaged JSON as no resets, drops a damaged event on its own, and sorts by time", () => {
     expect(parseProviderResets("not json")).toEqual(emptyResets());
     const doc = JSON.stringify({
