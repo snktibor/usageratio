@@ -267,6 +267,65 @@ describe("runHousekeeping", () => {
     expect(kept?.autoOffCycleStartMs).toBeNull();
   });
 
+  it("keeps a restart older than the previous cycle while its raw reports are kept", async () => {
+    const cycle = getCycle(NOW, getConfig().reset);
+    const previous = getPreviousCycle(cycle, getConfig().reset);
+    const atMs = previous.start.getTime() - 3 * DAY_MS;
+    const event = (id: string, kind: "keep" | "restart") => ({
+      id,
+      atMs,
+      kind,
+      cycleStartMs: atMs - 2 * DAY_MS,
+      before: 50,
+      beforeAtMs: null,
+      source: "manual" as const,
+      recordedAtMs: atMs,
+      ...(kind === "restart" ? { previousOverride: null } : {}),
+    });
+    await saveResets("openai", {
+      v: 1,
+      events: [event("restart", "restart"), event("keep", "keep")],
+      autoOffCycleStartMs: null,
+    });
+
+    const report = await runHousekeeping(NOW, { dryRun: false });
+
+    expect(report.resets).toEqual({ removed: 1, ids: ["openai:keep"] });
+    expect((await loadResets()).openai?.events.map((e) => e.id)).toEqual(["restart"]);
+  });
+
+  it("keeps a reset recorded while the run is under way", async () => {
+    const cycle = getCycle(NOW, getConfig().reset);
+    const previous = getPreviousCycle(cycle, getConfig().reset);
+    const event = (id: string, atMs: number, cycleStartMs: number) => ({
+      id,
+      atMs,
+      kind: "keep" as const,
+      cycleStartMs,
+      before: 50,
+      beforeAtMs: null,
+      source: "manual" as const,
+      recordedAtMs: atMs,
+    });
+    const older = previous.start.getTime() - 7 * DAY_MS;
+    const stale = event("old", older + DAY_MS, older);
+    const late = event("late", cycle.start.getTime() + DAY_MS, cycle.start.getTime());
+    await saveResets("claude", { v: 1, events: [stale], autoOffCycleStartMs: null });
+
+    // The audit trail is read after the snapshot and before the write: a report lands in between.
+    const redis = getRedis();
+    const lrange = redis.lrange.bind(redis);
+    vi.spyOn(redis, "lrange").mockImplementation(async (...args: Parameters<typeof lrange>) => {
+      await saveResets("claude", { v: 1, events: [stale, late], autoOffCycleStartMs: null });
+      return lrange(...args);
+    });
+
+    const report = await runHousekeeping(NOW, { dryRun: false });
+
+    expect(report.resets).toEqual({ removed: 1, ids: ["claude:old"] });
+    expect((await loadResets()).claude?.events.map((e) => e.id)).toEqual(["late"]);
+  });
+
   it("prunes an official figure from an earlier segment of the current cycle", async () => {
     const cycle = getCycle(NOW, getConfig().reset);
     const R = cycle.start.getTime() + DAY_MS;

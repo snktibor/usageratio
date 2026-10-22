@@ -1,3 +1,4 @@
+import type { TimeWindow } from "@/lib/aggregate";
 import { parseAuditRecord } from "@/lib/api-token";
 import { archiveDueCycles } from "@/lib/archive";
 import { getConfig, RETENTION_DAYS } from "@/lib/config";
@@ -6,10 +7,10 @@ import { providerOfOfficialField } from "@/lib/official-usage";
 import { currentSegmentStartMs, earliestStartMs, providerCycle } from "@/lib/provider-cycles";
 import { getRedis } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
-import { type ProviderResets, pruneResets, resetEventsOf } from "@/lib/resets";
+import { pruneResets, resetEventsOf, resetsOf } from "@/lib/resets";
 import { parseStoredSettings, resolveConfig, settingsFromConfig } from "@/lib/settings";
 import { pruneRevokedTokens } from "@/lib/tokens";
-import { loadEvents, loadIndexes, saveResets } from "@/lib/usage-store";
+import { loadEvents, loadIndexes, loadResets, saveResets } from "@/lib/usage-store";
 
 /**
  * Prunes the index hashes (`usage:machines`, `usage:providers`, `usage:groups`,
@@ -43,7 +44,7 @@ export interface HousekeepingReport {
   providers: HousekeepingStepReport;
   groups: HousekeepingStepReport;
   officialUsage: HousekeepingStepReport;
-  /** Reset events whose cycle is archived by now (ids `providerId:eventId`). */
+  /** Reset events no longer needed (ids `providerId:eventId`). */
   resets: HousekeepingStepReport;
   tokens: HousekeepingStepReport;
   audit: { removed: number };
@@ -154,23 +155,23 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     })
     .map(([field]) => field);
 
-  // Step 5b: reset events older than their provider's previous cycle (archived by now, step 4),
-  // and a revert's detection switch once its cycle is over (lib/resets.ts).
-  const prunedResets: [string, ProviderResets][] = [];
+  // Step 5b: reset events no longer needed (lib/resets.ts `pruneResets`): a keep reset once its
+  // cycle is archived (step 4), a restart once its raw reports are gone, and a revert's detection
+  // switch once its cycle is over. Only the decision is made here, from the snapshot; the write
+  // re-applies it to a fresh read, so a reset recorded meanwhile is not lost.
+  const resetPrunes: { providerId: string; cycle: TimeWindow; previousStartMs: number }[] = [];
   const resetIds: string[] = [];
   for (const [providerId, resets] of Object.entries(indexes.resets)) {
     const { cycle, previous } = providerCycle(now, config, providerId, resets.events);
-    const pruned = pruneResets(
-      resets,
-      { startMs: cycle.start.getTime(), endMs: cycle.end.getTime() },
-      previous.start.getTime(),
-    );
+    const window = { startMs: cycle.start.getTime(), endMs: cycle.end.getTime() };
+    const previousStartMs = previous.start.getTime();
+    const pruned = pruneResets(resets, window, previousStartMs, cutoffMs);
     if (pruned.events.length === resets.events.length && pruned.autoOffCycleStartMs === resets.autoOffCycleStartMs)
       continue;
     for (const event of resets.events) {
       if (!pruned.events.includes(event)) resetIds.push(`${providerId}:${event.id}`);
     }
-    prunedResets.push([providerId, pruned]);
+    resetPrunes.push({ providerId, cycle: window, previousStartMs });
   }
 
   // Step 6: audit entries past their retention window. The list is newest first, so the first
@@ -196,7 +197,12 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
       await redis.hdel(KEYS.providers, ...staleProviders.map((provider) => provider.providerId));
     if (staleGroups.length > 0) await redis.hdel(KEYS.groups, ...staleGroups.map((group) => group.groupId));
     if (staleOfficialFields.length > 0) await redis.hdel(KEYS.officialUsage, ...staleOfficialFields);
-    for (const [providerId, pruned] of prunedResets) await saveResets(providerId, pruned);
+    if (resetPrunes.length > 0) {
+      const fresh = await loadResets();
+      for (const { providerId, cycle, previousStartMs } of resetPrunes) {
+        await saveResets(providerId, pruneResets(resetsOf(fresh, providerId), cycle, previousStartMs, cutoffMs));
+      }
+    }
     if (auditRemoved > 0) {
       if (auditKeep === 0) await redis.del(KEYS.apiTokenAudit);
       else await redis.ltrim(KEYS.apiTokenAudit, 0, auditKeep - 1);

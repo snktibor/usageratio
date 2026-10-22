@@ -208,11 +208,33 @@ describe("addReset / beforeFromRaw / pruneResets", () => {
       ],
       autoOffCycleStartMs: previousStartMs,
     };
-    const pruned = pruneResets(resets, CYCLE, previousStartMs);
+    const retainFromMs = at("2026-07-01T00:00:00Z");
+    const pruned = pruneResets(resets, CYCLE, previousStartMs, retainFromMs);
     expect(pruned.events.map((event) => event.id)).toEqual(["prev", "r1"]);
     expect(pruned.autoOffCycleStartMs).toBeNull();
     expect(
-      pruneResets({ ...resets, autoOffCycleStartMs: CYCLE.startMs }, CYCLE, previousStartMs).autoOffCycleStartMs,
+      pruneResets({ ...resets, autoOffCycleStartMs: CYCLE.startMs }, CYCLE, previousStartMs, retainFromMs)
+        .autoOffCycleStartMs,
     ).toBe(CYCLE.startMs);
+  });
+
+  it("keeps a restart while its raw reports are kept, a keep reset only until its cycle is archived", () => {
+    const previousStartMs = at("2026-09-14T00:00:00Z");
+    const retainFromMs = at("2026-08-01T00:00:00Z");
+    const olderThanPrevious = at("2026-09-02T00:00:00Z");
+    const resets: ProviderResets = {
+      v: 1,
+      events: [
+        reset({ id: "gone", kind: "restart", atMs: at("2026-07-20T00:00:00Z"), previousOverride: null }),
+        reset({ id: "restart", kind: "restart", atMs: olderThanPrevious, previousOverride: null }),
+        reset({ id: "keep", atMs: olderThanPrevious }),
+        reset(),
+      ],
+      autoOffCycleStartMs: null,
+    };
+    expect(pruneResets(resets, CYCLE, previousStartMs, retainFromMs).events.map((event) => event.id)).toEqual([
+      "restart",
+      "r1",
+    ]);
   });
 });

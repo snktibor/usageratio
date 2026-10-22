@@ -23,7 +23,8 @@
  *                                  "cycleStartMs" is the start of the segment it was entered in,
  *                                  "resetsAtMs" only on a report: its window's reset)
  *   usage:resets             HASH  providerId → {"v": 1, "events": [ResetEvent…], "autoOffCycleStartMs": ms | null}
- *                                  (the provider's usage resets of its current and previous cycle,
+ *                                  (the provider's usage resets: keep resets of its current and
+ *                                  previous cycle, restarts while their raw reports are kept,
  *                                  see lib/resets.ts; pruned by lib/housekeeping.ts)
  *
  *   usage:api-token          STRING {"v":1,"kid","iv","ct","tag","updatedAt"}: AES-256-GCM, key

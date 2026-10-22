@@ -246,15 +246,23 @@ export function beforeFromRaw(raw: string): number | null {
 }
 
 /**
- * What housekeeping keeps of one provider's resets: the events from its
+ * What housekeeping keeps of one provider's resets: the keep events from its
  * previous cycle's start on (an older one's cycle is archived by now,
- * lib/archive.ts), and a revert's detection switch while its cycle runs.
+ * lib/archive.ts), the restart events while their raw reports are kept
+ * (from `retainFromMs` on: `dropStaleBasis` needs the restart for as long as
+ * the snapshot reports it made stale exist), and a revert's detection switch
+ * while its cycle runs.
  */
-export function pruneResets(resets: ProviderResets, cycle: TimeWindow, previousStartMs: number): ProviderResets {
+export function pruneResets(
+  resets: ProviderResets,
+  cycle: TimeWindow,
+  previousStartMs: number,
+  retainFromMs: number,
+): ProviderResets {
   const off = resets.autoOffCycleStartMs;
   return {
     v: 1,
-    events: resets.events.filter((event) => event.atMs >= previousStartMs),
+    events: resets.events.filter((event) => event.atMs >= (event.kind === "restart" ? retainFromMs : previousStartMs)),
     autoOffCycleStartMs: off !== null && off < cycle.startMs ? null : off,
   };
 }

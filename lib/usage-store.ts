@@ -708,9 +708,10 @@ function resetsDocument(resets: ProviderResets): string | null {
 }
 
 /**
- * One provider's usage resets, as a whole: read-modify-write of its field, so
- * two writers racing (a report detecting a reset while one is edited by hand)
- * leave the later one's. A document with nothing left in it is removed.
+ * Replaces one provider's usage resets as a whole (the field is overwritten,
+ * not merged): callers read it, change it, then write it back, and two writers
+ * racing (a report detecting a reset while one is edited by hand) leave the
+ * later one's. A document with nothing left in it is removed.
  */
 export async function saveResets(providerId: string, resets: ProviderResets): Promise<void> {
   const document = resetsDocument(resets);

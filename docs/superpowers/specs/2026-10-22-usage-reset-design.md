@@ -101,9 +101,13 @@ Pure parsing, validation and the segment arithmetic live in `lib/resets.ts`. The
 writers can collide (a report detecting a reset while someone edits one by hand), and the last one
 wins. That is the same accepted risk as `saveResetOverride`.
 
-**Pruning** (housekeeping, `lib/housekeeping.ts`): an event is dropped once `atMs` is older than
-the provider's previous cycle start. By then its cycle is archived and the archived summary carries
-what it needs. `autoOffCycleStartMs` is cleared once that cycle is over.
+**Pruning** (housekeeping, `lib/housekeeping.ts`): a `keep` event is dropped once `atMs` is older
+than the provider's previous cycle start. By then its cycle is archived and the archived summary
+carries what it needs. A `restart` event is kept longer, until `atMs` is older than the raw-report
+retention (`RETENTION_DAYS`, 70 days): the past-cycle detail view re-reads raw reports, and it needs
+the restart to drop the stale-basis snapshot reports of the cycle the restart began for as long as
+those reports exist. `autoOffCycleStartMs` is cleared once that cycle is over. Housekeeping writes
+the pruned copy of a fresh read, so a reset recorded during the run is not lost.
 
 ## Cycles and segments
 
