@@ -8,7 +8,7 @@ import { KEYS } from "@/lib/redis-keys";
 import { serializeSettings, settingsFromConfig, type UsageSettings } from "@/lib/settings";
 import type { StatusPayload } from "@/lib/status";
 import { createToken, type TokenScope } from "@/lib/tokens";
-import { loadIndexes, loadResets, registerProviders } from "@/lib/usage-store";
+import { loadIndexes, loadResets, registerProviders, saveResets } from "@/lib/usage-store";
 import { useRedis } from "../helpers/redis-fixture";
 
 /**
@@ -158,6 +158,81 @@ describe("POST /api/official-usage/report", () => {
     ]);
     const stored = parseStoredOfficialEntry((await loadIndexes()).officialUsage.claude!);
     expect(stored).toMatchObject({ view: { raw: "2" }, cycleStartMs: observedAtMs });
+  });
+
+  it("detects a Codex restart from a window that jumped a week past R, and records it", async () => {
+    await seedSettings("weekly");
+    const token = await tokenOf("official");
+    await registerProviders(["openai"], NOW.getTime());
+    const S = Date.parse("2026-09-21T00:00:00Z");
+    const E = Date.parse("2026-09-28T00:00:00Z");
+    const R = Date.parse("2026-09-23T08:00:00Z");
+    // The first reading is of openai's current cycle (the shared one): nothing moves.
+    const first = await POST(
+      post(
+        body({
+          providerId: "openai",
+          usedPercent: 90,
+          resetsAtMs: E,
+          observedAtMs: Date.parse("2026-09-22T12:00:00Z"),
+        }),
+        token,
+      ),
+    );
+    expect(await first.json()).toMatchObject({ saved: true, cycleChanged: false, detectedReset: null });
+
+    const observedAtMs = Date.parse("2026-09-23T11:55:00Z");
+    const response = await POST(
+      post(body({ providerId: "openai", usedPercent: 1, resetsAtMs: R + 7 * 86_400_000, observedAtMs }), token),
+    );
+    expect(response.status).toBe(200);
+    const answer = await response.json();
+    expect(answer).toMatchObject({
+      ok: true,
+      saved: true,
+      cycleChanged: true,
+      reset: { weekday: 3, hour: 8, minute: 0 },
+    });
+    expect(answer.detectedReset).toEqual({ id: expect.any(String), kind: "restart", atMs: R });
+
+    const settings = JSON.parse((await getRedis().get<string>(KEYS.settings)) as string);
+    expect(settings.resetOverrides.openai).toEqual({ weekday: 3, monthDay: 23, hour: 8, minute: 0, source: "reset" });
+    expect((await loadResets()).openai?.events).toEqual([
+      expect.objectContaining({
+        id: answer.detectedReset.id,
+        kind: "restart",
+        atMs: R,
+        cycleStartMs: S,
+        before: 90,
+        source: "report",
+        previousOverride: null,
+      }),
+    ]);
+    const stored = parseStoredOfficialEntry((await loadIndexes()).officialUsage.openai!);
+    expect(stored).toMatchObject({ view: { raw: "1", enteredAt: observedAtMs }, cycleStartMs: R });
+  });
+
+  it("ignores a reading whose window ends elsewhere while detection is off for the cycle, and moves nothing", async () => {
+    await seedSettings("weekly");
+    const token = await tokenOf("official");
+    await registerProviders(["openai"], NOW.getTime());
+    const off = { v: 1 as const, events: [], autoOffCycleStartMs: Date.parse("2026-09-21T00:00:00Z") };
+    await saveResets("openai", off);
+
+    const response = await POST(post(body({ providerId: "openai" }), token));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      saved: false,
+      cycleChanged: false,
+      reset: null,
+      detectedReset: null,
+    });
+
+    const settings = JSON.parse((await getRedis().get<string>(KEYS.settings)) as string);
+    expect(settings.resetOverrides).toEqual({});
+    expect(await getRedis().hlen(KEYS.officialUsage)).toBe(0);
+    expect((await loadResets()).openai).toEqual(off);
   });
 
   it("answers 409 stale_reading for a window that already reset", async () => {

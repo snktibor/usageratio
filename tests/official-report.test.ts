@@ -225,4 +225,36 @@ describe("decideOfficialReport — reset detection", () => {
       });
     });
   });
+
+  describe("a provider's reset type decides which reset it can reveal", () => {
+    const S = Date.parse("2026-09-21T00:00:00Z");
+    const E = Date.parse("2026-09-28T00:00:00Z");
+    const R = Date.parse("2026-09-23T08:00:00Z");
+    const stored = {
+      view: { raw: "90", enteredAt: Date.parse("2026-09-22T12:00:00Z") },
+      cycleStartMs: S,
+      resetsAtMs: E,
+    };
+
+    it("does not read a keep provider's window jumping a week past R as a restart, only aligns", () => {
+      // claude is a keep provider on the shared reset here, like openai above.
+      const jumped = parsed({ providerId: "claude", usedPercent: 1, resetsAtMs: R + 7 * 86_400_000 });
+      const decision = decideOfficialReport(jumped, base, NOW, stored, on);
+      expect(decision).toMatchObject({
+        kind: "accept",
+        override: { weekday: 3, hour: 8, minute: 0, source: "report" },
+        reset: null,
+      });
+    });
+
+    it("does not read a restart provider's figure dropping in the same window as a keep reset", () => {
+      const dropped = parsed({ providerId: "openai", usedPercent: 3, resetsAtMs: E });
+      expect(decideOfficialReport(dropped, base, NOW, stored, on)).toMatchObject({
+        kind: "accept",
+        save: true,
+        override: null,
+        reset: null,
+      });
+    });
+  });
 });

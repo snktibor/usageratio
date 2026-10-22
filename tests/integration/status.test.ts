@@ -7,6 +7,7 @@ import { getCycle } from "@/lib/cycle";
 import { ingestReport } from "@/lib/ingest";
 import { getRedis } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
+import { restartOverride } from "@/lib/resets";
 import { serializeSettings, settingsFromConfig, type UsageSettings } from "@/lib/settings";
 import type { StatusPayload } from "@/lib/status";
 import { createToken } from "@/lib/tokens";
@@ -293,6 +294,71 @@ describe("GET /api/status after a keep reset", () => {
     await getRedis().hset(KEYS.officialUsage, {
       claude: JSON.stringify({ raw: "80", enteredAt: R - 3_600_000, cycleStartMs: S }),
     });
-    expect((await claudeOf())?.source).not.toBe("official");
+    const claude = await claudeOf();
+    expect(claude).toBeDefined();
+    expect(claude?.source).not.toBe("official");
+  });
+});
+
+describe("GET /api/status after a restart", () => {
+  useRedis();
+  const NOW = new Date("2026-09-23T12:00:00Z");
+  // The shared cycle started Monday 00:00; Codex's restart at R made its own cycle start there.
+  const S = Date.parse("2026-09-21T00:00:00Z");
+  const R = Date.parse("2026-09-22T14:00:00Z");
+
+  beforeEach(() => {
+    vi.stubEnv("USAGE_API_TOKEN", SERVER_TOKEN);
+    vi.stubEnv("TOKEN_MODE", "snapshot");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+
+  const ingest = async (tokens: number, at: string) => {
+    const now = new Date(at);
+    const stored = await ingestReport(
+      { machineId: "mac", groupId: "Personal", providers: { openai: tokens }, timestamp: now.toISOString() },
+      now,
+    );
+    if (!stored.ok) throw new Error(JSON.stringify(stored));
+  };
+  const openaiOf = async () =>
+    ((await (await GET(get())).json()) as StatusPayload).providers.find((p) => p.id === "openai")!;
+
+  it("counts only the reports made from the restart's cycle start on", async () => {
+    await seedSettings({ useTokenLimits: false, resetOverrides: {} });
+    // After R, but the server did not know of the restart yet: counted from the shared cycle start S.
+    await ingest(900_000, "2026-09-22T16:00:00Z");
+    await seedSettings({ useTokenLimits: false, resetOverrides: { openai: restartOverride(R, "UTC") } });
+    // The restart is recorded and the client counts from R now.
+    await ingest(1000, "2026-09-23T10:00:00Z");
+
+    const withoutRestart = await openaiOf();
+    expect(withoutRestart.cycle.start).toBe(new Date(R).toISOString());
+    expect(withoutRestart.tokens).toBe(900_000);
+
+    await saveResets("openai", {
+      v: 1,
+      events: [
+        {
+          id: "restart",
+          atMs: R,
+          kind: "restart",
+          cycleStartMs: S,
+          before: 60,
+          beforeAtMs: null,
+          source: "manual",
+          recordedAtMs: R,
+          previousOverride: null,
+        },
+      ],
+      autoOffCycleStartMs: null,
+    });
+
+    expect((await openaiOf()).tokens).toBe(1000);
   });
 });
