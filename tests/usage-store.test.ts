@@ -1,10 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { MAX_MACHINES } from "@/lib/config";
+import { getConfig, MAX_MACHINES } from "@/lib/config";
+import { type CycleSummary, serializeCycleSummary } from "@/lib/history";
 import { MAX_PROVIDERS } from "@/lib/providers";
 import { getMemoryStoreForTests, getRedis } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
-import { MAX_GROUPS } from "@/lib/settings";
-import { loadEvents, loadIndexes, loadOldestReportTime, storeReport } from "@/lib/usage-store";
+import { emptyResets, type ProviderResets } from "@/lib/resets";
+import { MAX_GROUPS, ownResetOf, resolveConfig } from "@/lib/settings";
+import {
+  deleteArchivedCycle,
+  loadEvents,
+  loadIndexes,
+  loadOldestReportTime,
+  loadRawSettings,
+  loadResets,
+  saveOfficialFields,
+  saveResetOverride,
+  saveResets,
+  storeReport,
+} from "@/lib/usage-store";
 import { parseUsageReport, type UsageReport } from "@/lib/validation";
 import { useRedis } from "./helpers/redis-fixture";
 
@@ -348,5 +361,66 @@ describe("storeReport — registry caps", () => {
     // Providers (and their "provider:mac" machines) are already at their cap; a heartbeat still goes through.
     const heartbeat = await storeReport(report({ providers: {}, machineId: "another" }), NOW, 70, null);
     expect(heartbeat).toEqual({ ok: true, duplicate: false, newGroup: false, newProviders: [], heartbeat: true });
+  });
+});
+
+describe("resets", () => {
+  useRedis();
+  const resets: ProviderResets = {
+    v: 1,
+    events: [
+      {
+        id: "r1",
+        atMs: Date.parse("2026-09-22T14:00:00Z"),
+        kind: "keep",
+        cycleStartMs: Date.parse("2026-09-21T00:00:00Z"),
+        before: 80,
+        beforeAtMs: null,
+        source: "manual",
+        recordedAtMs: Date.parse("2026-09-22T14:05:00Z"),
+      },
+    ],
+    autoOffCycleStartMs: null,
+  };
+
+  it("saves and loads one provider's resets, and drops a document left empty", async () => {
+    await saveResets("claude", resets);
+    expect((await loadResets()).claude).toEqual(resets);
+    expect((await loadIndexes()).resets.claude).toEqual(resets);
+    await saveResets("claude", emptyResets());
+    expect(await loadResets()).toEqual({});
+  });
+
+  it("sets and removes a provider's own reset", async () => {
+    const own = { weekday: 2, monthDay: 22, hour: 14, minute: 0, source: "reset" as const };
+    await saveResetOverride("openai", own, NOW, ["openai"]);
+    expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toEqual(own);
+    await saveResetOverride("openai", null, NOW, ["openai"]);
+    expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toBeNull();
+  });
+
+  it("writes official fields in one go, and nothing for none", async () => {
+    await saveOfficialFields({});
+    await saveOfficialFields({ claude: '{"raw":"5","enteredAt":1,"cycleStartMs":0}' });
+    expect((await loadIndexes()).officialUsage).toEqual({ claude: '{"raw":"5","enteredAt":1,"cycleStartMs":0}' });
+  });
+
+  it("deletes an archived cycle by its start", async () => {
+    const summary: CycleSummary = {
+      v: 1,
+      start: 1000,
+      end: 2000,
+      total: 5,
+      limit: null,
+      official: null,
+      groups: {},
+      machines: 1,
+      models: {},
+      subLimits: {},
+      archivedAt: 2000,
+    };
+    await getRedis().zadd(KEYS.history("openai"), { score: 1000, member: serializeCycleSummary(summary) });
+    await deleteArchivedCycle("openai", 1000);
+    expect(await getRedis().zcard(KEYS.history("openai"))).toBe(0);
   });
 });

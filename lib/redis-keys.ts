@@ -18,6 +18,9 @@
  *   usage:official           HASH  providerId, or providerId:subLimitId →
  *                                  {"raw": "45.5", "enteredAt": ms, "cycleStartMs": ms}
  *                                  (the ground-truth field on the dashboard; see lib/official-usage.ts)
+ *   usage:resets             HASH  providerId → {"v": 1, "events": [ResetEvent…], "autoOffCycleStartMs": ms | null}
+ *                                  (the provider's usage resets of its current and previous cycle,
+ *                                  see lib/resets.ts; pruned by lib/housekeeping.ts)
  *
  *   usage:api-token          STRING {"v":1,"kid","iv","ct","tag","updatedAt"}: AES-256-GCM, key
  *                                   TOKEN_ENCRYPTION_KEY (see lib/secret-box.ts, lib/token-vault.ts)
@@ -87,6 +90,7 @@ export const KEYS = {
   groups: "usage:groups",
   machines: "usage:machines",
   officialUsage: "usage:official",
+  resets: "usage:resets",
   events: (providerId: string, groupId: string) => `usage:events:${providerId}:${groupId}`,
   history: (providerId: string) => `usage:history:${providerId}`,
   apiToken: "usage:api-token",

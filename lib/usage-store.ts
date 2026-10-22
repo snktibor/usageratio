@@ -8,6 +8,7 @@ import { MAX_PROVIDERS, mergeProviderIds, normalizeProviderId } from "@/lib/prov
 import { getRedis, toStringRecord } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
 import { TxPlan } from "@/lib/redis-tx";
+import { type ProviderResets, parseProviderResets, serializeProviderResets } from "@/lib/resets";
 import {
   type IndexedGroup,
   type KnownGroup,
@@ -42,6 +43,9 @@ import type { ReportMode, UsageReport } from "@/lib/validation";
  *   usage:official           HASH  providerId, or providerId:subLimitId →
  *                                  {"raw": "45.5", "enteredAt": ms, "cycleStartMs": ms}
  *                                  (the ground-truth field on the dashboard; see lib/official-usage.ts)
+ *   usage:resets             HASH  providerId → {"v": 1, "events": [ResetEvent…], "autoOffCycleStartMs": ms | null}
+ *                                  (the provider's usage resets of its current and previous cycle,
+ *                                  see lib/resets.ts; pruned by lib/housekeeping.ts)
  *
  * One time-ordered set per provider/group makes all filters native commands:
  * provider and group are in the key, a period is a score range. The reset
@@ -377,11 +381,23 @@ export interface StoreIndexes {
   machines: ProviderMachine[];
   /** The official-usage fields, unparsed; see lib/official-usage.ts. */
   officialUsage: Record<string, string>;
+  /** Every provider's usage resets, parsed (lib/resets.ts); a provider with none is absent. */
+  resets: Record<string, ProviderResets>;
+}
+
+/** `usage:resets`, by provider: a field with an unknown provider id is skipped. */
+function parseResetsHash(raw: unknown): Record<string, ProviderResets> {
+  const resets: Record<string, ProviderResets> = {};
+  for (const [field, value] of Object.entries(toStringRecord(raw))) {
+    const providerId = normalizeProviderId(field);
+    if (providerId) resets[providerId] = parseProviderResets(value);
+  }
+  return resets;
 }
 
 /**
- * The settings and the group, machine and official-usage indexes, in one
- * round trip. The settings come first because they decide how far back
+ * The settings and the group, machine, official-usage and reset indexes, in
+ * one round trip. The settings come first because they decide how far back
  * `loadEvents` must reach.
  */
 export async function loadIndexes(): Promise<StoreIndexes> {
@@ -391,7 +407,9 @@ export async function loadIndexes(): Promise<StoreIndexes> {
   indexes.hgetall(KEYS.providers);
   indexes.hgetall(KEYS.machines);
   indexes.hgetall(KEYS.officialUsage);
-  const [rawSettings, rawGroups, rawProviders, rawMachines, rawOfficialUsage]: unknown[] = await indexes.exec();
+  indexes.hgetall(KEYS.resets);
+  const [rawSettings, rawGroups, rawProviders, rawMachines, rawOfficialUsage, rawResets]: unknown[] =
+    await indexes.exec();
 
   const groups: IndexedGroup[] = Object.entries(toStringRecord(rawGroups)).map(([groupId, raw]) =>
     parseGroupEntry(groupId, raw),
@@ -426,6 +444,7 @@ export async function loadIndexes(): Promise<StoreIndexes> {
     providers,
     machines,
     officialUsage: toStringRecord(rawOfficialUsage),
+    resets: parseResetsHash(rawResets),
   };
 }
 
@@ -644,19 +663,41 @@ export async function saveOfficialUsage(update: OfficialUsageUpdate, now: Date):
   else await getRedis().hset(KEYS.officialUsage, { [field]: stored });
 }
 
+/** Several `usage:official` fields at once (a retag, lib/reset-recording.ts); nothing for none. */
+export async function saveOfficialFields(fields: Record<string, string>): Promise<void> {
+  if (Object.keys(fields).length > 0) await getRedis().hset(KEYS.officialUsage, fields);
+}
+
+/** Every provider's usage resets (lib/resets.ts), one read. */
+export async function loadResets(): Promise<Record<string, ProviderResets>> {
+  return parseResetsHash(await getRedis().hgetall(KEYS.resets));
+}
+
+/**
+ * One provider's usage resets, as a whole: read-modify-write of its field, so
+ * two writers racing (a report detecting a reset while one is edited by hand)
+ * leave the later one's. A document with nothing left in it is removed.
+ */
+export async function saveResets(providerId: string, resets: ProviderResets): Promise<void> {
+  if (resets.events.length === 0 && resets.autoOffCycleStartMs === null) await getRedis().hdel(KEYS.resets, providerId);
+  else await getRedis().hset(KEYS.resets, { [providerId]: serializeProviderResets(resets) });
+}
+
 /**
  * Sets one provider's own reset in the stored settings (an official report
- * moving it to the provider's window; lib/official-report.ts). Read, change,
- * write: a settings save racing it wins or loses as a whole, like two panel saves.
+ * moving it to the provider's window, lib/official-report.ts; a restart-type
+ * reset, lib/resets.ts), or removes it (null). Read, change, write: a
+ * settings save racing it wins or loses as a whole, like two panel saves.
  */
 export async function saveResetOverride(
   providerId: string,
-  override: ResetOverride,
+  override: ResetOverride | null,
   now: Date,
   providerIds: string[],
 ): Promise<void> {
   const settings = parseStoredSettings(await loadRawSettings(), settingsFromConfig(getConfig(), providerIds));
-  settings.resetOverrides = { ...settings.resetOverrides, [providerId]: override };
+  const { [providerId]: _, ...others } = settings.resetOverrides;
+  settings.resetOverrides = override ? { ...others, [providerId]: override } : others;
   await getRedis().set(KEYS.settings, serializeSettings(settings, now));
 }
 
@@ -705,6 +746,16 @@ export async function saveArchivedOfficial(
   tx.zadd(key, { score: cycleStartMs, member: serializeCycleSummary({ ...summary, official }) });
   await tx.exec();
   return true;
+}
+
+/**
+ * Removes the archived summary of the cycle that starts at `startMs`: a
+ * restart that cut it short was moved or deleted (lib/reset-store.ts), so its
+ * end or figure no longer holds. The next archiving run writes it again
+ * while its events are still stored (lib/archive.ts).
+ */
+export async function deleteArchivedCycle(providerId: string, startMs: number): Promise<void> {
+  await getRedis().zremrangebyscore(KEYS.history(providerId), startMs, startMs);
 }
 
 /**
