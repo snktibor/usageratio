@@ -6,10 +6,11 @@ import { buildProviderDashboards, type ProviderDashboardModel } from "@/lib/dash
 import { ensureDemoData } from "@/lib/demo/seed";
 import { applyGroundTruth, applySubLimitReading, parseOfficialPercent, type SubLimitSource } from "@/lib/ground-truth";
 import { currentOfficialEntries, type OfficialEntryView } from "@/lib/official-usage";
-import { earliestStartMs, providerCycle } from "@/lib/provider-cycles";
+import { currentSegmentStartMs, earliestStartMs } from "@/lib/provider-cycles";
 import { mergeProviderIds } from "@/lib/providers";
 import type { QuotaAssessment, QuotaStatus } from "@/lib/quota";
 import { type RecentPace, recentPace } from "@/lib/recent-pace";
+import { resetEventsOf } from "@/lib/resets";
 import { resolveConfig, storedProviderIds } from "@/lib/settings";
 import { loadEvents, loadIndexes } from "@/lib/usage-store";
 
@@ -206,9 +207,10 @@ export async function loadStatus(): Promise<StatusPayload> {
   const cycle = getCycle(now, config.reset);
   // The previous cycles ride along: counter mode's baseline needs them.
   const since = earliestStartMs(now, config, providerIds, "previous");
-  const { eventsByProvider, groups } = await loadEvents(providerIds, indexes.groups, since);
+  const { eventsByProvider, groups } = await loadEvents(providerIds, indexes.groups, since, indexes.resets);
+  // Each provider's stored ground-truth figure applies while its current segment runs (lib/resets.ts).
   const officialUsage = currentOfficialEntries(indexes.officialUsage, (providerId) =>
-    providerCycle(now, config, providerId).cycle.start.getTime(),
+    currentSegmentStartMs(now, config, providerId, resetEventsOf(indexes.resets, providerId)),
   );
   const providers = buildProviderDashboards(
     now,

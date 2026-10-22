@@ -26,9 +26,10 @@ import { archivedOfficialEntries, type CycleSummary } from "@/lib/history";
 import { log } from "@/lib/log";
 import { currentOfficialEntries } from "@/lib/official-usage";
 import { PROVIDER_COOKIE } from "@/lib/preferences";
-import { earliestStartMs, providerCycle } from "@/lib/provider-cycles";
+import { currentSegmentStartMs, earliestStartMs, providerCycle } from "@/lib/provider-cycles";
 import { mergeProviderIds, providerLabel } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
+import { resetEventsOf } from "@/lib/resets";
 import {
   NEUTRAL_COLOR,
   resetFor,
@@ -83,7 +84,8 @@ async function loadDashboard(
   // The past cycles on offer are the selected provider's: its own reset, its own archive.
   const visible = visibleProviderIds(config, providerIds);
   const selectedId = cookieProviderId && visible.includes(cookieProviderId) ? cookieProviderId : visible[0];
-  const own = selectedId ? providerCycle(now, config, selectedId) : null;
+  const resetEventsFor = (providerId: string) => resetEventsOf(indexes.resets, providerId);
+  const own = selectedId ? providerCycle(now, config, selectedId, resetEventsFor(selectedId)) : null;
   const previousCycle = own?.previous ?? getPreviousCycle(getCycle(now, config.reset), config.reset);
   // The previous cycle rides along: it is the footer's comparison and counter mode's baseline.
   const earliestPrevious = earliestStartMs(now, config, providerIds, "previous");
@@ -91,10 +93,10 @@ async function loadDashboard(
     requestedStartMs === null
       ? earliestPrevious
       : Math.min(earliestPrevious, now.getTime() - config.retentionDays * DAY_MS);
-  const { eventsByProvider, groups } = await loadEvents(providerIds, indexes.groups, since);
-  // Each provider's stored ground-truth figure applies while its own cycle runs.
+  const { eventsByProvider, groups } = await loadEvents(providerIds, indexes.groups, since, indexes.resets);
+  // Each provider's stored ground-truth figure applies while its current segment runs (lib/resets.ts).
   const officialUsage = currentOfficialEntries(indexes.officialUsage, (providerId) =>
-    providerCycle(now, config, providerId).cycle.start.getTime(),
+    currentSegmentStartMs(now, config, providerId, resetEventsFor(providerId)),
   );
 
   // Lazy archiving of the cycle that just ended (the daily housekeeping run does the same; see lib/archive.ts).
@@ -117,6 +119,7 @@ async function loadDashboard(
         providerId: selectedId,
         history: historyByProvider[selectedId] ?? [],
         oldestReportMs,
+        resets: resetEventsFor(selectedId),
       })
     : listCycleOptions({
         now,

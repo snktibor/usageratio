@@ -11,6 +11,7 @@ import {
 } from "@/lib/export";
 import { earliestCycle, earliestStartMs, providerCycle } from "@/lib/provider-cycles";
 import { mergeProviderIds, providerLabel } from "@/lib/providers";
+import { resetEventsOf } from "@/lib/resets";
 import { resolveConfig, storedProviderIds, visibleProviderIds } from "@/lib/settings";
 import { loadEvents, loadHistory, loadIndexes } from "@/lib/usage-store";
 
@@ -49,7 +50,7 @@ export const GET = withApiHandler("api/export", async ({ url }) => {
   const config = resolveConfig(getConfig(), indexes.settings, allProviderIds);
   const targetProviderIds = providerId ? [providerId] : visibleProviderIds(config, allProviderIds);
   const windowOf = (id: string) => {
-    const { cycle, previous } = providerCycle(now, config, id);
+    const { cycle, previous } = providerCycle(now, config, id, resetEventsOf(indexes.resets, id));
     const window = cycleChoice === "previous" ? previous : cycle;
     return { startMs: window.start.getTime(), endMs: window.end.getTime() };
   };
@@ -61,6 +62,7 @@ export const GET = withApiHandler("api/export", async ({ url }) => {
     allProviderIds,
     indexes.groups,
     earliestStartMs(now, config, targetProviderIds, "previous"),
+    indexes.resets,
   );
   const historyByProvider = await loadHistory(targetProviderIds);
 

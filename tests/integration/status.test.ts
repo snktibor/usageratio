@@ -4,11 +4,13 @@ import { GET } from "@/app/api/status/route";
 import { POST as postUsage } from "@/app/api/usage/route";
 import { getConfig } from "@/lib/config";
 import { getCycle } from "@/lib/cycle";
+import { ingestReport } from "@/lib/ingest";
 import { getRedis } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
 import { serializeSettings, settingsFromConfig, type UsageSettings } from "@/lib/settings";
 import type { StatusPayload } from "@/lib/status";
 import { createToken } from "@/lib/tokens";
+import { saveResets } from "@/lib/usage-store";
 import { useRedis } from "../helpers/redis-fixture";
 
 /**
@@ -236,5 +238,61 @@ describe("GET /api/status", () => {
 
     expect((await GET(get(headers))).status).toBe(200);
     expect((await report(100, headers)).status).toBe(201);
+  });
+});
+
+describe("GET /api/status after a keep reset", () => {
+  useRedis();
+  const NOW = new Date("2026-09-23T12:00:00Z");
+  const S = Date.parse("2026-09-21T00:00:00Z");
+  const R = Date.parse("2026-09-23T08:00:00Z");
+
+  beforeEach(async () => {
+    vi.stubEnv("USAGE_API_TOKEN", SERVER_TOKEN);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    await seedSettings({ useTokenLimits: false, resetOverrides: {} });
+    const stored = await ingestReport(
+      { machineId: "mac", groupId: "Personal", providers: { claude: 5000 }, timestamp: NOW.toISOString() },
+      NOW,
+    );
+    if (!stored.ok) throw new Error(JSON.stringify(stored));
+    await saveResets("claude", {
+      v: 1,
+      events: [
+        {
+          id: "r",
+          atMs: R,
+          kind: "keep",
+          cycleStartMs: S,
+          before: 80,
+          beforeAtMs: null,
+          source: "manual",
+          recordedAtMs: R,
+        },
+      ],
+      autoOffCycleStartMs: null,
+    });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+
+  const claudeOf = async () =>
+    ((await (await GET(get())).json()) as StatusPayload).providers.find((p) => p.id === "claude");
+
+  it("reads the figure tagged with the reset as the current one", async () => {
+    await getRedis().hset(KEYS.officialUsage, {
+      claude: JSON.stringify({ raw: "7", enteredAt: R + 3_600_000, cycleStartMs: R }),
+    });
+    expect((await claudeOf())?.source).toBe("official");
+  });
+
+  it("no longer reads the figure from before the reset as current", async () => {
+    await getRedis().hset(KEYS.officialUsage, {
+      claude: JSON.stringify({ raw: "80", enteredAt: R - 3_600_000, cycleStartMs: S }),
+    });
+    expect((await claudeOf())?.source).not.toBe("official");
   });
 });
