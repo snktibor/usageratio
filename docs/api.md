@@ -71,7 +71,7 @@ The full `ApiErrorCode` union (`lib/api.ts`):
 | `official_scope_required` | 403 | `POST /api/official-usage/report` needs an "official" token. |
 | `period_not_weekly` | 409 | An official report was sent to a monthly dashboard; the figure is a weekly window. |
 | `stale_reading` | 409 | An official report whose window already reset, or that was read before the provider's current cycle began. |
-| `outside_cycle` | 409 | A reset's time is not after the current cycle's start, or is in the future (`/api/resets`). |
+| `outside_cycle` | 409 | A reset's time is not after the current cycle's start, or is in the future; a restart edited back so far that its cycle would be over (`/api/resets`). |
 | `duplicate_reset` | 409 | A reset is already recorded at that minute. |
 | `has_later_resets` | 409 | A restart-type reset would end the cycle before one of its keep-type resets. |
 | `not_revertable` | 409 | Only a reset detected from the menu bar app's readings can be reverted. |
@@ -404,7 +404,8 @@ the cycle's last `keep` reset and moves the provider's own reset to `atMs` (a fr
 taken if it was read before `atMs`. `afterRaw` stores the figure since the reset at `atMs`.
 
 `PUT { providerId, id, atMs?, before? }` edits a `keep` reset of the current cycle, or the `restart` the
-cycle began with (its new time must stay before the cycle's first `keep` reset). `DELETE { providerId,
+cycle began with (its new time must stay before the cycle's first `keep` reset, and not so far back that
+the cycle it starts would already be over). `DELETE { providerId,
 id, revert? }` deletes one; a `restart` with `keep` resets after it is refused, and a deleted restart puts
 the provider's previous own reset back unless it was changed on the settings panel since. `revert: true`
 is for a reset the menu bar app's readings revealed: its before-figure becomes the current figure again

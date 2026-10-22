@@ -157,6 +157,25 @@ describe("editReset", () => {
       expect(editReset(context, { id: "rs", atMs: CYCLE.startMs })).toEqual({ ok: false, refused: "outside_cycle" });
       expect(editReset(context, { id: "rs", atMs: R + 3 * HOUR })).toEqual({ ok: false, refused: "has_later_resets" });
     });
+
+    it("must stay early enough for the cycle it starts to still be the current one", () => {
+      // A week after R, minus an hour: moving R back more than an hour would end its cycle before now.
+      const context = ctx({
+        now: new Date("2026-09-29T13:00:00Z"),
+        mode: "restart",
+        cycle: restartCycle,
+        resets: withEvents(restart),
+      });
+      expect(editReset(context, { id: "rs", atMs: at("2026-09-22T10:00:00Z") })).toEqual({
+        ok: false,
+        refused: "outside_cycle",
+      });
+      expect(editReset(context, { id: "rs", atMs: at("2026-09-22T13:00:00Z") })).toEqual({
+        ok: false,
+        refused: "outside_cycle",
+      });
+      expect(editReset(context, { id: "rs", atMs: at("2026-09-22T13:30:00Z") }).ok).toBe(true);
+    });
   });
 });
 

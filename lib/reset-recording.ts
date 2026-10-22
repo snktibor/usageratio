@@ -32,7 +32,8 @@ import {
  *
  * A keep reset may fall anywhere in (cycle start, now]. A restart ends the
  * cycle, so it must come after the cycle's last keep reset; a cycle that
- * began with one can edit it, but only to before its own first keep reset.
+ * began with one can edit it, but only to before its own first keep reset, and
+ * not so far back that the cycle it starts would be over.
  */
 
 export type ResetRefusal = "outside_cycle" | "duplicate_reset" | "has_later_resets" | "not_found" | "not_revertable";
@@ -110,7 +111,9 @@ export function editReset(
     if (atMs <= ctx.cycle.startMs || atMs > nowMs) return refuse("outside_cycle");
     if (keeps.some((other) => other.id !== event.id && other.atMs === atMs)) return refuse("duplicate_reset");
   } else {
-    if (atMs <= event.cycleStartMs || atMs > nowMs) return refuse("outside_cycle");
+    // The cycle the restart starts must still be the current one: moved back by a cycle's length it would end by now.
+    const cycleMs = ctx.cycle.endMs - ctx.cycle.startMs;
+    if (atMs <= event.cycleStartMs || atMs > nowMs || atMs <= nowMs - cycleMs) return refuse("outside_cycle");
     if (keeps.some((keep) => keep.atMs <= atMs)) return refuse("has_later_resets");
     if (atMs !== event.atMs) override = restartOverride(atMs, ctx.timeZone);
   }

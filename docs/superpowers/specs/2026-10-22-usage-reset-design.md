@@ -194,7 +194,8 @@ mode (`demo_read_only`). Validation lives in `lib/resets.ts`, and the routes sta
   - Edits a reset of the current cycle: a `keep` event of the current cycle, or the `restart`
     event the current cycle started with.
   - A restart's new `atMs` must stay after its `cycleStartMs` and before the cycle's first `keep`
-    reset. Editing it moves the provider's reset again.
+    reset, and the cycle it starts must still be the current one: moved back by a cycle's length it
+    would end by now (409 `outside_cycle`). Editing it moves the provider's reset again.
 - **`DELETE /api/resets`** `{ providerId, id, revert? }`
   - A `keep` reset's segments merge.
   - A `restart` puts `previousOverride` back, but only if the provider's own reset is still the one
