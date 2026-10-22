@@ -376,8 +376,15 @@ a monthly dashboard is refused (`409 period_not_weekly`); a window that already 
 reset is moved to the window's (weekday, hour and minute in the dashboard's time zone, marked as set by
 a report; the provider's month day is kept); a reading taken before the (new) cycle began is refused
 (`409 stale_reading`); a reading no newer than the figure already stored for that cycle is not written.
+It also detects a usage reset by comparing the reading with the stored figure of an earlier report of the
+same segment: for a provider whose reset type is `restart` (Codex), a window that moved from this cycle's
+end to a week after R records a restart at R (`resetsAtMs` − 7 days, to the minute) and moves the
+provider's reset there; for a `keep` provider (Claude), the same window and a figure at least 5 points
+lower records a keep reset at the reading's minute. After a revert (`DELETE /api/resets` with `revert`),
+detection is off for the rest of that cycle, and a reading whose window ends elsewhere is ignored
+(`saved: false`, nothing moved).
 
-`200 { "ok": true, "saved": <bool>, "cycleChanged": <bool>, "reset": { "weekday", "hour", "minute" } | null }`
+`200 { "ok": true, "saved": <bool>, "cycleChanged": <bool>, "reset": { "weekday", "hour", "minute" } | null, "detectedReset": { "id", "kind", "atMs" } | null }`
 · `400` invalid JSON/payload · `401` bad token · `403` wrong scope or demo mode (`demo_read_only`) ·
 `409` as above · `413`/`415` bad body · `429` rate limited · `503` Redis down.
 
