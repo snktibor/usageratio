@@ -73,12 +73,12 @@ The full `ApiErrorCode` union (`lib/api.ts`):
 | `stale_reading` | 409 | An official report whose window already reset, or that was read before the provider's current cycle began. |
 | `outside_cycle` | 409 | A reset's time is not after the current cycle's start, or is in the future; a restart edited back so far that its cycle would be over (`/api/resets`). |
 | `duplicate_reset` | 409 | A reset is already recorded at that minute. |
-| `has_later_resets` | 409 | A restart-type reset would end the cycle before one of its keep-type resets. |
+| `has_later_resets` | 409 | A restart-type reset would end the cycle before one of its keep-type resets, or a restart is deleted while keep-type resets follow it. |
 | `not_revertable` | 409 | Only a reset detected from the menu bar app's readings can be reverted. |
 | `no_token` | 404 | Nothing stored to reveal (`POST /api/api-token/reveal`). |
 | `token_unreadable` | 409 | The stored API token can't be decrypted with any known key. |
 | `groups_have_reports` | 409 | A settings save tried to remove a group that still has stored reports. |
-| `not_found` | 404 | No such resource (machine, token, group, provider). |
+| `not_found` | 404 | No such resource (machine, token, group, provider, reset). |
 | `demo_read_only` | 403 | Demo mode refuses every write. |
 | `machine_exists` / `group_exists` | 409 | Rename target already in use. |
 | `merge_unsupported` | 409 | A machine merge outside snapshot token mode. |
@@ -105,8 +105,8 @@ tiny in-process counter so it still works when the store is down.
 
 Body size caps: `POST /api/usage` 64 KB · `PUT /api/settings` 16 KB · `PUT /api/api-token` 2 KB ·
 `PUT /api/official-usage` 1 KB · `POST /api/tokens` 1 KB · `PATCH /api/machines/[provider]/[machine]`
-1 KB · `PATCH /api/groups/[group]` 1 KB · `POST /api/alerts/test` 2 KB · `POST /api/auth/sudo` 1 KB ·
-`POST /api/csp-report` 8 KB.
+1 KB · `PATCH /api/groups/[group]` 1 KB · `POST`/`PUT`/`DELETE /api/resets` 1 KB ·
+`POST /api/alerts/test` 2 KB · `POST /api/auth/sudo` 1 KB · `POST /api/csp-report` 8 KB.
 
 Registry caps (`storeReport`/`parseSettingsUpdate`, refused with `422`/`400` rather than silently
 truncated): 200 machines (`MAX_MACHINES`), 50 groups (`MAX_GROUPS`), 20 providers (`MAX_PROVIDERS`),

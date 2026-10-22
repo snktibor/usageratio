@@ -76,7 +76,11 @@ const isPercent = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
 const byTime = (a: ResetEvent, b: ResetEvent) => a.atMs - b.atMs;
 
-/** One stored event: every field checked, the event kept or dropped whole. */
+/**
+ * One stored event: every field checked, the event kept or dropped whole. A
+ * restart whose `previousOverride` does not parse is not dropped: it reads as
+ * null, the shared reset.
+ */
 function readEvent(value: unknown): ResetEvent | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const { id, atMs, kind, cycleStartMs, before, beforeAtMs, source, recordedAtMs, previousOverride } = value as Record<

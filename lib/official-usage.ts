@@ -80,8 +80,9 @@ export function providerOfOfficialField(field: string): string {
 /**
  * The stored entries whose cycle still matches, by field: what every browser
  * should show right now. One typed in a cycle that has since rolled over is
- * as good as absent. `cycleStart`: the current cycle's start, or, now that a
- * provider can have its own reset, each provider's (by provider id).
+ * as good as absent. `cycleStart`: the start of the provider's current segment
+ * (a cycle's start while it has no keep reset, lib/provider-cycles.ts
+ * `currentSegmentStartMs`), by provider id, or one start for all of them.
  */
 export function currentOfficialEntries(
   stored: Record<string, string>,

@@ -47,6 +47,9 @@ export function providerCycle(
   return cycleWith(now, resetFor(config, providerId), config.reset, resets);
 }
 
+// `earliestCycle` and `earliestStartMs` need no resets: a previous cycle worked out backwards starts no
+// later than a restart's real one, so reading from it still reaches far enough.
+
 /** Of the providers' cycles and the shared reset's, the one that began first. */
 export function earliestCycle(now: Date, config: AppConfig, providerIds: string[]): ProviderCycle {
   let earliest = cycleWith(now, config.reset, config.reset, []);
