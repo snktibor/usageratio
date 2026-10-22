@@ -5,6 +5,7 @@ import {
   officialUsageField,
   parseArchivedOfficialUpdate,
   parseOfficialUsageUpdate,
+  parseStoredOfficialEntry,
   providerOfOfficialField,
   serializeOfficialEntry,
   storedEntryFor,
@@ -203,5 +204,33 @@ describe("parseArchivedOfficialUpdate", () => {
     expect(!parsed.ok && parsed.errors).toHaveLength(3);
     expect(parseArchivedOfficialUpdate({ providerId: "claude", raw: 100, cycleStartMs: CYCLE_START }).ok).toBe(false);
     expect(parseArchivedOfficialUpdate(null).ok).toBe(false);
+  });
+});
+
+describe("a report's window reset on a stored entry", () => {
+  it("is stored with a report's figure and read back; a typed figure has none", () => {
+    const fromReport = storedEntryFor(
+      { providerId: "claude", subLimitId: null, raw: "41.2", cycleStartMs: 100, resetsAtMs: 900 },
+      50,
+    )!;
+    expect(parseStoredOfficialEntry(fromReport)).toEqual({
+      view: { raw: "41.2", enteredAt: 50 },
+      cycleStartMs: 100,
+      resetsAtMs: 900,
+    });
+    const typed = storedEntryFor({ providerId: "claude", subLimitId: null, raw: "45", cycleStartMs: 100 }, 60)!;
+    expect(parseStoredOfficialEntry(typed)).toEqual({ view: { raw: "45", enteredAt: 60 }, cycleStartMs: 100 });
+  });
+
+  it("is never taken from the dashboard's PUT body", () => {
+    const parsed = parseOfficialUsageUpdate({
+      providerId: "claude",
+      subLimitId: null,
+      raw: "45",
+      cycleStartMs: 100,
+      resetsAtMs: 900,
+    });
+    if (!parsed.ok) throw new Error(parsed.errors.join("; "));
+    expect(parsed.update).not.toHaveProperty("resetsAtMs");
   });
 });
