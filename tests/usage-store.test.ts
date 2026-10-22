@@ -184,7 +184,14 @@ describe("storeReport — day checkpoints", () => {
     const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
     const checkpoints = eventsByProvider.claude!.filter((event) => event.checkpoint);
     expect(checkpoints).toEqual([
-      { machineId: "mac", groupId: "Personal", tokens: 1000, ts: Date.parse("2026-09-22T00:00:00Z"), checkpoint: true },
+      {
+        machineId: "mac",
+        groupId: "Personal",
+        tokens: 1000,
+        ts: Date.parse("2026-09-22T00:00:00Z"),
+        checkpoint: true,
+        basisMs: Date.parse("2026-09-20T00:00:00Z"),
+      },
     ]);
     // The report itself, plus the one finished day's checkpoint: nothing for the day in progress.
     expect(eventsByProvider.claude).toHaveLength(2);
@@ -422,5 +429,63 @@ describe("resets", () => {
     await getRedis().zadd(KEYS.history("openai"), { score: 1000, member: serializeCycleSummary(summary) });
     await deleteArchivedCycle("openai", 1000);
     expect(await getRedis().zcard(KEYS.history("openai"))).toBe(0);
+  });
+});
+
+describe("storeReport — the counting basis", () => {
+  useRedis();
+  const S = Date.parse("2026-09-21T00:00:00Z");
+  const R = Date.parse("2026-09-22T14:00:00Z");
+
+  it("stamps every report and checkpoint with the cycle start it was counted from", async () => {
+    const withDays = report({
+      providers: { claude: 1200 },
+      days: {
+        "2026-09-21": { providers: { claude: 1000 } },
+        "2026-09-22": { providers: { claude: 200 } },
+      },
+    });
+    await storeOk(withDays, NOW, 70, { timeZone: "UTC", startMs: S });
+    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    expect(eventsByProvider.claude!.some((event) => event.checkpoint)).toBe(true);
+    expect(eventsByProvider.claude!.every((event) => event.basisMs === S)).toBe(true);
+  });
+
+  it("stamps nothing when the cycle could not be read", async () => {
+    await storeOk(report({}), NOW, 70, null);
+    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    expect(eventsByProvider.claude![0]).not.toHaveProperty("basisMs");
+  });
+
+  it("drops the snapshot reports a restart made stale", async () => {
+    await storeOk(report({ timestamp: "2026-09-22T15:00:00Z", providers: { claude: 9000 } }), NOW, 70, {
+      timeZone: "UTC",
+      startMs: S,
+    });
+    await storeOk(report({ timestamp: "2026-09-22T16:00:00Z", providers: { claude: 300 } }), NOW, 70, {
+      timeZone: "UTC",
+      startMs: R,
+    });
+    const resets = {
+      claude: {
+        v: 1 as const,
+        events: [
+          {
+            id: "r",
+            atMs: R,
+            kind: "restart" as const,
+            cycleStartMs: S,
+            before: 90,
+            beforeAtMs: null,
+            source: "manual" as const,
+            recordedAtMs: R,
+            previousOverride: null,
+          },
+        ],
+        autoOffCycleStartMs: null,
+      },
+    };
+    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0, resets);
+    expect(eventsByProvider.claude!.map((event) => event.tokens)).toEqual([300]);
   });
 });

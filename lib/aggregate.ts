@@ -30,6 +30,12 @@ export interface UsageEvent {
    * It is a series of its own, summed with the machine's other one.
    */
   carried?: boolean;
+  /**
+   * The cycle start the server gave the client when it was stored (lib/ingest.ts): what a
+   * snapshot running total counts from. Absent from members stored before the stamp existed.
+   * A cycle a restart began ignores those counted from before it (lib/resets.ts `dropStaleBasis`).
+   */
+  basisMs?: number;
 }
 
 /** `startMs` inclusive, `endMs` exclusive. */

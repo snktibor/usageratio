@@ -227,10 +227,9 @@ export function dropStaleBasis(events: UsageEvent[], resets: ResetEvent[], mode:
   if (mode !== "snapshot") return events;
   const restarts = resets.flatMap((reset) => (reset.kind === "restart" ? [reset.atMs] : []));
   if (restarts.length === 0) return events;
-  return events.filter((event) => {
-    const basisMs = (event as UsageEvent & { basisMs?: number }).basisMs;
-    return basisMs === undefined || !restarts.some((atMs) => event.ts >= atMs && basisMs < atMs);
-  });
+  return events.filter(
+    (event) => event.basisMs === undefined || !restarts.some((atMs) => event.ts >= atMs && event.basisMs! < atMs),
+  );
 }
 
 // ── Small helpers ────────────────────────────────────────────────────────────

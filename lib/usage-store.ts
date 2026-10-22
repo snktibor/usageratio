@@ -8,7 +8,13 @@ import { MAX_PROVIDERS, mergeProviderIds, normalizeProviderId } from "@/lib/prov
 import { getRedis, toStringRecord } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
 import { TxPlan } from "@/lib/redis-tx";
-import { type ProviderResets, parseProviderResets, serializeProviderResets } from "@/lib/resets";
+import {
+  dropStaleBasis,
+  type ProviderResets,
+  parseProviderResets,
+  resetEventsOf,
+  serializeProviderResets,
+} from "@/lib/resets";
 import {
   type IndexedGroup,
   type KnownGroup,
@@ -31,12 +37,14 @@ import type { ReportMode, UsageReport } from "@/lib/validation";
  *   usage:events:{providerId}:{groupId}  ZSET  score = report time (epoch ms)
  *                                              member = {"m": machineId, "t": tokens, "ts": ms,
  *                                                        "b": {modelId: tokens}, "$": costUsd,
- *                                                        "$b": {modelId: costUsd}, "c": 1, "x": 1}
+ *                                                        "$b": {modelId: costUsd}, "c": 1, "x": 1,
+ *                                                        "s": cycleStartMs}
  *                                              ("b", the split by model, only from clients that send one;
  *                                              "$"/"$b", the API-list-price cost estimate and its split by
  *                                              model, from clients that send one (older ones only with COST=1);
  *                                              "c" marks a day's checkpoint, see lib/days.ts; "x" a merged
- *                                              machine's carry-over, see lib/machine-merge.ts)
+ *                                              machine's carry-over, see lib/machine-merge.ts; "s" the cycle
+ *                                              start the client counted from, see lib/resets.ts dropStaleBasis)
  *   usage:groups            HASH  groupId   → {"color": "#rrggbb", "ts": first-seen ms}
  *                                 (a bare ms number in entries older than group colours)
  *   usage:machines          HASH  providerId:machineId → {"g": groupId, "ts": ms, "t": tokens}
@@ -81,6 +89,7 @@ const DAY_MS = 86_400_000;
  * `costUsd`/`modelCosts` are the optional API-list-price estimate (lib/setup.ts
  * COST): absent for every client that does not opt in, and always absent from
  * a checkpoint, since a day's split carries no cost of its own (lib/days.ts).
+ * `basisMs` is the cycle start the client counted from (`"s"`), when the settings could be read.
  */
 export function eventMember(
   machineId: string,
@@ -91,6 +100,7 @@ export function eventMember(
   modelCosts: Record<string, number> | undefined,
   checkpoint = false,
   carried = false,
+  basisMs: number | null = null,
 ): string {
   const entries = Object.entries(models ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   const costEntries = Object.entries(modelCosts ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
@@ -103,6 +113,7 @@ export function eventMember(
     ...(costEntries.length > 0 && { $b: Object.fromEntries(costEntries) }),
     ...(checkpoint && { c: 1 }),
     ...(carried && { x: 1 }),
+    ...(basisMs !== null && { s: basisMs }),
   });
 }
 
@@ -225,6 +236,8 @@ export async function storeReport(
 
   const oldestMs = now.getTime() - retentionDays * DAY_MS;
   const startOf = cycle && (typeof cycle.startMs === "number" ? () => cycle.startMs as number : cycle.startMs);
+  // What each provider's running total counts from: the cycle start the client was given.
+  const basisOf = (providerId: string): number | null => (startOf ? startOf(providerId) : null);
   const checkpoints =
     cycle && startOf && !heartbeat
       ? reportCheckpoints(report, cycle.timeZone, (providerId) => Math.max(startOf(providerId), oldestMs))
@@ -246,6 +259,9 @@ export async function storeReport(
         report.models[providerId],
         report.costs[providerId],
         report.modelCosts[providerId],
+        false,
+        false,
+        basisOf(providerId),
       );
       const lastReport = machineEntry(
         report.groupId,
@@ -274,6 +290,8 @@ export async function storeReport(
             undefined,
             undefined,
             true,
+            false,
+            basisOf(providerId),
           ),
         }));
       const [first, ...rest] = members;
@@ -297,7 +315,7 @@ export function parseEvent(raw: unknown, groupId: string): UsageEvent | null {
   try {
     const value: unknown = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (typeof value !== "object" || value === null) return null;
-    const { m, t, ts, b, c, x, $: cost, $b: modelCostsRaw } = value as Record<string, unknown>;
+    const { m, t, ts, b, c, x, s, $: cost, $b: modelCostsRaw } = value as Record<string, unknown>;
     if (typeof m !== "string" || typeof t !== "number" || typeof ts !== "number") return null;
     if (!Number.isFinite(t) || t < 0 || !Number.isFinite(ts)) return null;
     const models = parseModelSplit(b);
@@ -315,6 +333,7 @@ export function parseEvent(raw: unknown, groupId: string): UsageEvent | null {
       ...(modelCosts && { modelCosts }),
       ...(c === 1 && { checkpoint: true }),
       ...(x === 1 && { carried: true }),
+      ...(typeof s === "number" && Number.isFinite(s) && { basisMs: s }),
     };
   } catch {
     return null;
@@ -482,12 +501,15 @@ export async function loadReportContext(): Promise<{ settings: string | null; pr
 
 /**
  * All reports of `groups` since `sinceMs`, and for every group whether it has
- * any stored report at all (also older ones). One round trip.
+ * any stored report at all (also older ones). One round trip. `resets` are the
+ * providers' resets (`loadIndexes().resets`): a cycle a restart began drops the
+ * snapshot reports counted from before it.
  */
 export async function loadEvents(
   providerIds: string[],
   groups: IndexedGroup[],
   sinceMs: number,
+  resets: Record<string, ProviderResets> = {},
 ): Promise<{ eventsByProvider: Record<string, UsageEvent[]>; groups: KnownGroup[] }> {
   const providers = mergeProviderIds(providerIds);
   const eventsByProvider = Object.fromEntries(providers.map((providerId) => [providerId, [] as UsageEvent[]]));
@@ -527,6 +549,7 @@ export async function loadEvents(
           event.ts,
           !!event.checkpoint,
           !!event.carried,
+          event.basisMs ?? null,
         ]);
         if (!seen.has(identity)) {
           seen.add(identity);
@@ -536,6 +559,15 @@ export async function loadEvents(
     }
     if (Number(plan.result(results, `exists:${index}`)) === 1) activeGroups.add(groupId);
   });
+
+  const { tokenMode } = getConfig();
+  for (const providerId of providers) {
+    eventsByProvider[providerId] = dropStaleBasis(
+      eventsByProvider[providerId]!,
+      resetEventsOf(resets, providerId),
+      tokenMode,
+    );
+  }
 
   return {
     eventsByProvider,

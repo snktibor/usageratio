@@ -17,6 +17,8 @@ import { loadEvents, loadIndexes } from "@/lib/usage-store";
 import { useRedis } from "./helpers/redis-fixture";
 
 const NOW = new Date("2026-09-23T00:00:00Z");
+/** The weekly cycle NOW falls in starts on Monday; ingest stamps every stored report with it. */
+const CYCLE_START_MS = Date.parse("2026-09-21T00:00:00Z");
 
 async function ingest(body: Record<string, unknown>, now = NOW) {
   const result = await ingestReport(
@@ -68,9 +70,9 @@ describe("moveMachine — rename", () => {
     const list = await members(key);
     expect(list).toHaveLength(2);
     const renamed = list.find((entry) => entry.score === t1)!;
-    expect(JSON.parse(renamed.member)).toEqual({ m: "mac-1-renamed", t: 100, ts: t1 });
+    expect(JSON.parse(renamed.member)).toEqual({ m: "mac-1-renamed", t: 100, ts: t1, s: CYCLE_START_MS });
     const untouched = list.find((entry) => entry.score === t2)!;
-    expect(JSON.parse(untouched.member)).toEqual({ m: "mac-2", t: 250, ts: t2 });
+    expect(JSON.parse(untouched.member)).toEqual({ m: "mac-2", t: 250, ts: t2, s: CYCLE_START_MS });
 
     expect(await getRedis().hexists(KEYS.machines, "claude:mac-1")).toBe(0);
     const moved = JSON.parse((await getRedis().hget<string>(KEYS.machines, "claude:mac-1-renamed"))!);
@@ -303,7 +305,7 @@ describe("renameOrMergeGroup — rename", () => {
 
     expect(await getRedis().exists(KEYS.events("claude", "Work"))).toBe(0);
     const list = await members(KEYS.events("claude", "Team"));
-    expect(list).toEqual([{ member: JSON.stringify({ m: "mac1", t: 100, ts: t1 }), score: t1 }]);
+    expect(list).toEqual([{ member: JSON.stringify({ m: "mac1", t: 100, ts: t1, s: CYCLE_START_MS }), score: t1 }]);
 
     expect(await getRedis().hexists(KEYS.groups, "Work")).toBe(0);
     expect(await getRedis().hexists(KEYS.groups, "Team")).toBe(1);
