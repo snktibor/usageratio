@@ -295,6 +295,14 @@ describe("toRequest", () => {
     const result = toRequest({ ...draft, alerts: { ...draft.alerts, newThreshold: "150" } });
     expect(result).toEqual({ problem: { code: "invalid_alert_threshold" } });
   });
+
+  it("keeps the stored reset modes through a save", () => {
+    const withModes = buildSettingsView({ ...config, resetModes: { claude: "restart" } }, [], ["claude", "deepseek"]);
+    const result = toRequest(draftFrom(withModes));
+    if (!("request" in result)) throw new Error(result.problem.code);
+    expect(result.request.resetModes).toEqual({ claude: "restart" });
+    expect(parseSettingsUpdate(result.request).ok).toBe(true);
+  });
 });
 
 describe("withAlertThreshold", () => {

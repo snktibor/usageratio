@@ -169,6 +169,12 @@ export interface ResetConfig {
   timeZone: string;
 }
 
+/**
+ * How a provider resets a user's usage early (lib/resets.ts): "keep" keeps the
+ * week's own end (Claude), "restart" makes the reset the new weekly reset (Codex).
+ */
+export type ResetMode = "keep" | "restart";
+
 /** A provider's own reset moment, over the shared period and time zone (see lib/settings.ts `resetFor`). */
 export interface ResetOverride {
   /** Weekly budgets: 0 = Sunday … 6 = Saturday */
@@ -177,8 +183,12 @@ export interface ResetOverride {
   monthDay: number;
   hour: number;
   minute: number;
-  /** "report": set by an official report (lib/official-report.ts), not on the panel; the panel drops it on edit. */
-  source?: "report";
+  /**
+   * Who set it, when not the panel: "report", an official report aligning the
+   * cycle to the provider's window (lib/official-report.ts); "reset", a
+   * restart-type reset (lib/resets.ts). The panel drops it on edit.
+   */
+  source?: "report" | "reset";
 }
 
 export interface AppConfig {
@@ -191,6 +201,8 @@ export interface AppConfig {
   reset: ResetConfig;
   /** providerId → its own reset moment; a provider without one uses `reset`. */
   resetOverrides: Record<string, ResetOverride>;
+  /** providerId → how it resets early; a provider without an entry gets its default (lib/settings.ts `resetModeOf`). */
+  resetModes: Record<string, ResetMode>;
   /** False: the dashboard never states the tokens left, nor the overage. */
   showRemaining: boolean;
   /** True: the dashboard shows the cost estimate, with its energy and water; see DEFAULT_COST_ESTIMATE. */
@@ -284,6 +296,7 @@ export function getConfig(env: Record<string, string | undefined> = process.env)
     providerLimits: {},
     reset,
     resetOverrides: {},
+    resetModes: {},
     showRemaining: DEFAULT_SHOW_REMAINING,
     costEstimate: DEFAULT_COST_ESTIMATE,
     hiddenProviders: [],

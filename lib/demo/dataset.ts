@@ -639,6 +639,7 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
         timeZone: reset.timeZone,
       },
       resetOverrides: {},
+      resetModes: {},
       showRemaining: true,
       // The demo's reports carry a cost: with this on, the dashboard shows it, with its energy and water.
       costEstimate: true,

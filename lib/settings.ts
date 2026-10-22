@@ -8,6 +8,7 @@ import {
   DEFAULT_ALERTS,
   isValidTimeZone,
   type ResetConfig,
+  type ResetMode,
   type ResetOverride,
 } from "@/lib/config";
 import { MAX_PROVIDERS, mergeProviderIds, normalizeProviderId, providerLabel } from "@/lib/providers";
@@ -64,6 +65,11 @@ export interface UsageSettings {
    * Set on the settings panel, or by an official report (lib/official-report.ts).
    */
   resetOverrides: Record<string, ResetOverride>;
+  /**
+   * providerId → how it resets a user's usage early (lib/resets.ts). A provider
+   * without an entry gets its default: `resetModeOf`.
+   */
+  resetModes: Record<string, ResetMode>;
   /**
    * False: the dashboard never states the tokens left, nor the overage. Only
    * matters with the token limits on: without a limit nothing is left to count.
@@ -191,8 +197,8 @@ function readResetOverride(value: unknown, field: string, errors?: string[]): Re
     if (!isIntegerIn(entry.hour, 0, 23)) problems.push(`${field}.hour must be 0 to 23`);
     if (!isIntegerIn(entry.minute, 0, 59)) problems.push(`${field}.minute must be 0 to 59`);
     // The stored reader (no `errors`) ignores a bad marker; the PUT parser reports it.
-    if (entry.source !== undefined && entry.source !== "report" && errors) {
-      problems.push(`${field}.source must be "report", or absent`);
+    if (entry.source !== undefined && entry.source !== "report" && entry.source !== "reset" && errors) {
+      problems.push(`${field}.source must be "report" or "reset", or absent`);
     }
   }
   if (problems.length > 0) {
@@ -206,7 +212,7 @@ function readResetOverride(value: unknown, field: string, errors?: string[]): Re
     hour: hour as number,
     minute: minute as number,
   };
-  if (source === "report") override.source = "report";
+  if (source === "report" || source === "reset") override.source = source;
   return override;
 }
 
@@ -245,6 +251,59 @@ function parseResetOverrides(value: unknown, errors: string[]): Record<string, R
   return overrides;
 }
 
+/** One stored override, leniently (a reset event's `previousOverride`, lib/resets.ts); null when it does not hold up. */
+export function readStoredResetOverride(value: unknown): ResetOverride | null {
+  return readResetOverride(value, "resetOverride");
+}
+
+const RESET_MODES: readonly ResetMode[] = ["keep", "restart"];
+
+function isResetMode(value: unknown): value is ResetMode {
+  return (RESET_MODES as readonly unknown[]).includes(value);
+}
+
+/** What a provider without a stored mode gets: Claude keeps its week, Codex (openai) starts a new one. */
+const DEFAULT_RESET_MODES: Readonly<Record<string, ResetMode>> = {
+  claude: "keep",
+  anthropic: "keep",
+  openai: "restart",
+};
+
+/** How `providerId` resets early: the stored mode, else its default, else "keep". */
+export function resetModeOf(config: Pick<AppConfig, "resetModes">, providerId: string): ResetMode {
+  if (Object.hasOwn(config.resetModes, providerId)) return config.resetModes[providerId]!;
+  return Object.hasOwn(DEFAULT_RESET_MODES, providerId) ? DEFAULT_RESET_MODES[providerId]! : "keep";
+}
+
+/** The stored map, leniently: an unknown provider id or mode is dropped on its own. */
+function readResetModes(stored: Record<string, unknown>): Record<string, ResetMode> {
+  const modes: Record<string, ResetMode> = {};
+  for (const [rawProvider, mode] of Object.entries(stored).slice(0, MAX_PROVIDERS)) {
+    const providerId = normalizeProviderId(rawProvider);
+    if (providerId && isResetMode(mode) && !Object.hasOwn(modes, providerId)) modes[providerId] = mode;
+  }
+  return modes;
+}
+
+/** The PUT body's map: every problem is reported. */
+function parseResetModes(value: unknown, errors: string[]): Record<string, ResetMode> {
+  const body = asRecord(value);
+  if (!body || Object.keys(body).length > MAX_PROVIDERS) {
+    errors.push(`resetModes must be a JSON object of at most ${MAX_PROVIDERS} providers`);
+    return {};
+  }
+  const modes: Record<string, ResetMode> = {};
+  for (const [rawProvider, mode] of Object.entries(body)) {
+    const providerId = normalizeProviderId(rawProvider);
+    if (!providerId) errors.push(`resetModes.${rawProvider} has an invalid provider id`);
+    else if (Object.hasOwn(modes, providerId))
+      errors.push(`resetModes.${rawProvider} is listed twice after normalization`);
+    else if (!isResetMode(mode)) errors.push(`resetModes.${providerId} must be "keep" or "restart"`);
+    else modes[providerId] = mode;
+  }
+  return modes;
+}
+
 /** The budget part of a configuration: the defaults while nothing is saved. */
 export function settingsFromConfig(config: AppConfig, providerIds: string[] = []): UsageSettings {
   const { period, weekday, monthDay, hour, minute, timeZone } = config.reset;
@@ -257,6 +316,7 @@ export function settingsFromConfig(config: AppConfig, providerIds: string[] = []
     ),
     reset: { weekday, monthDay, hour, minute, timeZone },
     resetOverrides: copyResetOverrides(config.resetOverrides),
+    resetModes: { ...config.resetModes },
     showRemaining: config.showRemaining,
     costEstimate: config.costEstimate,
     hiddenProviders: [...config.hiddenProviders],
@@ -273,6 +333,7 @@ export function applySettings(config: AppConfig, settings: UsageSettings): AppCo
     providerLimits: { ...settings.limits },
     reset: { ...config.reset, period: settings.period, ...settings.reset },
     resetOverrides: copyResetOverrides(settings.resetOverrides),
+    resetModes: { ...settings.resetModes },
     showRemaining: settings.showRemaining,
     costEstimate: settings.costEstimate,
     hiddenProviders: [...settings.hiddenProviders],
@@ -300,6 +361,7 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
   const storedExclusions = asRecord(doc.excludedProviders);
   const storedSubLimits = asRecord(doc.subLimits);
   const storedOverrides = asRecord(doc.resetOverrides);
+  const storedModes = asRecord(doc.resetModes);
   const storedAlerts = asRecord(doc.alerts);
   const limits = { ...defaults.limits };
   const storedLimits = asRecord(doc.limits);
@@ -332,6 +394,8 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
     },
     // Documents saved before per-provider resets existed lack the field: every provider uses `reset`.
     resetOverrides: storedOverrides ? readResetOverrides(storedOverrides) : defaults.resetOverrides,
+    // Documents saved before reset modes existed lack the field: every provider gets its default.
+    resetModes: storedModes ? readResetModes(storedModes) : defaults.resetModes,
     // Documents saved before the switch existed lack the field: they keep the default.
     showRemaining: typeof doc.showRemaining === "boolean" ? doc.showRemaining : defaults.showRemaining,
     costEstimate: typeof doc.costEstimate === "boolean" ? doc.costEstimate : defaults.costEstimate,
@@ -378,8 +442,19 @@ export function storedProviderIds(raw: string | null): string[] {
 
 /** The reset one provider's cycle runs on: its override over the shared period and time zone. */
 export function resetFor(config: AppConfig, providerId: string): ResetConfig {
-  const override = Object.hasOwn(config.resetOverrides, providerId) ? config.resetOverrides[providerId] : undefined;
+  const override = ownResetOf(config, providerId);
   return override ? { ...config.reset, ...override } : config.reset;
+}
+
+/** The provider's own reset, if it has one; null: it uses the shared one. */
+export function ownResetOf(config: AppConfig, providerId: string): ResetOverride | null {
+  return Object.hasOwn(config.resetOverrides, providerId) ? config.resetOverrides[providerId]! : null;
+}
+
+/** `config` with `providerId`'s own reset set to `override`, or removed (null). */
+export function withResetOverride(config: AppConfig, providerId: string, override: ResetOverride | null): AppConfig {
+  const { [providerId]: _, ...others } = config.resetOverrides;
+  return { ...config, resetOverrides: override ? { ...others, [providerId]: override } : others };
 }
 
 /** Effective configuration for one selected provider: its limit and its reset. */
@@ -713,6 +788,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
     errors.push("reset.timeZone must be a valid IANA time zone name");
   }
   const resetOverrides = parseResetOverrides(body.resetOverrides, errors);
+  const resetModes = parseResetModes(body.resetModes, errors);
   if (typeof body.showRemaining !== "boolean") errors.push("showRemaining must be true or false");
   if (typeof body.costEstimate !== "boolean") errors.push("costEstimate must be true or false");
   const hiddenProviders = parseProviderList(body.hiddenProviders, "hiddenProviders", errors);
@@ -765,6 +841,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
           timeZone: reset.timeZone as string,
         },
         resetOverrides,
+        resetModes,
         showRemaining: body.showRemaining as boolean,
         costEstimate: body.costEstimate as boolean,
         hiddenProviders,

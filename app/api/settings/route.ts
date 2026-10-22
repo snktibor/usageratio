@@ -20,6 +20,8 @@ import { loadGroupActivity, loadIndexes, saveSettings } from "@/lib/usage-store"
  *            "useTokenLimits": false,                            false: no limit, only the official %
  *            "limits": { "claude": 500000 },                     kept even while unused
  *            "reset": { "weekday": 1, "monthDay": 1, "hour": 0, "minute": 0 },
+ *            "resetOverrides": { "openai": { "weekday": 2, … } },  providers' own resets
+ *            "resetModes": { "claude": "keep" },                 how a provider resets early (lib/resets.ts)
  *            "showRemaining": true,                              false hides the tokens left
  *            "costEstimate": false,                              true: every machine prices its usage
  *            "hiddenProviders": ["openai"],                      not on the dashboard; one must stay

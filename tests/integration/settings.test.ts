@@ -14,6 +14,7 @@ const VALID_UPDATE = {
   limits: { claude: 500_000 },
   reset: { weekday: 1, monthDay: 1, hour: 0, minute: 0, timeZone: "UTC" },
   resetOverrides: {},
+  resetModes: {},
   showRemaining: true,
   costEstimate: false,
   hiddenProviders: [],

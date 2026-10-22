@@ -291,6 +291,7 @@ describe("the application's store code on the memory store", () => {
       limits: { claude: 500_000 },
       reset: { weekday: 1, monthDay: 1, hour: 0, minute: 0, timeZone: "Europe/Budapest" },
       resetOverrides: {},
+      resetModes: {},
       showRemaining: true,
       costEstimate: false,
       hiddenProviders: [],

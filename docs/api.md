@@ -305,6 +305,7 @@ required on every save (a document stored before some of them existed is still r
   "limits": { "claude": 500000, "deepseek": 750000, "openai": 1000000 },
   "reset": { "weekday": 1, "monthDay": 1, "hour": 0, "minute": 0, "timeZone": "Europe/Budapest" },
   "resetOverrides": {},
+  "resetModes": {},
   "showRemaining": true,
   "costEstimate": false,
   "hiddenProviders": ["openai"],
@@ -320,7 +321,10 @@ required on every save (a document stored before some of them existed is still r
 
 `resetOverrides` is required: providerId → `{ weekday, monthDay, hour, minute }`, the provider's own
 reset over the shared period and time zone (`{}` for none). An entry may add `source?: "report"` —
-set by an official report; the panel drops it when the entry is edited.
+set by an official report — or `"reset"`, set by a restart-type usage reset; the panel drops it when
+the entry is edited. `resetModes` is required too: providerId → `"keep"` | `"restart"`, how the
+provider resets a user's usage early (`{}` for all defaults: `claude`/`anthropic` keep, `openai`
+restarts, anything else keeps).
 
 `groups` creates or recolors — groups not listed are left untouched (so one that appeared on its own
 in the meantime, from a client report, isn't wiped out by an unrelated save). `removedGroups` only
