@@ -8,7 +8,7 @@ import { getRedis } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
 import { restartOverride } from "@/lib/resets";
 import { serializeGroupEntry, serializeSettings, settingsFromConfig } from "@/lib/settings";
-import { loadHistory, saveResets } from "@/lib/usage-store";
+import { loadHistory, loadResets, saveResets } from "@/lib/usage-store";
 import { useRedis } from "./helpers/redis-fixture";
 
 /**
@@ -227,11 +227,74 @@ describe("runHousekeeping", () => {
       providers: { removed: 0, ids: [] },
       groups: { removed: 0, ids: [] },
       officialUsage: { removed: 0, ids: [] },
+      resets: { removed: 0, ids: [] },
       tokens: { removed: 0, ids: [] },
       audit: { removed: 0 },
       history: { archived: 0, ids: [] },
       dryRun: false,
     });
+  });
+
+  it("prunes reset events whose cycle is archived by now, and a revert's switch once its cycle is over", async () => {
+    const cycle = getCycle(NOW, getConfig().reset);
+    const previous = getPreviousCycle(cycle, getConfig().reset);
+    const event = (id: string, atMs: number, cycleStartMs: number) => ({
+      id,
+      atMs,
+      kind: "keep" as const,
+      cycleStartMs,
+      before: 50,
+      beforeAtMs: null,
+      source: "manual" as const,
+      recordedAtMs: atMs,
+    });
+    const older = previous.start.getTime() - 7 * DAY_MS;
+    await saveResets("claude", {
+      v: 1,
+      events: [
+        event("old", older + DAY_MS, older),
+        event("prev", previous.start.getTime() + DAY_MS, previous.start.getTime()),
+        event("now", cycle.start.getTime() + DAY_MS, cycle.start.getTime()),
+      ],
+      autoOffCycleStartMs: previous.start.getTime(),
+    });
+
+    const report = await runHousekeeping(NOW, { dryRun: false });
+
+    expect(report.resets).toEqual({ removed: 1, ids: ["claude:old"] });
+    const kept = (await loadResets()).claude;
+    expect(kept?.events.map((e) => e.id)).toEqual(["prev", "now"]);
+    expect(kept?.autoOffCycleStartMs).toBeNull();
+  });
+
+  it("prunes an official figure from an earlier segment of the current cycle", async () => {
+    const cycle = getCycle(NOW, getConfig().reset);
+    const R = cycle.start.getTime() + DAY_MS;
+    await getRedis().hset("usage:providers", { claude: String(NOW.getTime()) });
+    await saveResets("claude", {
+      v: 1,
+      events: [
+        {
+          id: "r",
+          atMs: R,
+          kind: "keep",
+          cycleStartMs: cycle.start.getTime(),
+          before: 50,
+          beforeAtMs: null,
+          source: "manual",
+          recordedAtMs: R,
+        },
+      ],
+      autoOffCycleStartMs: null,
+    });
+    await getRedis().hset("usage:official", {
+      claude: JSON.stringify({ raw: "50", enteredAt: R - 1000, cycleStartMs: cycle.start.getTime() }),
+      "claude:fable": JSON.stringify({ raw: "5", enteredAt: R + 1000, cycleStartMs: R }),
+    });
+
+    const report = await runHousekeeping(NOW, { dryRun: false });
+
+    expect(report.officialUsage.ids).toEqual(["claude"]);
   });
 
   describe("history step", () => {
@@ -394,6 +457,56 @@ describe("runHousekeeping", () => {
         endedByReset: true,
         total: 500,
       });
+    });
+
+    it("archives a cycle a keep reset split into segments, each with its own figure", async () => {
+      const cycle = getCycle(NOW, getConfig().reset);
+      const previous = getPreviousCycle(cycle, getConfig().reset);
+      const S = previous.start.getTime();
+      const R = S + 3 * DAY_MS;
+      for (const [at, tokens] of [
+        [S + DAY_MS, 1000],
+        [R + DAY_MS, 400],
+      ] as const) {
+        const stored = await ingestReport(
+          {
+            machineId: "mac",
+            groupId: "Personal",
+            providers: { claude: tokens },
+            timestamp: new Date(at).toISOString(),
+          },
+          new Date(at),
+        );
+        if (!stored.ok) throw new Error(JSON.stringify(stored));
+      }
+      await saveResets("claude", {
+        v: 1,
+        events: [
+          {
+            id: "r",
+            atMs: R,
+            kind: "keep",
+            cycleStartMs: S,
+            before: 70,
+            beforeAtMs: null,
+            source: "manual",
+            recordedAtMs: R,
+          },
+        ],
+        autoOffCycleStartMs: null,
+      });
+      await getRedis().hset("usage:official", {
+        claude: JSON.stringify({ raw: "20", enteredAt: R + 3_600_000, cycleStartMs: R }),
+      });
+
+      const report = await runHousekeeping(NOW, { dryRun: false });
+
+      expect(report.history.ids).toEqual(["claude"]);
+      const summary = (await loadHistory(["claude"])).claude?.[0];
+      expect(summary).toMatchObject({ start: S, official: 90 });
+      expect(summary?.segments).toHaveLength(2);
+      expect(summary?.segments?.[0]).toMatchObject({ start: S, end: R, official: 70 });
+      expect(summary?.segments?.[1]).toMatchObject({ start: R, official: 20 });
     });
   });
 

@@ -13,7 +13,7 @@ import {
 import { officialUsageField } from "@/lib/official-usage";
 import { getRedis } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
-import { loadEvents, loadIndexes } from "@/lib/usage-store";
+import { loadEvents, loadIndexes, saveResets } from "@/lib/usage-store";
 import { useRedis } from "./helpers/redis-fixture";
 
 const NOW = new Date("2026-09-23T00:00:00Z");
@@ -439,7 +439,7 @@ describe("deleteProvider", () => {
     expect(result).toEqual({ ok: false, reason: "has_events" });
   });
 
-  it("with force, deletes its events in every group, its machines, its official usage, and scrubs the settings document", async () => {
+  it("with force, deletes its events in every group, its machines, its official usage, its resets, and scrubs the settings document", async () => {
     await getRedis().set(
       KEYS.settings,
       JSON.stringify({
@@ -457,6 +457,23 @@ describe("deleteProvider", () => {
     });
     await ingest({ groupId: "Work", machineId: "mac1", providers: { claude: 100 } });
     await ingest({ groupId: "Solo", machineId: "mac2", providers: { claude: 200 } });
+    await saveResets("claude", {
+      v: 1,
+      events: [
+        {
+          id: "r",
+          atMs: CYCLE_START_MS + 3_600_000,
+          kind: "keep",
+          cycleStartMs: CYCLE_START_MS,
+          before: 50,
+          beforeAtMs: null,
+          source: "manual",
+          recordedAtMs: CYCLE_START_MS + 3_600_000,
+        },
+      ],
+      autoOffCycleStartMs: null,
+    });
+    await saveResets("openai", { v: 1, events: [], autoOffCycleStartMs: CYCLE_START_MS });
 
     const result = await deleteProvider("claude", true, NOW);
     expect(result).toEqual({ ok: true, affected: { events: 2, machines: 2, groups: 2 } });
@@ -468,6 +485,8 @@ describe("deleteProvider", () => {
     expect(await getRedis().hexists(KEYS.machines, "claude:mac2")).toBe(0);
     expect(await getRedis().hexists(KEYS.officialUsage, officialUsageField("claude", null))).toBe(0);
     expect(await getRedis().hexists(KEYS.officialUsage, officialUsageField("claude", "fable"))).toBe(0);
+    expect(await getRedis().hexists(KEYS.resets, "claude")).toBe(0);
+    expect(await getRedis().hexists(KEYS.resets, "openai")).toBe(1);
 
     const settings = JSON.parse((await getRedis().get<string>(KEYS.settings))!);
     expect(settings.limits).toEqual({ deepseek: 100 });

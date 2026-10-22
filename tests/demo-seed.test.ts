@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEMO_GROUPS, DEMO_MACHINES, DEMO_PROVIDERS } from "@/lib/demo/dataset";
 import { DEMO_STALE_MS, ensureDemoData, seedStore, wipeUsageData } from "@/lib/demo/seed";
 import { getRedis } from "@/lib/redis";
-import { loadIndexes, loadRawSettings } from "@/lib/usage-store";
+import { loadIndexes, loadRawSettings, saveResets } from "@/lib/usage-store";
 import { useRedis } from "./helpers/redis-fixture";
 
 const NOW = new Date("2026-09-23T12:00:00Z");
@@ -47,11 +47,13 @@ describe("seedStore", () => {
     await redis.set("usage:api-token", "{}");
     await redis.set("usage:auth:global", "3");
     await seedStore({ now: NOW });
+    await saveResets("claude", { v: 1, events: [], autoOffCycleStartMs: NOW.getTime() });
 
     const wiped = await wipeUsageData();
     expect(wiped).toBeGreaterThan(5);
     expect(await loadRawSettings()).toBeNull();
     expect((await loadIndexes()).machines).toEqual([]);
+    expect(await redis.exists("usage:resets")).toBe(0);
     expect(await redis.get("usage:session:abc")).toBe("1");
     expect(await redis.get("usage:api-token")).toBe("{}");
     expect(await redis.get("usage:auth:global")).toBe("3");

@@ -49,8 +49,10 @@ import type { ReportMode, UsageReport } from "@/lib/validation";
  *                                 (a bare ms number in entries older than group colours)
  *   usage:machines          HASH  providerId:machineId → {"g": groupId, "ts": ms, "t": tokens}
  *   usage:official           HASH  providerId, or providerId:subLimitId →
- *                                  {"raw": "45.5", "enteredAt": ms, "cycleStartMs": ms}
- *                                  (the ground-truth field on the dashboard; see lib/official-usage.ts)
+ *                                  {"raw": "45.5", "enteredAt": ms, "cycleStartMs": ms, "resetsAtMs": ms}
+ *                                  (the ground-truth field on the dashboard; see lib/official-usage.ts;
+ *                                  "cycleStartMs" is the start of the segment it was entered in,
+ *                                  "resetsAtMs" only on a report: its window's reset)
  *   usage:resets             HASH  providerId → {"v": 1, "events": [ResetEvent…], "autoOffCycleStartMs": ms | null}
  *                                  (the provider's usage resets of its current and previous cycle,
  *                                  see lib/resets.ts; pruned by lib/housekeeping.ts)

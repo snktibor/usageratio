@@ -24,7 +24,14 @@ const SEEDED_AT_KEY = "usage:demo:seededAt";
 const SEEDING_LOCK_KEY = "usage:demo:seeding";
 
 /** Only the usage data. Sessions, login counters and the stored API token are never touched. */
-const DATA_KEYS = ["usage:settings", "usage:providers", "usage:groups", "usage:machines", "usage:official"];
+const DATA_KEYS = [
+  "usage:settings",
+  "usage:providers",
+  "usage:groups",
+  "usage:machines",
+  "usage:official",
+  "usage:resets",
+];
 const DATA_KEY_PATTERNS = ["usage:events:*", "usage:history:*", "usage:demo:*"];
 
 export interface SeedOptions {

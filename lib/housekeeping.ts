@@ -3,21 +3,22 @@ import { archiveDueCycles } from "@/lib/archive";
 import { getConfig, RETENTION_DAYS } from "@/lib/config";
 import { log } from "@/lib/log";
 import { providerOfOfficialField } from "@/lib/official-usage";
-import { earliestStartMs, providerCycle } from "@/lib/provider-cycles";
+import { currentSegmentStartMs, earliestStartMs, providerCycle } from "@/lib/provider-cycles";
 import { getRedis } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
+import { type ProviderResets, pruneResets, resetEventsOf } from "@/lib/resets";
 import { parseStoredSettings, resolveConfig, settingsFromConfig } from "@/lib/settings";
 import { pruneRevokedTokens } from "@/lib/tokens";
-import { loadEvents, loadIndexes } from "@/lib/usage-store";
+import { loadEvents, loadIndexes, saveResets } from "@/lib/usage-store";
 
 /**
  * Prunes the index hashes (`usage:machines`, `usage:providers`, `usage:groups`,
- * `usage:official`) of entries nothing still points to, `usage:tokens` of
- * tokens revoked long enough ago (lib/tokens.ts), and the audit trail of
- * entries older than its retention window. It never touches the raw event
- * ZSETs (`usage:events:{provider}:{group}`), which already self-prune on
- * every report (`storeReport` in lib/usage-store.ts); this is only about the
- * indexes that would otherwise grow forever with dead ids.
+ * `usage:official`, `usage:resets`) of entries nothing still points to,
+ * `usage:tokens` of tokens revoked long enough ago (lib/tokens.ts), and the
+ * audit trail of entries older than its retention window. It never touches
+ * the raw event ZSETs (`usage:events:{provider}:{group}`), which already
+ * self-prune on every report (`storeReport` in lib/usage-store.ts); this is
+ * only about the indexes that would otherwise grow forever with dead ids.
  *
  * One step writes instead of pruning: it archives the cycle that just ended
  * into the cycle history (lib/archive.ts), so the history does not depend on
@@ -42,6 +43,8 @@ export interface HousekeepingReport {
   providers: HousekeepingStepReport;
   groups: HousekeepingStepReport;
   officialUsage: HousekeepingStepReport;
+  /** Reset events whose cycle is archived by now (ids `providerId:eventId`). */
+  resets: HousekeepingStepReport;
   tokens: HousekeepingStepReport;
   audit: { removed: number };
   /** Providers whose just-ended cycle this run archived (with `dryRun`: would archive). */
@@ -141,14 +144,34 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     dryRun,
   });
 
-  // Step 5: official-usage entries from a cycle that has since rolled over (each provider's own), or that no longer parse.
+  // Step 5: official-usage entries from an earlier segment or cycle (each provider's own), or that no longer parse.
   const staleOfficialFields = Object.entries(indexes.officialUsage)
     .filter(([field, raw]) => {
       const cycleStartMs = officialCycleStartMs(raw);
-      const currentStartMs = providerCycle(now, config, providerOfOfficialField(field)).cycle.start.getTime();
+      const providerId = providerOfOfficialField(field);
+      const currentStartMs = currentSegmentStartMs(now, config, providerId, resetEventsOf(indexes.resets, providerId));
       return cycleStartMs === null || cycleStartMs < currentStartMs;
     })
     .map(([field]) => field);
+
+  // Step 5b: reset events older than their provider's previous cycle (archived by now, step 4),
+  // and a revert's detection switch once its cycle is over (lib/resets.ts).
+  const prunedResets: [string, ProviderResets][] = [];
+  const resetIds: string[] = [];
+  for (const [providerId, resets] of Object.entries(indexes.resets)) {
+    const { cycle, previous } = providerCycle(now, config, providerId, resets.events);
+    const pruned = pruneResets(
+      resets,
+      { startMs: cycle.start.getTime(), endMs: cycle.end.getTime() },
+      previous.start.getTime(),
+    );
+    if (pruned.events.length === resets.events.length && pruned.autoOffCycleStartMs === resets.autoOffCycleStartMs)
+      continue;
+    for (const event of resets.events) {
+      if (!pruned.events.includes(event)) resetIds.push(`${providerId}:${event.id}`);
+    }
+    prunedResets.push([providerId, pruned]);
+  }
 
   // Step 6: audit entries past their retention window. The list is newest first, so the first
   // (from the head) that is too old marks where the still-current entries end.
@@ -173,6 +196,7 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
       await redis.hdel(KEYS.providers, ...staleProviders.map((provider) => provider.providerId));
     if (staleGroups.length > 0) await redis.hdel(KEYS.groups, ...staleGroups.map((group) => group.groupId));
     if (staleOfficialFields.length > 0) await redis.hdel(KEYS.officialUsage, ...staleOfficialFields);
+    for (const [providerId, pruned] of prunedResets) await saveResets(providerId, pruned);
     if (auditRemoved > 0) {
       if (auditKeep === 0) await redis.del(KEYS.apiTokenAudit);
       else await redis.ltrim(KEYS.apiTokenAudit, 0, auditKeep - 1);
@@ -184,6 +208,7 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     providers: { removed: staleProviders.length, ids: staleProviders.map((provider) => provider.providerId) },
     groups: { removed: staleGroups.length, ids: staleGroups.map((group) => group.groupId) },
     officialUsage: { removed: staleOfficialFields.length, ids: staleOfficialFields },
+    resets: { removed: resetIds.length, ids: resetIds },
     tokens: tokensPruned,
     audit: { removed: auditRemoved },
     history: { archived: archived.length, ids: archived },
@@ -195,6 +220,7 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     providers: report.providers,
     groups: report.groups,
     official_usage: report.officialUsage,
+    resets: report.resets,
     tokens: report.tokens,
   })) {
     if (removed > 0) log.info(`housekeeping.${step}_pruned`, { removed, ids, dryRun });
@@ -208,6 +234,7 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     providers: report.providers.removed,
     groups: report.groups.removed,
     officialUsage: report.officialUsage.removed,
+    resets: report.resets.removed,
     tokens: report.tokens.removed,
     audit: report.audit.removed,
     archived: report.history.archived,
