@@ -12,6 +12,7 @@ All source: `app/api/**/route.ts`, shared helpers in `lib/api.ts`.
 - [`GET`/`PUT /api/settings`](#getput-apisettings)
 - [`PUT /api/official-usage`](#put-apiofficial-usage)
 - [`POST /api/official-usage/report`](#post-apiofficial-usagereport)
+- [`POST`/`PUT`/`DELETE /api/resets`](#postputdelete-apiresets)
 - [`GET /api/setup`](#get-apisetup)
 - [`GET`/`PUT /api/api-token`, `POST /api/api-token/reveal`, `GET /api/api-token/audit`](#the-stored-api-token)
 - [`GET`/`POST /api/tokens`, `DELETE /api/tokens/[id]`](#per-machine-tokens)
@@ -70,6 +71,10 @@ The full `ApiErrorCode` union (`lib/api.ts`):
 | `official_scope_required` | 403 | `POST /api/official-usage/report` needs an "official" token. |
 | `period_not_weekly` | 409 | An official report was sent to a monthly dashboard; the figure is a weekly window. |
 | `stale_reading` | 409 | An official report whose window already reset, or that was read before the provider's current cycle began. |
+| `outside_cycle` | 409 | A reset's time is not after the current cycle's start, or is in the future (`/api/resets`). |
+| `duplicate_reset` | 409 | A reset is already recorded at that minute. |
+| `has_later_resets` | 409 | A restart-type reset would end the cycle before one of its keep-type resets. |
+| `not_revertable` | 409 | Only a reset detected from the menu bar app's readings can be reverted. |
 | `no_token` | 404 | Nothing stored to reveal (`POST /api/api-token/reveal`). |
 | `token_unreadable` | 409 | The stored API token can't be decrypted with any known key. |
 | `groups_have_reports` | 409 | A settings save tried to remove a group that still has stored reports. |
@@ -375,6 +380,33 @@ a report; the provider's month day is kept); a reading taken before the (new) cy
 `200 { "ok": true, "saved": <bool>, "cycleChanged": <bool>, "reset": { "weekday", "hour", "minute" } | null }`
 · `400` invalid JSON/payload · `401` bad token · `403` wrong scope or demo mode (`demo_read_only`) ·
 `409` as above · `413`/`415` bad body · `429` rate limited · `503` Redis down.
+
+## `POST`/`PUT`/`DELETE /api/resets`
+
+Auth: **session** + same-origin; refused in demo mode. A provider's usage resets in its current cycle
+(see `lib/resets.ts` for the reset types). 1 KB body.
+
+```json
+{ "providerId": "claude", "atMs": 1758549600000, "before": 80, "afterRaw": "3" }
+```
+
+`POST` records one. `atMs` is a whole minute after the current cycle's start and not after now; the kind
+is the provider's reset type: a `keep` reset may fall anywhere in that range, a `restart` must come after
+the cycle's last `keep` reset and moves the provider's own reset to `atMs` (a fresh cycle starts there).
+`before` (0–100 or `null`) is the share used right before the reset; without it, the stored figure is
+taken if it was read before `atMs`. `afterRaw` stores the figure since the reset at `atMs`.
+
+`PUT { providerId, id, atMs?, before? }` edits a `keep` reset of the current cycle, or the `restart` the
+cycle began with (its new time must stay before the cycle's first `keep` reset). `DELETE { providerId,
+id, revert? }` deletes one; a `restart` with `keep` resets after it is refused, and a deleted restart puts
+the provider's previous own reset back unless it was changed on the settings panel since. `revert: true`
+is for a reset the menu bar app's readings revealed: its before-figure becomes the current figure again
+and automatic detection stops for the rest of that cycle.
+
+`200 { "ok": true, "events": [ResetEvent…], "cycle": { "startMs", "endMs" } }` (the cycle's resets after
+the change) · `400` invalid JSON/payload · `401` no session · `403` foreign origin or demo mode ·
+`404 not_found` (provider or reset) · `409 outside_cycle | duplicate_reset | has_later_resets |
+not_revertable` · `413`/`415` bad body · `503` Redis down.
 
 ## `GET /api/setup`
 
