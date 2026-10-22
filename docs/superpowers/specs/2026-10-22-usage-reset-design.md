@@ -228,8 +228,9 @@ must be newer than it. Typed figures never trigger it. Detection is off for the 
    the stored percentage and its time, and the source is `"report"`. The reading is stored for the
    new segment. No detection when that minute is not after the current segment's start.
 
-The response gains `reset: { id, kind, atMs } | null` for a detected reset. The menu bar app
-ignores unknown fields and needs no change.
+The response gains `detectedReset: { id, kind, atMs } | null` for a detected reset. Its existing
+`reset` field (`{ weekday, hour, minute } | null`, the provider's moved reset, which the menu bar
+app decodes) stays as it is. The app ignores unknown fields and needs no change.
 
 Known limits: two Claude accounts with the same reset moment reporting alternately would look like
 resets, and the revert covers that. A deleted (not reverted) real Codex reset is re-aligned without
