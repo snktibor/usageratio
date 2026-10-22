@@ -20,14 +20,16 @@ import {
 } from "@/lib/reset-recording";
 import { addReset, cycleResets, type ProviderResets, type ResetEvent, resetsOf } from "@/lib/resets";
 import { ownResetOf, resetModeOf, resolveConfig, storedProviderIds, withResetOverride } from "@/lib/settings";
-import { deleteArchivedCycle, loadIndexes, saveOfficialFields, saveResetOverride, saveResets } from "@/lib/usage-store";
+import { loadIndexes, saveResetChange } from "@/lib/usage-store";
 
 /**
  * The Redis side of usage resets (lib/reset-recording.ts decides): one change
  * written through — the provider's resets, its own reset when a restart moves
  * it, the official figures' tags (the retag rule), and the archived summary of
- * a cycle a restart no longer cuts short where it did. Each write is a
- * read-modify-write of one provider's data: two writers racing, the later one wins.
+ * a cycle a restart no longer cuts short where it did — all in one transaction
+ * (lib/usage-store.ts `saveResetChange`), so a failed write leaves nothing half
+ * done. It is a read-modify-write of one provider's data: two writers racing,
+ * the later one wins.
  */
 
 export type ResetAction =
@@ -42,25 +44,25 @@ export type ResetActionResult =
 const windowOf = (cycle: Cycle): TimeWindow => ({ startMs: cycle.start.getTime(), endMs: cycle.end.getTime() });
 
 /**
- * Retags `providerId`'s official figures under `config` (the configuration
- * once the change is in), and writes `extra` into its own field, tagged the
- * same way.
+ * The `usage:official` fields to write for `providerId`: its figures retagged
+ * under `config` (the configuration once the change is in), and `extra`
+ * written into its own field, tagged the same way.
  */
-async function retagOfficial(
+function officialWrites(
   now: Date,
   config: AppConfig,
   providerId: string,
   events: ResetEvent[],
   stored: Record<string, string>,
   extra: { raw: string; enteredAt: number } | null,
-): Promise<void> {
+): Record<string, string> {
   const tagAt = officialTagAt(now, config, providerId, events);
   const writes = retaggedOfficialEntries(stored, providerId, tagAt);
   const tag = extra && tagAt(extra.enteredAt);
   if (extra && tag !== null) {
     writes[officialUsageField(providerId, null)] = serializeOfficialEntry({ ...extra, cycleStartMs: tag });
   }
-  await saveOfficialFields(writes);
+  return writes;
 }
 
 /** The figure a change writes into the provider's own field: the one for after the reset, or the one a revert puts back. */
@@ -110,23 +112,27 @@ export async function applyResetAction(action: ResetAction, now: Date): Promise<
   }
   if (!change.ok) return change;
 
-  await saveResets(providerId, change.resets);
-  if (change.override !== undefined) await saveResetOverride(providerId, change.override, now, providerIds);
-  // The summary archived of the cycle a restart cut short no longer holds once the restart is edited
-  // or gone; the next archiving run writes it again from the events (lib/archive.ts).
-  if (action.kind !== "record" && change.event.kind === "restart") {
-    await deleteArchivedCycle(providerId, change.event.cycleStartMs);
-  }
-
   const after = change.override === undefined ? config : withResetOverride(config, providerId, change.override);
-  await retagOfficial(
-    now,
-    after,
+  await saveResetChange({
     providerId,
-    change.resets.events,
-    indexes.officialUsage,
-    extraFigure(action, change.event),
-  );
+    resets: change.resets,
+    ...(change.override !== undefined && { override: change.override }),
+    rawSettings: indexes.settings,
+    providerIds,
+    now,
+    // The summary archived of the cycle a restart cut short no longer holds once the restart is edited
+    // or gone; the next archiving run writes it again from the events (lib/archive.ts).
+    ...(action.kind !== "record" &&
+      change.event.kind === "restart" && { deleteArchivedStartMs: change.event.cycleStartMs }),
+    officialFields: officialWrites(
+      now,
+      after,
+      providerId,
+      change.resets.events,
+      indexes.officialUsage,
+      extraFigure(action, change.event),
+    ),
+  });
 
   const cycle = windowOf(providerCycle(now, after, providerId, change.resets.events).cycle);
   return { ok: true, events: cycleResets(cycle, change.resets.events), cycle };
@@ -134,9 +140,11 @@ export async function applyResetAction(action: ResetAction, now: Date): Promise<
 
 /**
  * Records a reset `decideOfficialReport` found in a reading
- * (lib/official-report.ts) under a fresh id, and retags the official figures.
- * The caller moves the provider's own reset (`override`) and stores the
- * reading itself.
+ * (lib/official-report.ts) under a fresh id, retags the official figures, and
+ * moves the provider's own reset to `override` (null: it stays), all in one
+ * transaction: the caller must not save the override separately. `rawSettings`
+ * and `providerIds` are those read with the request (`loadIndexes`). The caller
+ * stores the reading itself.
  */
 export async function saveDetectedReset(params: {
   providerId: string;
@@ -144,14 +152,23 @@ export async function saveDetectedReset(params: {
   resets: ProviderResets;
   reset: Omit<ResetEvent, "id">;
   override: ResetOverride | null;
+  rawSettings: string | null;
+  providerIds: string[];
   rawOfficialUsage: Record<string, string>;
   now: Date;
 }): Promise<ResetEvent> {
-  const { providerId, config, resets, reset, override, rawOfficialUsage, now } = params;
+  const { providerId, config, resets, reset, override, rawSettings, providerIds, rawOfficialUsage, now } = params;
   const event: ResetEvent = { id: randomUUID(), ...reset };
   const updated = addReset(resets, event);
-  await saveResets(providerId, updated);
   const after = override ? withResetOverride(config, providerId, override) : config;
-  await retagOfficial(now, after, providerId, updated.events, rawOfficialUsage, null);
+  await saveResetChange({
+    providerId,
+    resets: updated,
+    ...(override && { override }),
+    rawSettings,
+    providerIds,
+    now,
+    officialFields: officialWrites(now, after, providerId, updated.events, rawOfficialUsage, null),
+  });
   return event;
 }

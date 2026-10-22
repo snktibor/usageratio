@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DELETE, POST, PUT } from "@/app/api/resets/route";
 import { getConfig } from "@/lib/config";
+import { type CycleSummary, serializeCycleSummary } from "@/lib/history";
 import { parseStoredOfficialEntry } from "@/lib/official-usage";
 import { getRedis } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
+import { saveDetectedReset } from "@/lib/reset-store";
+import { emptyResets, restartOverride } from "@/lib/resets";
 import { ownResetOf, resolveConfig, serializeSettings, settingsFromConfig } from "@/lib/settings";
 import { loadIndexes, loadRawSettings, loadResets, registerProviders, saveResets } from "@/lib/usage-store";
 import { useRedis } from "../helpers/redis-fixture";
@@ -128,6 +131,36 @@ describe("/api/resets", () => {
     expect(await ownReset("openai")).toBeNull();
   });
 
+  it("removes the archived summary of the cycle a deleted restart cut short", async () => {
+    const summary: CycleSummary = {
+      v: 1,
+      start: S,
+      end: R,
+      total: 5,
+      limit: null,
+      official: null,
+      groups: {},
+      machines: 1,
+      models: {},
+      subLimits: {},
+      archivedAt: R,
+    };
+    await getRedis().zadd(KEYS.history("openai"), { score: S, member: serializeCycleSummary(summary) });
+    const recorded = await call("POST", { providerId: "openai", atMs: R }, cookie);
+    expect(await getRedis().zcard(KEYS.history("openai"))).toBe(1);
+
+    await call("DELETE", { providerId: "openai", id: recorded.body.events[0].id }, cookie);
+    expect(await getRedis().zcard(KEYS.history("openai"))).toBe(0);
+  });
+
+  it("retags a figure entered after the reset into the new segment", async () => {
+    await getRedis().hset(KEYS.officialUsage, {
+      claude: JSON.stringify({ raw: "5", enteredAt: R + 60_000, cycleStartMs: S }),
+    });
+    await call("POST", { providerId: "claude", atMs: R }, cookie);
+    expect(await officialEntry("claude")).toEqual({ view: { raw: "5", enteredAt: R + 60_000 }, cycleStartMs: R });
+  });
+
   it("edits a keep reset", async () => {
     const { body } = await call("POST", { providerId: "claude", atMs: R, before: 80 }, cookie);
     const edited = await call(
@@ -165,5 +198,44 @@ describe("/api/resets", () => {
     expect(reverted.status).toBe(200);
     expect(await officialEntry("claude")).toEqual({ view: { raw: "62", enteredAt: beforeAtMs }, cycleStartMs: S });
     expect((await loadResets()).claude?.autoOffCycleStartMs).toBe(S);
+  });
+});
+
+describe("saveDetectedReset", () => {
+  useRedis();
+
+  it("writes the event, the provider's own reset and the retag together", async () => {
+    await getRedis().hset(KEYS.officialUsage, {
+      openai: JSON.stringify({ raw: "3", enteredAt: R + 60_000, cycleStartMs: S }),
+    });
+    const providerIds = ["claude", "openai"];
+    const indexes = await loadIndexes();
+    const config = resolveConfig(getConfig(), indexes.settings, providerIds);
+    const override = restartOverride(R, config.reset.timeZone);
+
+    const event = await saveDetectedReset({
+      providerId: "openai",
+      config,
+      resets: emptyResets(),
+      reset: {
+        atMs: R,
+        kind: "restart",
+        cycleStartMs: S,
+        before: 90,
+        beforeAtMs: R - 60_000,
+        source: "report",
+        recordedAtMs: NOW.getTime(),
+        previousOverride: null,
+      },
+      override,
+      rawSettings: indexes.settings,
+      providerIds,
+      rawOfficialUsage: indexes.officialUsage,
+      now: NOW,
+    });
+
+    expect((await loadResets()).openai?.events).toEqual([event]);
+    expect(await ownReset("openai")).toEqual(override);
+    expect(await officialEntry("openai")).toEqual({ view: { raw: "3", enteredAt: R + 60_000 }, cycleStartMs: R });
   });
 });

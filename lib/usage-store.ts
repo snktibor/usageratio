@@ -695,14 +695,14 @@ export async function saveOfficialUsage(update: OfficialUsageUpdate, now: Date):
   else await getRedis().hset(KEYS.officialUsage, { [field]: stored });
 }
 
-/** Several `usage:official` fields at once (a retag, lib/reset-recording.ts); nothing for none. */
-export async function saveOfficialFields(fields: Record<string, string>): Promise<void> {
-  if (Object.keys(fields).length > 0) await getRedis().hset(KEYS.officialUsage, fields);
-}
-
 /** Every provider's usage resets (lib/resets.ts), one read. */
 export async function loadResets(): Promise<Record<string, ProviderResets>> {
   return parseResetsHash(await getRedis().hgetall(KEYS.resets));
+}
+
+/** One provider's resets as the stored document; null when nothing is left in it (the field is removed). */
+function resetsDocument(resets: ProviderResets): string | null {
+  return resets.events.length === 0 && resets.autoOffCycleStartMs === null ? null : serializeProviderResets(resets);
 }
 
 /**
@@ -711,15 +711,30 @@ export async function loadResets(): Promise<Record<string, ProviderResets>> {
  * leave the later one's. A document with nothing left in it is removed.
  */
 export async function saveResets(providerId: string, resets: ProviderResets): Promise<void> {
-  if (resets.events.length === 0 && resets.autoOffCycleStartMs === null) await getRedis().hdel(KEYS.resets, providerId);
-  else await getRedis().hset(KEYS.resets, { [providerId]: serializeProviderResets(resets) });
+  const document = resetsDocument(resets);
+  if (document === null) await getRedis().hdel(KEYS.resets, providerId);
+  else await getRedis().hset(KEYS.resets, { [providerId]: document });
+}
+
+/** The stored settings with `providerId`'s own reset set (a value) or removed (null). */
+function settingsWithOverride(
+  rawSettings: string | null,
+  providerId: string,
+  override: ResetOverride | null,
+  now: Date,
+  providerIds: string[],
+): string {
+  const settings = parseStoredSettings(rawSettings, settingsFromConfig(getConfig(), providerIds));
+  const { [providerId]: _, ...others } = settings.resetOverrides;
+  settings.resetOverrides = override ? { ...others, [providerId]: override } : others;
+  return serializeSettings(settings, now);
 }
 
 /**
  * Sets one provider's own reset in the stored settings (an official report
- * moving it to the provider's window, lib/official-report.ts; a restart-type
- * reset, lib/resets.ts), or removes it (null). Read, change, write: a
- * settings save racing it wins or loses as a whole, like two panel saves.
+ * moving it to the provider's window, lib/official-report.ts), or removes it
+ * (null). Read, change, write: a settings save racing it wins or loses as a
+ * whole, like two panel saves. A usage reset moves it through `saveResetChange`.
  */
 export async function saveResetOverride(
   providerId: string,
@@ -727,10 +742,51 @@ export async function saveResetOverride(
   now: Date,
   providerIds: string[],
 ): Promise<void> {
-  const settings = parseStoredSettings(await loadRawSettings(), settingsFromConfig(getConfig(), providerIds));
-  const { [providerId]: _, ...others } = settings.resetOverrides;
-  settings.resetOverrides = override ? { ...others, [providerId]: override } : others;
-  await getRedis().set(KEYS.settings, serializeSettings(settings, now));
+  await getRedis().set(
+    KEYS.settings,
+    settingsWithOverride(await loadRawSettings(), providerId, override, now, providerIds),
+  );
+}
+
+/**
+ * One change of a provider's usage resets, written in one transaction
+ * (lib/reset-store.ts): its resets; its own reset in the settings document
+ * when `override` is given (a value sets it, null removes it); the archived
+ * summary of the cycle starting at `deleteArchivedStartMs`, which a restart
+ * that was moved or deleted no longer cuts short where it did (the next
+ * archiving run writes it again, lib/archive.ts); and the official fields to
+ * write (a retag, lib/reset-recording.ts). All or nothing, so a failed write
+ * leaves the change to be repeated rather than half of it stored. The settings
+ * document is changed from `rawSettings`, the one read with the rest of the
+ * request, so a panel save in between loses: the same last-writer-wins race as
+ * `saveResetOverride`.
+ */
+export async function saveResetChange(change: {
+  providerId: string;
+  resets: ProviderResets;
+  override?: ResetOverride | null;
+  rawSettings: string | null;
+  providerIds: string[];
+  now: Date;
+  deleteArchivedStartMs?: number;
+  officialFields: Record<string, string>;
+}): Promise<void> {
+  const { providerId, override, deleteArchivedStartMs, officialFields } = change;
+  const tx = getRedis().multi();
+  const document = resetsDocument(change.resets);
+  if (document === null) tx.hdel(KEYS.resets, providerId);
+  else tx.hset(KEYS.resets, { [providerId]: document });
+  if (override !== undefined) {
+    tx.set(
+      KEYS.settings,
+      settingsWithOverride(change.rawSettings, providerId, override, change.now, change.providerIds),
+    );
+  }
+  if (deleteArchivedStartMs !== undefined) {
+    tx.zremrangebyscore(KEYS.history(providerId), deleteArchivedStartMs, deleteArchivedStartMs);
+  }
+  if (Object.keys(officialFields).length > 0) tx.hset(KEYS.officialUsage, officialFields);
+  await tx.exec();
 }
 
 // ── History (archived cycles) ────────────────────────────────────────────────
@@ -778,16 +834,6 @@ export async function saveArchivedOfficial(
   tx.zadd(key, { score: cycleStartMs, member: serializeCycleSummary({ ...summary, official }) });
   await tx.exec();
   return true;
-}
-
-/**
- * Removes the archived summary of the cycle that starts at `startMs`: a
- * restart that cut it short was moved or deleted (lib/reset-store.ts), so its
- * end or figure no longer holds. The next archiving run writes it again
- * while its events are still stored (lib/archive.ts).
- */
-export async function deleteArchivedCycle(providerId: string, startMs: number): Promise<void> {
-  await getRedis().zremrangebyscore(KEYS.history(providerId), startMs, startMs);
 }
 
 /**

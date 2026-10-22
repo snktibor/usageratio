@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getConfig, MAX_MACHINES } from "@/lib/config";
 import { type CycleSummary, serializeCycleSummary } from "@/lib/history";
 import { MAX_PROVIDERS } from "@/lib/providers";
@@ -7,13 +7,12 @@ import { KEYS } from "@/lib/redis-keys";
 import { emptyResets, type ProviderResets } from "@/lib/resets";
 import { MAX_GROUPS, ownResetOf, resolveConfig } from "@/lib/settings";
 import {
-  deleteArchivedCycle,
   loadEvents,
   loadIndexes,
   loadOldestReportTime,
   loadRawSettings,
   loadResets,
-  saveOfficialFields,
+  saveResetChange,
   saveResetOverride,
   saveResets,
   storeReport,
@@ -406,17 +405,13 @@ describe("resets", () => {
     expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toBeNull();
   });
 
-  it("writes official fields in one go, and nothing for none", async () => {
-    await saveOfficialFields({});
-    await saveOfficialFields({ claude: '{"raw":"5","enteredAt":1,"cycleStartMs":0}' });
-    expect((await loadIndexes()).officialUsage).toEqual({ claude: '{"raw":"5","enteredAt":1,"cycleStartMs":0}' });
-  });
-
-  it("deletes an archived cycle by its start", async () => {
-    const summary: CycleSummary = {
+  describe("saveResetChange", () => {
+    const own = { weekday: 2, monthDay: 22, hour: 14, minute: 0, source: "reset" as const };
+    const figure = '{"raw":"5","enteredAt":1,"cycleStartMs":0}';
+    const archived = (start: number): CycleSummary => ({
       v: 1,
-      start: 1000,
-      end: 2000,
+      start,
+      end: start + 1000,
       total: 5,
       limit: null,
       official: null,
@@ -424,11 +419,58 @@ describe("resets", () => {
       machines: 1,
       models: {},
       subLimits: {},
-      archivedAt: 2000,
-    };
-    await getRedis().zadd(KEYS.history("openai"), { score: 1000, member: serializeCycleSummary(summary) });
-    await deleteArchivedCycle("openai", 1000);
-    expect(await getRedis().zcard(KEYS.history("openai"))).toBe(0);
+      archivedAt: start + 1000,
+    });
+    const change = { providerId: "openai", providerIds: ["openai"], now: NOW, officialFields: {} };
+
+    it("writes the resets, and removes a document left empty", async () => {
+      await saveResetChange({ ...change, resets, rawSettings: null });
+      expect((await loadResets()).openai).toEqual(resets);
+      await saveResetChange({ ...change, resets: emptyResets(), rawSettings: null });
+      expect(await loadResets()).toEqual({});
+    });
+
+    it("sets and removes the provider's own reset, and leaves it alone when none is given", async () => {
+      await saveResetChange({ ...change, resets, override: own, rawSettings: await loadRawSettings() });
+      expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toEqual(own);
+      await saveResetChange({ ...change, resets, rawSettings: await loadRawSettings() });
+      expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toEqual(own);
+      await saveResetChange({ ...change, resets, override: null, rawSettings: await loadRawSettings() });
+      expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toBeNull();
+    });
+
+    it("deletes the archived summary at the given start only", async () => {
+      const history = KEYS.history("openai");
+      await getRedis().zadd(history, { score: 1000, member: serializeCycleSummary(archived(1000)) });
+      await getRedis().zadd(history, { score: 5000, member: serializeCycleSummary(archived(5000)) });
+      await saveResetChange({ ...change, resets, rawSettings: null, deleteArchivedStartMs: 1000 });
+      expect(await getRedis().zrange(history, 0, -1)).toEqual([serializeCycleSummary(archived(5000))]);
+    });
+
+    it("writes the official fields, and nothing for none", async () => {
+      await saveResetChange({ ...change, resets, rawSettings: null });
+      expect((await loadIndexes()).officialUsage).toEqual({});
+      await saveResetChange({ ...change, resets, rawSettings: null, officialFields: { claude: figure } });
+      expect((await loadIndexes()).officialUsage).toEqual({ claude: figure });
+    });
+
+    it("writes all of it in one transaction", async () => {
+      await getRedis().zadd(KEYS.history("openai"), { score: 1000, member: serializeCycleSummary(archived(1000)) });
+      const multi = vi.spyOn(getRedis(), "multi");
+      await saveResetChange({
+        ...change,
+        resets,
+        override: own,
+        rawSettings: null,
+        deleteArchivedStartMs: 1000,
+        officialFields: { claude: figure },
+      });
+      expect(multi).toHaveBeenCalledTimes(1);
+      expect((await loadResets()).openai).toEqual(resets);
+      expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toEqual(own);
+      expect(await getRedis().zcard(KEYS.history("openai"))).toBe(0);
+      expect((await loadIndexes()).officialUsage).toEqual({ claude: figure });
+    });
   });
 });
 
