@@ -100,11 +100,6 @@ export function usageOfSeriesUntil(events: UsageEvent[], startMs: number, endsMs
   return usages;
 }
 
-/** Tokens one series used inside the window; `events` sorted by time, may start before the window. */
-function usageOfSeries(events: UsageEvent[], window: TimeWindow, mode: TokenMode): number {
-  return usageOfSeriesUntil(events, window.startMs, [window.endMs], mode)[0]!;
-}
-
 /**
  * Reports split into series: one per group and machine (and a merged
  * machine's carry-over apart from its reports), each sorted by time.
@@ -129,18 +124,31 @@ export function groupIntoSeries(events: UsageEvent[]): UsageEvent[][] {
  * Aggregates raw reports into per-group and per-machine usage for one window.
  * Pass events from before the window too when available: counter mode uses
  * them as the baseline.
+ *
+ * `fromMs` (default: the window's start) counts only what was used from then
+ * on: each series' usage up to the window's end less its usage up to
+ * `fromMs`, both counted from the window's start. That is one segment of a
+ * cycle (lib/resets.ts): snapshot reports are running totals since the cycle
+ * start, so only the difference says what the segment used. Only the series
+ * that reported inside `[fromMs, endMs)` are listed.
  */
-export function summarizeUsage(events: UsageEvent[], window: TimeWindow, mode: TokenMode): UsageSummary {
+export function summarizeUsage(
+  events: UsageEvent[],
+  window: TimeWindow,
+  mode: TokenMode,
+  fromMs: number = window.startMs,
+): UsageSummary {
   // A merged machine's carry-over is a series of its own, but the same row: keyed by group and machine only.
   const byMachine = new Map<string, SeriesUsage>();
   for (const list of groupIntoSeries(events)) {
     const inWindow = list.filter(
-      (e) => e.ts >= window.startMs && e.ts < window.endMs && (!e.checkpoint || mode === "snapshot"),
+      (e) => e.ts >= fromMs && e.ts < window.endMs && (!e.checkpoint || mode === "snapshot"),
     );
     const last = inWindow[inWindow.length - 1];
     if (!last) continue;
     const reports = inWindow.filter((e) => !e.checkpoint);
-    const tokens = usageOfSeries(list, window, mode);
+    const [before, until] = usageOfSeriesUntil(list, window.startMs, [fromMs, window.endMs], mode);
+    const tokens = until! - before!;
     const lastReportAt = reports[reports.length - 1]?.ts ?? null;
     const key = JSON.stringify([last.groupId, last.machineId]);
     const known = byMachine.get(key);
