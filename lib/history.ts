@@ -35,6 +35,18 @@ export const HISTORY_RETENTION = 24;
 /** How many of a cycle's models are kept in its summary, the heaviest first. */
 export const HISTORY_TOP_MODELS = 8;
 
+/** One stretch of an archived cycle (lib/resets.ts `segmentsOf`). */
+export interface CycleSegmentSummary {
+  start: number;
+  end: number;
+  /** The figure it ended on (0–100); null when unknown. */
+  official: number | null;
+  /** Measured tokens in it, the provider's own (as `CycleSummary.total`). */
+  total: number;
+  /** groupId → measured tokens in it. */
+  groups: Record<string, number>;
+}
+
 export interface CycleSummary {
   v: 1;
   /** Epoch ms, inclusive. */
@@ -51,7 +63,10 @@ export interface CycleSummary {
   cost?: number;
   /** The provider's token limit in that cycle; null while the token limits were off. */
   limit: number | null;
-  /** The official percentage (0–100) entered for that cycle; null when none was. */
+  /**
+   * The official percentage of that cycle; null when none was entered. With
+   * `segments`, the sum of their known figures: it can exceed 100.
+   */
   official: number | null;
   /** groupId → measured tokens. */
   groups: Record<string, number>;
@@ -70,6 +85,10 @@ export interface CycleSummary {
    * deterministic between them.
    */
   archivedAt: number;
+  /** The cycle's stretches between its keep resets (lib/resets.ts), in order; present only when it had any. */
+  segments?: CycleSegmentSummary[];
+  /** A restart-type reset cut the cycle short: `end` is the reset. */
+  endedByReset?: true;
 }
 
 export interface SummarizeCycleInput {
@@ -81,6 +100,13 @@ export interface SummarizeCycleInput {
   official: number | null;
   subLimits: SubLimit[];
   archivedAt: number;
+  /**
+   * The keep resets that split the window (lib/resets.ts), in order, each with
+   * the figure its segment ended on; `official` is then the last segment's figure.
+   */
+  keepResets?: { atMs: number; before: number | null }[];
+  /** A restart cut the cycle short at `window.endMs`. */
+  endedByReset?: boolean;
 }
 
 /** Everything measured in `events` up to `window.endMs`, one number (lib/aggregate.ts, one sample). */
@@ -109,7 +135,7 @@ function reportsOfModel(events: UsageEvent[], key: string): UsageEvent[] {
  * (lib/dashboard.ts `buildDashboard`, lib/timeline.ts). Pure.
  */
 export function summarizeCycle(input: SummarizeCycleInput): CycleSummary {
-  const { events, window, mode, limit, official, subLimits, archivedAt } = input;
+  const { events, window, mode, limit, official, subLimits, archivedAt, keepResets = [], endedByReset = false } = input;
   const split = splitBySubLimits(events, subLimits);
   const usage = summarizeUsage(split.main, window, mode);
   const cost = summarizeCost(split.main, window);
@@ -128,6 +154,27 @@ export function summarizeCycle(input: SummarizeCycleInput): CycleSummary {
     subLimits.map((sub) => [sub.id, totalOf(split.bySubLimit.get(sub.id) ?? [], window, mode)]),
   );
 
+  // Each segment's usage is its own difference of the running totals (lib/aggregate.ts `summarizeUsage`).
+  const bounds = [window.startMs, ...keepResets.map((reset) => reset.atMs), window.endMs];
+  const figures = [...keepResets.map((reset) => reset.before), official];
+  const segments: CycleSegmentSummary[] = figures.map((figure, index) => {
+    const segment = summarizeUsage(
+      split.main,
+      { startMs: window.startMs, endMs: bounds[index + 1]! },
+      mode,
+      bounds[index],
+    );
+    return {
+      start: bounds[index]!,
+      end: bounds[index + 1]!,
+      official: figure,
+      total: segment.total,
+      groups: Object.fromEntries(segment.groups.map((g) => [g.groupId, g.tokens])),
+    };
+  });
+  const known = figures.filter((figure): figure is number => figure !== null);
+  const summed = known.length > 0 ? Math.round(known.reduce((sum, figure) => sum + figure, 0) * 100) / 100 : null;
+
   return {
     v: 1,
     start: window.startMs,
@@ -135,12 +182,14 @@ export function summarizeCycle(input: SummarizeCycleInput): CycleSummary {
     total: usage.total,
     ...(cost.hasCost && { cost: cost.total }),
     limit,
-    official,
+    official: keepResets.length > 0 ? summed : official,
     groups: Object.fromEntries(usage.groups.map((g) => [g.groupId, g.tokens])),
     machines: new Set(usage.series.map((s) => s.machineId)).size,
     models: Object.fromEntries(models),
     subLimits: subLimitTotals,
     archivedAt,
+    ...(keepResets.length > 0 && { segments }),
+    ...(endedByReset && { endedByReset: true as const }),
   };
 }
 
@@ -244,6 +293,20 @@ export function serializeCycleSummary(summary: CycleSummary): string {
   return JSON.stringify(summary);
 }
 
+function parseSegments(value: unknown): CycleSegmentSummary[] | null {
+  if (!Array.isArray(value)) return null;
+  const segments: CycleSegmentSummary[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) return null;
+    const { start, end, official, total, groups } = item as Record<string, unknown>;
+    if (!isFiniteNumber(start) || !isFiniteNumber(end) || !isFiniteNumber(total) || !isNumberRecord(groups))
+      return null;
+    if (official !== null && !isFiniteNumber(official)) return null;
+    segments.push({ start, end, official: official as number | null, total, groups });
+  }
+  return segments;
+}
+
 /** A stored member, read leniently: anything damaged (hand-edited Redis, a future format) reads back as null. */
 export function parseCycleSummary(raw: string): CycleSummary | null {
   let value: unknown;
@@ -253,8 +316,22 @@ export function parseCycleSummary(raw: string): CycleSummary | null {
     return null;
   }
   if (typeof value !== "object" || value === null) return null;
-  const { v, start, end, total, cost, limit, official, groups, machines, models, subLimits, archivedAt } =
-    value as Record<string, unknown>;
+  const {
+    v,
+    start,
+    end,
+    total,
+    cost,
+    limit,
+    official,
+    groups,
+    machines,
+    models,
+    subLimits,
+    archivedAt,
+    segments,
+    endedByReset,
+  } = value as Record<string, unknown>;
   if (v !== 1) return null;
   if (!isFiniteNumber(start) || !isFiniteNumber(end) || !isFiniteNumber(total)) return null;
   if (cost !== undefined && !isFiniteNumber(cost)) return null;
@@ -262,6 +339,9 @@ export function parseCycleSummary(raw: string): CycleSummary | null {
   if (official !== null && !isFiniteNumber(official)) return null;
   if (!isNumberRecord(groups) || !isNumberRecord(models) || !isNumberRecord(subLimits)) return null;
   if (!isFiniteNumber(machines) || !isFiniteNumber(archivedAt)) return null;
+  if (endedByReset !== undefined && endedByReset !== true) return null;
+  const parsedSegments = segments === undefined ? undefined : parseSegments(segments);
+  if (parsedSegments === null) return null;
   return {
     v: 1,
     start,
@@ -275,5 +355,7 @@ export function parseCycleSummary(raw: string): CycleSummary | null {
     models,
     subLimits,
     archivedAt,
+    ...(parsedSegments && { segments: parsedSegments }),
+    ...(endedByReset === true && { endedByReset: true as const }),
   };
 }

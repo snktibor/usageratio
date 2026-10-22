@@ -143,6 +143,11 @@ cycle even for a monthly budget (up to 62 days) — so anything older is summari
 `cost` is present only if at least one event of that cycle carried a cost estimate; `models` keeps
 only the heaviest `HISTORY_TOP_MODELS` (8) models, largest first.
 
+A cycle with keep-type resets (Claude) also carries `segments`: `[{ "start", "end", "official", "total",
+"groups" }]`, one per stretch between its resets, each with the figure it ended on; `official` is then the
+sum of the known figures and can exceed 100. A cycle a restart-type reset (Codex) cut short carries
+`"endedByReset": true`; its `end` is the reset and its `official` the figure from right before it.
+
 **Archived from two places, whichever runs first.** For every provider, if the newest archived cycle
 is older than the *previous* cycle's start, and that previous cycle actually has events, the previous
 cycle is summarized from data still in Redis and written with `ZADD NX`. Two callers share this

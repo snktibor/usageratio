@@ -382,6 +382,22 @@ describe("saveArchivedOfficial", () => {
     expect(history.claude?.[0]?.official).toBeNull();
   });
 
+  it("keeps the segments and the restart mark of the cycle it corrects", async () => {
+    const summary: CycleSummary = {
+      ...summaryAt(HOUR),
+      official: 100,
+      segments: [
+        { start: HOUR, end: 2 * HOUR, official: 80, total: 400, groups: { work: 400 } },
+        { start: 2 * HOUR, end: 3 * HOUR, official: 20, total: 250, groups: { work: 250 } },
+      ],
+      endedByReset: true,
+    };
+    await archiveCycle("claude", summary);
+
+    expect(await saveArchivedOfficial("claude", HOUR, 95)).toBe(true);
+    expect((await loadHistory(["claude"])).claude?.[0]).toEqual({ ...summary, official: 95 });
+  });
+
   it("clears the figure with null, and leaves one summary of the cycle after several corrections", async () => {
     await archiveCycle("claude", { ...summaryAt(HOUR), official: 82 });
     await saveArchivedOfficial("claude", HOUR, 90);
@@ -397,5 +413,64 @@ describe("saveArchivedOfficial", () => {
     expect(await saveArchivedOfficial("openai", HOUR, 100)).toBe(false);
     expect((await loadHistory(["claude"])).claude?.map((entry) => entry.start)).toEqual([HOUR]);
     expect(await getRedis().exists("usage:history:openai")).toBe(0);
+  });
+});
+
+describe("summarizeCycle with keep resets", () => {
+  const S = Date.parse("2026-09-21T00:00:00Z");
+  const R = Date.parse("2026-09-22T14:00:00Z");
+  const E = Date.parse("2026-09-28T00:00:00Z");
+  const e = (machineId: string, groupId: string, tokens: number, iso: string): UsageEvent => ({
+    machineId,
+    groupId,
+    tokens,
+    ts: Date.parse(iso),
+  });
+  // Snapshot running totals since S.
+  const events = [
+    e("a", "Work", 100, "2026-09-21T10:00:00Z"),
+    e("a", "Work", 400, "2026-09-22T13:00:00Z"),
+    e("a", "Work", 600, "2026-09-22T20:00:00Z"),
+    e("b", "Home", 50, "2026-09-23T09:00:00Z"),
+  ];
+  const summarize = (overrides = {}) =>
+    summarizeCycle({
+      events,
+      window: { startMs: S, endMs: E },
+      mode: "snapshot",
+      limit: null,
+      official: 20,
+      subLimits: [],
+      archivedAt: E,
+      keepResets: [{ atMs: R, before: 80 }],
+      ...overrides,
+    });
+
+  it("adds the segments' figures up and restates each segment's groups", () => {
+    const summary = summarize();
+    expect(summary.official).toBe(100);
+    expect(summary.total).toBe(650);
+    expect(summary.segments).toEqual([
+      { start: S, end: R, official: 80, total: 400, groups: { Work: 400 } },
+      { start: R, end: E, official: 20, total: 250, groups: { Work: 200, Home: 50 } },
+    ]);
+  });
+
+  it("leaves an unknown figure out of the sum, and is null with none known", () => {
+    expect(summarize({ keepResets: [{ atMs: R, before: null }] }).official).toBe(20);
+    expect(summarize({ keepResets: [{ atMs: R, before: null }], official: null }).official).toBeNull();
+  });
+
+  it("has no segments without keep resets, and marks a cycle a restart cut short", () => {
+    const summary = summarize({ keepResets: [], endedByReset: true });
+    expect(summary).not.toHaveProperty("segments");
+    expect(summary.official).toBe(20);
+    expect(summary.endedByReset).toBe(true);
+  });
+
+  it("round-trips the new fields, and reads damaged segments as a damaged summary", () => {
+    const summary = summarize({ endedByReset: true });
+    expect(parseCycleSummary(serializeCycleSummary(summary))).toEqual(summary);
+    expect(parseCycleSummary(JSON.stringify({ ...summary, segments: [{ start: "x" }] }))).toBeNull();
   });
 });

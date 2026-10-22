@@ -106,6 +106,7 @@ async function loadDashboard(
     now,
     eventsByProvider,
     rawOfficialUsage: indexes.officialUsage,
+    resets: indexes.resets,
   });
   const [historyByProvider, oldestReportMs] = await Promise.all([
     loadHistory(providerIds),

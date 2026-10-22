@@ -129,6 +129,7 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     providerIds,
     indexes.groups,
     earliestStartMs(now, config, providerIds, "previous"),
+    indexes.resets,
   );
   const archived = await archiveDueCycles({
     providerIds,
@@ -136,6 +137,7 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     now,
     eventsByProvider,
     rawOfficialUsage: indexes.officialUsage,
+    resets: indexes.resets,
     dryRun,
   });
 

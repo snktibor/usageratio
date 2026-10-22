@@ -5,8 +5,10 @@ import { getCycle, getPreviousCycle } from "@/lib/cycle";
 import { runHousekeeping } from "@/lib/housekeeping";
 import { ingestReport } from "@/lib/ingest";
 import { getRedis } from "@/lib/redis";
+import { KEYS } from "@/lib/redis-keys";
+import { restartOverride } from "@/lib/resets";
 import { serializeGroupEntry, serializeSettings, settingsFromConfig } from "@/lib/settings";
-import { loadHistory } from "@/lib/usage-store";
+import { loadHistory, saveResets } from "@/lib/usage-store";
 import { useRedis } from "./helpers/redis-fixture";
 
 /**
@@ -345,6 +347,52 @@ describe("runHousekeeping", () => {
 
         expect(report.officialUsage.ids).toEqual(["claude:sub"]);
         expect(await getRedis().hexists("usage:official", "claude")).toBe(1);
+      });
+    });
+
+    it("archives a cycle a restart cut short with its real end and the restart's before-figure", async () => {
+      const R = Date.parse("2026-09-24T08:00:00Z");
+      const S = getCycle(new Date(R), getConfig().reset).start.getTime();
+      const at = new Date(S + DAY_MS);
+      const stored = await ingestReport(
+        { machineId: "mac", groupId: "Personal", providers: { openai: 500 }, timestamp: at.toISOString() },
+        at,
+      );
+      if (!stored.ok) throw new Error(JSON.stringify(stored));
+      await getRedis().set(
+        KEYS.settings,
+        serializeSettings(
+          { ...settingsFromConfig(getConfig()), resetOverrides: { openai: restartOverride(R, "UTC") } },
+          NOW,
+        ),
+      );
+      await saveResets("openai", {
+        v: 1,
+        events: [
+          {
+            id: "r",
+            atMs: R,
+            kind: "restart",
+            cycleStartMs: S,
+            before: 90,
+            beforeAtMs: null,
+            source: "manual",
+            recordedAtMs: R,
+            previousOverride: null,
+          },
+        ],
+        autoOffCycleStartMs: null,
+      });
+
+      const report = await runHousekeeping(NOW, { dryRun: false });
+
+      expect(report.history.ids).toContain("openai");
+      expect((await loadHistory(["openai"])).openai?.[0]).toMatchObject({
+        start: S,
+        end: R,
+        official: 90,
+        endedByReset: true,
+        total: 500,
       });
     });
   });
