@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getConfig } from "@/lib/config";
 import { buildDashboard, buildProviderDashboards, type StoreSnapshot } from "@/lib/dashboard";
+import type { ResetEvent } from "@/lib/resets";
 import { type KnownGroup, NEUTRAL_COLOR, PRESET_COLORS } from "@/lib/settings";
 
 const HOUR = 3_600_000;
@@ -633,5 +634,157 @@ describe("buildProviderDashboards — which provider counts where", () => {
     expect(buildProviderDashboards(NOW, config, [], store)).toEqual([]);
     // Also with a store that has nothing at all: a fresh install with only heartbeats so far.
     expect(buildProviderDashboards(NOW, config, [], { eventsByProvider: {}, groups: [], machines: [] })).toEqual([]);
+  });
+});
+
+function keepReset(hoursIntoCycle: number, before: number | null, overrides: Partial<ResetEvent> = {}): ResetEvent {
+  const atMs = CYCLE_START + hoursIntoCycle * HOUR;
+  return {
+    id: `r${hoursIntoCycle}`,
+    atMs,
+    kind: "keep",
+    cycleStartMs: CYCLE_START,
+    before,
+    beforeAtMs: null,
+    source: "manual",
+    recordedAtMs: atMs,
+    ...overrides,
+  };
+}
+
+describe("buildDashboard — a keep reset", () => {
+  // Work's 30k on Monday 10:00 and Home's 20k on Monday 20:00; the reset on Tuesday 14:00 (38 h in); then 12k of Work's.
+  const events = [
+    report("win", "Work", 30_000, 10),
+    report("mac", "Home", 20_000, 20),
+    report("win", "Work", 12_000, 40),
+  ];
+  const model = buildDashboard(NOW, config, snapshot({ events, resets: [keepReset(38, 80)] }));
+
+  it("counts the segment since the reset only", () => {
+    expect(model.total).toBe(12_000);
+    expect(model.groups.map((group) => [group.groupId, group.tokens])).toEqual([["Work", 12_000]]);
+    expect(model.machines.map((machine) => [machine.machineId, machine.tokens])).toEqual([["win", 12_000]]);
+    expect(model.quota!.usedFraction).toBeCloseTo(12_000 / 500_000);
+  });
+
+  it("judges the pace over the segment: the quota's window starts at the reset", () => {
+    expect(model.segment).toMatchObject({ startMs: CYCLE_START + 38 * HOUR, endMs: CYCLE_START + 168 * HOUR });
+    expect(model.segment.elapsedFraction).toBeCloseTo(22 / 130);
+    expect(model.cycle.elapsedFraction).toBeCloseTo(60 / 168);
+    expect(model.quota!.pace.dailyShare).toBeCloseTo(24 / 130);
+  });
+
+  it("lays the segment's days out for the ruler: Tuesday from 14:00, then whole days", () => {
+    expect(model.segment.days).toHaveLength(6);
+    expect(model.segment.days[0]).toMatchObject({ startFraction: 0, weekday: 2 });
+    expect(model.segment.days[0]!.endFraction).toBeCloseTo(10 / 130);
+    expect(model.segment.days.at(-1)!.endFraction).toBeCloseTo(1);
+  });
+
+  it("lists the reset with the tokens of the segment it ended", () => {
+    expect(model.resets).toEqual([
+      { id: "r38", atMs: CYCLE_START + 38 * HOUR, kind: "keep", before: 80, source: "manual", tokens: 50_000 },
+    ]);
+  });
+
+  it("charts the whole cycle, every line restarting from 0 at the reset, every group in its colour", () => {
+    const { times, groups } = model.timeline;
+    const home = groups.find((group) => group.groupId === "Home")!;
+    const work = groups.find((group) => group.groupId === "Work")!;
+    const before = times.indexOf(CYCLE_START + 38 * HOUR - 1);
+    const at = times.indexOf(CYCLE_START + 38 * HOUR);
+    expect([home.values[before], work.values[before]]).toEqual([20_000, 30_000]);
+    expect([home.values[at], work.values[at]]).toEqual([0, 0]);
+    expect(work.values.at(-1)).toBe(12_000);
+    expect(Object.keys(model.groupColors).sort()).toEqual(["Home", "Work"]);
+  });
+
+  it("estimates the segment's cost only", () => {
+    const priced = buildDashboard(
+      NOW,
+      { ...config, costEstimate: true },
+      snapshot({
+        events: [
+          { ...report("win", "Work", 30_000, 10), costUsd: 3 },
+          { ...report("win", "Work", 12_000, 40), costUsd: 4 },
+        ],
+        resets: [keepReset(38, 80)],
+      }),
+    );
+    expect(priced.cost?.total).toBeCloseTo(1);
+  });
+
+  it("leaves out a reset of another cycle, and one still ahead", () => {
+    const other = buildDashboard(
+      NOW,
+      config,
+      snapshot({ events, resets: [keepReset(38, 80, { cycleStartMs: CYCLE_START - 168 * HOUR }), keepReset(70, 50)] }),
+    );
+    expect(other.total).toBe(62_000);
+    expect(other.resets).toEqual([]);
+    expect(other.segment).toMatchObject({ startMs: CYCLE_START, elapsedFraction: other.cycle.elapsedFraction });
+  });
+
+  it("counts a closed cycle whole", () => {
+    const closed = buildDashboard(
+      new Date(CYCLE_START + 200 * HOUR),
+      config,
+      snapshot({ events, resets: [keepReset(38, 80)] }),
+      [],
+      {
+        cycle: { start: new Date(CYCLE_START), end: new Date(CYCLE_START + 168 * HOUR) },
+        previous: { start: new Date(CYCLE_START - 168 * HOUR), end: new Date(CYCLE_START) },
+      },
+    );
+    expect(closed.total).toBe(62_000);
+    expect(closed.resets).toEqual([]);
+    expect(closed.segment.startMs).toBe(CYCLE_START);
+  });
+});
+
+describe("buildProviderDashboards — a restart", () => {
+  it("compares with the cycle the restart cut short, and lists the restart", () => {
+    // Codex reset on Tuesday 14:00: its own reset moved there, and a fresh cycle started.
+    const R = CYCLE_START + 38 * HOUR;
+    const restart: ResetEvent = {
+      id: "codex",
+      atMs: R,
+      kind: "restart",
+      cycleStartMs: CYCLE_START,
+      before: 62,
+      beforeAtMs: R - HOUR,
+      source: "report",
+      recordedAtMs: R,
+      previousOverride: null,
+    };
+    const [openai] = buildProviderDashboards(
+      NOW,
+      {
+        ...config,
+        resetOverrides: { openai: { weekday: 2, monthDay: 22, hour: 14, minute: 0, source: "reset" as const } },
+      },
+      ["openai"],
+      {
+        // 5k the Sunday before (outside [S, R), inside the week before R), 30k on Monday, 12k since the reset.
+        eventsByProvider: {
+          openai: [
+            report("win", "Work", 5_000, -5),
+            report("win", "Work", 30_000, 10),
+            report("win", "Work", 12_000, 40),
+          ],
+        },
+        groups: [],
+        machines: [],
+        resets: { openai: { v: 1, events: [restart], autoOffCycleStartMs: null } },
+      },
+    );
+    expect(openai!.resetMode).toBe("restart");
+    expect(openai!.dashboard.cycle.startMs).toBe(R);
+    expect(openai!.dashboard.total).toBe(12_000);
+    expect(openai!.dashboard.previousTotal).toBe(30_000);
+    expect(openai!.dashboard.resets).toEqual([
+      { id: "codex", atMs: R, kind: "restart", before: 62, source: "report", tokens: null },
+    ]);
   });
 });

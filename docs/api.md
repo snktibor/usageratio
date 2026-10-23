@@ -354,10 +354,11 @@ field, written on a debounced pause after typing (or dragging the slider), not o
 { "providerId": "claude", "subLimitId": "fable", "raw": "45.5", "cycleStartMs": 1758326400000 }
 ```
 
-`subLimitId: null` targets the provider's own field; empty `raw` clears it. `cycleStartMs` is the
-field's own cycle, from the dashboard it was typed on. `200 { "ok": true, "enteredAt": <ms> }` ·
-`400` invalid JSON/payload · `401` no session · `403` foreign origin · `413`/`415` bad body · `503`
-Redis down.
+`subLimitId: null` targets the provider's own field; empty `raw` clears it. `cycleStartMs` is the start
+of the field's own stretch of the cycle, from the dashboard it was typed on: the cycle's start, or the
+latest usage reset's moment after one ([`/api/resets`](#postputdelete-apiresets)).
+`200 { "ok": true, "enteredAt": <ms> }` · `400` invalid JSON/payload · `401` no session · `403` foreign
+origin · `413`/`415` bad body · `503` Redis down.
 
 ## `POST /api/official-usage/report`
 

@@ -76,6 +76,10 @@ async function putOfficialUsage(
  * always starts a fresh "saving" attempt, so editing after a failure is
  * itself the retry.
  *
+ * `cycleStartMs` is what the figure is tagged with: the start of the current
+ * segment (the cycle's, without a usage reset; lib/resets.ts), or a finished
+ * cycle's own start.
+ *
  * `closedAtMs`, the end of a finished cycle, makes it a correction of the
  * figure archived with that cycle (lib/history.ts): it stands for the cycle's
  * end, not for when it was typed, and once saved the page is refreshed so the

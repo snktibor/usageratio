@@ -298,6 +298,17 @@ describe("GET /api/status after a keep reset", () => {
     expect(claude).toBeDefined();
     expect(claude?.source).not.toBe("official");
   });
+
+  it("counts the tokens since the reset only", async () => {
+    // Running totals (snapshot mode): 3000 an hour before the reset, 5000 now, so 2000 since the reset.
+    const before = new Date(R - 3_600_000);
+    const stored = await ingestReport(
+      { machineId: "mac", groupId: "Personal", providers: { claude: 3000 }, timestamp: before.toISOString() },
+      before,
+    );
+    if (!stored.ok) throw new Error(JSON.stringify(stored));
+    expect((await claudeOf())?.tokens).toBe(2000);
+  });
 });
 
 describe("GET /api/status after a restart", () => {

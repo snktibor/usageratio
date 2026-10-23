@@ -216,7 +216,7 @@ export async function loadStatus(): Promise<StatusPayload> {
     now,
     config,
     providerIds,
-    { eventsByProvider, groups, machines: indexes.machines },
+    { eventsByProvider, groups, machines: indexes.machines, resets: indexes.resets },
     officialUsage,
   );
 

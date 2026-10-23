@@ -1,5 +1,5 @@
-import { fireEvent, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DashboardView } from "@/components/dashboard-view";
 import { getConfig } from "@/lib/config";
 import { buildProviderDashboards } from "@/lib/dashboard";
@@ -53,5 +53,57 @@ describe("DashboardView — switching provider", () => {
     fireEvent.change(select, { target: { value: "openai" } });
     expect(push).not.toHaveBeenCalled();
     expect(currentSelect()).toBe("openai");
+  });
+});
+
+describe("DashboardView — the official figure's tag", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("tags a typed figure with the start of the current segment", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, enteredAt: 0 }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const now = new Date("2026-09-23T12:00:00Z");
+    const store = { eventsByProvider: {}, groups: [], machines: [] };
+    const cycleStartMs = buildProviderDashboards(now, getConfig({}), ["claude"], store)[0]!.dashboard.cycle.startMs;
+    // Half way between the cycle's start and now, on a whole minute: whatever the default reset is.
+    const R = cycleStartMs + Math.floor((now.getTime() - cycleStartMs) / 2 / 60_000) * 60_000;
+    const [claude] = buildProviderDashboards(now, getConfig({}), ["claude"], {
+      ...store,
+      resets: {
+        claude: {
+          v: 1,
+          events: [
+            {
+              id: "k",
+              atMs: R,
+              kind: "keep",
+              cycleStartMs,
+              before: 80,
+              beforeAtMs: null,
+              source: "manual",
+              recordedAtMs: R,
+            },
+          ],
+          autoOffCycleStartMs: null,
+        },
+      },
+    });
+
+    renderWithIntl(
+      <DashboardView providers={[claude!]} historyByProvider={{}} historyContext={historyContext} pastCycle={false} />,
+    );
+    fireEvent.change(screen.getByLabelText("Current official consumption"), { target: { value: "12" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(path).toBe("/api/official-usage");
+    expect(JSON.parse(init.body as string)).toMatchObject({ providerId: "claude", raw: "12", cycleStartMs: R });
   });
 });

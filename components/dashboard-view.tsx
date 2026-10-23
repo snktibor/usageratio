@@ -56,9 +56,11 @@ function ProviderView({
   const locale = useLocale();
   const t = useTranslations("Dashboard");
   const model = selected.dashboard;
+  // A figure belongs to the segment it was typed in (lib/resets.ts): it clears itself at a reset. A closed
+  // cycle's segment is the whole cycle, whose start keys its archived summary.
   const [entry, setEntry, entryStatus] = useOfficialEntry(
     selected.id,
-    model.cycle.startMs,
+    model.segment.startMs,
     selected.officialEntry,
     // A finished cycle's figure is its archived one: a correction is written there.
     model.closed ? model.cycle.endMs : null,
@@ -73,7 +75,7 @@ function ProviderView({
   // Both the fields under the official one and the chart show them: they are worked out here, once.
   const [subEntries, setSubEntry, subStatuses] = useSubLimitEntries(
     selected.id,
-    model.cycle.startMs,
+    model.segment.startMs,
     model.subLimits.map((sub) => sub.id),
     selected.subLimitEntries,
   );
