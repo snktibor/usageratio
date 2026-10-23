@@ -7,9 +7,10 @@ import { officialUsageField } from "@/lib/official-usage";
 import { renderWithIntl } from "../helpers/render";
 
 const push = vi.fn();
+const refresh = vi.fn();
 vi.mock("@/i18n/routing", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/i18n/routing")>()),
-  useRouter: () => ({ push }),
+  useRouter: () => ({ push, refresh }),
 }));
 
 const providers = buildProviderDashboards(new Date("2026-09-23T12:00:00Z"), getConfig({}), ["claude", "openai"], {
@@ -141,6 +142,58 @@ describe("DashboardView — 'Was there a reset?'", () => {
     expect(question()).toBeNull();
     // Its save goes out too: nothing is left pending for the next test.
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2), { timeout: 2_000 });
+    expect(question()).toBeNull();
+  });
+
+  it("never carries a finished cycle's correction into the current cycle's question", async () => {
+    refresh.mockClear();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const now = new Date("2026-10-08T12:00:00Z");
+    const store = { eventsByProvider: {}, groups: [], machines: [] };
+    const start = Date.parse("2026-09-28T00:00:00Z");
+    const end = Date.parse("2026-10-05T00:00:00Z");
+    const [finished] = buildProviderDashboards(
+      now,
+      getConfig({}),
+      ["claude"],
+      store,
+      new Map([["claude", { raw: "82", enteredAt: end }]]),
+      {
+        cycle: { start: new Date(start), end: new Date(end) },
+        previous: { start: new Date(start - 7 * 86_400_000), end: new Date(start) },
+      },
+    );
+    const [current] = buildProviderDashboards(
+      now,
+      getConfig({}),
+      ["claude"],
+      store,
+      new Map([["claude", { raw: "3", enteredAt: now.getTime() - 3_600_000 }]]),
+    );
+    const view = (provider: typeof finished, pastCycle: boolean) => (
+      <DashboardView
+        providers={[provider!]}
+        historyByProvider={{}}
+        historyContext={historyContext}
+        pastCycle={pastCycle}
+      />
+    );
+    const question = () => screen.queryByRole("button", { name: "Yes, record a reset" });
+
+    const { rerender } = renderWithIntl(view(finished, true));
+    fireEvent.click(screen.getByRole("button", { name: "Correct" }));
+    const field = screen.getByRole("textbox", { name: "Official consumption at the end of the cycle" });
+    fireEvent.change(field, { target: { value: "8" } });
+    // The correction is saved (and the page refreshed); a finished cycle never asks.
+    await waitFor(() => expect(refresh).toHaveBeenCalled(), { timeout: 2_000 });
+    expect(question()).toBeNull();
+
+    // "Back to the current cycle" keeps the view mounted: its figure is 3, far under the corrected 82.
+    rerender(view(current, false));
+    await waitFor(() =>
+      expect((screen.getByLabelText("Current official consumption") as HTMLInputElement).value).toBe("3"),
+    );
     expect(question()).toBeNull();
   });
 });

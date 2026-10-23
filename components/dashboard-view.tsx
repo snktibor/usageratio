@@ -68,15 +68,20 @@ function ProviderView({
     model.closed ? model.cycle.endMs : null,
   );
   const { percent, invalid } = parseOfficialPercent(entry.raw);
-  // "Was there a reset?": asked once an edit takes the figure low and its save has settled.
-  const resetPrompt = useResetPrompt(percent, entryStatus.status === "saving");
+  // "Was there a reset?": asked once an edit takes the figure low and its save has settled. Only an open
+  // cycle's edit counts, and only within its segment: the view stays mounted when the page changes cycle.
+  const resetPrompt = useResetPrompt(
+    percent,
+    entryStatus.status === "saving",
+    `${model.closed}:${model.segment.startMs}`,
+  );
   const { beginEdit } = resetPrompt;
   const changeEntry = useCallback(
     (raw: string) => {
-      beginEdit();
+      if (!model.closed) beginEdit();
       setEntry(raw);
     },
-    [beginEdit, setEntry],
+    [model.closed, beginEdit, setEntry],
   );
 
   const view = useMemo(
