@@ -793,6 +793,74 @@ describe("segmentSince", () => {
   });
 });
 
+describe("buildDashboard — two keep resets in one cycle", () => {
+  // Work's 30k on Monday 10:00 and Home's 20k at 20:00; reset 1 on Tuesday 14:00 (38 h in), Work's 12k at 40 h;
+  // reset 2 on Tuesday 22:00 (46 h in), then 7k of Work's at 50 h.
+  const R1 = CYCLE_START + 38 * HOUR;
+  const R2 = CYCLE_START + 46 * HOUR;
+  const events = [
+    report("win", "Work", 30_000, 10),
+    report("mac", "Home", 20_000, 20),
+    report("win", "Work", 12_000, 40),
+    report("win", "Work", 7_000, 50),
+  ];
+  const model = buildDashboard(NOW, config, snapshot({ events, resets: [keepReset(38, 80), keepReset(46, 60)] }));
+  /** All groups' cumulative tokens at the sample of `ms`. */
+  const charted = (ms: number) => {
+    const index = model.timeline.times.indexOf(ms);
+    expect(index).toBeGreaterThanOrEqual(0);
+    return model.timeline.groups.reduce((sum, group) => sum + group.values[index]!, 0);
+  };
+
+  it("counts the segment since the second reset only", () => {
+    expect(model.total).toBe(7_000);
+    expect(model.segment.startMs).toBe(R2);
+  });
+
+  it("lists each reset with the tokens of the segment it ended, the second not counting the first's", () => {
+    expect(model.resets.map((reset) => [reset.id, reset.tokens])).toEqual([
+      ["r38", 50_000],
+      ["r46", 12_000],
+    ]);
+  });
+
+  it("restarts the timeline at both resets, ending on the segment's total", () => {
+    expect([charted(R1 - 1), charted(R1)]).toEqual([50_000, 0]);
+    expect([charted(R2 - 1), charted(R2)]).toEqual([12_000, 0]);
+    expect(charted(model.timeline.times.at(-1)!)).toBe(model.total);
+  });
+});
+
+describe("buildDashboard — a keep reset in a cycle a restart began", () => {
+  // The restart on Tuesday 14:00 (38 h in) began the cycle; the keep reset on Wednesday 04:00 (50 h in) cut it.
+  // 30k before the restart (the cycle it cut short), 12k between the two, 8k since the keep reset.
+  const RESTART = CYCLE_START + 38 * HOUR;
+  const KEEP = CYCLE_START + 50 * HOUR;
+  const model = buildDashboard(
+    NOW,
+    config,
+    snapshot({
+      events: [report("win", "Work", 30_000, 10), report("win", "Work", 12_000, 40), report("win", "Work", 8_000, 55)],
+      resets: [restartReset(38, 62), keepReset(50, 80, { cycleStartMs: RESTART })],
+    }),
+    [],
+    restartedWindow(38),
+  );
+
+  it("starts the cycle at the restart and the current segment at the keep reset", () => {
+    expect(model.cycle.startMs).toBe(RESTART);
+    expect(model.segment.startMs).toBe(KEEP);
+    expect(model.total).toBe(8_000);
+  });
+
+  it("lists the restart, then the keep reset with the tokens of the stretch the restart opened", () => {
+    expect(model.resets).toEqual([
+      { id: "restart38", atMs: RESTART, kind: "restart", before: 62, source: "manual", tokens: null },
+      { id: "r50", atMs: KEEP, kind: "keep", before: 80, source: "manual", tokens: 12_000 },
+    ]);
+  });
+});
+
 describe("buildProviderDashboards — a restart", () => {
   it("compares with the cycle the restart cut short, and lists the restart", () => {
     // Codex reset on Tuesday 14:00: its own reset moved there, and a fresh cycle started.

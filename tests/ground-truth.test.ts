@@ -326,3 +326,96 @@ describe("applyGroundTruth — after a keep reset", () => {
     expect(timelineRates(model, applyGroundTruth(model, null))).toBeNull();
   });
 });
+
+describe("timelineRates — more than one reset", () => {
+  const rateAt = (rates: number[], times: number[], ms: number) => rates[times.indexOf(ms)];
+
+  it("rates each finished segment at its own before-figure across two keep resets", () => {
+    // Resets on Tuesday 14:00 (80% over 50k) and 22:00 (60% over 12k); 7k since the second.
+    const R1 = CYCLE_START + 38 * HOUR;
+    const R2 = CYCLE_START + 46 * HOUR;
+    const keep = (id: string, atMs: number, before: number): ResetEvent => ({
+      id,
+      atMs,
+      kind: "keep",
+      cycleStartMs: CYCLE_START,
+      before,
+      beforeAtMs: null,
+      source: "manual",
+      recordedAtMs: atMs,
+    });
+    const twice = buildDashboard(NOW, config, {
+      events: [
+        report("win-1", "Work", 30_000, 10),
+        report("mac", "Home", 20_000, 20),
+        report("win-1", "Work", 12_000, 40),
+        report("win-1", "Work", 7_000, 50),
+      ],
+      groups: [],
+      machines: [],
+      resets: [keep("k1", R1, 80), keep("k2", R2, 60)],
+    });
+    const rates = timelineRates(twice, applyGroundTruth(twice, { percent: 6, atMs: null }))!;
+    const { times } = twice.timeline;
+    expect(rates).toHaveLength(times.length);
+    expect(rateAt(rates, times, CYCLE_START)).toBeCloseTo(0.8 / 50_000);
+    expect(rateAt(rates, times, R1 - 1)).toBeCloseTo(0.8 / 50_000);
+    expect(rateAt(rates, times, R1)).toBeCloseTo(0.6 / 12_000);
+    expect(rateAt(rates, times, R2 - 1)).toBeCloseTo(0.6 / 12_000);
+    expect(rateAt(rates, times, R2)).toBeCloseTo(0.06 / 7_000);
+    expect(rates.at(-1)).toBeCloseTo(0.06 / 7_000);
+  });
+
+  it("does not take the restart a cycle began with for the end of a segment", () => {
+    // The restart on Tuesday 14:00 began the cycle; the keep reset on Wednesday 04:00 (80% over 12k) cut it; 8k since.
+    const RESTART = CYCLE_START + 38 * HOUR;
+    const KEEP = CYCLE_START + 50 * HOUR;
+    const restart: ResetEvent = {
+      id: "restart",
+      atMs: RESTART,
+      kind: "restart",
+      cycleStartMs: CYCLE_START,
+      before: 62,
+      beforeAtMs: null,
+      source: "manual",
+      recordedAtMs: RESTART,
+      previousOverride: null,
+    };
+    const keep: ResetEvent = {
+      id: "keep",
+      atMs: KEEP,
+      kind: "keep",
+      cycleStartMs: RESTART,
+      before: 80,
+      beforeAtMs: null,
+      source: "manual",
+      recordedAtMs: KEEP,
+    };
+    const restarted = buildDashboard(
+      NOW,
+      config,
+      {
+        events: [
+          report("win-1", "Work", 30_000, 10),
+          report("win-1", "Work", 12_000, 40),
+          report("win-1", "Work", 8_000, 55),
+        ],
+        groups: [],
+        machines: [],
+        resets: [restart, keep],
+      },
+      [],
+      {
+        cycle: { start: new Date(RESTART), end: new Date(RESTART + 168 * HOUR) },
+        previous: { start: new Date(CYCLE_START), end: new Date(RESTART) },
+      },
+    );
+    const rates = timelineRates(restarted, applyGroundTruth(restarted, { percent: 6, atMs: null }))!;
+    const { times } = restarted.timeline;
+    // The cycle's first sample is the restart itself: rated as the stretch the keep reset ended, not as a segment end of its own.
+    expect(rateAt(rates, times, RESTART)).toBeCloseTo(0.8 / 12_000);
+    expect(rateAt(rates, times, KEEP - 1)).toBeCloseTo(0.8 / 12_000);
+    expect(rateAt(rates, times, KEEP)).toBeCloseTo(0.06 / 8_000);
+    expect(rates.at(-1)).toBeCloseTo(0.06 / 8_000);
+  });
+});
