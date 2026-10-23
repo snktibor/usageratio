@@ -4,6 +4,7 @@ import { QuotaMeter } from "@/components/quota-meter";
 import { getConfig } from "@/lib/config";
 import { buildDashboard, type StoreSnapshot } from "@/lib/dashboard";
 import { applyGroundTruth } from "@/lib/ground-truth";
+import type { ResetEvent } from "@/lib/resets";
 import { renderWithIntl } from "../helpers/render";
 
 const HOUR = 3_600_000;
@@ -138,5 +139,61 @@ describe("QuotaMeter", () => {
       render([30_000, 30_000, 30_000, 30_000, 30_000, 30_000, 0, 0]);
       expect(screen.getByText(/Current pace: nothing used since 10:00\./)).toBeTruthy();
     });
+  });
+});
+
+describe("QuotaMeter — after a keep reset", () => {
+  // Fixed to Budapest time, independent of DEFAULT_RESET's own (deploy-time) default.
+  const config = {
+    ...getConfig({}),
+    useTokenLimits: true,
+    limit: 500_000,
+    tokenMode: "delta" as const,
+    reset: { ...getConfig({}).reset, timeZone: "Europe/Budapest" },
+  };
+  const keep = (hoursIntoCycle: number, before: number | null): ResetEvent => {
+    const atMs = CYCLE_START + hoursIntoCycle * HOUR;
+    return {
+      id: `k${hoursIntoCycle}`,
+      atMs,
+      kind: "keep",
+      cycleStartMs: CYCLE_START,
+      before,
+      beforeAtMs: null,
+      source: "manual",
+      recordedAtMs: atMs,
+    };
+  };
+  const events = [
+    { machineId: "win-1", groupId: "Work", tokens: 300_000, ts: CYCLE_START + 10 * HOUR },
+    { machineId: "win-1", groupId: "Work", tokens: 20_000, ts: CYCLE_START + 40 * HOUR },
+  ];
+
+  it("states the reset, the figure before it and the week's total under the main figure", () => {
+    const model = buildDashboard(NOW, config, snapshot({ events, resets: [keep(38, 80)] }));
+    renderWithIntl(<QuotaMeter model={model} view={applyGroundTruth(model, { percent: 20, atMs: null })} />);
+    expect(screen.getByText(/^Reset .+ · before it 80% · this week in total 100%$/)).toBeDefined();
+  });
+
+  it("shows an unknown figure as a dash and leaves it out of the total", () => {
+    const model = buildDashboard(NOW, config, snapshot({ events, resets: [keep(20, null), keep(38, 80)] }));
+    renderWithIntl(<QuotaMeter model={model} view={applyGroundTruth(model, { percent: 20, atMs: null })} />);
+    expect(
+      screen.getByText(/^Reset .+ · before it – · Reset .+ · before it 80% · this week in total 100%$/),
+    ).toBeDefined();
+  });
+
+  it("lays the meter's ruler and its now marker over the segment", () => {
+    const model = buildDashboard(NOW, config, snapshot({ events, resets: [keep(38, 80)] }));
+    renderWithIntl(<QuotaMeter model={model} view={applyGroundTruth(model, null)} />);
+    // 22 of the segment's 130 hours have passed; the text still tells the cycle's 60 of 168.
+    expect(Number.parseFloat(screen.getByText("now").style.left)).toBeCloseTo((22 / 130) * 100);
+    expect(screen.getByText(/36% of the cycle has elapsed/)).toBeDefined();
+  });
+
+  it("has no reset line without a keep reset", () => {
+    const model = buildDashboard(NOW, config, snapshot({ events }));
+    renderWithIntl(<QuotaMeter model={model} view={applyGroundTruth(model, null)} />);
+    expect(screen.queryByText(/in total/)).toBeNull();
   });
 });

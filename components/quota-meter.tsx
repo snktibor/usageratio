@@ -117,6 +117,30 @@ function recentPaceSentence(
   });
 }
 
+/**
+ * Under the main figure, once the cycle has keep resets: when each one was
+ * and the figure right before it, then the cycle's total — those figures and
+ * the current one added up. An unknown figure is a dash, left out of the
+ * total; a restart's belongs to the previous cycle and is not listed here.
+ */
+function ResetLine({ model, quota }: { model: DashboardModel; quota: QuotaAssessment | null }) {
+  const locale = useLocale();
+  const t = useTranslations("Widgets");
+  const keeps = model.resets.filter((reset) => reset.kind === "keep");
+  if (keeps.length === 0) return null;
+  const parts = keeps.map((reset) =>
+    t("reset_line_item", {
+      moment: formatMoment(reset.atMs, model, locale),
+      before: reset.before === null ? "–" : formatPercent(reset.before / 100, locale),
+    }),
+  );
+  if (quota) {
+    const total = keeps.reduce((sum, reset) => sum + (reset.before ?? 0) / 100, quota.usedFraction);
+    parts.push(t("reset_line_total", { period: model.period, total: formatPercent(total, locale) }));
+  }
+  return <p className="mt-3 text-sm text-ink-3">{parts.join(" · ")}</p>;
+}
+
 function meterAttributes(
   model: DashboardModel,
   quota: QuotaAssessment | null,
@@ -151,7 +175,8 @@ function meterAttributes(
 }
 
 /**
- * The page's one gauge: usage against the limit, laid over the cycle itself.
+ * The page's one gauge: usage against the limit, laid over the
+ * current segment (the whole cycle without a usage reset).
  * Fill ahead of the "most" marker means burning faster than time passes.
  * Without a token limit only an official reading fills it.
  */
@@ -167,9 +192,9 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
   const style = quota ? STATUS_STYLE[quota.status] : UNKNOWN_STYLE;
   const StatusIcon = style.icon;
   const fillPercent = quota ? Math.min(1, quota.usedFraction) * 100 : 0;
-  const nowFraction = model.cycle.elapsedFraction;
+  const nowFraction = model.segment.elapsedFraction;
   const nowAlign = nowFraction < 0.05 ? "translate-x-0" : nowFraction > 0.95 ? "-translate-x-full" : "-translate-x-1/2";
-  const elapsedNote = t("cycle_elapsed", { percent: formatPercent(nowFraction, locale) });
+  const elapsedNote = t("cycle_elapsed", { percent: formatPercent(model.cycle.elapsedFraction, locale) });
   const recent = closed ? null : recentPace(model, view);
 
   return (
@@ -194,6 +219,7 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
           <span className="rounded-full border border-ink-3 px-3 py-1 text-sm text-ink-2">{t("official_value")}</span>
         )}
       </h1>
+      <ResetLine model={model} quota={quota} />
 
       {model.cost && (
         <p className="relative mt-2 flex items-center gap-1.5 text-sm text-ink-3">
@@ -246,7 +272,7 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
           />
         )}
 
-        <CycleRuler model={model} />
+        <CycleRuler model={model} span={model.segment} />
       </div>
 
       <p className="mt-6 flex max-w-2xl items-start gap-2.5 text-base text-ink-2">

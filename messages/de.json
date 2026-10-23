@@ -480,7 +480,9 @@
     "zoom_three_days": "3 Tage",
     "zoom_cycle": "Ganzer Zyklus",
     "zoom_reset": "Zoom zurücksetzen",
-    "zoom_drag_hint": "oder ziehe über das Diagramm, um hineinzuzoomen"
+    "zoom_drag_hint": "oder ziehe über das Diagramm, um hineinzuzoomen",
+    "reset_line_item": "Reset {moment} · davor {before}",
+    "reset_line_total": "{period, select, monthly {diesen Monat} other {diese Woche}} insgesamt {total}"
   },
   "Cycles": {
     "back_to_current": "Zurück zum aktuellen Zyklus",

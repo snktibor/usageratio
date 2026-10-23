@@ -479,7 +479,11 @@ export function CycleChart({
         </p>
       </div>
 
-      {zoomed ? <ZoomAxis zoomWindow={zoomWindow} width={width} model={model} /> : <CycleRuler model={model} />}
+      {zoomed ? (
+        <ZoomAxis zoomWindow={zoomWindow} width={width} model={model} />
+      ) : (
+        <CycleRuler model={model} span={{ elapsedFraction: model.cycle.elapsedFraction, days: model.cycle.segments }} />
+      )}
 
       <details className="mt-2 text-sm">
         <summary className="w-fit cursor-pointer text-ink-3 transition-colors hover:text-ink">{t("as_table")}</summary>

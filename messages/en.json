@@ -480,7 +480,9 @@
     "zoom_three_days": "3 days",
     "zoom_cycle": "Whole cycle",
     "zoom_reset": "Reset zoom",
-    "zoom_drag_hint": "or drag across the chart to zoom in"
+    "zoom_drag_hint": "or drag across the chart to zoom in",
+    "reset_line_item": "Reset {moment} · before it {before}",
+    "reset_line_total": "this {period, select, monthly {month} other {week}} in total {total}"
   },
   "Cycles": {
     "back_to_current": "Back to the current cycle",
