@@ -256,29 +256,28 @@ export function useSegmentEntries(
       setStatuses((current) => new Map(current).set(startMs, { status: "saving", problem: null }));
       pending.current.add(startMs);
       clearTimeout(timers.current.get(startMs));
-      timers.current.set(
-        startMs,
-        setTimeout(() => {
-          void putOfficialUsage("/api/official-usage/archived", {
-            providerId,
-            raw: next.raw,
-            cycleStartMs,
-            segmentStartMs: startMs,
+      const handle: ReturnType<typeof setTimeout> = setTimeout(() => {
+        void putOfficialUsage("/api/official-usage/archived", {
+          providerId,
+          raw: next.raw,
+          cycleStartMs,
+          segmentStartMs: startMs,
+        })
+          .then((result) => {
+            setStatuses((current) =>
+              new Map(current).set(
+                startMs,
+                result.ok ? { status: "saved", problem: null } : { status: "failed", problem: result.reason },
+              ),
+            );
+            if (result.ok) router.refresh();
           })
-            .then((result) => {
-              setStatuses((current) =>
-                new Map(current).set(
-                  startMs,
-                  result.ok ? { status: "saved", problem: null } : { status: "failed", problem: result.reason },
-                ),
-              );
-              if (result.ok) router.refresh();
-            })
-            .finally(() => {
-              pending.current.delete(startMs);
-            });
-        }, DEBOUNCE_MS),
-      );
+          .finally(() => {
+            // A newer edit arms its own timer while this save is on its way: the field stays pending until that one is sent.
+            if (timers.current.get(startMs) === handle) pending.current.delete(startMs);
+          });
+      }, DEBOUNCE_MS);
+      timers.current.set(startMs, handle);
     },
     [providerId, cycleStartMs, closedAtMs, router],
   );
