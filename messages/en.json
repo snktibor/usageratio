@@ -295,7 +295,12 @@
     "leave_title": "Leave without saving?",
     "leave_body": "Your changes to the settings have not been saved. They are lost if you leave this page now.",
     "leave_stay": "Stay",
-    "leave_confirm": "Leave"
+    "leave_confirm": "Leave",
+    "reset_mode_after": "After a reset",
+    "reset_mode_label": "{label}: after a reset",
+    "reset_mode_keep": "the {period, select, monthly {monthly} other {weekly}} reset stays",
+    "reset_mode_restart": "the reset becomes the new {period, select, monthly {monthly} other {weekly}} reset",
+    "reset_set_by_reset": "Set by a recorded reset"
   },
   "Alerts": {
     "threshold_text": "{label} has used {threshold}% of its budget (currently at {used}%); the cycle ends {end}."

@@ -295,7 +295,12 @@
     "leave_title": "Ohne Speichern verlassen?",
     "leave_body": "Deine Änderungen an den Einstellungen sind nicht gespeichert. Sie gehen verloren, wenn du die Seite jetzt verlässt.",
     "leave_stay": "Bleiben",
-    "leave_confirm": "Verlassen"
+    "leave_confirm": "Verlassen",
+    "reset_mode_after": "Nach einem Reset",
+    "reset_mode_label": "{label}: nach einem Reset",
+    "reset_mode_keep": "der {period, select, monthly {monatliche} other {wöchentliche}} Reset bleibt",
+    "reset_mode_restart": "der Reset wird zum neuen {period, select, monthly {monatlichen} other {wöchentlichen}} Reset",
+    "reset_set_by_reset": "Von einem erfassten Reset gesetzt"
   },
   "Alerts": {
     "threshold_text": "{label} hat {threshold}% seines Kontingents verbraucht (aktuell bei {used}%); der Zyklus endet am {end}."

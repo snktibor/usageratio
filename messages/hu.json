@@ -295,7 +295,12 @@
     "leave_title": "Kilépsz mentés nélkül?",
     "leave_body": "A beállítások változásai még nincsenek elmentve. Ha most elhagyod az oldalt, elvesznek.",
     "leave_stay": "Maradok",
-    "leave_confirm": "Elvetem"
+    "leave_confirm": "Elvetem",
+    "reset_mode_after": "Reset után",
+    "reset_mode_label": "{label}: reset után",
+    "reset_mode_keep": "a {period, select, monthly {havi} other {heti}} reset marad",
+    "reset_mode_restart": "a reset lesz az új {period, select, monthly {havi} other {heti}} reset",
+    "reset_set_by_reset": "Egy rögzített reset állította be"
   },
   "Alerts": {
     "threshold_text": "A(z) {label} elhasználta a kerete {threshold}%-át (jelenleg {used}%-nál tart); a ciklus itt ér véget: {end}."

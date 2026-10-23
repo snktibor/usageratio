@@ -69,6 +69,12 @@ one. The reset time (`HH:MM`) and time zone are also set here. The time zone is 
 whose suggestions come from the browser's own `Intl.supportedValuesOf("timeZone")`, the browser's
 detected zone first (with a shortcut to use it); a zone the browser does not know cannot be saved.
 
+**After a reset**: per provider, how it resets a user's usage early — *the weekly reset stays* (Claude: the
+usage drops, but the cycle still ends when it would have) or *the reset becomes the new weekly reset* (Codex:
+a fresh cycle starts at the reset). The defaults: `claude` and `anthropic` keep, `openai` restarts, anything
+else keeps; see [Usage resets](#usage-resets). A provider's own reset moved by a recorded reset is marked
+*Set by a recorded reset*, the way one the menu bar app moved is; editing it drops the mark.
+
 **Official percentage**: a machine's own measurement doesn't always exactly match a provider's own
 official usage figure, but their proportions hold. Typing (or dragging the slider to) a percentage
 in the selected account's official-percentage field restates every group's and machine's share as
@@ -107,7 +113,9 @@ An optional webhook message the first time a provider's usage in the current cyc
 up to 20 percentage thresholds (50, 80 and 100% by default). A threshold is added by typing a whole
 percentage (1–100) and pressing **Add**; the list stays sorted, a repeated value is dropped, and
 each one has its own remove button.
-Each threshold fires at most once per provider per cycle. Fields:
+Each threshold fires at most once per provider per cycle — or per stretch of it: once a
+[usage reset](#usage-resets) has been recorded, the thresholds can fire again for the usage since.
+Fields:
 webhook URL (must be `https`, and can't point at a private/loopback/link-local address — the same
 allow-list a self-hosted deployment's own network is protected by, see
 [security.md](security.md)), message format (**generic** JSON, **Slack**, or **Discord**),
