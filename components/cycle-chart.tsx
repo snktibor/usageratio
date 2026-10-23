@@ -20,7 +20,7 @@ import {
   type ZoomPreset,
   zoomTicks,
 } from "@/lib/chart";
-import type { DashboardModel } from "@/lib/dashboard";
+import { type DashboardModel, resetMoments } from "@/lib/dashboard";
 import { formatClock, formatCycleMoment } from "@/lib/format";
 
 export interface ChartSeries {
@@ -191,8 +191,8 @@ export function CycleChart({
   const preset = presetOf(zoomWindow, cycle, lastMs);
   const moment = (ms: number) => formatCycleMoment(ms, model.period, model.timeZone, locale);
 
-  // The cycle's keep resets: the samples right before and at each (lib/timeline.ts) survive the thinning of a long window.
-  const keepMs = model.resets.filter((reset) => reset.kind === "keep").map((reset) => reset.atMs);
+  // Where the lines restart (an open cycle's keep resets, a closed cycle's segments): the samples right before and at each (lib/timeline.ts) survive the thinning of a long window.
+  const keepMs = resetMoments(model);
   const { inside, drawn } = visibleSamples(
     times,
     zoomWindow,

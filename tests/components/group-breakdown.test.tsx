@@ -172,3 +172,43 @@ describe("GroupBreakdown — nothing consumed yet", () => {
     expect(screen.getByText(/^No consumption in this cycle yet\./)).toBeDefined();
   });
 });
+
+describe("GroupBreakdown — after a keep reset", () => {
+  it("says the machines' lines start again from 0 at each reset", () => {
+    const model = buildDashboard(
+      NOW,
+      {
+        ...getConfig({}),
+        tokenMode: "delta" as const,
+        useTokenLimits: false,
+        // Fixed to Budapest time: the reset's cycle must be the model's.
+        reset: { ...getConfig({}).reset, timeZone: "Europe/Budapest" },
+      },
+      {
+        events: [
+          report("mac", "Personal", 10_000),
+          { machineId: "mac", groupId: "Personal", tokens: 5_000, ts: CYCLE_START + 40 * HOUR },
+        ],
+        groups: [],
+        machines: [],
+        resets: [
+          {
+            id: "k",
+            atMs: CYCLE_START + 38 * HOUR,
+            kind: "keep",
+            cycleStartMs: CYCLE_START,
+            before: 80,
+            beforeAtMs: null,
+            source: "manual",
+            recordedAtMs: CYCLE_START + 38 * HOUR,
+          },
+        ],
+      },
+    );
+    renderWithIntl(<GroupBreakdown model={model} view={applyGroundTruth(model, null)} />);
+    fireEvent.click(screen.getByRole("button", { name: /Personal/ }));
+    expect(
+      screen.getByText(/accumulated since the start of the cycle, starting again from 0 at each reset/),
+    ).toBeDefined();
+  });
+});

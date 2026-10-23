@@ -57,3 +57,38 @@ describe("ModelChart", () => {
     ).toBeDefined();
   });
 });
+
+describe("ModelChart — a closed cycle with keep resets", () => {
+  it("says the lines start again from 0 at each of its resets", () => {
+    const END = CYCLE_START + 168 * HOUR;
+    const R = CYCLE_START + 38 * HOUR;
+    const config = {
+      ...getConfig({}),
+      tokenMode: "delta" as const,
+      reset: { ...getConfig({}).reset, timeZone: "Europe/Budapest" },
+    };
+    const closed = buildDashboard(
+      new Date(END + 32 * HOUR),
+      config,
+      {
+        events: [
+          ...events,
+          { machineId: "win", groupId: "Work", tokens: 12_000, ts: R + HOUR, models: { "claude-opus-4": 12_000 } },
+        ],
+        groups: [],
+        machines: [],
+        archivedSegments: [
+          { start: CYCLE_START, end: R, official: 80, total: 0, groups: {} },
+          { start: R, end: END, official: 44, total: 0, groups: {} },
+        ],
+      },
+      [],
+      {
+        cycle: { start: new Date(CYCLE_START), end: new Date(END) },
+        previous: { start: new Date(CYCLE_START - 168 * HOUR), end: new Date(CYCLE_START) },
+      },
+    );
+    renderWithIntl(<ModelChart model={closed} />);
+    expect(screen.getByText(/starting again from 0 at each reset/)).toBeDefined();
+  });
+});

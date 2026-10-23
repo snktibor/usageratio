@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { UsageChart } from "@/components/usage-chart";
 import { getConfig } from "@/lib/config";
 import { buildDashboard } from "@/lib/dashboard";
-import { applyGroundTruth } from "@/lib/ground-truth";
+import { applyGroundTruth, applySegmentFigures } from "@/lib/ground-truth";
 import type { ResetEvent } from "@/lib/resets";
 import { renderWithIntl } from "../helpers/render";
 
@@ -61,5 +61,43 @@ describe("UsageChart — after a keep reset", () => {
     const model = modelWith(80);
     renderWithIntl(<UsageChart model={model} view={applyGroundTruth(model, null)} subLimits={[]} />);
     expect(screen.getAllByText("Home").length).toBeGreaterThan(0);
+  });
+});
+
+describe("UsageChart — a closed cycle with keep resets", () => {
+  const END = S + 7 * 24 * HOUR;
+  const R = S + 38 * HOUR;
+  const closed = buildDashboard(
+    new Date(END + 32 * HOUR),
+    config,
+    {
+      events: [
+        { machineId: "win-1", groupId: "Work", tokens: 30_000, ts: S + HOUR },
+        { machineId: "win-1", groupId: "Work", tokens: 12_000, ts: R + HOUR },
+      ],
+      groups: [],
+      machines: [],
+      archivedSegments: [
+        { start: S, end: R, official: null, total: 0, groups: {} },
+        { start: R, end: END, official: 44, total: 0, groups: {} },
+      ],
+    },
+    [],
+    {
+      cycle: { start: new Date(S), end: new Date(END) },
+      previous: { start: new Date(S - 7 * 24 * HOUR), end: new Date(S) },
+    },
+  );
+
+  it("marks the reset, and fades a segment that has no figure", () => {
+    renderWithIntl(<UsageChart model={closed} view={applySegmentFigures(closed, [null, 44])} subLimits={[]} />);
+    expect(screen.getByText("reset")).toBeDefined();
+    expect(document.querySelectorAll("[data-pale]")).toHaveLength(1);
+    expect(screen.getByText(/every line starts again from 0/)).toBeDefined();
+  });
+
+  it("draws every segment plainly when each has its figure", () => {
+    renderWithIntl(<UsageChart model={closed} view={applySegmentFigures(closed, [80, 44])} subLimits={[]} />);
+    expect(document.querySelectorAll("[data-pale]")).toHaveLength(0);
   });
 });

@@ -1,7 +1,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { ChartLegend, type ChartSeries, CycleChart } from "@/components/cycle-chart";
 import { formatPercentTick } from "@/lib/chart";
-import type { DashboardModel } from "@/lib/dashboard";
+import { type DashboardModel, resetMoments } from "@/lib/dashboard";
 import { formatHeroPercent } from "@/lib/format";
 import { type DashboardView, type SubLimitView, subLimitTimeline, timelineRates } from "@/lib/ground-truth";
 import { NEUTRAL_COLOR } from "@/lib/settings";
@@ -40,14 +40,19 @@ export function UsageChart({
   const rates = timelineRates(model, view);
   const colorOf = new Map(Object.entries(model.groupColors));
   const keeps = model.resets.filter((reset) => reset.kind === "keep");
-  // Under an official reading, a finished segment without a figure of its own is only an estimate at the current rate.
-  const paleSpans = view.calibrated
-    ? keeps.flatMap((reset, index) =>
-        reset.before === null ? [{ startMs: keeps[index - 1]?.atMs ?? model.cycle.startMs, endMs: reset.atMs }] : [],
-      )
-    : [];
+  // Under an official reading, a finished segment without a figure of its own is only an estimate.
+  const paleSpans = !view.calibrated
+    ? []
+    : model.pastSegments.length > 0
+      ? model.pastSegments.flatMap((segment, index) =>
+          view.segmentFigures?.[index] === null ? [{ startMs: segment.startMs, endMs: segment.endMs }] : [],
+        )
+      : keeps.flatMap((reset, index) =>
+          reset.before === null ? [{ startMs: keeps[index - 1]?.atMs ?? model.cycle.startMs, endMs: reset.atMs }] : [],
+        );
   // Right after a reset the segment has nothing measured yet, but the cycle has.
   const measured = model.total > 0 || keeps.some((reset) => (reset.tokens ?? 0) > 0);
+  const restarts = resetMoments(model).length > 0;
 
   const subLimitSeries: ChartSeries[] = subLimits.flatMap((subView, index) => {
     const values = subLimitTimeline(subView);
@@ -119,7 +124,7 @@ export function UsageChart({
         <p className="mt-1 text-sm text-ink-3">
           {view.calibrated ? t("chart_desc_official") : t("chart_desc_measured")}
           {subLimitSeries.length > 0 && t("chart_desc_sublimits")}
-          {keeps.length > 0 && t("chart_desc_resets")}
+          {restarts && t("chart_desc_resets")}
           {paleSpans.length > 0 && t("chart_desc_pale")}
         </p>
       )}
