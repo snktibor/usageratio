@@ -29,20 +29,25 @@ export interface ModelTimeline {
   /** The model's id without its snapshot date; see lib/models.ts. */
   modelId: string;
   label: string;
-  /** Its tokens this cycle, over all groups. */
+  /** Its tokens in the current segment (the cycle, without keep resets), over all groups. */
   tokens: number;
   groups: GroupSeries[];
-  /** Its API-list-price cost estimate this cycle, over all groups; undefined without a cost split naming it. */
+  /** Its API-list-price cost estimate in the current segment, over all groups; undefined without a cost split naming it. */
   cost?: number;
 }
 
 export interface CycleTimeline {
-  /** Sample times, epoch ms: the cycle's start, then every full step, and last the moment of the dashboard. */
+  /**
+   * Sample times, epoch ms: the cycle's start, then every full step, and last
+   * the moment of the dashboard; around each keep reset, R − 1 and R as well
+   * (`withResetSamples`).
+   */
   times: number[];
+  /** Cumulative tokens since the segment each sample falls in began: every line restarts from 0 at a keep reset. */
   groups: GroupSeries[];
   /** The machines of those groups with usage this cycle, each within its group; in no particular order. */
   machines: MachineSeries[];
-  /** Only models with usage this cycle, the heaviest first. */
+  /** Only models with usage this cycle, the heaviest in the current segment first. */
   models: ModelTimeline[];
 }
 
@@ -71,30 +76,69 @@ function sampleEnds(times: number[], window: { endMs: number }): number[] {
   return times.map((t, index) => (index === times.length - 1 ? window.endMs : t + 1));
 }
 
+/**
+ * `times` with two samples for each keep reset inside them: the moment before
+ * it, where a finished segment's lines end on its total, and the reset itself,
+ * where they start again from 0. A reset at or before the first sample, or
+ * after the last, adds none.
+ */
+export function withResetSamples(times: number[], resetsMs: number[]): number[] {
+  const first = times[0];
+  const last = times[times.length - 1];
+  if (first === undefined || last === undefined) return times;
+  const extra = resetsMs.filter((atMs) => atMs > first && atMs <= last).flatMap((atMs) => [atMs - 1, atMs]);
+  return extra.length === 0 ? times : [...new Set([...times, ...extra])].sort((a, b) => a - b);
+}
+
+/**
+ * One series' usage at each sample (`endsMs`: see `sampleEnds`), counted from
+ * the last of `resetsMs` (ascending) at or before the sample: the same
+ * difference `summarizeUsage` takes with `fromMs` (lib/aggregate.ts), so the
+ * last sample ends on the current segment's figures.
+ */
+function seriesValues(
+  series: UsageEvent[],
+  times: number[],
+  endsMs: number[],
+  startMs: number,
+  resetsMs: number[],
+  mode: TokenMode,
+): number[] {
+  const usages = usageOfSeriesUntil(series, startMs, endsMs, mode);
+  if (resetsMs.length === 0) return usages;
+  const bases = usageOfSeriesUntil(series, startMs, resetsMs, mode);
+  return usages.map((usage, index) => {
+    const passed = resetsMs.filter((atMs) => atMs <= times[index]!).length;
+    return passed === 0 ? usage : usage - bases[passed - 1]!;
+  });
+}
+
 /** All of `events` together, cumulated at each of `times` exactly as the groups are. */
 export function totalTimeline(
   events: UsageEvent[],
   times: number[],
   window: { startMs: number; endMs: number },
   mode: TokenMode,
+  resetsMs: number[] = [],
 ): number[] {
   const endsMs = sampleEnds(times, window);
   const values = times.map(() => 0);
   for (const series of groupIntoSeries(events)) {
-    usageOfSeriesUntil(series, window.startMs, endsMs, mode).forEach((usage, index) => {
+    seriesValues(series, times, endsMs, window.startMs, resetsMs, mode).forEach((usage, index) => {
       values[index]! += usage;
     });
   }
   return values;
 }
 
-/** Every group's cumulative usage at each of `times`; see `sampleEnds`. */
+/** Every group's cumulative usage at each of `times`; see `sampleEnds` and `seriesValues`. */
 function groupTimelines(
   events: UsageEvent[],
   groupIds: string[],
   times: number[],
   window: { startMs: number; endMs: number },
   mode: TokenMode,
+  resetsMs: number[],
 ): GroupSeries[] {
   const endsMs = sampleEnds(times, window);
   const byGroup = new Map(groupIds.map((groupId) => [groupId, times.map(() => 0)]));
@@ -102,7 +146,7 @@ function groupTimelines(
   for (const series of groupIntoSeries(events)) {
     const values = byGroup.get(series[0]!.groupId);
     if (!values) continue;
-    usageOfSeriesUntil(series, window.startMs, endsMs, mode).forEach((usage, index) => {
+    seriesValues(series, times, endsMs, window.startMs, resetsMs, mode).forEach((usage, index) => {
       values[index]! += usage;
     });
   }
@@ -112,7 +156,8 @@ function groupTimelines(
 /**
  * Every machine's cumulative usage at each of `times`, within each of `groupIds`
  * (a merged machine's carry-over counted into its line). A machine without
- * usage has no line: its line would lie on the axis.
+ * usage this cycle has no line: its line would lie on the axis. One that used
+ * tokens only before a keep reset keeps its line.
  */
 function machineTimelines(
   events: UsageEvent[],
@@ -120,6 +165,7 @@ function machineTimelines(
   times: number[],
   window: { startMs: number; endMs: number },
   mode: TokenMode,
+  resetsMs: number[],
 ): MachineSeries[] {
   const endsMs = sampleEnds(times, window);
   const byMachine = new Map<string, MachineSeries>();
@@ -130,11 +176,11 @@ function machineTimelines(
     const key = JSON.stringify([groupId, machineId]);
     const machine = byMachine.get(key) ?? { machineId, groupId, values: times.map(() => 0) };
     byMachine.set(key, machine);
-    usageOfSeriesUntil(series, window.startMs, endsMs, mode).forEach((usage, index) => {
+    seriesValues(series, times, endsMs, window.startMs, resetsMs, mode).forEach((usage, index) => {
       machine.values[index]! += usage;
     });
   }
-  return [...byMachine.values()].filter((machine) => machine.values[times.length - 1]! > 0);
+  return [...byMachine.values()].filter((machine) => machine.values.some((value) => value > 0));
 }
 
 /**
@@ -154,16 +200,17 @@ function reportsOfModel(events: UsageEvent[], key: string): UsageEvent[] {
 }
 
 /**
- * A model's cost ($) this cycle so far, summed over every machine that named
- * it in a split; undefined when nothing did (no client sent a cost, or
- * none tied this particular model's cost down). Cost is always cycle-to-date
- * snapshot semantics (lib/aggregate.ts `costOfSeriesUntil`), independent of
- * the provider's own token mode.
+ * A model's cost ($) since `fromMs` (the current segment's start), summed over
+ * every machine that named it in a split; undefined when nothing did (no
+ * client sent a cost, or none tied this particular model's cost down). Cost
+ * is always cycle-to-date snapshot semantics (lib/aggregate.ts
+ * `costOfSeriesUntil`), independent of the provider's own token mode.
  */
 function modelCostTotal(
   events: UsageEvent[],
   key: string,
   window: { startMs: number; endMs: number },
+  fromMs: number,
 ): number | undefined {
   let total: number | undefined;
   for (const series of groupIntoSeries(events)) {
@@ -176,7 +223,8 @@ function modelCostTotal(
       return cost === undefined ? [] : [{ ...event, costUsd: cost }];
     });
     if (costSeries.length === 0) continue;
-    total = (total ?? 0) + costOfSeriesUntil(costSeries, window.startMs, [window.endMs])[0]!;
+    const [before, until] = costOfSeriesUntil(costSeries, window.startMs, [fromMs, window.endMs]);
+    total = (total ?? 0) + until! - before!;
   }
   return total;
 }
@@ -186,6 +234,9 @@ function modelCostTotal(
  * `groupIds` are the groups to chart, in the order to chart them. The models
  * come from `modelEvents`: the provider's reports as sent, while `events` may
  * have a separate sub-limit's tokens taken out (lib/sub-limits.ts).
+ * `resetsMs` are the cycle's keep resets up to now, ascending (lib/resets.ts):
+ * every line restarts from 0 at each, and a model's tokens and cost are the
+ * current segment's.
  */
 export function buildTimeline(
   events: UsageEvent[],
@@ -194,9 +245,11 @@ export function buildTimeline(
   nowMs: number,
   mode: TokenMode,
   modelEvents: UsageEvent[] = events,
+  resetsMs: number[] = [],
 ): CycleTimeline {
-  const times = sampleTimes(window.startMs, window.endMs, nowMs);
+  const times = withResetSamples(sampleTimes(window.startMs, window.endMs, nowMs), resetsMs);
   const last = times.length - 1;
+  const segmentStartMs = resetsMs.at(-1) ?? window.startMs;
 
   const keys = new Set<string>();
   for (const event of modelEvents) {
@@ -205,18 +258,19 @@ export function buildTimeline(
 
   const models = [...keys]
     .map((key) => {
-      const groups = groupTimelines(reportsOfModel(modelEvents, key), groupIds, times, window, mode);
+      const groups = groupTimelines(reportsOfModel(modelEvents, key), groupIds, times, window, mode, resetsMs);
       const tokens = groups.reduce((sum, group) => sum + group.values[last]!, 0);
-      const cost = modelCostTotal(modelEvents, key, window);
+      const cost = modelCostTotal(modelEvents, key, window, segmentStartMs);
       return { modelId: key, label: modelLabel(key), tokens, groups, ...(cost !== undefined && { cost }) };
     })
-    .filter((model) => model.tokens > 0)
+    // A model used only before a reset has none of the segment's tokens, but still a line to draw.
+    .filter((model) => model.groups.some((group) => group.values.some((value) => value > 0)))
     .sort((a, b) => b.tokens - a.tokens || a.modelId.localeCompare(b.modelId));
 
   return {
     times,
-    groups: groupTimelines(events, groupIds, times, window, mode),
-    machines: machineTimelines(events, groupIds, times, window, mode),
+    groups: groupTimelines(events, groupIds, times, window, mode, resetsMs),
+    machines: machineTimelines(events, groupIds, times, window, mode, resetsMs),
     models,
   };
 }

@@ -250,3 +250,20 @@ describe("summarizeUsage from a segment's start", () => {
     expect(summarizeUsage(snapshot, window, "snapshot").total).toBe(350);
   });
 });
+
+describe("summarizeCost — from a moment", () => {
+  it("counts only what accrued from fromMs on, by machine and group", () => {
+    const events: UsageEvent[] = [
+      { ...ev("mac", "Personal", 10, 1100), costUsd: 2 },
+      { ...ev("mac", "Personal", 20, 1600), costUsd: 5 },
+      // No cost figure since fromMs: left out, as a machine that never sent one is.
+      { ...ev("win", "Work", 5, 1200), costUsd: 1 },
+    ];
+    expect(summarizeCost(events, WINDOW, 1500)).toEqual({
+      total: 3,
+      byGroup: { Personal: 3 },
+      byMachine: { mac: 3 },
+      hasCost: true,
+    });
+  });
+});

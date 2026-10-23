@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { summarizeUsage, type UsageEvent } from "@/lib/aggregate";
 import type { TokenMode } from "@/lib/config";
 import { modelKey, modelLabel } from "@/lib/models";
-import { buildTimeline, sampleTimes } from "@/lib/timeline";
+import { buildTimeline, sampleTimes, withResetSamples } from "@/lib/timeline";
 
 const HOUR = 3_600_000;
 const START = Date.parse("2026-09-20T22:00:00Z");
@@ -186,5 +186,81 @@ describe("model names", () => {
     ["gemini-2.5-pro", "Gemini 2.5 Pro"],
   ])("labels %s as %s", (key, label) => {
     expect(modelLabel(key)).toBe(label);
+  });
+});
+
+describe("buildTimeline across a keep reset", () => {
+  // 03:20, off the hourly grid.
+  const RESET = START + 3 * HOUR + 20 * 60_000;
+  const events = [
+    report("mac", "Personal", 100, 1),
+    report("win", "Work", 50, 2),
+    report("mac", "Personal", 300, 3),
+    report("mac", "Personal", 80, 4),
+    report("mac", "Personal", 120, 5),
+  ];
+  const NOW = START + 5.5 * HOUR;
+
+  it("samples the moment before the reset and the reset itself", () => {
+    expect(withResetSamples(sampleTimes(WEEK.startMs, WEEK.endMs, NOW), [RESET])).toEqual([
+      ...[0, 1, 2, 3].map((h) => START + h * HOUR),
+      RESET - 1,
+      RESET,
+      ...[4, 5, 5.5].map((h) => START + h * HOUR),
+    ]);
+    // A reset on the grid only adds the moment before it; none past the last sample adds anything.
+    expect(withResetSamples([START, START + HOUR, START + 2 * HOUR], [START + HOUR, START + 5 * HOUR])).toEqual([
+      START,
+      START + HOUR - 1,
+      START + HOUR,
+      START + 2 * HOUR,
+    ]);
+  });
+
+  it("restarts every line from 0 at the reset (delta mode)", () => {
+    const timeline = buildTimeline(events, ["Personal", "Work"], WEEK, NOW, "delta", events, [RESET]);
+    const personal = timeline.groups.find((group) => group.groupId === "Personal")!;
+    const work = timeline.groups.find((group) => group.groupId === "Work")!;
+    expect(personal.values).toEqual([0, 100, 100, 400, 400, 0, 80, 200, 200]);
+    expect(work.values).toEqual([0, 0, 50, 50, 50, 0, 0, 0, 0]);
+  });
+
+  it.each<TokenMode>(["delta", "snapshot", "counter"])("ends on the segment's own totals (%s mode)", (mode) => {
+    const timeline = buildTimeline(events, ["Personal", "Work"], WEEK, NOW, mode, events, [RESET]);
+    const summary = summarizeUsage(events, WEEK, mode, RESET);
+    for (const group of timeline.groups) {
+      const expected = summary.groups.find((g) => g.groupId === group.groupId)?.tokens ?? 0;
+      expect(group.values.at(-1)).toBe(expected);
+    }
+  });
+
+  it("keeps the line of a machine that used tokens only before the reset", () => {
+    const timeline = buildTimeline(events, ["Personal", "Work"], WEEK, NOW, "delta", events, [RESET]);
+    expect(timeline.machines.find((machine) => machine.machineId === "win")?.values).toEqual([
+      0, 0, 50, 50, 50, 0, 0, 0, 0,
+    ]);
+  });
+
+  it("counts a model's tokens and cost since the reset, and keeps one used only before it", () => {
+    const priced: UsageEvent[] = [
+      {
+        ...report("mac", "Personal", 100, 1, { "claude-opus-4-1": 100 }),
+        costUsd: 1,
+        modelCosts: { "claude-opus-4-1": 1 },
+      },
+      report("mac", "Personal", 30, 2, { "claude-sonnet-4-5": 30 }),
+      {
+        ...report("mac", "Personal", 60, 4, { "claude-opus-4-1": 60 }),
+        costUsd: 1.5,
+        modelCosts: { "claude-opus-4-1": 1.5 },
+      },
+    ];
+    const timeline = buildTimeline(priced, ["Personal"], WEEK, NOW, "delta", priced, [RESET]);
+    expect(timeline.models.map((model) => [model.modelId, model.tokens])).toEqual([
+      ["claude-opus-4-1", 60],
+      ["claude-sonnet-4-5", 0],
+    ]);
+    // Cost is a running total: 1.5 at the end, 1 before the reset.
+    expect(timeline.models[0]!.cost).toBeCloseTo(0.5);
   });
 });

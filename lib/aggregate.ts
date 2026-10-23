@@ -235,19 +235,22 @@ export function costOfSeriesUntil(events: UsageEvent[], startMs: number, endsMs:
  * The window's cost, by machine and by group, and in total; only over the
  * machines that reported a cost figure at all in the window (a machine that
  * sent none is simply left out, rather than shown at $0). Mirrors
- * `summarizeUsage`, minus the token-mode/share/report bookkeeping cost has no use for.
+ * `summarizeUsage`, minus the token-mode/share/report bookkeeping cost has no
+ * use for, `fromMs` included: only what accrued from then on counts, one
+ * segment of a cycle (lib/resets.ts).
  */
-export function summarizeCost(events: UsageEvent[], window: TimeWindow): CostSummary {
+export function summarizeCost(events: UsageEvent[], window: TimeWindow, fromMs: number = window.startMs): CostSummary {
   let total = 0;
   const byGroup: Record<string, number> = {};
   const byMachine: Record<string, number> = {};
   let hasCost = false;
 
   for (const series of groupIntoSeries(events)) {
-    const inWindow = series.filter((e) => e.ts >= window.startMs && e.ts < window.endMs);
+    const inWindow = series.filter((e) => e.ts >= fromMs && e.ts < window.endMs);
     if (!inWindow.some((e) => e.costUsd !== undefined)) continue;
     hasCost = true;
-    const cost = costOfSeriesUntil(series, window.startMs, [window.endMs])[0]!;
+    const [before, until] = costOfSeriesUntil(series, window.startMs, [fromMs, window.endMs]);
+    const cost = until! - before!;
     const { machineId, groupId } = series[0]!;
     byMachine[machineId] = (byMachine[machineId] ?? 0) + cost;
     byGroup[groupId] = (byGroup[groupId] ?? 0) + cost;
