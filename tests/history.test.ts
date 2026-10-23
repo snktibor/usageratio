@@ -11,6 +11,8 @@ import {
   parseCycleSummary,
   serializeCycleSummary,
   summarizeCycle,
+  sumOfFigures,
+  withCorrectedOfficial,
 } from "@/lib/history";
 import { serializeOfficialEntry } from "@/lib/official-usage";
 import { getRedis } from "@/lib/redis";
@@ -234,6 +236,103 @@ describe("finalUsageOf / groupSharesOf", () => {
 
     expect(finalUsageOf(base)).toBeNull();
     expect(groupSharesOf(base).map((group) => group.quotaShare)).toEqual([null, null]);
+  });
+});
+
+/** A week with a keep reset after three days: 80% before it (Work only), 44% after (Work 100, Personal 400). */
+const SEGMENTED: CycleSummary = {
+  v: 1,
+  start: WINDOW.startMs,
+  end: WINDOW.endMs,
+  total: 1_000,
+  limit: null,
+  official: 124,
+  groups: { Work: 600, Personal: 400 },
+  machines: 2,
+  models: {},
+  subLimits: {},
+  archivedAt: WINDOW.endMs,
+  segments: [
+    { start: WINDOW.startMs, end: 72 * HOUR, official: 80, total: 500, groups: { Work: 500 } },
+    { start: 72 * HOUR, end: WINDOW.endMs, official: 44, total: 500, groups: { Work: 100, Personal: 400 } },
+  ],
+};
+
+describe("sumOfFigures", () => {
+  it("adds the known figures up to two decimals, and is null with none known", () => {
+    expect(sumOfFigures([80, 20.25, null])).toBe(100.25);
+    expect(sumOfFigures([33.333, 33.333])).toBe(66.67);
+    expect(sumOfFigures([null, null])).toBeNull();
+    expect(sumOfFigures([])).toBeNull();
+  });
+});
+
+describe("groupSharesOf with segments", () => {
+  it("splits each segment's figure by that segment's tokens and adds the parts up, past 100% in total", () => {
+    expect(finalUsageOf(SEGMENTED)).toBe(1.24);
+    const shares = groupSharesOf(SEGMENTED);
+    expect(shares.map((group) => [group.groupId, group.share])).toEqual([
+      ["Work", 0.6],
+      ["Personal", 0.4],
+    ]);
+    // Work: all of the first segment's 80%, a fifth of the second's 44%; Personal: four fifths of 44%.
+    expect(shares[0]!.quotaShare).toBeCloseTo(0.888);
+    expect(shares[1]!.quotaShare).toBeCloseTo(0.352);
+  });
+
+  it("leaves a segment without a figure out", () => {
+    const partial: CycleSummary = {
+      ...SEGMENTED,
+      official: 44,
+      segments: [{ ...SEGMENTED.segments![0]!, official: null }, SEGMENTED.segments![1]!],
+    };
+    const shares = groupSharesOf(partial);
+    expect(shares[0]!.quotaShare).toBeCloseTo(0.088);
+    expect(shares[1]!.quotaShare).toBeCloseTo(0.352);
+  });
+
+  it("splits the token limit's share over the whole cycle when no segment has a figure", () => {
+    const none: CycleSummary = {
+      ...SEGMENTED,
+      official: null,
+      limit: 4_000,
+      segments: SEGMENTED.segments!.map((segment) => ({ ...segment, official: null })),
+    };
+    const shares = groupSharesOf(none);
+    expect(shares[0]!.quotaShare).toBeCloseTo(0.15);
+    expect(shares[1]!.quotaShare).toBeCloseTo(0.1);
+  });
+});
+
+describe("withCorrectedOfficial", () => {
+  it("corrects one segment by its start, and sums the figures again", () => {
+    const corrected = withCorrectedOfficial(SEGMENTED, 50, 72 * HOUR)!;
+    expect(corrected.segments!.map((segment) => segment.official)).toEqual([80, 50]);
+    expect(corrected.official).toBe(130);
+    expect({ ...corrected, segments: undefined, official: 124 }).toEqual({ ...SEGMENTED, segments: undefined });
+  });
+
+  it("corrects the figure the cycle ended on without a segment: its last segment's", () => {
+    const corrected = withCorrectedOfficial(SEGMENTED, 20)!;
+    expect(corrected.segments!.map((segment) => segment.official)).toEqual([80, 20]);
+    expect(corrected.official).toBe(100);
+  });
+
+  it("clears a segment's figure with null, and the cycle's once none is left", () => {
+    expect(withCorrectedOfficial(SEGMENTED, null, WINDOW.startMs)!.official).toBe(44);
+    const cleared = withCorrectedOfficial(withCorrectedOfficial(SEGMENTED, null, WINDOW.startMs)!, null)!;
+    expect(cleared.official).toBeNull();
+  });
+
+  it("sets the whole cycle's figure without segments, and finds no segment in such a summary", () => {
+    const plain: CycleSummary = { ...SEGMENTED, official: 82, segments: undefined };
+    delete (plain as Partial<CycleSummary>).segments;
+    expect(withCorrectedOfficial(plain, 100)).toEqual({ ...plain, official: 100 });
+    expect(withCorrectedOfficial(plain, 100, WINDOW.startMs)).toBeNull();
+  });
+
+  it("is null for a start that is no segment's", () => {
+    expect(withCorrectedOfficial(SEGMENTED, 50, 71 * HOUR)).toBeNull();
   });
 });
 
