@@ -163,4 +163,65 @@ describe("correcting a finished cycle's official percentage", () => {
     expect(screen.getByText("124%")).toBeDefined();
     expect(screen.getAllByText("(80% + 44%)").length).toBeGreaterThan(0);
   });
+
+  it("in the full view: a cycle with keep resets came to the sum, and corrects one segment", async () => {
+    const MID = START + 3 * 86_400_000;
+    const summary: CycleSummary = {
+      v: 1,
+      start: START,
+      end: END,
+      total: 0,
+      limit: null,
+      official: 100,
+      groups: {},
+      machines: 0,
+      models: {},
+      subLimits: {},
+      archivedAt: END,
+      segments: [
+        { start: START, end: MID, official: 80, total: 0, groups: {} },
+        { start: MID, end: END, official: 20, total: 0, groups: {} },
+      ],
+    };
+    const providers = buildProviderDashboards(
+      new Date("2026-10-08T12:00:00Z"),
+      getConfig({}),
+      ["claude"],
+      { eventsByProvider: {}, groups: [], machines: [], history: { claude: [summary] } },
+      new Map([["claude", { raw: "100", enteredAt: END }]]),
+      {
+        cycle: { start: new Date(START), end: new Date(END) },
+        previous: { start: new Date(START - 7 * 86_400_000), end: new Date(START) },
+      },
+    );
+    renderWithIntl(
+      <DashboardView
+        providers={providers}
+        historyByProvider={{ claude: [summary] }}
+        historyContext={historyContext}
+        pastCycle
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Correct" }));
+    expect(screen.queryByRole("textbox", { name: "Official consumption at the end of the cycle" })).toBeNull();
+    const fields = screen.getAllByRole("textbox", { name: /Official percentage/ });
+    expect(fields.map((field) => (field as HTMLInputElement).value)).toEqual(["80", "20"]);
+
+    fireEvent.change(fields[1]!, { target: { value: "44" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(sent(fetchMock)).toEqual([
+      {
+        path: "/api/official-usage/archived",
+        body: { providerId: "claude", raw: "44", cycleStartMs: START, segmentStartMs: MID },
+      },
+    ]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    // The field and the meter both show the new sum.
+    expect(screen.getAllByText("124%").length).toBeGreaterThanOrEqual(2);
+  });
 });

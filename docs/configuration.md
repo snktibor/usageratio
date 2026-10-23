@@ -187,6 +187,12 @@ the new figure is saved: **Yes** records a reset now, with the earlier figure as
 new one as the figure since; **No** leaves the edit a plain correction. It never appears on a finished
 cycle's correction.
 
+A finished cycle with keep-type resets came to the **sum** of its segments' figures, which can pass 100%: the
+previous-cycles list writes it as "124% (80% + 44%)" and splits each segment's figure between the groups by that
+segment's tokens. Its own view (while its reports are kept) shows the sum, restates every group and machine
+segment by segment, and marks the resets on its charts; **Correct** opens one field per segment. A cycle a
+restart-type reset cut short is listed as *ended by a reset*.
+
 ## Environment variables
 
 Set once at deploy time. Every variable here is also listed, with a short comment, in

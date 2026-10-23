@@ -9,17 +9,18 @@ import { MachineTable } from "@/components/machine-table";
 import { ModelChart } from "@/components/model-chart";
 import { QuotaMeter } from "@/components/quota-meter";
 import { ResetPanel, ResetPrompt } from "@/components/reset-panel";
+import { SegmentFigures } from "@/components/segment-figures";
 import { SubLimitMeters, type SubLimitState } from "@/components/sub-limit-meters";
 import { UsageChart } from "@/components/usage-chart";
-import { EMPTY_ENTRY, useOfficialEntry, useSubLimitEntries } from "@/components/use-official-entry";
+import { EMPTY_ENTRY, useOfficialEntry, useSegmentEntries, useSubLimitEntries } from "@/components/use-official-entry";
 import { useResetPrompt } from "@/components/use-reset-prompt";
 import { Link, useRouter } from "@/i18n/routing";
 import type { TokenMode } from "@/lib/config";
 import type { CycleKind } from "@/lib/cycle-options";
 import { type ProviderDashboardModel, segmentSince } from "@/lib/dashboard";
 import { formatDateTime, formatTokens } from "@/lib/format";
-import { applyGroundTruth, applySubLimitReading, parseOfficialPercent } from "@/lib/ground-truth";
-import type { CycleSummary } from "@/lib/history";
+import { applyGroundTruth, applySegmentFigures, applySubLimitReading, parseOfficialPercent } from "@/lib/ground-truth";
+import { type CycleSummary, sumOfFigures } from "@/lib/history";
 import { PROVIDER_COOKIE } from "@/lib/preferences";
 
 const MODE_NOTE = {
@@ -68,6 +69,23 @@ function ProviderView({
     model.closed ? model.cycle.endMs : null,
   );
   const { percent, invalid } = parseOfficialPercent(entry.raw);
+  // A closed cycle with keep resets came to the sum of its segments' figures, each corrected on its own.
+  const { pastSegments } = model;
+  const segmented = pastSegments.length > 0;
+  const [segmentEntries, setSegmentEntry, segmentStatuses] = useSegmentEntries(
+    selected.id,
+    model.cycle.startMs,
+    pastSegments,
+    model.cycle.endMs,
+  );
+  const segmentFigures = useMemo(
+    () =>
+      pastSegments.map(
+        (segment) => parseOfficialPercent((segmentEntries.get(segment.startMs) ?? EMPTY_ENTRY).raw).percent,
+      ),
+    [pastSegments, segmentEntries],
+  );
+  const segmentSum = sumOfFigures(segmentFigures);
   // "Was there a reset?": asked once an edit takes the figure low and its save has settled. Only an open
   // cycle's edit counts, and only within its segment: the view stays mounted when the page changes cycle.
   const resetPrompt = useResetPrompt(
@@ -85,8 +103,11 @@ function ProviderView({
   );
 
   const view = useMemo(
-    () => applyGroundTruth(model, percent === null ? null : { percent, atMs: entry.enteredAt }),
-    [model, percent, entry.enteredAt],
+    () =>
+      segmented
+        ? applySegmentFigures(model, segmentFigures)
+        : applyGroundTruth(model, percent === null ? null : { percent, atMs: entry.enteredAt }),
+    [segmented, model, segmentFigures, percent, entry.enteredAt],
   );
 
   // Both the fields under the official one and the chart show them: they are worked out here, once.
@@ -125,9 +146,9 @@ function ProviderView({
       <main className="mt-10 space-y-16 sm:mt-12">
         <div className="space-y-12 sm:space-y-14">
           <GroundTruthInput
-            raw={entry.raw}
+            raw={segmented ? (segmentSum === null ? "" : String(segmentSum)) : entry.raw}
             onChange={changeEntry}
-            invalid={invalid}
+            invalid={segmented ? false : invalid}
             enteredAt={entry.enteredAt}
             status={entryStatus}
             view={view}
@@ -138,6 +159,17 @@ function ProviderView({
             onProviderChange={onProviderChange}
             readOnly={model.closed}
             since={segmentSince(model)}
+            correction={
+              segmented && (
+                <SegmentFigures
+                  segments={pastSegments}
+                  entries={segmentEntries}
+                  statuses={segmentStatuses}
+                  onChange={setSegmentEntry}
+                  timeZone={model.timeZone}
+                />
+              )
+            }
             belowField={
               !model.closed &&
               resetPrompt.from !== null && (

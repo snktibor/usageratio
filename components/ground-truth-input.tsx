@@ -29,6 +29,11 @@ interface GroundTruthInputProps {
   /** Right under the field's hint: the "Was there a reset?" question (components/reset-panel.tsx), when it stands. */
   belowField?: React.ReactNode;
   /**
+   * A finished cycle with keep resets: what Correct opens instead of the
+   * single field — one field per segment (components/segment-figures.tsx).
+   */
+  correction?: React.ReactNode;
+  /**
    * A finished cycle: the figure archived with it is shown, and only edited
    * once asked to (a correction, say 82% → 100%, of a figure that went stale
    * before the reset; see components/use-official-entry.ts `closedAtMs`).
@@ -140,6 +145,17 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
             className="ml-auto shrink-0 self-center rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
           >
             {t("official_correct")}
+          </button>
+        </div>
+      ) : readOnly && props.correction ? (
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          {props.correction}
+          <button
+            type="button"
+            onClick={() => setCorrecting(false)}
+            className="rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
+          >
+            {t("official_correct_done")}
           </button>
         </div>
       ) : (
