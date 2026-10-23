@@ -11,6 +11,7 @@ All source: `app/api/**/route.ts`, shared helpers in `lib/api.ts`.
 - [`GET /api/health`](#get-apihealth)
 - [`GET`/`PUT /api/settings`](#getput-apisettings)
 - [`PUT /api/official-usage`](#put-apiofficial-usage)
+- [`PUT /api/official-usage/archived`](#put-apiofficial-usagearchived)
 - [`POST /api/official-usage/report`](#post-apiofficial-usagereport)
 - [`POST`/`PUT`/`DELETE /api/resets`](#postputdelete-apiresets)
 - [`GET /api/setup`](#get-apisetup)
@@ -359,6 +360,22 @@ of the field's own stretch of the cycle, from the dashboard it was typed on: the
 latest usage reset's moment after one ([`/api/resets`](#postputdelete-apiresets)).
 `200 { "ok": true, "enteredAt": <ms> }` · `400` invalid JSON/payload · `401` no session · `403` foreign
 origin · `413`/`415` bad body · `503` Redis down.
+
+## `PUT /api/official-usage/archived`
+
+Auth: **session** + same-origin; refused in demo mode. Corrects the official percentage archived with a
+finished cycle ([History](data-model.md#history-archived-cycles)), say the 82% last typed before the reset when
+the cycle in fact ended on 100%.
+
+```json
+{ "providerId": "claude", "raw": "100", "cycleStartMs": 1758326400000, "segmentStartMs": 1758499200000 }
+```
+
+Empty `raw` clears the figure. A cycle with keep-type usage resets keeps one figure per segment: `segmentStartMs`
+names the segment to correct (absent: its last one, the figure the cycle ended on), and the cycle's `official`
+becomes the sum of the segments' known figures. `200 { "ok": true }` · `400` invalid JSON/payload · `401` no
+session · `403` foreign origin or demo mode · `404 not_found` no archived summary of that cycle, or no segment
+starting at `segmentStartMs` · `413`/`415` bad body · `503` Redis down.
 
 ## `POST /api/official-usage/report`
 

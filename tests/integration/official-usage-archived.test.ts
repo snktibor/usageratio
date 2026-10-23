@@ -75,4 +75,31 @@ describe("PUT /api/official-usage/archived", () => {
     expect(await response.json()).toEqual({ ok: true });
     expect((await loadHistory(["claude"])).claude).toEqual([{ ...SUMMARY, official: 100 }]);
   });
+
+  it("corrects one segment of a cycle with keep resets, and answers 404 for a segment it does not have", async () => {
+    const MID = START + 3 * 86_400_000;
+    await archiveCycle("claude", {
+      ...SUMMARY,
+      official: 100,
+      segments: [
+        { start: START, end: MID, official: 80, total: 3_000_000, groups: { work: 3_000_000 } },
+        { start: MID, end: END, official: 20, total: 2_000_000, groups: { work: 2_000_000 } },
+      ],
+    });
+    const cookie = await seedSession(PIN);
+
+    const ok = await PUT(
+      put({ providerId: "claude", raw: "44", cycleStartMs: START, segmentStartMs: MID }, { ...ORIGIN, cookie }),
+    );
+    expect(ok.status).toBe(200);
+    const [stored] = (await loadHistory(["claude"])).claude ?? [];
+    expect(stored?.official).toBe(124);
+    expect(stored?.segments?.map((segment) => segment.official)).toEqual([80, 44]);
+
+    const missing = await PUT(
+      put({ providerId: "claude", raw: "44", cycleStartMs: START, segmentStartMs: MID + 1 }, { ...ORIGIN, cookie }),
+    );
+    expect(missing.status).toBe(404);
+    expect((await missing.json()).error).toBe("not_found");
+  });
 });

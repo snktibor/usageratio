@@ -146,7 +146,9 @@ only the heaviest `HISTORY_TOP_MODELS` (8) models, largest first.
 A cycle with keep-type resets (Claude) also carries `segments`: `[{ "start", "end", "official", "total",
 "groups" }]`, one per stretch between its resets, each with the figure it ended on; `official` is then the
 sum of the known figures and can exceed 100. A cycle a restart-type reset (Codex) cut short carries
-`"endedByReset": true`; its `end` is the reset and its `official` the figure from right before it.
+`"endedByReset": true`; its `end` is the reset and its `official` the figure from right before it. A
+correction of a segmented cycle (`PUT /api/official-usage/archived`) rewrites one segment's figure and sums
+them again.
 
 **Archived from two places, whichever runs first.** For every provider, if the newest archived cycle
 is older than the *previous* cycle's start, and that previous cycle actually has events, the previous

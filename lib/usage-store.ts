@@ -2,7 +2,13 @@ import type { UsageEvent } from "@/lib/aggregate";
 import { getConfig, MAX_MACHINES, type ResetOverride } from "@/lib/config";
 import type { KnownMachine } from "@/lib/dashboard";
 import { type CycleStart, reportCheckpoints } from "@/lib/days";
-import { type CycleSummary, HISTORY_RETENTION, parseCycleSummary, serializeCycleSummary } from "@/lib/history";
+import {
+  type CycleSummary,
+  HISTORY_RETENTION,
+  parseCycleSummary,
+  serializeCycleSummary,
+  withCorrectedOfficial,
+} from "@/lib/history";
 import { type OfficialUsageUpdate, officialUsageField, storedEntryFor } from "@/lib/official-usage";
 import { MAX_PROVIDERS, mergeProviderIds, normalizeProviderId } from "@/lib/providers";
 import { getRedis, toStringRecord } from "@/lib/redis";
@@ -814,27 +820,31 @@ export async function archiveCycle(providerId: string, summary: CycleSummary): P
 
 /**
  * Corrects the official percentage archived with one of `providerId`'s cycles
- * (null clears it), keeping every other field of its summary. The summary is
- * replaced as a whole: `ZREMRANGEBYSCORE` on its start, then `ZADD`, in one
+ * (null clears it), keeping every other field of its summary: one segment's
+ * figure of a cycle with keep resets, named by its start, or the one the cycle
+ * ended on (lib/history.ts `withCorrectedOfficial`). The summary is replaced
+ * as a whole: `ZREMRANGEBYSCORE` on its start, then `ZADD`, in one
  * transaction, so two corrections racing each other still leave exactly one
  * summary of the cycle (the later one's). Returns false, writing nothing, when
- * the cycle has no readable summary to correct.
+ * the cycle has no readable summary, or no segment starting at `segmentStartMs`.
  */
 export async function saveArchivedOfficial(
   providerId: string,
   cycleStartMs: number,
   official: number | null,
+  segmentStartMs?: number,
 ): Promise<boolean> {
   const key = KEYS.history(providerId);
   const members = await getRedis().zrange(key, cycleStartMs, cycleStartMs, { byScore: true });
   const summary = (Array.isArray(members) ? members : [])
     .map((member) => parseCycleSummary(String(member)))
     .find((entry): entry is CycleSummary => entry !== null && entry.start === cycleStartMs);
-  if (!summary) return false;
+  const corrected = summary ? withCorrectedOfficial(summary, official, segmentStartMs) : null;
+  if (!corrected) return false;
 
   const tx = getRedis().multi();
   tx.zremrangebyscore(key, cycleStartMs, cycleStartMs);
-  tx.zadd(key, { score: cycleStartMs, member: serializeCycleSummary({ ...summary, official }) });
+  tx.zadd(key, { score: cycleStartMs, member: serializeCycleSummary(corrected) });
   await tx.exec();
   return true;
 }

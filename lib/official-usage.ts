@@ -168,6 +168,11 @@ export interface ArchivedOfficialUpdate {
   cycleStartMs: number;
   /** 0–100; null clears it (an empty `raw`). */
   official: number | null;
+  /**
+   * One segment of a cycle with keep resets, by its start (lib/history.ts
+   * `withCorrectedOfficial`); absent: the figure the cycle ended on.
+   */
+  segmentStartMs?: number;
 }
 
 export type ArchivedOfficialParseResult =
@@ -176,7 +181,7 @@ export type ArchivedOfficialParseResult =
 
 export function parseArchivedOfficialUpdate(input: unknown): ArchivedOfficialParseResult {
   if (typeof input !== "object" || input === null) return { ok: false, errors: ["body must be an object"] };
-  const { providerId: rawProviderId, raw, cycleStartMs } = input as Record<string, unknown>;
+  const { providerId: rawProviderId, raw, cycleStartMs, segmentStartMs } = input as Record<string, unknown>;
 
   const errors: string[] = [];
   const providerId = normalizeProviderId(rawProviderId);
@@ -187,10 +192,18 @@ export function parseArchivedOfficialUpdate(input: unknown): ArchivedOfficialPar
   if (typeof cycleStartMs !== "number" || !Number.isFinite(cycleStartMs)) {
     errors.push("cycleStartMs must be a finite number");
   }
+  if (segmentStartMs !== undefined && (typeof segmentStartMs !== "number" || !Number.isFinite(segmentStartMs))) {
+    errors.push("segmentStartMs must be a finite number when given");
+  }
   if (errors.length > 0) return { ok: false, errors };
 
   return {
     ok: true,
-    update: { providerId: providerId!, cycleStartMs: cycleStartMs as number, official: parsed!.percent },
+    update: {
+      providerId: providerId!,
+      cycleStartMs: cycleStartMs as number,
+      official: parsed!.percent,
+      ...(segmentStartMs !== undefined && { segmentStartMs: segmentStartMs as number }),
+    },
   };
 }

@@ -481,7 +481,7 @@ describe("saveArchivedOfficial", () => {
     expect(history.claude?.[0]?.official).toBeNull();
   });
 
-  it("keeps the segments and the restart mark of the cycle it corrects", async () => {
+  it("corrects the figure the cycle ended on, its last segment's, and keeps the restart mark", async () => {
     const summary: CycleSummary = {
       ...summaryAt(HOUR),
       official: 100,
@@ -494,7 +494,28 @@ describe("saveArchivedOfficial", () => {
     await archiveCycle("claude", summary);
 
     expect(await saveArchivedOfficial("claude", HOUR, 95)).toBe(true);
-    expect((await loadHistory(["claude"])).claude?.[0]).toEqual({ ...summary, official: 95 });
+    expect((await loadHistory(["claude"])).claude?.[0]).toEqual({
+      ...summary,
+      official: 175,
+      segments: [summary.segments![0], { ...summary.segments![1]!, official: 95 }],
+    });
+  });
+
+  it("corrects one segment by its start, and writes nothing for a start that is no segment's", async () => {
+    const summary: CycleSummary = {
+      ...summaryAt(HOUR),
+      official: 100,
+      segments: [
+        { start: HOUR, end: 2 * HOUR, official: 80, total: 400, groups: { work: 400 } },
+        { start: 2 * HOUR, end: 3 * HOUR, official: 20, total: 250, groups: { work: 250 } },
+      ],
+    };
+    await archiveCycle("claude", summary);
+
+    expect(await saveArchivedOfficial("claude", HOUR, 60, HOUR)).toBe(true);
+    expect((await loadHistory(["claude"])).claude?.[0]?.official).toBe(80);
+    expect(await saveArchivedOfficial("claude", HOUR, 60, 5 * HOUR)).toBe(false);
+    expect((await loadHistory(["claude"])).claude?.[0]?.official).toBe(80);
   });
 
   it("clears the figure with null, and leaves one summary of the cycle after several corrections", async () => {

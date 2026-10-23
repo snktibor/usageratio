@@ -205,6 +205,23 @@ describe("parseArchivedOfficialUpdate", () => {
     expect(parseArchivedOfficialUpdate({ providerId: "claude", raw: 100, cycleStartMs: CYCLE_START }).ok).toBe(false);
     expect(parseArchivedOfficialUpdate(null).ok).toBe(false);
   });
+
+  it("carries the corrected segment's start when given, and rejects one that is no number", () => {
+    expect(
+      parseArchivedOfficialUpdate({ providerId: "claude", raw: "44", cycleStartMs: CYCLE_START, segmentStartMs: 5 }),
+    ).toEqual({
+      ok: true,
+      update: { providerId: "claude", cycleStartMs: CYCLE_START, official: 44, segmentStartMs: 5 },
+    });
+    const bad = parseArchivedOfficialUpdate({
+      providerId: "claude",
+      raw: "44",
+      cycleStartMs: CYCLE_START,
+      segmentStartMs: "x",
+    });
+    expect(bad.ok).toBe(false);
+    expect(!bad.ok && bad.errors).toEqual(["segmentStartMs must be a finite number when given"]);
+  });
 });
 
 describe("a report's window reset on a stored entry", () => {
