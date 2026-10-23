@@ -482,7 +482,10 @@
     "zoom_reset": "Zoom zurücksetzen",
     "zoom_drag_hint": "oder ziehe über das Diagramm, um hineinzuzoomen",
     "reset_line_item": "Reset {moment} · davor {before}",
-    "reset_line_total": "{period, select, monthly {diesen Monat} other {diese Woche}} insgesamt {total}"
+    "reset_line_total": "{period, select, monthly {diesen Monat} other {diese Woche}} insgesamt {total}",
+    "chart_reset_marker": "Reset",
+    "chart_desc_resets": " Nach einem Reset beginnt jede Linie wieder bei 0.",
+    "chart_desc_pale": " Ein blasser Abschnitt ist eine Schätzung zum aktuellen Verhältnis: Der offizielle Wert direkt vor seinem Reset ist nicht bekannt."
   },
   "Cycles": {
     "back_to_current": "Zurück zum aktuellen Zyklus",

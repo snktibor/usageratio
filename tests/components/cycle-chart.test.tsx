@@ -1,6 +1,7 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { type ChartSeries, CycleChart } from "@/components/cycle-chart";
+import type { TimeSpan } from "@/lib/chart";
 import { getConfig } from "@/lib/config";
 import { buildDashboard, type StoreSnapshot } from "@/lib/dashboard";
 import { renderWithIntl } from "../helpers/render";
@@ -118,5 +119,60 @@ describe("CycleChart", () => {
       expect(document.querySelectorAll("table tbody tr")).toHaveLength(3);
       expect(screen.queryByRole("button", { name: "Reset zoom" })).toBeNull();
     });
+  });
+});
+
+describe("CycleChart — resets", () => {
+  // Whatever the default reset is: the cycle's start, and half way from it to now on a whole minute.
+  const S = buildDashboard(NOW, getConfig({}), snapshot({})).cycle.startMs;
+  const R = S + Math.floor((NOW.getTime() - S) / 2 / 60_000) * 60_000;
+  const model = buildDashboard(
+    NOW,
+    getConfig({}),
+    snapshot({
+      events: [
+        { machineId: "win-1", groupId: "Work", tokens: 1_000, ts: S + HOUR },
+        { machineId: "win-1", groupId: "Work", tokens: 500, ts: R + HOUR },
+      ],
+      resets: [
+        {
+          id: "k",
+          atMs: R,
+          kind: "keep",
+          cycleStartMs: S,
+          before: null,
+          beforeAtMs: null,
+          source: "manual",
+          recordedAtMs: R,
+        },
+      ],
+    }),
+  );
+  const series: ChartSeries[] = [
+    { id: "total", label: "Total", color: "#fff", values: model.timeline.times.map(() => 0) },
+  ];
+  const renderChart = (paleSpans?: TimeSpan[]) =>
+    renderWithIntl(
+      <CycleChart
+        model={model}
+        series={series}
+        minAxis={1}
+        formatTick={(value) => String(value)}
+        formatValue={(value) => String(value)}
+        label="Usage"
+        {...(paleSpans && { paleSpans })}
+      />,
+    );
+
+  it("marks a keep reset with a labelled line", () => {
+    renderChart();
+    expect(screen.getByText("reset")).toBeDefined();
+    expect(document.querySelectorAll("[data-reset-marker]")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-pale]")).toHaveLength(0);
+  });
+
+  it("veils the stretches it is given", () => {
+    renderChart([{ startMs: S, endMs: R }]);
+    expect(document.querySelectorAll("[data-pale]")).toHaveLength(1);
   });
 });

@@ -23,7 +23,8 @@ export function ModelChart({ model }: { model: DashboardModel }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = models.find((m) => m.modelId === selectedId) ?? models[0];
   const switchName = useId();
-  const colorOf = new Map(model.groups.map((group) => [group.groupId, group.color]));
+  // Every charted group, also one that used tokens only before a reset (lib/dashboard.ts `groupColors`).
+  const colorOf = new Map(Object.entries(model.groupColors));
 
   const series: ChartSeries[] = (selected?.groups ?? []).map((group) => ({
     id: `group:${group.groupId}`,

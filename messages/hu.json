@@ -482,7 +482,10 @@
     "zoom_reset": "Visszaállítás",
     "zoom_drag_hint": "vagy jelölj ki egy szakaszt az egérrel",
     "reset_line_item": "Reset: {moment} · előtte {before}",
-    "reset_line_total": "{period, select, monthly {a hónapban} other {a héten}} összesen {total}"
+    "reset_line_total": "{period, select, monthly {a hónapban} other {a héten}} összesen {total}",
+    "chart_reset_marker": "reset",
+    "chart_desc_resets": " Reset után minden vonal újra 0-ról indul.",
+    "chart_desc_pale": " A halvány szakasz becslés a mostani arányban: nem ismert a resete előtti hivatalos érték."
   },
   "Cycles": {
     "back_to_current": "Vissza az aktuálishoz",

@@ -48,6 +48,8 @@ interface CycleChartProps {
   formatEndLabel?: (value: number) => string;
   /** What the chart shows: its accessible name and the table's caption. */
   label: string;
+  /** Stretches drawn faded, under a veil: lines there are only an estimate (components/usage-chart.tsx). */
+  paleSpans?: TimeSpan[];
 }
 
 /** Room above the top gridline for its label. */
@@ -133,6 +135,8 @@ function ZoomAxis({ zoomWindow, width, model }: { zoomWindow: TimeSpan; width: n
  * and the value axis fits the lines in view. A crosshair (pointer, or the
  * arrow keys once focused) reads every series at one moment of the window;
  * the table under the chart holds the same figures for the window alone.
+ * A keep reset of the cycle (lib/resets.ts) is marked with a labelled vertical
+ * line: the lines start again from 0 there (lib/timeline.ts).
  */
 export function CycleChart({
   model,
@@ -142,6 +146,7 @@ export function CycleChart({
   formatValue,
   formatEndLabel = formatValue,
   label,
+  paleSpans = [],
 }: CycleChartProps) {
   const locale = useLocale();
   const t = useTranslations("Widgets");
@@ -201,6 +206,11 @@ export function CycleChart({
           `${position === 0 ? "M" : "L"}${xOf(times[index]!).toFixed(1)},${yOf(values[index]!).toFixed(1)}`,
       )
       .join("");
+
+  // The cycle's keep resets inside the window: every line restarts from 0 at each.
+  const resetMarks = model.resets
+    .filter((reset) => reset.kind === "keep" && reset.atMs >= zoomWindow.startMs && reset.atMs <= zoomWindow.endMs)
+    .map((reset) => reset.atMs);
 
   // Values at the line ends, right of them where there is room; a label too close to one already placed is left to the legend and tooltip.
   const endX = lastInside === undefined ? 0 : xOf(times[lastInside]!);
@@ -390,7 +400,31 @@ export function CycleChart({
                   strokeDasharray={s.dashed ? DASH : undefined}
                 />
               ))}
+              {paleSpans.map((span) => (
+                <rect
+                  key={span.startMs}
+                  data-pale=""
+                  x={xOf(span.startMs)}
+                  y={PAD_TOP}
+                  width={Math.max(0, xOf(span.endMs) - xOf(span.startMs))}
+                  height={Math.max(0, height - PAD_TOP)}
+                  fill="var(--color-page)"
+                  opacity={0.6}
+                />
+              ))}
             </g>
+            {resetMarks.map((atMs) => (
+              <line
+                key={atMs}
+                data-reset-marker=""
+                x1={Math.round(xOf(atMs)) + 0.5}
+                x2={Math.round(xOf(atMs)) + 0.5}
+                y1={PAD_TOP}
+                y2={height}
+                stroke="var(--color-ink-3)"
+                strokeDasharray="2 3"
+              />
+            ))}
 
             {drag && (
               <rect
@@ -435,6 +469,18 @@ export function CycleChart({
               style={{ top: Math.round(yOf(tick)) - 15 }}
             >
               {formatTick(tick, scale)}
+            </span>
+          ))}
+
+        {size &&
+          resetMarks.map((atMs) => (
+            <span
+              key={atMs}
+              aria-hidden="true"
+              className="absolute top-0 -translate-x-1/2 whitespace-nowrap rounded-sm bg-page px-1 text-xs leading-none text-ink-3"
+              style={{ left: xOf(atMs) }}
+            >
+              {t("chart_reset_marker")}
             </span>
           ))}
 

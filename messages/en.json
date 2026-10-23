@@ -482,7 +482,10 @@
     "zoom_reset": "Reset zoom",
     "zoom_drag_hint": "or drag across the chart to zoom in",
     "reset_line_item": "Reset {moment} · before it {before}",
-    "reset_line_total": "this {period, select, monthly {month} other {week}} in total {total}"
+    "reset_line_total": "this {period, select, monthly {month} other {week}} in total {total}",
+    "chart_reset_marker": "reset",
+    "chart_desc_resets": " At a reset every line starts again from 0.",
+    "chart_desc_pale": " A faded stretch is an estimate at the current rate: no official figure from right before its reset is known."
   },
   "Cycles": {
     "back_to_current": "Back to the current cycle",
