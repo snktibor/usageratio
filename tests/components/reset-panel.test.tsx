@@ -49,8 +49,8 @@ function sent(fetchMock: ReturnType<typeof vi.fn>) {
 }
 
 /** The official figure 62%, read at 11:00 Budapest time, an hour before now. */
-function renderPanel(resets: ResetEvent[] = []) {
-  const model = buildDashboard(NOW, config, { events: [], groups: [], machines: [], resets });
+function renderPanel(resets: ResetEvent[] = [], window?: Parameters<typeof buildDashboard>[4]) {
+  const model = buildDashboard(NOW, config, { events: [], groups: [], machines: [], resets }, [], window);
   renderWithIntl(
     <ResetPanel
       providerId="claude"
@@ -131,6 +131,32 @@ describe("ResetPanel", () => {
       ["DELETE", { providerId: "claude", id: "detected", revert: true }],
       ["DELETE", { providerId: "claude", id: "manual" }],
     ]);
+  });
+
+  it("lists the resets under the button that records one", () => {
+    renderPanel([reset("k", 38)]);
+    const button = screen.getByRole("button", { name: "There was a reset…" });
+    const heading = screen.getByRole("heading", { name: "Resets in this cycle" });
+    expect(button.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("bounds a new or kept reset's moment below by the cycle start, but not a restart's, which may move earlier", () => {
+    // The cycle the restart began starts at the restart itself (S), a day after the cycle it cut short began.
+    const restart = reset("r", 0, { kind: "restart", cycleStartMs: S - 24 * HOUR, source: "report" });
+    renderPanel([restart, reset("k", 38)], {
+      cycle: { start: new Date(S), end: new Date(S + 7 * 24 * HOUR) },
+      previous: { start: new Date(S - 7 * 24 * HOUR), end: new Date(S) },
+    });
+    const when = () => screen.getByLabelText(/When/) as HTMLInputElement;
+    const [editRestart, editKeep] = screen.getAllByRole("button", { name: "Edit" });
+    fireEvent.click(editRestart!);
+    expect(when().value).toBe("2026-09-21T00:00");
+    expect(when().hasAttribute("min")).toBe(false);
+    fireEvent.click(editKeep!);
+    expect(when().getAttribute("min")).toBe("2026-09-21T00:01");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "There was a reset…" }));
+    expect(when().getAttribute("min")).toBe("2026-09-21T00:01");
   });
 
   it("says why the server refused", async () => {

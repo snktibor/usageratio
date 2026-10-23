@@ -20,6 +20,8 @@ type FormProblem = ResetProblem | "invalid_moment" | "invalid_before";
 /** The open form: a new reset (`id` null), or one of the list's. */
 interface ResetForm {
   id: string | null;
+  /** The edited reset's kind; null for a new one. */
+  kind: ResetMode | null;
   /** The `datetime-local` field, as typed. */
   when: string;
   /** "Used before the reset", as typed. */
@@ -82,6 +84,7 @@ export function ResetPanel({
     setProblem(null);
     setForm({
       id: null,
+      kind: null,
       when: wallClockInput(atMs, timeZone),
       before: storedBefore(entry, atMs),
       beforeTouched: false,
@@ -92,6 +95,7 @@ export function ResetPanel({
     setProblem(null);
     setForm({
       id: reset.id,
+      kind: reset.kind,
       when: wallClockInput(reset.atMs, timeZone),
       before: reset.before === null ? "" : String(reset.before),
       beforeTouched: true,
@@ -128,50 +132,6 @@ export function ResetPanel({
 
   return (
     <div className="mt-6 border-t border-hairline pt-5">
-      {model.resets.length > 0 && (
-        <>
-          <h3 className="text-sm font-medium text-ink-2">{t("reset_list_heading")}</h3>
-          <ul className="mb-4 mt-2 space-y-2 text-sm text-ink-2">
-            {model.resets.map((reset) => {
-              const values = {
-                moment: formatCycleMoment(reset.atMs, model.period, timeZone, locale),
-                before: reset.before === null ? "–" : formatPercent(reset.before / 100, locale),
-              };
-              return (
-                <li key={reset.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                  <span>{reset.kind === "restart" ? t("reset_row_restart", values) : t("reset_row_keep", values)}</span>
-                  {reset.source === "report" && <span className="text-ink-3">{t("reset_detected")}</span>}
-                  <span className="ml-auto flex shrink-0 gap-2">
-                    <button type="button" disabled={busy} onClick={() => openEdit(reset)} className={QUIET_BUTTON}>
-                      {t("reset_edit")}
-                    </button>
-                    {reset.source === "report" ? (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void send("DELETE", { providerId, id: reset.id, revert: true })}
-                        className={QUIET_BUTTON}
-                      >
-                        {t("reset_revert")}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void send("DELETE", { providerId, id: reset.id })}
-                        className={QUIET_BUTTON}
-                      >
-                        {t("delete")}
-                      </button>
-                    )}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </>
-      )}
-
       {form === null ? (
         <button type="button" onClick={openNew} className={`text-sm ${QUIET_BUTTON}`}>
           {t("reset_add")}
@@ -192,7 +152,7 @@ export function ResetPanel({
                 type="datetime-local"
                 step={60}
                 required
-                min={wallClockInput(model.cycle.startMs + MINUTE_MS, timeZone)}
+                min={form.kind === "restart" ? undefined : wallClockInput(model.cycle.startMs + MINUTE_MS, timeZone)}
                 max={wallClockInput(Date.now(), timeZone)}
                 value={form.when}
                 onChange={(event) => changeWhen(event.target.value)}
@@ -254,6 +214,50 @@ export function ResetPanel({
           </div>
         )}
       </div>
+
+      {model.resets.length > 0 && (
+        <div className="mt-5">
+          <h3 className="text-sm font-medium text-ink-2">{t("reset_list_heading")}</h3>
+          <ul className="mt-2 space-y-2 text-sm text-ink-2">
+            {model.resets.map((reset) => {
+              const values = {
+                moment: formatCycleMoment(reset.atMs, model.period, timeZone, locale),
+                before: reset.before === null ? "–" : formatPercent(reset.before / 100, locale),
+              };
+              return (
+                <li key={reset.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                  <span>{reset.kind === "restart" ? t("reset_row_restart", values) : t("reset_row_keep", values)}</span>
+                  {reset.source === "report" && <span className="text-ink-3">{t("reset_detected")}</span>}
+                  <span className="ml-auto flex shrink-0 gap-2">
+                    <button type="button" disabled={busy} onClick={() => openEdit(reset)} className={QUIET_BUTTON}>
+                      {t("reset_edit")}
+                    </button>
+                    {reset.source === "report" ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void send("DELETE", { providerId, id: reset.id, revert: true })}
+                        className={QUIET_BUTTON}
+                      >
+                        {t("reset_revert")}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void send("DELETE", { providerId, id: reset.id })}
+                        className={QUIET_BUTTON}
+                      >
+                        {t("delete")}
+                      </button>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
