@@ -1,5 +1,5 @@
 import { fireEvent, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type ChartSeries, CycleChart } from "@/components/cycle-chart";
 import type { TimeSpan } from "@/lib/chart";
 import { getConfig } from "@/lib/config";
@@ -174,5 +174,65 @@ describe("CycleChart — resets", () => {
   it("veils the stretches it is given", () => {
     renderChart([{ startMs: S, endMs: R }]);
     expect(document.querySelectorAll("[data-pale]")).toHaveLength(1);
+  });
+});
+
+describe("CycleChart — the reset label near the plot's edges", () => {
+  // jsdom lays nothing out: the plot needs a width for the labels to fall on different places.
+  const SIZE = { clientWidth: 800, clientHeight: 256 } as const;
+  beforeAll(() => {
+    for (const [name, value] of Object.entries(SIZE)) {
+      Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get: () => value });
+    }
+  });
+  afterAll(() => {
+    for (const name of Object.keys(SIZE)) Reflect.deleteProperty(HTMLElement.prototype, name);
+  });
+
+  // Whatever the default reset is: the cycle's start.
+  const S = buildDashboard(NOW, getConfig({}), snapshot({})).cycle.startMs;
+  const keep = (id: string, hoursAgo: number) => {
+    const atMs = NOW.getTime() - hoursAgo * HOUR;
+    return {
+      id,
+      atMs,
+      kind: "keep" as const,
+      cycleStartMs: S,
+      before: null,
+      beforeAtMs: null,
+      source: "manual" as const,
+      recordedAtMs: atMs,
+    };
+  };
+
+  /** The reset labels of the last 24 hours, oldest reset first, with the plot's width left to measure. */
+  function zoomedLabels(resets: ReturnType<typeof keep>[]): HTMLElement[] {
+    const model = buildDashboard(NOW, getConfig({}), snapshot({ resets }));
+    renderWithIntl(
+      <CycleChart
+        model={model}
+        series={[{ id: "total", label: "Total", color: "#fff", values: model.timeline.times.map(() => 0) }]}
+        minAxis={1}
+        formatTick={(value) => String(value)}
+        formatValue={(value) => String(value)}
+        label="Usage"
+      />,
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "24 hours" }));
+    return screen.getAllByText("reset");
+  }
+  const placement = (label: HTMLElement) =>
+    ["-translate-x-full", "translate-x-0", "-translate-x-1/2"].filter((name) => label.classList.contains(name));
+
+  it("puts it left of its marker near the right edge, where the value axis's labels are, and right of it near the left edge", () => {
+    // 1 h ago: 33 px from the right edge; 12 h ago: in the middle; 23.5 h ago: 17 px from the left edge.
+    const labels = zoomedLabels([keep("old", 23.5), keep("mid", 12), keep("new", 1)]);
+    expect(labels.map(placement)).toEqual([["translate-x-0"], ["-translate-x-1/2"], ["-translate-x-full"]]);
+  });
+
+  it("keeps it clear of the value axis's labels at the right edge", () => {
+    const [label] = zoomedLabels([keep("new", 0.25)]);
+    // Its right edge is where its `left` is: no further right than the room the axis's labels take.
+    expect(Number.parseFloat(label!.style.left)).toBeLessThanOrEqual(800 - 48);
   });
 });

@@ -62,6 +62,12 @@ const DASH = "6 5";
 const MIN_DRAG_PX = 8;
 /** Room one time label on a zoomed axis needs ("szept. 29.", "21:00"). */
 const TICK_ROOM_PX = 72;
+/** The value axis's labels fill this much of the plot's right edge. */
+const AXIS_LABEL_ROOM_PX = 48;
+/** A reset label centred on a marker closer than this to the right edge would run into the value axis's labels. */
+const RESET_LABEL_RIGHT_EDGE_PX = 64;
+/** ... and closer than this to the left edge, out of the plot. */
+const RESET_LABEL_LEFT_EDGE_PX = 32;
 
 /** The zoomed axis's ticks for the plot's width. */
 const ticksFor = (zoomWindow: TimeSpan, timeZone: string, width: number) =>
@@ -473,16 +479,27 @@ export function CycleChart({
           ))}
 
         {size &&
-          resetMarks.map((atMs) => (
-            <span
-              key={atMs}
-              aria-hidden="true"
-              className="absolute top-0 -translate-x-1/2 whitespace-nowrap rounded-sm bg-page px-1 text-xs leading-none text-ink-3"
-              style={{ left: xOf(atMs) }}
-            >
-              {t("chart_reset_marker")}
-            </span>
-          ))}
+          resetMarks.map((atMs) => {
+            const x = xOf(atMs);
+            // Centred on its marker, except near an edge: left of the marker at the right one (and never over the
+            // value axis's labels, which share its row), right of it at the left one.
+            const nearRight = x > width - RESET_LABEL_RIGHT_EDGE_PX;
+            const align = nearRight
+              ? "-translate-x-full"
+              : x < RESET_LABEL_LEFT_EDGE_PX
+                ? "translate-x-0"
+                : "-translate-x-1/2";
+            return (
+              <span
+                key={atMs}
+                aria-hidden="true"
+                className={`absolute top-0 ${align} whitespace-nowrap rounded-sm bg-page px-1 text-xs leading-none text-ink-3`}
+                style={{ left: nearRight ? Math.min(x, width - AXIS_LABEL_ROOM_PX) : x }}
+              >
+                {t("chart_reset_marker")}
+              </span>
+            );
+          })}
 
         {activeIndex === undefined &&
           endLabels.map(({ series: s, y }) => (
