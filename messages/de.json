@@ -517,7 +517,9 @@
     "reset_prompt_question": "Hat {label} deinen Verbrauch zurückgesetzt? Vor dieser Änderung stand hier {before}.",
     "reset_prompt_yes": "Ja, Reset erfassen",
     "reset_prompt_no": "Nein, nur eine Korrektur",
-    "history_ended_by_reset": "durch einen Reset beendet"
+    "history_ended_by_reset": "durch einen Reset beendet",
+    "segment_figures_hint": "In diesem Zyklus gab es Resets: Gib für jeden Abschnitt den Wert an, mit dem er endete. Der Wert des Zyklus ist ihre Summe.",
+    "segment_figure_label": "Offizieller Prozentsatz"
   },
   "Cycles": {
     "back_to_current": "Zurück zum aktuellen Zyklus",

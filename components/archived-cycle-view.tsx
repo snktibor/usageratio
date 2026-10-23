@@ -5,13 +5,14 @@ import { useCallback, useId, useState } from "react";
 import { CycleHistory } from "@/components/cycle-history";
 import type { HistoryContext } from "@/components/dashboard-view";
 import { writeProviderCookie } from "@/components/dashboard-view";
+import { SegmentFigures } from "@/components/segment-figures";
 import { StatusLine } from "@/components/status-line";
-import { useOfficialEntry } from "@/components/use-official-entry";
+import { EMPTY_ENTRY, useOfficialEntry, useSegmentEntries } from "@/components/use-official-entry";
 import { useRouter } from "@/i18n/routing";
 import { periodOfCycle } from "@/lib/cycle-options";
 import { formatCost, formatEnergy, formatHeroPercent, formatPercent, formatTokens, formatWater } from "@/lib/format";
 import { parseOfficialPercent } from "@/lib/ground-truth";
-import { type CycleSummary, groupSharesOf } from "@/lib/history";
+import { type CycleSummary, groupSharesOf, sumOfFigures } from "@/lib/history";
 import { modelKey, modelLabel } from "@/lib/models";
 import { estimateResources } from "@/lib/resources";
 import { NEUTRAL_COLOR } from "@/lib/settings";
@@ -80,7 +81,15 @@ function ShareList({
  * written back into the summary (app/api/official-usage/archived/route.ts).
  * Without one, the measured share of the token limit stands in for it.
  */
-function ArchivedOfficialFigure({ providerId, summary }: { providerId: string; summary: CycleSummary }) {
+function ArchivedOfficialFigure({
+  providerId,
+  summary,
+  timeZone,
+}: {
+  providerId: string;
+  summary: CycleSummary;
+  timeZone: string;
+}) {
   const locale = useLocale();
   const t = useTranslations("Widgets");
   const fieldId = useId();
@@ -91,40 +100,71 @@ function ArchivedOfficialFigure({ providerId, summary }: { providerId: string; s
     summary.official === null ? null : { raw: String(summary.official), enteredAt: summary.end },
     summary.end,
   );
-  const { percent: official, invalid } = parseOfficialPercent(entry.raw);
+  // A cycle with keep resets came to the sum of its segments' figures, each corrected on its own.
+  const pastSegments = (summary.segments ?? []).map((segment) => ({
+    startMs: segment.start,
+    endMs: segment.end,
+    official: segment.official,
+  }));
+  const segmented = pastSegments.length > 0;
+  const [segmentEntries, setSegmentEntry, segmentStatuses] = useSegmentEntries(
+    providerId,
+    summary.start,
+    pastSegments,
+    summary.end,
+  );
+  const segmentFigures = pastSegments.map(
+    (segment) => parseOfficialPercent((segmentEntries.get(segment.startMs) ?? EMPTY_ENTRY).raw).percent,
+  );
+  const own = parseOfficialPercent(entry.raw);
+  const official = segmented ? sumOfFigures(segmentFigures) : own.percent;
+  const invalid = segmented ? false : own.invalid;
+  const parts = segmented
+    ? segmentFigures.map((figure) => (figure === null ? "–" : formatPercent(figure / 100, locale))).join(" + ")
+    : null;
   const limitShare = summary.limit !== null && summary.limit > 0 ? summary.total / summary.limit : null;
 
   return (
     <div>
       <dt className="text-sm text-ink-3">
-        {correcting ? (
+        {correcting && !segmented ? (
           <label htmlFor={fieldId}>{t("final_official_consumption")}</label>
         ) : (
           t("final_official_consumption")
         )}
       </dt>
       {correcting ? (
-        <dd className="mt-1 flex flex-wrap items-center gap-2">
-          <span className="relative">
-            <input
-              id={fieldId}
-              type="text"
-              inputMode="decimal"
-              autoComplete="off"
-              maxLength={7}
-              placeholder="–"
-              value={entry.raw}
-              onChange={(event) => setEntry(event.target.value)}
-              aria-invalid={invalid || undefined}
-              className="block w-24 rounded-md border border-rule bg-page py-1 pl-3 pr-8 text-2xl font-medium tabular-nums text-ink placeholder:text-ink-3"
+        <dd className="mt-1 flex flex-wrap items-start gap-2">
+          {segmented ? (
+            <SegmentFigures
+              segments={pastSegments}
+              entries={segmentEntries}
+              statuses={segmentStatuses}
+              onChange={setSegmentEntry}
+              timeZone={timeZone}
             />
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-lg text-ink-3"
-            >
-              %
+          ) : (
+            <span className="relative">
+              <input
+                id={fieldId}
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                maxLength={7}
+                placeholder="–"
+                value={entry.raw}
+                onChange={(event) => setEntry(event.target.value)}
+                aria-invalid={invalid || undefined}
+                className="block w-24 rounded-md border border-rule bg-page py-1 pl-3 pr-8 text-2xl font-medium tabular-nums text-ink placeholder:text-ink-3"
+              />
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-lg text-ink-3"
+              >
+                %
+              </span>
             </span>
-          </span>
+          )}
           <button
             type="button"
             onClick={() => setCorrecting(false)}
@@ -142,6 +182,7 @@ function ArchivedOfficialFigure({ providerId, summary }: { providerId: string; s
                 ? formatHeroPercent(limitShare, locale)
                 : "–"}
           </span>
+          {parts && official !== null && <span className="text-sm tabular-nums text-ink-3">({parts})</span>}
           <button
             type="button"
             onClick={() => setCorrecting(true)}
@@ -241,6 +282,7 @@ export function ArchivedCycleView({
               key={`${selected.id}:${summary.start}`}
               providerId={selected.id}
               summary={summary}
+              timeZone={timeZone}
             />
             <div>
               <dt className="text-sm text-ink-3">{t("measured_usage")}</dt>

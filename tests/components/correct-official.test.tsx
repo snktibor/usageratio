@@ -108,4 +108,59 @@ describe("correcting a finished cycle's official percentage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.getByText("100%")).toBeDefined();
   });
+
+  it("in the summary-only view: a cycle with keep resets shows the sum, and corrects one segment", async () => {
+    const MID = START + 3 * 86_400_000;
+    const summary: CycleSummary = {
+      v: 1,
+      start: START,
+      end: END,
+      total: 1_000,
+      limit: null,
+      official: 100,
+      groups: {},
+      machines: 1,
+      models: {},
+      subLimits: {},
+      archivedAt: END,
+      segments: [
+        { start: START, end: MID, official: 80, total: 500, groups: {} },
+        { start: MID, end: END, official: 20, total: 500, groups: {} },
+      ],
+    };
+    renderWithIntl(
+      <ArchivedCycleView
+        summaries={[{ id: "claude", label: "Claude", summary }]}
+        historyByProvider={{ claude: [summary] }}
+        historyContext={historyContext}
+        timeZone="Europe/Budapest"
+        selectedStartMs={START}
+        pastCycle
+        costEstimate={false}
+      />,
+    );
+
+    expect(screen.getAllByText("100%").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("(80% + 20%)").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Correct" }));
+    const fields = screen.getAllByRole("textbox", { name: /Official percentage/ });
+    expect(fields.map((field) => (field as HTMLInputElement).value)).toEqual(["80", "20"]);
+
+    fireEvent.change(fields[1]!, { target: { value: "44" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(sent(fetchMock)).toEqual([
+      {
+        path: "/api/official-usage/archived",
+        body: { providerId: "claude", raw: "44", cycleStartMs: START, segmentStartMs: MID },
+      },
+    ]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    // Back to the figure: the sum follows the corrected segment.
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.getByText("124%")).toBeDefined();
+    expect(screen.getAllByText("(80% + 44%)").length).toBeGreaterThan(0);
+  });
 });

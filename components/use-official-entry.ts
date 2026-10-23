@@ -42,7 +42,7 @@ type PutResult = { ok: true } | { ok: false; reason: SaveProblem };
 /** The current cycle's field (app/api/official-usage/route.ts), or a finished cycle's archived figure (…/archived). */
 async function putOfficialUsage(
   path: "/api/official-usage" | "/api/official-usage/archived",
-  body: { providerId: string; subLimitId?: string | null; raw: string; cycleStartMs: number },
+  body: { providerId: string; subLimitId?: string | null; raw: string; cycleStartMs: number; segmentStartMs?: number },
 ): Promise<PutResult> {
   let response: Response;
   try {
@@ -201,6 +201,86 @@ export function useSubLimitEntries(
       );
     },
     [providerId, cycleStartMs],
+  );
+
+  return [entries, update, statuses];
+}
+
+/**
+ * A finished cycle's figures when it had keep resets, one per segment, keyed
+ * by the segment's start (lib/history.ts `CycleSegmentSummary`): each is
+ * corrected on its own (app/api/official-usage/archived/route.ts,
+ * `segmentStartMs`), and once saved the page is refreshed, so the
+ * previous-cycles list shows the new sum. Each start carries its own save
+ * status, as `useSubLimitEntries` does for a sub-limit; `server` changes
+ * reach a field only while no edit of it is on its way.
+ */
+export function useSegmentEntries(
+  providerId: string,
+  cycleStartMs: number,
+  segments: { startMs: number; official: number | null }[],
+  closedAtMs: number,
+): [Map<number, Entry>, (startMs: number, raw: string) => void, Map<number, EntryStatus>] {
+  const router = useRouter();
+  const toEntry = (official: number | null): Entry =>
+    official === null ? EMPTY_ENTRY : { raw: String(official), enteredAt: closedAtMs };
+  const [entries, setEntries] = useState<Map<number, Entry>>(
+    () => new Map(segments.map((segment) => [segment.startMs, toEntry(segment.official)])),
+  );
+  const [statuses, setStatuses] = useState<Map<number, EntryStatus>>(new Map());
+  const pending = useRef<Set<number>>(new Set());
+  const timers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  // A stable dependency for the effect: the segments are a new array every render.
+  const serverKey = segments.map((segment) => `${segment.startMs}=${segment.official ?? ""}`).join("\n");
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `serverKey` stands in for the ever-new `segments`
+  useEffect(() => {
+    setEntries((current) => {
+      const next = new Map<number, Entry>();
+      for (const segment of segments) {
+        next.set(
+          segment.startMs,
+          pending.current.has(segment.startMs)
+            ? (current.get(segment.startMs) ?? EMPTY_ENTRY)
+            : toEntry(segment.official),
+        );
+      }
+      return next;
+    });
+  }, [serverKey]);
+
+  const update = useCallback(
+    (startMs: number, raw: string) => {
+      const next: Entry = raw.trim() === "" ? EMPTY_ENTRY : { raw, enteredAt: closedAtMs };
+      setEntries((current) => new Map(current).set(startMs, next));
+      setStatuses((current) => new Map(current).set(startMs, { status: "saving", problem: null }));
+      pending.current.add(startMs);
+      clearTimeout(timers.current.get(startMs));
+      timers.current.set(
+        startMs,
+        setTimeout(() => {
+          void putOfficialUsage("/api/official-usage/archived", {
+            providerId,
+            raw: next.raw,
+            cycleStartMs,
+            segmentStartMs: startMs,
+          })
+            .then((result) => {
+              setStatuses((current) =>
+                new Map(current).set(
+                  startMs,
+                  result.ok ? { status: "saved", problem: null } : { status: "failed", problem: result.reason },
+                ),
+              );
+              if (result.ok) router.refresh();
+            })
+            .finally(() => {
+              pending.current.delete(startMs);
+            });
+        }, DEBOUNCE_MS),
+      );
+    },
+    [providerId, cycleStartMs, closedAtMs, router],
   );
 
   return [entries, update, statuses];

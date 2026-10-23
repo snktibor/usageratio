@@ -517,7 +517,9 @@
     "reset_prompt_question": "Did {label} reset your usage? The figure stood at {before} before this change.",
     "reset_prompt_yes": "Yes, record a reset",
     "reset_prompt_no": "No, just a correction",
-    "history_ended_by_reset": "ended by a reset"
+    "history_ended_by_reset": "ended by a reset",
+    "segment_figures_hint": "This cycle had usage resets: enter the figure each stretch ended on. The cycle's figure is their sum.",
+    "segment_figure_label": "Official percentage"
   },
   "Cycles": {
     "back_to_current": "Back to the current cycle",

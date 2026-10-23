@@ -517,7 +517,9 @@
     "reset_prompt_question": "{label}: reset történt? A módosítás előtt {before} állt itt.",
     "reset_prompt_yes": "Igen, reset rögzítése",
     "reset_prompt_no": "Nem, csak javítás",
-    "history_ended_by_reset": "resettel zárult"
+    "history_ended_by_reset": "resettel zárult",
+    "segment_figures_hint": "Ebben a ciklusban volt reset: add meg, mennyin zárult egy-egy szakasz. A ciklus értéke ezek összege.",
+    "segment_figure_label": "Hivatalos százalék"
   },
   "Cycles": {
     "back_to_current": "Vissza az aktuálishoz",
