@@ -4,7 +4,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useId, useState } from "react";
 import { ChartLegend, type ChartSeries, CycleChart } from "@/components/cycle-chart";
 import { formatTokenTick } from "@/lib/chart";
-import type { DashboardModel } from "@/lib/dashboard";
+import { type DashboardModel, segmentSince } from "@/lib/dashboard";
 import { formatCost } from "@/lib/format";
 import { NEUTRAL_COLOR } from "@/lib/settings";
 
@@ -41,7 +41,7 @@ export function ModelChart({ model }: { model: DashboardModel }) {
 
       {selected ? (
         <>
-          <p className="mt-1 text-sm text-ink-3">{t("measured_tokens_by_group")}</p>
+          <p className="mt-1 text-sm text-ink-3">{t("measured_tokens_by_group", { since: segmentSince(model) })}</p>
 
           <fieldset className="mt-5">
             <legend className="sr-only">{t("model")}</legend>

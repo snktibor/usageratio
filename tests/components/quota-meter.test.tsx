@@ -191,6 +191,27 @@ describe("QuotaMeter — after a keep reset", () => {
     expect(screen.getByText(/36% of the cycle has elapsed/)).toBeDefined();
   });
 
+  describe("early in the stretch", () => {
+    // 20k at 57 h, 3 h into the stretch of a reset at 55 h: too early for a projection.
+    const early = [{ machineId: "win-1", groupId: "Work", tokens: 20_000, ts: CYCLE_START + 57 * HOUR }];
+
+    it("calls it the stretch since the reset, not the cycle", () => {
+      const model = buildDashboard(NOW, config, snapshot({ events: early, resets: [keep(55, 80)] }));
+      renderWithIntl(<QuotaMeter model={model} view={applyGroundTruth(model, null)} />);
+      expect(screen.getByText("You are at the beginning of the stretch since the reset.")).toBeDefined();
+    });
+
+    it("keeps calling it the cycle without a reset", () => {
+      const model = buildDashboard(
+        new Date(CYCLE_START + 3 * HOUR),
+        config,
+        snapshot({ events: [{ ...early[0]!, ts: CYCLE_START + 2 * HOUR }] }),
+      );
+      renderWithIntl(<QuotaMeter model={model} view={applyGroundTruth(model, null)} />);
+      expect(screen.getByText("You are at the beginning of the cycle.")).toBeDefined();
+    });
+  });
+
   it("has no reset line without a keep reset", () => {
     const model = buildDashboard(NOW, config, snapshot({ events }));
     renderWithIntl(<QuotaMeter model={model} view={applyGroundTruth(model, null)} />);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getConfig } from "@/lib/config";
-import { buildDashboard, buildProviderDashboards, type StoreSnapshot } from "@/lib/dashboard";
+import { buildDashboard, buildProviderDashboards, type StoreSnapshot, segmentSince } from "@/lib/dashboard";
 import type { ResetEvent } from "@/lib/resets";
 import { type KnownGroup, NEUTRAL_COLOR, PRESET_COLORS } from "@/lib/settings";
 
@@ -740,6 +740,56 @@ describe("buildDashboard — a keep reset", () => {
     expect(closed.total).toBe(62_000);
     expect(closed.resets).toEqual([]);
     expect(closed.segment.startMs).toBe(CYCLE_START);
+  });
+});
+
+/** A restart at `hoursIntoCycle` of the cycle that started at CYCLE_START: the new cycle runs from there. */
+function restartReset(hoursIntoCycle: number, before: number | null): ResetEvent {
+  const atMs = CYCLE_START + hoursIntoCycle * HOUR;
+  return {
+    id: `restart${hoursIntoCycle}`,
+    atMs,
+    kind: "restart",
+    cycleStartMs: CYCLE_START,
+    before,
+    beforeAtMs: null,
+    source: "manual",
+    recordedAtMs: atMs,
+    previousOverride: null,
+  };
+}
+
+/** The window of the cycle a restart at `hoursIntoCycle` began: a week long, after the one it cut short. */
+function restartedWindow(hoursIntoCycle: number) {
+  const startMs = CYCLE_START + hoursIntoCycle * HOUR;
+  return {
+    cycle: { start: new Date(startMs), end: new Date(startMs + 168 * HOUR) },
+    previous: { start: new Date(CYCLE_START), end: new Date(startMs) },
+  };
+}
+
+describe("segmentSince", () => {
+  const events = [report("win", "Work", 30_000, 10), report("win", "Work", 12_000, 40)];
+
+  it("is the cycle while it has no keep reset", () => {
+    expect(segmentSince(buildDashboard(NOW, config, snapshot({ events })))).toBe("cycle");
+  });
+
+  it("is the reset once a keep reset has cut the cycle", () => {
+    const model = buildDashboard(NOW, config, snapshot({ events, resets: [keepReset(38, 80)] }));
+    expect(segmentSince(model)).toBe("reset");
+  });
+
+  it("is still the cycle when a restart began it: the restart is the cycle's start, not a cut of it", () => {
+    const model = buildDashboard(
+      NOW,
+      config,
+      snapshot({ events, resets: [restartReset(38, 62)] }),
+      [],
+      restartedWindow(38),
+    );
+    expect(model.cycle.startMs).toBe(CYCLE_START + 38 * HOUR);
+    expect(segmentSince(model)).toBe("cycle");
   });
 });
 

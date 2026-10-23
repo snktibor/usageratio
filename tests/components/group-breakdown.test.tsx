@@ -128,3 +128,47 @@ describe("GroupBreakdown", () => {
     expect(toggleOf("Personal").getAttribute("aria-expanded")).toBe("true");
   });
 });
+
+describe("GroupBreakdown — nothing consumed yet", () => {
+  // Fixed to Budapest time, independent of DEFAULT_RESET's own (deploy-time) default.
+  const config = {
+    ...getConfig({}),
+    useTokenLimits: false,
+    tokenMode: "delta" as const,
+    reset: { ...getConfig({}).reset, timeZone: "Europe/Budapest" },
+  };
+  const before = report("mac", "Personal", 10_000);
+
+  it("says since when: the reset, after a keep reset with no report after it", () => {
+    const atMs = CYCLE_START + 20 * HOUR;
+    const model = buildDashboard(NOW, config, {
+      events: [before],
+      groups: [],
+      machines: [],
+      resets: [
+        {
+          id: "r20",
+          atMs,
+          kind: "keep",
+          cycleStartMs: CYCLE_START,
+          before: 80,
+          beforeAtMs: null,
+          source: "manual",
+          recordedAtMs: atMs,
+        },
+      ],
+    });
+
+    renderWithIntl(<GroupBreakdown model={model} view={applyGroundTruth(model, null)} />);
+
+    expect(screen.getByText(/^No consumption since the reset yet\./)).toBeDefined();
+  });
+
+  it("says since the cycle began without a reset", () => {
+    const model = buildDashboard(NOW, config, { events: [], groups: [], machines: [] });
+
+    renderWithIntl(<GroupBreakdown model={model} view={applyGroundTruth(model, null)} />);
+
+    expect(screen.getByText(/^No consumption in this cycle yet\./)).toBeDefined();
+  });
+});

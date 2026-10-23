@@ -2,7 +2,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { CycleRuler } from "@/components/cycle-ruler";
 import { AlertTriangleIcon, CheckCircleIcon, InfoCircleIcon, StopCircleIcon } from "@/components/icons";
 import { InfoTip } from "@/components/info-tip";
-import type { DashboardModel } from "@/lib/dashboard";
+import { type DashboardModel, segmentSince } from "@/lib/dashboard";
 import {
   formatCost,
   formatCycleMoment,
@@ -43,7 +43,7 @@ const STATUS_STYLE = {
 /** No token limit and no official reading: nothing tells how much of the budget is gone. */
 const UNKNOWN_STYLE = { fill: "bg-ink", track: "bg-rule", icon: InfoCircleIcon, iconColor: "text-ink-3" } as const;
 
-export function statusLabel(quota: QuotaAssessment, t: Translator<"Widgets">): string {
+export function statusLabel(quota: QuotaAssessment, t: Translator<"Widgets">, since: "reset" | "cycle"): string {
   if (quota.status === "critical") return t("pace_running_out");
   if (quota.pace.earlyBurn) return t("pace_early_burn");
   if (quota.status === "warning") {
@@ -51,7 +51,7 @@ export function statusLabel(quota: QuotaAssessment, t: Translator<"Widgets">): s
   }
   if (quota.total === 0) return t("pace_no_usage");
   // No projection yet: say so instead of calling the pace fine.
-  if (quota.pace.projectedTotal === null) return t("pace_early_cycle");
+  if (quota.pace.projectedTotal === null) return t("pace_early_cycle", { since });
   return t("pace_ok");
 }
 
@@ -286,7 +286,7 @@ export function QuotaMeter({ model, view }: { model: DashboardModel; view: Dashb
           </span>
         ) : quota ? (
           <span>
-            <strong className="font-medium text-ink">{statusLabel(quota, t)}</strong>{" "}
+            <strong className="font-medium text-ink">{statusLabel(quota, t, segmentSince(model))}</strong>{" "}
             {paceSentence(model, view, quota, t, locale)}
             {recent && ` ${recentPaceSentence(model, recent, t, locale)}`}
           </span>

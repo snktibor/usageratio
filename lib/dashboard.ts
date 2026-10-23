@@ -177,6 +177,11 @@ export interface DashboardModel {
   }[];
 }
 
+/** What the current figures count from: a keep reset of the cycle ("reset"), or its start ("cycle"). */
+export function segmentSince(model: Pick<DashboardModel, "cycle" | "segment">): "reset" | "cycle" {
+  return model.segment.startMs > model.cycle.startMs ? "reset" : "cycle";
+}
+
 /** One provider/account and the complete dashboard calculated for it. */
 export interface ProviderDashboardModel {
   id: string;

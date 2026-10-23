@@ -16,7 +16,7 @@ import { useResetPrompt } from "@/components/use-reset-prompt";
 import { Link, useRouter } from "@/i18n/routing";
 import type { TokenMode } from "@/lib/config";
 import type { CycleKind } from "@/lib/cycle-options";
-import type { ProviderDashboardModel } from "@/lib/dashboard";
+import { type ProviderDashboardModel, segmentSince } from "@/lib/dashboard";
 import { formatDateTime, formatTokens } from "@/lib/format";
 import { applyGroundTruth, applySubLimitReading, parseOfficialPercent } from "@/lib/ground-truth";
 import type { CycleSummary } from "@/lib/history";
@@ -137,6 +137,7 @@ function ProviderView({
             providers={providers.map(({ id, label }) => ({ id, label }))}
             onProviderChange={onProviderChange}
             readOnly={model.closed}
+            since={segmentSince(model)}
             belowField={
               !model.closed &&
               resetPrompt.from !== null && (

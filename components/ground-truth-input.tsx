@@ -34,10 +34,12 @@ interface GroundTruthInputProps {
    * before the reset; see components/use-official-entry.ts `closedAtMs`).
    */
   readOnly?: boolean;
+  /** What the measured figures count from (lib/dashboard.ts `segmentSince`): a keep reset, or the cycle's start. */
+  since: "reset" | "cycle";
 }
 
 function hint(
-  { invalid, enteredAt, view, timeZone, providerLabel, readOnly: readOnlyCycle }: GroundTruthInputProps,
+  { invalid, enteredAt, view, timeZone, providerLabel, readOnly: readOnlyCycle, since }: GroundTruthInputProps,
   correcting: boolean,
   t: Translator<"Widgets">,
   locale: string,
@@ -59,7 +61,7 @@ function hint(
   const entered =
     enteredAt === null || readOnlyCycle ? "" : t("entered_at", { time: formatDateTime(enteredAt, timeZone, locale) });
   if (view.measured.total === 0) {
-    return t("no_consumption_yet", { entered });
+    return t("no_consumption_yet", { since, entered });
   }
   // Without a token limit there is neither a measured share of the limit nor a factor to state.
   if (view.scale === null || view.measured.usedFraction === null) {

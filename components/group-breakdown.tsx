@@ -2,7 +2,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useId, useState } from "react";
 import { GroupMachines } from "@/components/group-machines";
 import { ChevronRightIcon } from "@/components/icons";
-import type { DashboardModel } from "@/lib/dashboard";
+import { type DashboardModel, segmentSince } from "@/lib/dashboard";
 import { formatCostOrDash, formatLimitShare, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
 
@@ -208,7 +208,7 @@ export function GroupBreakdown({ model, view }: { model: DashboardModel; view: D
           </table>
         </>
       ) : (
-        <p className="mt-4 max-w-xl text-ink-2">{t("no_usage_yet")}</p>
+        <p className="mt-4 max-w-xl text-ink-2">{t("no_usage_yet", { since: segmentSince(model) })}</p>
       )}
     </section>
   );
