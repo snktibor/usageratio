@@ -516,7 +516,8 @@
     "reset_problem_invalid_before": "Give the share used before the reset as a number from 0 to 100, or leave it empty.",
     "reset_prompt_question": "Did {label} reset your usage? The figure stood at {before} before this change.",
     "reset_prompt_yes": "Yes, record a reset",
-    "reset_prompt_no": "No, just a correction"
+    "reset_prompt_no": "No, just a correction",
+    "history_ended_by_reset": "ended by a reset"
   },
   "Cycles": {
     "back_to_current": "Back to the current cycle",

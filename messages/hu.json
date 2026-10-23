@@ -516,7 +516,8 @@
     "reset_problem_invalid_before": "A reset előtti felhasználást 0 és 100 közötti számként add meg, vagy hagyd üresen.",
     "reset_prompt_question": "{label}: reset történt? A módosítás előtt {before} állt itt.",
     "reset_prompt_yes": "Igen, reset rögzítése",
-    "reset_prompt_no": "Nem, csak javítás"
+    "reset_prompt_no": "Nem, csak javítás",
+    "history_ended_by_reset": "resettel zárult"
   },
   "Cycles": {
     "back_to_current": "Vissza az aktuálishoz",

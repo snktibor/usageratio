@@ -161,4 +161,54 @@ describe("CycleHistory", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Total" }));
     expect(localStorage.getItem("usageratio_history_view")).toBe("total");
   });
+
+  it("writes a cycle with keep resets as the sum of its segments, and marks one a reset cut short", () => {
+    const segmented = summary({
+      start: END - 7 * DAY,
+      end: END,
+      total: 1_000,
+      official: 124,
+      groups: { Work: 600, Personal: 400 },
+      machines: 2,
+      segments: [
+        { start: END - 7 * DAY, end: END - 4 * DAY, official: 80, total: 500, groups: { Work: 500 } },
+        { start: END - 4 * DAY, end: END, official: 44, total: 500, groups: { Work: 100, Personal: 400 } },
+      ],
+    });
+    const cut = summary({ start: END - 14 * DAY, end: END - 9 * DAY, total: 500, official: 70, endedByReset: true });
+    renderHistory([segmented, cut]);
+
+    const [first, second] = screen.getAllByRole("listitem");
+    const link = within(first!).getByRole("link");
+    expect(link.textContent).toContain("124%");
+    expect(link.textContent).toContain("(80% + 44%)");
+    // Each segment's figure split by that segment's tokens: Work 80% + 8.8%, Personal 35.2%.
+    expect(link.textContent).toContain("Work89% of quota · 60% of tokens");
+    expect(link.textContent).toContain("Personal35% of quota · 40% of tokens");
+    expect(within(first!).queryByText("ended by a reset")).toBeNull();
+    expect(within(second!).getByText("ended by a reset")).toBeTruthy();
+  });
+
+  it("stacks a segmented cycle's bar by each segment's own split", () => {
+    localStorage.removeItem("usageratio_history_view");
+    const segmented = summary({
+      start: END - 7 * DAY,
+      end: END,
+      total: 1_000,
+      official: 124,
+      groups: { Work: 600, Personal: 400 },
+      segments: [
+        { start: END - 7 * DAY, end: END - 4 * DAY, official: 80, total: 500, groups: { Work: 500 } },
+        { start: END - 4 * DAY, end: END, official: 44, total: 500, groups: { Work: 100, Personal: 400 } },
+      ],
+    });
+    renderHistory([segmented, OLDER]);
+    fireEvent.click(screen.getByRole("radio", { name: "By group" }));
+    const table = screen.getByRole("table");
+    const row = within(table)
+      .getAllByRole("row")
+      .find((tr) => tr.textContent?.includes("124%"))!;
+    expect(row.textContent).toContain("89%");
+    expect(row.textContent).toContain("35%");
+  });
 });
