@@ -9,6 +9,7 @@ import {
   keepResetsOf,
   MINUTE_MS,
   type ProviderResets,
+  RESET_DROP_POINTS,
   type ResetEvent,
   restartOverride,
   segmentStartAt,
@@ -36,7 +37,6 @@ import { ownResetOf, resetFor, resetModeOf, withResetOverride } from "@/lib/sett
  */
 
 export const RESET_TOLERANCE_MS = 15 * 60_000;
-export const RESET_DROP_POINTS = 5;
 const WEEK_MS = 7 * 86_400_000;
 /** A reading's clock may run a little ahead of the server's. */
 const MAX_CLOCK_SKEW_MS = 5 * 60_000;

@@ -8,10 +8,11 @@ import { GroupBreakdown } from "@/components/group-breakdown";
 import { MachineTable } from "@/components/machine-table";
 import { ModelChart } from "@/components/model-chart";
 import { QuotaMeter } from "@/components/quota-meter";
-import { ResetPanel } from "@/components/reset-panel";
+import { ResetPanel, ResetPrompt } from "@/components/reset-panel";
 import { SubLimitMeters, type SubLimitState } from "@/components/sub-limit-meters";
 import { UsageChart } from "@/components/usage-chart";
 import { EMPTY_ENTRY, useOfficialEntry, useSubLimitEntries } from "@/components/use-official-entry";
+import { useResetPrompt } from "@/components/use-reset-prompt";
 import { Link, useRouter } from "@/i18n/routing";
 import type { TokenMode } from "@/lib/config";
 import type { CycleKind } from "@/lib/cycle-options";
@@ -67,6 +68,16 @@ function ProviderView({
     model.closed ? model.cycle.endMs : null,
   );
   const { percent, invalid } = parseOfficialPercent(entry.raw);
+  // "Was there a reset?": asked once an edit takes the figure low and its save has settled.
+  const resetPrompt = useResetPrompt(percent, entryStatus.status === "saving");
+  const { beginEdit } = resetPrompt;
+  const changeEntry = useCallback(
+    (raw: string) => {
+      beginEdit();
+      setEntry(raw);
+    },
+    [beginEdit, setEntry],
+  );
 
   const view = useMemo(
     () => applyGroundTruth(model, percent === null ? null : { percent, atMs: entry.enteredAt }),
@@ -110,7 +121,7 @@ function ProviderView({
         <div className="space-y-12 sm:space-y-14">
           <GroundTruthInput
             raw={entry.raw}
-            onChange={setEntry}
+            onChange={changeEntry}
             invalid={invalid}
             enteredAt={entry.enteredAt}
             status={entryStatus}
@@ -121,6 +132,18 @@ function ProviderView({
             providers={providers.map(({ id, label }) => ({ id, label }))}
             onProviderChange={onProviderChange}
             readOnly={model.closed}
+            belowField={
+              !model.closed &&
+              resetPrompt.from !== null && (
+                <ResetPrompt
+                  providerId={selected.id}
+                  providerLabel={selected.label}
+                  before={resetPrompt.from}
+                  afterRaw={entry.raw}
+                  onDone={resetPrompt.dismiss}
+                />
+              )
+            }
           >
             <SubLimitMeters model={model} subLimits={subLimits} onChange={setSubEntry} providerLabel={selected.label} />
             {/* Resets are recorded in the current cycle only. */}

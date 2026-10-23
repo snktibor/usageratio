@@ -1,8 +1,9 @@
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DashboardView } from "@/components/dashboard-view";
 import { getConfig } from "@/lib/config";
 import { buildProviderDashboards } from "@/lib/dashboard";
+import { officialUsageField } from "@/lib/official-usage";
 import { renderWithIntl } from "../helpers/render";
 
 const push = vi.fn();
@@ -105,5 +106,41 @@ describe("DashboardView — the official figure's tag", () => {
     const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(path).toBe("/api/official-usage");
     expect(JSON.parse(init.body as string)).toMatchObject({ providerId: "claude", raw: "12", cycleStartMs: R });
+  });
+});
+
+describe("DashboardView — 'Was there a reset?'", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("asks once a figure typed below 10% has been saved, and not for one at 10% or above", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, enteredAt: 0 }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const now = new Date("2026-09-23T12:00:00Z");
+    const [claude] = buildProviderDashboards(
+      now,
+      getConfig({}),
+      ["claude"],
+      { eventsByProvider: {}, groups: [], machines: [] },
+      new Map([[officialUsageField("claude", null), { raw: "62", enteredAt: now.getTime() - 3_600_000 }]]),
+    );
+    renderWithIntl(
+      <DashboardView providers={[claude!]} historyByProvider={{}} historyContext={historyContext} pastCycle={false} />,
+    );
+    const field = screen.getByLabelText("Current official consumption");
+    const question = () => screen.queryByRole("button", { name: "Yes, record a reset" });
+
+    fireEvent.change(field, { target: { value: "8" } });
+    // Not while the figure is being saved (the save goes out 600 ms after the last change).
+    expect(question()).toBeNull();
+    expect(await screen.findByRole("button", { name: "Yes, record a reset" }, { timeout: 2_000 })).toBeDefined();
+    expect(screen.getByText(/stood at 62% before this change/)).toBeDefined();
+
+    fireEvent.change(field, { target: { value: "12" } });
+    expect(question()).toBeNull();
+    // Its save goes out too: nothing is left pending for the next test.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2), { timeout: 2_000 });
+    expect(question()).toBeNull();
   });
 });

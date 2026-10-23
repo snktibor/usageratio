@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ResetPanel } from "@/components/reset-panel";
+import { ResetPanel, ResetPrompt } from "@/components/reset-panel";
 import { getConfig } from "@/lib/config";
 import { buildDashboard } from "@/lib/dashboard";
 import type { ResetEvent } from "@/lib/resets";
@@ -180,5 +180,54 @@ describe("ResetPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(screen.getByText(/as a number from 0 to 100/)).toBeDefined();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("ResetPrompt", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-23T10:00:42Z"));
+    refresh.mockClear();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const renderPrompt = (onDone = vi.fn()) => {
+    renderWithIntl(<ResetPrompt providerId="claude" providerLabel="Claude" before={62} afterRaw="8" onDone={onDone} />);
+    return onDone;
+  };
+
+  it("records a reset now, with the figure from before the edit and the new one", async () => {
+    const fetchMock = answering(200, { ok: true });
+    const onDone = renderPrompt();
+    expect(screen.getByText(/stood at 62% before this change/)).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Yes, record a reset" }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(sent(fetchMock)).toEqual([
+      {
+        path: "/api/resets",
+        method: "POST",
+        body: { providerId: "claude", atMs: Date.parse("2026-09-23T10:00:00Z"), before: 62, afterRaw: "8" },
+      },
+    ]);
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it("leaves the edit a plain correction on No", () => {
+    const fetchMock = answering(200, { ok: true });
+    const onDone = renderPrompt();
+    fireEvent.click(screen.getByRole("button", { name: "No, just a correction" }));
+    expect(onDone).toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("says why the server refused", async () => {
+    answering(409, { error: "duplicate_reset" });
+    const onDone = renderPrompt();
+    fireEvent.click(screen.getByRole("button", { name: "Yes, record a reset" }));
+    expect(await screen.findByText("There is already a reset at that minute.")).toBeDefined();
+    expect(onDone).not.toHaveBeenCalled();
   });
 });

@@ -508,7 +508,10 @@
     "reset_problem_storage": "A szerver nem tudta menteni ezt a módosítást. Próbáld újra.",
     "reset_problem_network": "Nem sikerült elérni a szervert. Ellenőrizd a kapcsolatot, és próbáld újra.",
     "reset_problem_invalid_moment": "Add meg az időpontot dátummal és idővel.",
-    "reset_problem_invalid_before": "A reset előtti felhasználást 0 és 100 közötti számként add meg, vagy hagyd üresen."
+    "reset_problem_invalid_before": "A reset előtti felhasználást 0 és 100 közötti számként add meg, vagy hagyd üresen.",
+    "reset_prompt_question": "{label}: reset történt? A módosítás előtt {before} állt itt.",
+    "reset_prompt_yes": "Igen, reset rögzítése",
+    "reset_prompt_no": "Nem, csak javítás"
   },
   "Cycles": {
     "back_to_current": "Vissza az aktuálishoz",

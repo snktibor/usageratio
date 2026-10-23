@@ -26,6 +26,8 @@ interface GroundTruthInputProps {
   onProviderChange: (providerId: string) => void;
   /** Under the field: the provider's sub-limits, if it has any. */
   children?: React.ReactNode;
+  /** Right under the field's hint: the "Was there a reset?" question (components/reset-panel.tsx), when it stands. */
+  belowField?: React.ReactNode;
   /**
    * A finished cycle: the figure archived with it is shown, and only edited
    * once asked to (a correction, say 82% → 100%, of a figure that went stale
@@ -216,6 +218,7 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
         </div>
       )}
 
+      {props.belowField}
       {props.children}
     </section>
   );

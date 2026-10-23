@@ -60,6 +60,14 @@ export interface Segment extends TimeWindow {
 }
 
 export const MINUTE_MS = 60_000;
+/**
+ * A keep reset is detected from a reading at least this many points under the
+ * stored one (lib/official-report.ts); the dashboard asks "Was there a reset?"
+ * from the same drop.
+ */
+export const RESET_DROP_POINTS = 5;
+/** The dashboard asks only once the official field is edited below this percentage. */
+export const RESET_PROMPT_BELOW = 10;
 const RESET_ID = /^[A-Za-z0-9-]{1,64}$/;
 
 export function emptyResets(): ProviderResets {
@@ -269,4 +277,14 @@ export function pruneResets(
     events: resets.events.filter((event) => event.atMs >= (event.kind === "restart" ? retainFromMs : previousStartMs)),
     autoOffCycleStartMs: off !== null && off < cycle.startMs ? null : off,
   };
+}
+
+/**
+ * Whether an edit of the official field from `before` to `after` (0–100; null:
+ * empty) asks "Was there a reset?": the new figure is under
+ * `RESET_PROMPT_BELOW` and at least `RESET_DROP_POINTS` below the old one.
+ * Dragging the figure down never records a reset by itself.
+ */
+export function promptsReset(before: number | null, after: number | null): boolean {
+  return before !== null && after !== null && after < RESET_PROMPT_BELOW && before - after >= RESET_DROP_POINTS;
 }

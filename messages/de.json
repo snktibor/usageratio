@@ -508,7 +508,10 @@
     "reset_problem_storage": "Der Server konnte diese Änderung nicht speichern. Versuche es erneut.",
     "reset_problem_network": "Der Server konnte nicht erreicht werden. Überprüfe deine Verbindung und versuche es erneut.",
     "reset_problem_invalid_moment": "Gib den Zeitpunkt mit Datum und Uhrzeit an.",
-    "reset_problem_invalid_before": "Gib den Verbrauch vor dem Reset als Zahl von 0 bis 100 an oder lass das Feld leer."
+    "reset_problem_invalid_before": "Gib den Verbrauch vor dem Reset als Zahl von 0 bis 100 an oder lass das Feld leer.",
+    "reset_prompt_question": "Hat {label} deinen Verbrauch zurückgesetzt? Vor dieser Änderung stand hier {before}.",
+    "reset_prompt_yes": "Ja, Reset erfassen",
+    "reset_prompt_no": "Nein, nur eine Korrektur"
   },
   "Cycles": {
     "back_to_current": "Zurück zum aktuellen Zyklus",

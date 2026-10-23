@@ -173,6 +173,12 @@ such a row is marked *detected by the menu bar app*, and offers **Wrong – reve
 that puts the figure from before it back, and stops detection for the rest of the cycle. Only the
 current cycle's resets can be recorded or changed.
 
+Dragging or typing the official figure down never records a reset by itself. When an edit takes it below
+10%, at least 5 points under where it stood, a **Was there a reset?** question appears under the field once
+the new figure is saved: **Yes** records a reset now, with the earlier figure as the one before it and the
+new one as the figure since; **No** leaves the edit a plain correction. It never appears on a finished
+cycle's correction.
+
 ## Environment variables
 
 Set once at deploy time. Every variable here is also listed, with a short comment, in

@@ -10,6 +10,7 @@ import {
   keepResetsOf,
   type ProviderResets,
   parseProviderResets,
+  promptsReset,
   pruneResets,
   type ResetEvent,
   resetEventsOf,
@@ -255,5 +256,19 @@ describe("addReset / beforeFromRaw / pruneResets", () => {
       "restart",
       "r1",
     ]);
+  });
+});
+
+describe("promptsReset", () => {
+  it("asks once the figure is edited below 10%, at least 5 points down", () => {
+    expect(promptsReset(62, 8)).toBe(true);
+    expect(promptsReset(14, 9)).toBe(true);
+  });
+
+  it("does not ask for a small correction, a figure still at 10% or above, or without both figures", () => {
+    expect(promptsReset(12, 8)).toBe(false);
+    expect(promptsReset(62, 10)).toBe(false);
+    expect(promptsReset(null, 3)).toBe(false);
+    expect(promptsReset(62, null)).toBe(false);
   });
 });

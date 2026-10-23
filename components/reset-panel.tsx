@@ -261,3 +261,69 @@ export function ResetPanel({
     </div>
   );
 }
+
+/**
+ * "Was there a reset?", under the official field once an edit took the figure
+ * low (components/use-reset-prompt.ts). Yes records a reset now: `before` is
+ * the figure from before the edit, `afterRaw` the new one, stored as the
+ * figure since the reset. No leaves the edit a plain correction.
+ */
+export function ResetPrompt({
+  providerId,
+  providerLabel,
+  before,
+  afterRaw,
+  onDone,
+}: {
+  providerId: string;
+  providerLabel: string;
+  /** 0–100: the figure the field held when the edit began. */
+  before: number;
+  /** The field's text now. */
+  afterRaw: string;
+  /** Answered, or the reset recorded: the question goes. */
+  onDone: () => void;
+}) {
+  const locale = useLocale();
+  const t = useTranslations("Widgets");
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<ResetProblem | null>(null);
+
+  const confirm = async () => {
+    setBusy(true);
+    setProblem(null);
+    const atMs = Math.floor(Date.now() / MINUTE_MS) * MINUTE_MS;
+    const result = await sendReset("POST", { providerId, atMs, before, afterRaw: afterRaw.trim() });
+    setBusy(false);
+    if (!result.ok) {
+      setProblem(result.problem);
+      return;
+    }
+    onDone();
+    router.refresh();
+  };
+
+  return (
+    <div className="mt-4 rounded-md border border-ink-3 px-4 py-3">
+      <p className="text-sm text-ink-2">
+        {t("reset_prompt_question", { label: providerLabel, before: formatPercent(before / 100, locale) })}
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" disabled={busy} onClick={() => void confirm()} className={`text-sm ${PRIMARY_BUTTON}`}>
+          {t("reset_prompt_yes")}
+        </button>
+        <button type="button" disabled={busy} onClick={onDone} className={`text-sm ${QUIET_BUTTON}`}>
+          {t("reset_prompt_no")}
+        </button>
+      </div>
+      <div aria-live="polite">
+        {problem && (
+          <div className="mt-2">
+            <StatusLine tone="problem">{t(`reset_problem_${problem}`)}</StatusLine>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
