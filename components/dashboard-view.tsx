@@ -8,6 +8,7 @@ import { GroupBreakdown } from "@/components/group-breakdown";
 import { MachineTable } from "@/components/machine-table";
 import { ModelChart } from "@/components/model-chart";
 import { QuotaMeter } from "@/components/quota-meter";
+import { ResetPanel } from "@/components/reset-panel";
 import { SubLimitMeters, type SubLimitState } from "@/components/sub-limit-meters";
 import { UsageChart } from "@/components/usage-chart";
 import { EMPTY_ENTRY, useOfficialEntry, useSubLimitEntries } from "@/components/use-official-entry";
@@ -122,6 +123,16 @@ function ProviderView({
             readOnly={model.closed}
           >
             <SubLimitMeters model={model} subLimits={subLimits} onChange={setSubEntry} providerLabel={selected.label} />
+            {/* Resets are recorded in the current cycle only. */}
+            {!model.closed && (
+              <ResetPanel
+                providerId={selected.id}
+                providerLabel={selected.label}
+                model={model}
+                resetMode={selected.resetMode}
+                entry={entry}
+              />
+            )}
           </GroundTruthInput>
           <QuotaMeter model={model} view={view} />
           {model.machines.length > 0 && (

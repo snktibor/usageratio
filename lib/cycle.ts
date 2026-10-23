@@ -118,6 +118,23 @@ export function wallClockOf(
   return { weekday, day, hour, minute };
 }
 
+const twoDigits = (value: number) => String(value).padStart(2, "0");
+
+/** `ms` as a `datetime-local` field's value: the wall clock of `timeZone`, to the minute ("2026-09-22T14:05"). */
+export function wallClockInput(ms: number, timeZone: string): string {
+  const { year, month, day, hour, minute } = zonedParts(new Date(ms), timeZone);
+  return `${year}-${twoDigits(month)}-${twoDigits(day)}T${twoDigits(hour)}:${twoDigits(minute)}`;
+}
+
+/** A `datetime-local` field's value, read as the wall clock of `timeZone`, to the minute; null when it is no such value. */
+export function fromWallClockInput(value: string, timeZone: string): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2}(?:\.\d{1,3})?)?$/.exec(value);
+  if (!match) return null;
+  const [year, month, day, hour, minute] = match.slice(1, 6).map(Number) as [number, number, number, number, number];
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) return null;
+  return zonedTimeToUtc(year, month, day, hour, minute, timeZone).getTime();
+}
+
 /** The cycle that contains `now`. */
 export function getCycle(now: Date, reset: ResetConfig): Cycle {
   return reset.period === "monthly" ? getMonthlyCycle(now, reset) : getWeeklyCycle(now, reset);

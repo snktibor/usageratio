@@ -74,9 +74,9 @@ official usage figure, but their proportions hold. Typing (or dragging the slide
 in the selected account's official-percentage field restates every group's and machine's share as
 `(its measured tokens / all measured tokens) × official percentage`; with token limits on, the
 token counts themselves are restated the same way. The value is stored server-side (not per
-browser), tagged to the cycle it was entered in, and clears itself automatically once that cycle
-ends. Sub-limits get their own, smaller official-percentage field, always a percentage of the
-sub-limit's own budget.
+browser), tagged to the stretch of the cycle it was entered in — the cycle, or the part of it since its
+latest [usage reset](#usage-resets) — and clears itself automatically once that ends. Sub-limits get
+their own, smaller official-percentage field, always a percentage of the sub-limit's own budget.
 
 ### Groups
 
@@ -147,6 +147,31 @@ as raw events are shown from an automatically archived summary — see
 [data-model.md](data-model.md#history-archived-cycles). `GET /api/export` (linked from the
 dashboard) downloads the current or previous cycle's raw reports as CSV or JSON, alongside the
 archived history — see [api.md](api.md) for the exact format.
+
+### Usage resets
+
+Some providers occasionally reset a user's usage before the cycle ends. Under the official-percentage
+field, **There was a reset…** records one: when it happened (the reset time zone's wall clock, from the
+cycle's start up to now), and the percentage used right before it — prefilled from the stored official
+figure when that was read before the moment, left empty when unknown. What it does depends on the
+provider's reset type ([Reset and time zone](#reset-and-time-zone)):
+
+- **The weekly reset stays** (Claude's way): the reset splits the cycle into segments. The meter, the
+  pace, the groups, the machines, the sub-limits and the cost estimate count the current segment only,
+  and the meter's day ruler covers it. A line under the main figure lists each reset with the figure
+  before it, and the cycle's total: those figures and the current one added up (an unknown one is a dash,
+  left out). The usage chart still shows the whole cycle, with a marker at each reset, where every line
+  starts again from 0. Under an official figure, each finished segment is scaled by its own before-figure;
+  one without it is an estimate at the current rate, drawn faded.
+- **The reset becomes the new weekly reset** (Codex's way): the cycle ends at the reset and a fresh one
+  starts there; the provider's own reset moves to that moment. The page shows the new cycle, and the one
+  cut short moves to the previous cycles.
+
+The list under the button holds this cycle's resets, each editable and deletable. The menu bar app's
+readings also record resets on their own ([`POST /api/official-usage/report`](api.md#post-apiofficial-usagereport));
+such a row is marked *detected by the menu bar app*, and offers **Wrong – revert** instead of delete:
+that puts the figure from before it back, and stops detection for the rest of the cycle. Only the
+current cycle's resets can be recorded or changed.
 
 ## Environment variables
 

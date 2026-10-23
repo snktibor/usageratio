@@ -393,6 +393,7 @@ detection is off for the rest of that cycle, and a reading whose window ends els
 
 Auth: **session** + same-origin; refused in demo mode. A provider's usage resets in its current cycle
 (see `lib/resets.ts` for the reset types). 1 KB body.
+What the dashboard shows of them: [configuration.md](configuration.md#usage-resets).
 
 ```json
 { "providerId": "claude", "atMs": 1758549600000, "before": 80, "afterRaw": "3" }
