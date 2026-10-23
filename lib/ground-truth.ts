@@ -1,4 +1,4 @@
-import type { DashboardModel } from "@/lib/dashboard";
+import type { DashboardModel, PastSegment } from "@/lib/dashboard";
 import { assessQuota, type QuotaAssessment } from "@/lib/quota";
 import type { SubLimitModel } from "@/lib/sub-limits";
 
@@ -49,6 +49,8 @@ export interface DashboardView {
   asOfMs: number;
   groups: DashboardModel["groups"];
   machines: DashboardModel["machines"];
+  /** A closed cycle's segment figures it was restated by (`applySegmentFigures`), one per `model.pastSegments`; absent otherwise. */
+  segmentFigures?: (number | null)[];
 }
 
 /**
@@ -116,25 +118,107 @@ export function applyGroundTruth(model: DashboardModel, reading: OfficialReading
 }
 
 /**
+ * A closed cycle with keep resets restated by its segments' figures
+ * (`model.pastSegments`, one figure per segment, 0–100 or null): the cycle came
+ * to their sum, which can pass 100%, and every group and machine gets, for
+ * each segment, its part of that segment's measured tokens times the segment's
+ * figure, added up. A segment without a figure adds nothing; with none known
+ * this is the measured view.
+ */
+export function applySegmentFigures(model: DashboardModel, figures: (number | null)[]): DashboardView {
+  const known = figures.filter((figure): figure is number => figure !== null);
+  if (known.length === 0) return applyGroundTruth(model, null);
+
+  const inTokens = model.quota !== null;
+  const limit = model.quota?.limit ?? 1;
+  const officialTotal = (known.reduce((sum, figure) => sum + figure, 0) / 100) * limit;
+  const asOfMs = Math.min(model.generatedAt, model.cycle.endMs);
+  const partOf = (tokensIn: (segment: PastSegment) => number) =>
+    model.pastSegments.reduce((sum, segment, index) => {
+      const figure = figures[index];
+      return figure === null || figure === undefined || segment.total <= 0
+        ? sum
+        : sum + (figure / 100) * (tokensIn(segment) / segment.total);
+    }, 0);
+  const restate = <T extends { tokens: number }>(row: T, tokensIn: (segment: PastSegment) => number): T => {
+    const limitShare = partOf(tokensIn);
+    return { ...row, limitShare, tokens: inTokens ? limitShare * limit : row.tokens };
+  };
+
+  return {
+    calibrated: true,
+    quota: assessQuota(officialTotal, limit, { startMs: model.cycle.startMs, endMs: model.cycle.endMs, nowMs: asOfMs }),
+    inTokens,
+    measured: { total: model.total, usedFraction: model.quota?.usedFraction ?? null },
+    scale: inTokens && model.total > 0 ? officialTotal / model.total : null,
+    asOfMs,
+    groups: model.groups.map((group) =>
+      restate(group, (segment) => (Object.hasOwn(segment.groups, group.groupId) ? segment.groups[group.groupId]! : 0)),
+    ),
+    machines: model.machines.map((machine) =>
+      restate(
+        machine,
+        (segment) =>
+          segment.machines.find((row) => row.machineId === machine.machineId && row.groupId === machine.groupId)
+            ?.tokens ?? 0,
+      ),
+    ),
+    segmentFigures: figures,
+  };
+}
+
+/**
  * What one measured token on the timeline (lib/timeline.ts) is as a fraction
  * of the budget, at each of its samples. The current segment's tokens go at
  * the headline figure over its measured tokens (1/limit without a reading).
  * Under an official reading, a finished segment's go at its own before-figure
  * over the tokens measured in it (lib/resets.ts); one whose figure is unknown
- * takes the current rate. Null while nothing tells how much of the budget is
- * gone: no token limit and no reading.
+ * takes the current rate. A closed cycle's segments (`model.pastSegments`) go
+ * at the figures it was restated by (`applySegmentFigures`). Null while
+ * nothing tells how much of the budget is gone: no token limit and no reading.
  */
 export function timelineRates(model: DashboardModel, view: DashboardView): number[] | null {
   const { quota } = view;
   if (!quota) return null;
   // Right after a reset nothing is measured yet: the segment's samples are all 0, the limit's rate is as good as any.
   const current = model.total > 0 ? quota.usedFraction / model.total : view.inTokens ? 1 / quota.limit : 0;
+  if (model.pastSegments.length > 0) return pastSegmentRates(model, view, current);
   const keeps = model.resets.filter((reset) => reset.kind === "keep");
   return model.timeline.times.map((ms) => {
     // The reset that ends the segment this sample falls in; none in the current segment.
     const ending = keeps.find((reset) => reset.atMs > ms);
     if (!ending || !view.calibrated || ending.before === null || !ending.tokens) return current;
     return ending.before / 100 / ending.tokens;
+  });
+}
+
+/**
+ * A closed cycle's rates: each segment's tokens at its own figure over the
+ * tokens measured in it. A segment without a figure goes at the token
+ * limit's rate, or, without a limit, at the known segments' average rate;
+ * every segment does while the view is the measured one.
+ */
+function pastSegmentRates(model: DashboardModel, view: DashboardView, current: number): number[] {
+  const figures = view.segmentFigures;
+  if (!figures) return model.timeline.times.map(() => current);
+  const known = model.pastSegments.flatMap((segment, index) => {
+    const figure = figures[index];
+    return figure !== null && figure !== undefined && segment.total > 0 ? [{ figure, total: segment.total }] : [];
+  });
+  const knownTokens = known.reduce((sum, { total }) => sum + total, 0);
+  const fallback =
+    view.inTokens && view.quota
+      ? 1 / view.quota.limit
+      : knownTokens > 0
+        ? known.reduce((sum, { figure }) => sum + figure / 100, 0) / knownTokens
+        : 0;
+  const last = model.pastSegments.length - 1;
+  return model.timeline.times.map((ms) => {
+    const found = model.pastSegments.findIndex((segment) => ms < segment.endMs);
+    const index = found < 0 ? last : found;
+    const segment = model.pastSegments[index]!;
+    const figure = figures[index];
+    return figure === null || figure === undefined || segment.total <= 0 ? fallback : figure / 100 / segment.total;
   });
 }
 

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { getConfig } from "@/lib/config";
-import { buildDashboard, buildProviderDashboards, type StoreSnapshot, segmentSince } from "@/lib/dashboard";
+import {
+  buildDashboard,
+  buildProviderDashboards,
+  resetMoments,
+  type StoreSnapshot,
+  segmentSince,
+} from "@/lib/dashboard";
+import type { CycleSummary } from "@/lib/history";
 import type { ResetEvent } from "@/lib/resets";
 import { type KnownGroup, NEUTRAL_COLOR, PRESET_COLORS } from "@/lib/settings";
 
@@ -904,5 +911,102 @@ describe("buildProviderDashboards — a restart", () => {
     expect(openai!.dashboard.resets).toEqual([
       { id: "codex", atMs: R, kind: "restart", before: 62, source: "report", tokens: null },
     ]);
+  });
+});
+
+describe("buildDashboard — a closed cycle with keep resets", () => {
+  const R = CYCLE_START + 38 * HOUR;
+  const END = CYCLE_START + 168 * HOUR;
+  const window = {
+    cycle: { start: new Date(CYCLE_START), end: new Date(END) },
+    previous: { start: new Date(CYCLE_START - 168 * HOUR), end: new Date(CYCLE_START) },
+  };
+  // As archived: the segments' bounds and figures (their archived totals are not what the model reads).
+  const archivedSegments = [
+    { start: CYCLE_START, end: R, official: 80, total: 0, groups: {} },
+    { start: R, end: END, official: 44, total: 0, groups: {} },
+  ];
+  const events = [
+    report("win", "Work", 30_000, 10),
+    report("mac", "Home", 20_000, 20),
+    report("win", "Work", 12_000, 40),
+  ];
+  const later = new Date(END + 32 * HOUR);
+  const closed = buildDashboard(later, config, snapshot({ events, archivedSegments }), [], window);
+
+  it("counts the whole cycle, and carries each segment's measured tokens with its archived figure", () => {
+    expect(closed.total).toBe(62_000);
+    expect(closed.segment.startMs).toBe(CYCLE_START);
+    expect(closed.resets).toEqual([]);
+    expect(closed.pastSegments).toEqual([
+      {
+        startMs: CYCLE_START,
+        endMs: R,
+        official: 80,
+        total: 50_000,
+        groups: { Work: 30_000, Home: 20_000 },
+        machines: [
+          { machineId: "win", groupId: "Work", tokens: 30_000 },
+          { machineId: "mac", groupId: "Home", tokens: 20_000 },
+        ],
+      },
+      {
+        startMs: R,
+        endMs: END,
+        official: 44,
+        total: 12_000,
+        groups: { Work: 12_000 },
+        machines: [{ machineId: "win", groupId: "Work", tokens: 12_000 }],
+      },
+    ]);
+  });
+
+  it("restarts its timeline's lines at each segment", () => {
+    const { times, groups } = closed.timeline;
+    const work = groups.find((group) => group.groupId === "Work")!;
+    expect(work.values[times.indexOf(R - 1)]).toBe(30_000);
+    expect(work.values[times.indexOf(R)]).toBe(0);
+    expect(work.values.at(-1)).toBe(12_000);
+    expect(resetMoments(closed)).toEqual([R]);
+  });
+
+  it("has no segments with a single archived one, and ignores archived ones for an open cycle", () => {
+    const single = buildDashboard(
+      later,
+      config,
+      snapshot({ events, archivedSegments: archivedSegments.slice(0, 1) }),
+      [],
+      window,
+    );
+    expect(single.pastSegments).toEqual([]);
+    expect(resetMoments(single)).toEqual([]);
+    const open = buildDashboard(NOW, config, snapshot({ events, archivedSegments }));
+    expect(open.pastSegments).toEqual([]);
+  });
+
+  it("reads a past cycle's segments from the provider's archived summary", () => {
+    const summary: CycleSummary = {
+      v: 1,
+      start: CYCLE_START,
+      end: END,
+      total: 62_000,
+      limit: null,
+      official: 124,
+      groups: {},
+      machines: 2,
+      models: {},
+      subLimits: {},
+      archivedAt: END,
+      segments: archivedSegments,
+    };
+    const [claude] = buildProviderDashboards(
+      later,
+      config,
+      ["claude"],
+      { eventsByProvider: { claude: events }, groups: [], machines: [], history: { claude: [summary] } },
+      new Map(),
+      window,
+    );
+    expect(claude!.dashboard.pastSegments.map((segment) => segment.official)).toEqual([80, 44]);
   });
 });

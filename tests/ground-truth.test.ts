@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getConfig } from "@/lib/config";
 import { buildDashboard } from "@/lib/dashboard";
-import { applyGroundTruth, parseOfficialPercent, timelineRates } from "@/lib/ground-truth";
+import { applyGroundTruth, applySegmentFigures, parseOfficialPercent, timelineRates } from "@/lib/ground-truth";
 import type { ResetEvent } from "@/lib/resets";
 
 const HOUR = 3_600_000;
@@ -417,5 +417,62 @@ describe("timelineRates — more than one reset", () => {
     expect(rateAt(rates, times, KEEP - 1)).toBeCloseTo(0.8 / 12_000);
     expect(rateAt(rates, times, KEEP)).toBeCloseTo(0.06 / 8_000);
     expect(rates.at(-1)).toBeCloseTo(0.06 / 8_000);
+  });
+});
+
+describe("applySegmentFigures — a closed cycle with keep resets", () => {
+  const R = CYCLE_START + 38 * HOUR;
+  const END = CYCLE_START + 168 * HOUR;
+  const closed = buildDashboard(
+    new Date(END + 32 * HOUR),
+    config,
+    {
+      events: [
+        report("win-1", "Work", 30_000, 10),
+        report("mac", "Home", 20_000, 20),
+        report("win-1", "Work", 12_000, 40),
+      ],
+      groups: [],
+      machines: [],
+      archivedSegments: [
+        { start: CYCLE_START, end: R, official: 80, total: 0, groups: {} },
+        { start: R, end: END, official: 44, total: 0, groups: {} },
+      ],
+    },
+    [],
+    {
+      cycle: { start: new Date(CYCLE_START), end: new Date(END) },
+      previous: { start: new Date(CYCLE_START - 168 * HOUR), end: new Date(CYCLE_START) },
+    },
+  );
+
+  it("comes to the sum of the figures, each split by its own segment's tokens", () => {
+    const view = applySegmentFigures(closed, [80, 44]);
+    expect(view.calibrated).toBe(true);
+    expect(view.quota!.usedFraction).toBeCloseTo(1.24);
+    expect(view.segmentFigures).toEqual([80, 44]);
+    // Work: 30k of the first segment's 50k at 80%, all of the second's 12k at 44%. Home: 20k of 50k at 80%.
+    const work = view.groups.find((group) => group.groupId === "Work")!;
+    const home = view.groups.find((group) => group.groupId === "Home")!;
+    expect(work.limitShare).toBeCloseTo(0.92);
+    expect(home.limitShare).toBeCloseTo(0.32);
+    expect(work.tokens).toBeCloseTo(0.92 * 500_000);
+    expect(view.machines.find((machine) => machine.machineId === "win-1")!.limitShare).toBeCloseTo(0.92);
+  });
+
+  it("leaves a segment without a figure out, and is the measured view with none known", () => {
+    expect(applySegmentFigures(closed, [null, 44]).quota!.usedFraction).toBeCloseTo(0.44);
+    const measured = applySegmentFigures(closed, [null, null]);
+    expect(measured.calibrated).toBe(false);
+    expect(measured.segmentFigures).toBeUndefined();
+  });
+
+  it("rates each segment of the timeline at its own figure, an unknown one at the token limit's rate", () => {
+    const { times } = closed.timeline;
+    const rates = timelineRates(closed, applySegmentFigures(closed, [80, 44]))!;
+    expect(rates[times.indexOf(R - 1)]).toBeCloseTo(0.8 / 50_000);
+    expect(rates.at(-1)).toBeCloseTo(0.44 / 12_000);
+    const partial = timelineRates(closed, applySegmentFigures(closed, [null, 44]))!;
+    expect(partial[times.indexOf(R - 1)]).toBeCloseTo(1 / 500_000);
   });
 });

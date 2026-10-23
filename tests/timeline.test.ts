@@ -263,4 +263,23 @@ describe("buildTimeline across a keep reset", () => {
     // Cost is a running total: 1.5 at the end, 1 before the reset.
     expect(timeline.models[0]!.cost).toBeCloseTo(0.5);
   });
+
+  it("counts a model across every segment from fromMs on, lines still restarting at the reset", () => {
+    const priced: UsageEvent[] = [
+      {
+        ...report("mac", "Personal", 100, 1, { "claude-opus-4-1": 100 }),
+        costUsd: 1,
+        modelCosts: { "claude-opus-4-1": 1 },
+      },
+      {
+        ...report("mac", "Personal", 60, 4, { "claude-opus-4-1": 60 }),
+        costUsd: 1.5,
+        modelCosts: { "claude-opus-4-1": 1.5 },
+      },
+    ];
+    const timeline = buildTimeline(priced, ["Personal"], WEEK, NOW, "delta", priced, [RESET], WEEK.startMs);
+    expect(timeline.models.map((model) => [model.modelId, model.tokens])).toEqual([["claude-opus-4-1", 160]]);
+    expect(timeline.models[0]!.cost).toBeCloseTo(1.5);
+    expect(timeline.groups[0]!.values.at(-1)).toBe(60);
+  });
 });

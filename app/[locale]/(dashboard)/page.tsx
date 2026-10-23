@@ -153,7 +153,7 @@ async function loadDashboard(
       { ...config, reset: { ...config.reset, period: periodOfCycle(selected) } },
       providerIds,
       // Only the machines that reported in it: which ones have gone quiet since is today's story.
-      { ...store, machines: [] },
+      { ...store, machines: [], history: historyByProvider },
       archivedOfficialEntries(historyByProvider, selected),
       window,
     );

@@ -29,10 +29,10 @@ export interface ModelTimeline {
   /** The model's id without its snapshot date; see lib/models.ts. */
   modelId: string;
   label: string;
-  /** Its tokens in the current segment (the cycle, without keep resets), over all groups. */
+  /** Its tokens since the timeline's `fromMs` (the current segment's start; a closed cycle's start), over all groups. */
   tokens: number;
   groups: GroupSeries[];
-  /** Its API-list-price cost estimate in the current segment, over all groups; undefined without a cost split naming it. */
+  /** Its API-list-price cost estimate since the same moment, over all groups; undefined without a cost split naming it. */
   cost?: number;
 }
 
@@ -235,8 +235,8 @@ function modelCostTotal(
  * come from `modelEvents`: the provider's reports as sent, while `events` may
  * have a separate sub-limit's tokens taken out (lib/sub-limits.ts).
  * `resetsMs` are the cycle's keep resets up to now, ascending (lib/resets.ts):
- * every line restarts from 0 at each, and a model's tokens and cost are the
- * current segment's.
+ * every line restarts from 0 at each, and a model's tokens and cost count every
+ * segment from `fromMs` on (by default the last one: the current segment).
  */
 export function buildTimeline(
   events: UsageEvent[],
@@ -246,10 +246,14 @@ export function buildTimeline(
   mode: TokenMode,
   modelEvents: UsageEvent[] = events,
   resetsMs: number[] = [],
+  fromMs: number = resetsMs.at(-1) ?? window.startMs,
 ): CycleTimeline {
   const times = withResetSamples(sampleTimes(window.startMs, window.endMs, nowMs), resetsMs);
   const last = times.length - 1;
-  const segmentStartMs = resetsMs.at(-1) ?? window.startMs;
+  // Where each segment from `fromMs` on ends on the timeline: right before each later reset, and at the last sample.
+  const segmentEnds = [...resetsMs.filter((atMs) => atMs > fromMs).map((atMs) => times.indexOf(atMs - 1)), last].filter(
+    (index) => index >= 0,
+  );
 
   const keys = new Set<string>();
   for (const event of modelEvents) {
@@ -259,8 +263,11 @@ export function buildTimeline(
   const models = [...keys]
     .map((key) => {
       const groups = groupTimelines(reportsOfModel(modelEvents, key), groupIds, times, window, mode, resetsMs);
-      const tokens = groups.reduce((sum, group) => sum + group.values[last]!, 0);
-      const cost = modelCostTotal(modelEvents, key, window, segmentStartMs);
+      const tokens = groups.reduce(
+        (sum, group) => sum + segmentEnds.reduce((part, index) => part + group.values[index]!, 0),
+        0,
+      );
+      const cost = modelCostTotal(modelEvents, key, window, fromMs);
       return { modelId: key, label: modelLabel(key), tokens, groups, ...(cost !== undefined && { cost }) };
     })
     // A model used only before a reset has none of the segment's tokens, but still a line to draw.
