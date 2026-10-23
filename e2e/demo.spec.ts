@@ -204,6 +204,17 @@ test("a write attempt through the UI does not change anything", async ({ page })
   await expect(page.getByRole("textbox", { name: "Current official consumption" })).toHaveValue("62.5");
 });
 
+test("the dashboard shows the week's reset under the meter, on the chart and in the reset list", async ({ page }) => {
+  await page.goto("/en");
+
+  // 22.4% before the reset and 62.5% since: 84.9% in total, both rounded to whole percents.
+  await expect(page.getByText(/^Reset .+ · before it 22% · this week in total 85%$/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Resets in this cycle" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit" })).toBeVisible();
+  // The usage chart's marker: its lines start again from 0 there.
+  await expect(page.getByText("reset", { exact: true }).first()).toBeVisible();
+});
+
 for (const [locale, heading] of [
   ["hu", "Fogyás időben"],
   ["de", "Verbrauch im Zeitverlauf"],

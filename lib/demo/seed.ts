@@ -4,7 +4,7 @@ import { isDemoMode } from "@/lib/demo/mode";
 import { ingestReport } from "@/lib/ingest";
 import { log } from "@/lib/log";
 import { getRedis } from "@/lib/redis";
-import { archiveCycle, registerProviders, saveOfficialUsage, saveSettings } from "@/lib/usage-store";
+import { archiveCycle, registerProviders, saveOfficialUsage, saveResets, saveSettings } from "@/lib/usage-store";
 
 /**
  * Writes the synthetic dataset (lib/demo/dataset.ts) into the store through
@@ -122,6 +122,10 @@ export async function seedStore(options: SeedOptions): Promise<SeedSummary> {
   for (const entry of dataset.official) {
     const { enteredAtMs, ...update } = entry;
     await saveOfficialUsage(update, new Date(enteredAtMs));
+  }
+
+  for (const entry of dataset.resets) {
+    await saveResets(entry.providerId, entry.resets);
   }
 
   // Pre-archived cycles (lib/demo/dataset.ts): the dashboard's own lazy archiving

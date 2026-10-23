@@ -25,6 +25,7 @@ describe("seedStore", () => {
       new Set(DEMO_MACHINES.map((machine) => machine.id)),
     );
     expect(Object.keys(indexes.officialUsage).sort()).toEqual(["claude", "claude:fable"]);
+    expect(indexes.resets.claude?.events.map((event) => event.id)).toEqual(["demo-claude-reset"]);
     expect(await loadRawSettings()).not.toBeNull();
   });
 
