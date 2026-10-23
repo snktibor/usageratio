@@ -8,16 +8,19 @@ import { GroupBreakdown } from "@/components/group-breakdown";
 import { MachineTable } from "@/components/machine-table";
 import { ModelChart } from "@/components/model-chart";
 import { QuotaMeter } from "@/components/quota-meter";
+import { ResetPanel, ResetPrompt } from "@/components/reset-panel";
+import { SegmentFigures } from "@/components/segment-figures";
 import { SubLimitMeters, type SubLimitState } from "@/components/sub-limit-meters";
 import { UsageChart } from "@/components/usage-chart";
-import { EMPTY_ENTRY, useOfficialEntry, useSubLimitEntries } from "@/components/use-official-entry";
+import { EMPTY_ENTRY, useOfficialEntry, useSegmentEntries, useSubLimitEntries } from "@/components/use-official-entry";
+import { useResetPrompt } from "@/components/use-reset-prompt";
 import { Link, useRouter } from "@/i18n/routing";
 import type { TokenMode } from "@/lib/config";
 import type { CycleKind } from "@/lib/cycle-options";
-import type { ProviderDashboardModel } from "@/lib/dashboard";
+import { type ProviderDashboardModel, segmentSince } from "@/lib/dashboard";
 import { formatDateTime, formatTokens } from "@/lib/format";
-import { applyGroundTruth, applySubLimitReading, parseOfficialPercent } from "@/lib/ground-truth";
-import type { CycleSummary } from "@/lib/history";
+import { applyGroundTruth, applySegmentFigures, applySubLimitReading, parseOfficialPercent } from "@/lib/ground-truth";
+import { type CycleSummary, sumOfFigures } from "@/lib/history";
 import { PROVIDER_COOKIE } from "@/lib/preferences";
 
 const MODE_NOTE = {
@@ -56,24 +59,61 @@ function ProviderView({
   const locale = useLocale();
   const t = useTranslations("Dashboard");
   const model = selected.dashboard;
+  // A figure belongs to the segment it was typed in (lib/resets.ts): it clears itself at a reset. A closed
+  // cycle's segment is the whole cycle, whose start keys its archived summary.
   const [entry, setEntry, entryStatus] = useOfficialEntry(
     selected.id,
-    model.cycle.startMs,
+    model.segment.startMs,
     selected.officialEntry,
     // A finished cycle's figure is its archived one: a correction is written there.
     model.closed ? model.cycle.endMs : null,
   );
   const { percent, invalid } = parseOfficialPercent(entry.raw);
+  // A closed cycle with keep resets came to the sum of its segments' figures, each corrected on its own.
+  const { pastSegments } = model;
+  const segmented = pastSegments.length > 0;
+  const [segmentEntries, setSegmentEntry, segmentStatuses] = useSegmentEntries(
+    selected.id,
+    model.cycle.startMs,
+    pastSegments,
+    model.cycle.endMs,
+  );
+  const segmentFigures = useMemo(
+    () =>
+      pastSegments.map(
+        (segment) => parseOfficialPercent((segmentEntries.get(segment.startMs) ?? EMPTY_ENTRY).raw).percent,
+      ),
+    [pastSegments, segmentEntries],
+  );
+  const segmentSum = sumOfFigures(segmentFigures);
+  // "Was there a reset?": asked once an edit takes the figure low and its save has settled. Only an open
+  // cycle's edit counts, and only within its segment: the view stays mounted when the page changes cycle.
+  const resetPrompt = useResetPrompt(
+    percent,
+    entryStatus.status === "saving",
+    `${model.closed}:${model.segment.startMs}`,
+  );
+  const { beginEdit } = resetPrompt;
+  const changeEntry = useCallback(
+    (raw: string) => {
+      if (!model.closed) beginEdit();
+      setEntry(raw);
+    },
+    [model.closed, beginEdit, setEntry],
+  );
 
   const view = useMemo(
-    () => applyGroundTruth(model, percent === null ? null : { percent, atMs: entry.enteredAt }),
-    [model, percent, entry.enteredAt],
+    () =>
+      segmented
+        ? applySegmentFigures(model, segmentFigures)
+        : applyGroundTruth(model, percent === null ? null : { percent, atMs: entry.enteredAt }),
+    [segmented, model, segmentFigures, percent, entry.enteredAt],
   );
 
   // Both the fields under the official one and the chart show them: they are worked out here, once.
   const [subEntries, setSubEntry, subStatuses] = useSubLimitEntries(
     selected.id,
-    model.cycle.startMs,
+    model.segment.startMs,
     model.subLimits.map((sub) => sub.id),
     selected.subLimitEntries,
   );
@@ -106,9 +146,9 @@ function ProviderView({
       <main className="mt-10 space-y-16 sm:mt-12">
         <div className="space-y-12 sm:space-y-14">
           <GroundTruthInput
-            raw={entry.raw}
-            onChange={setEntry}
-            invalid={invalid}
+            raw={segmented ? (segmentSum === null ? "" : String(segmentSum)) : entry.raw}
+            onChange={changeEntry}
+            invalid={segmented ? false : invalid}
             enteredAt={entry.enteredAt}
             status={entryStatus}
             view={view}
@@ -118,8 +158,42 @@ function ProviderView({
             providers={providers.map(({ id, label }) => ({ id, label }))}
             onProviderChange={onProviderChange}
             readOnly={model.closed}
+            since={segmentSince(model)}
+            correction={
+              segmented && (
+                <SegmentFigures
+                  segments={pastSegments}
+                  entries={segmentEntries}
+                  statuses={segmentStatuses}
+                  onChange={setSegmentEntry}
+                  timeZone={model.timeZone}
+                />
+              )
+            }
+            belowField={
+              !model.closed &&
+              resetPrompt.from !== null && (
+                <ResetPrompt
+                  providerId={selected.id}
+                  providerLabel={selected.label}
+                  before={resetPrompt.from}
+                  afterRaw={entry.raw}
+                  onDone={resetPrompt.dismiss}
+                />
+              )
+            }
           >
             <SubLimitMeters model={model} subLimits={subLimits} onChange={setSubEntry} providerLabel={selected.label} />
+            {/* Resets are recorded in the current cycle only. */}
+            {!model.closed && (
+              <ResetPanel
+                providerId={selected.id}
+                providerLabel={selected.label}
+                model={model}
+                resetMode={selected.resetMode}
+                entry={entry}
+              />
+            )}
           </GroundTruthInput>
           <QuotaMeter model={model} view={view} />
           {model.machines.length > 0 && (

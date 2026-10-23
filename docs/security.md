@@ -252,7 +252,11 @@ manual `POST /api/housekeeping` (settings panel, sudo-gated unless `?dryRun=1`) 
 - `usage:providers` entries with no events anywhere, no surviving machine, and not referenced by
   the settings document, once old enough to be dead rather than new;
 - `usage:groups` entries with zero events across every provider, once old enough;
-- `usage:official` entries from a cycle that has since rolled over, or that fail to parse;
+- `usage:official` entries older than the provider's current segment (its cycle rolled over, or a
+  reset since), or that fail to parse;
+- `usage:resets` events: a keep reset once it is older than the provider's previous cycle, a restart
+  once it is older than `RETENTION_DAYS` (70 days, while its raw reports exist), and a reverted
+  reset's detection switch once its cycle is over;
 - `usage:tokens` entries revoked more than 90 days ago (`REVOKED_RETENTION_DAYS`);
 - `usage:api-token:audit` entries older than `AUDIT_RETENTION_DAYS`.
 

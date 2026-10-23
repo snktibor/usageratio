@@ -1,8 +1,12 @@
 import { useLocale } from "next-intl";
-import type { DashboardModel } from "@/lib/dashboard";
+import type { DashboardModel, DaySpan } from "@/lib/dashboard";
 import { formatMonthDay, weekdayShort } from "@/lib/format";
 
-type Segment = DashboardModel["cycle"]["segments"][number];
+/** What a ruler lays out: the days of a stretch of time, and how far into it now is. */
+export interface RulerSpan {
+  elapsedFraction: number;
+  days: DaySpan[];
+}
 
 /**
  * The text under one day of the ruler. A week names every day that has the
@@ -11,39 +15,41 @@ type Segment = DashboardModel["cycle"]["segments"][number];
  */
 function rulerLabel(
   model: DashboardModel,
-  segment: Segment,
+  day: DaySpan,
   index: number,
   todayIndex: number,
   locale: string,
 ): string | null {
-  const width = segment.endFraction - segment.startFraction;
-  if (model.period === "weekly") return width >= 0.07 ? weekdayShort(segment.weekday, locale) : null;
+  const width = day.endFraction - day.startFraction;
+  if (model.period === "weekly") return width >= 0.07 ? weekdayShort(day.weekday, locale) : null;
 
   if (width < 0.02) return null;
-  const isLandmark = segment.monthDay === 1 || segment.monthDay % 5 === 0;
+  const isLandmark = day.monthDay === 1 || day.monthDay % 5 === 0;
   const named = index === todayIndex || (isLandmark && Math.abs(index - todayIndex) !== 1);
-  return named ? formatMonthDay(segment.monthDay, locale) : null;
+  return named ? formatMonthDay(day.monthDay, locale) : null;
 }
 
-/** The days of the cycle, left to right across the full width: under the meter and under the charts. */
-export function CycleRuler({ model }: { model: DashboardModel }) {
+/**
+ * The days of `span`, left to right across the full width: the current
+ * segment under the meter (lib/dashboard.ts `segment`), the whole cycle under
+ * the charts.
+ */
+export function CycleRuler({ model, span }: { model: DashboardModel; span: RulerSpan }) {
   const locale = useLocale();
-  const nowFraction = model.cycle.elapsedFraction;
-  const todayIndex = model.cycle.segments.findIndex(
-    (segment) => nowFraction >= segment.startFraction && nowFraction < segment.endFraction,
-  );
+  const nowFraction = span.elapsedFraction;
+  const todayIndex = span.days.findIndex((day) => nowFraction >= day.startFraction && nowFraction < day.endFraction);
 
   return (
     <div aria-hidden="true" className="relative mt-2 h-7">
-      {model.cycle.segments.map((segment, index) => {
-        const label = rulerLabel(model, segment, index, todayIndex, locale);
+      {span.days.map((day, index) => {
+        const label = rulerLabel(model, day, index, todayIndex, locale);
         return (
           <div
-            key={segment.startFraction}
+            key={day.startFraction}
             className="absolute top-0 h-full"
             style={{
-              left: `${segment.startFraction * 100}%`,
-              width: `${(segment.endFraction - segment.startFraction) * 100}%`,
+              left: `${day.startFraction * 100}%`,
+              width: `${(day.endFraction - day.startFraction) * 100}%`,
             }}
           >
             {index > 0 && <span className="absolute left-0 top-0 h-2 w-px bg-rule" />}

@@ -6,7 +6,9 @@ import { type Draft, type DraftOwnReset, parseTimeZone } from "@/components/sett
 import { StatusLine } from "@/components/status-line";
 import { FIELD, QUIET_BUTTON } from "@/components/ui/classes";
 import { Segmented } from "@/components/ui/segmented";
+import type { ResetMode } from "@/lib/config";
 import { formatMonthDay, weekdayLong } from "@/lib/format";
+import { resetModeOf } from "@/lib/settings";
 import { weekdayOrder } from "@/lib/week";
 
 const MONTH_DAYS = Array.from({ length: 31 }, (_, index) => index + 1);
@@ -226,16 +228,30 @@ export function ResetSection({
                       onChange={(event) => onPatchOwnReset(provider.id, { time: event.target.value })}
                       className={`w-32 tabular-nums ${FIELD}`}
                     />
-                    {own.source === "report" && (
+                    {own.source && (
                       <span className="basis-full text-sm text-ink-3 sm:pl-40">
                         <span aria-hidden="true">↳ </span>
-                        {t("reset_set_by_report")}
+                        {own.source === "reset" ? t("reset_set_by_reset") : t("reset_set_by_report")}
                       </span>
                     )}
                   </>
                 ) : (
                   <span className="text-sm text-ink-3">{t("reset_shared_hint", { when })}</span>
                 )}
+                <label className="flex basis-full flex-wrap items-center gap-x-3 gap-y-1 text-sm sm:pl-40">
+                  <span className="text-ink-3">{t("reset_mode_after")}</span>
+                  <select
+                    aria-label={t("reset_mode_label", { label: provider.label })}
+                    value={resetModeOf(draft, provider.id)}
+                    onChange={(event) =>
+                      onPatch({ resetModes: { ...draft.resetModes, [provider.id]: event.target.value as ResetMode } })
+                    }
+                    className={`max-w-full ${FIELD}`}
+                  >
+                    <option value="keep">{t("reset_mode_keep", { period: draft.period })}</option>
+                    <option value="restart">{t("reset_mode_restart", { period: draft.period })}</option>
+                  </select>
+                </label>
               </div>
             );
           })}

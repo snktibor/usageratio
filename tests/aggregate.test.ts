@@ -225,3 +225,45 @@ describe("summarizeCost", () => {
     expect(cost.total).toBe(3);
   });
 });
+
+describe("summarizeUsage from a segment's start", () => {
+  const window = { startMs: 0, endMs: 1000 };
+  const e = (machineId: string, tokens: number, ts: number): UsageEvent => ({ machineId, groupId: "Work", tokens, ts });
+
+  it("counts what each series used since `fromMs`, in every token mode", () => {
+    // Snapshot: running totals since the window's start. "b" did not report since 500: not listed.
+    const snapshot = [e("a", 100, 100), e("a", 300, 400), e("a", 350, 600), e("b", 50, 200)];
+    const summary = summarizeUsage(snapshot, window, "snapshot", 500);
+    expect(summary.total).toBe(50);
+    expect(summary.series.map((s) => [s.machineId, s.tokens, s.reports])).toEqual([["a", 50, 1]]);
+
+    const delta = [e("a", 100, 100), e("a", 200, 400), e("a", 50, 600)];
+    expect(summarizeUsage(delta, window, "delta", 500).total).toBe(50);
+
+    // Counter: a baseline before the window, and a restart from zero after `fromMs`.
+    const counter = [e("a", 1000, -10), e("a", 1100, 100), e("a", 1300, 400), e("a", 20, 700)];
+    expect(summarizeUsage(counter, window, "counter", 500).total).toBe(20);
+  });
+
+  it("is the whole window without `fromMs`", () => {
+    const snapshot = [e("a", 100, 100), e("a", 350, 600)];
+    expect(summarizeUsage(snapshot, window, "snapshot").total).toBe(350);
+  });
+});
+
+describe("summarizeCost — from a moment", () => {
+  it("counts only what accrued from fromMs on, by machine and group", () => {
+    const events: UsageEvent[] = [
+      { ...ev("mac", "Personal", 10, 1100), costUsd: 2 },
+      { ...ev("mac", "Personal", 20, 1600), costUsd: 5 },
+      // No cost figure since fromMs: left out, as a machine that never sent one is.
+      { ...ev("win", "Work", 5, 1200), costUsd: 1 },
+    ];
+    expect(summarizeCost(events, WINDOW, 1500)).toEqual({
+      total: 3,
+      byGroup: { Personal: 3 },
+      byMachine: { mac: 3 },
+      hasCost: true,
+    });
+  });
+});

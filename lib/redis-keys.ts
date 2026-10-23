@@ -1,23 +1,31 @@
 /**
  * Redis key layout — every key name the app uses, in one place.
  *
- *   usage:settings                        STRING provider limits, shared reset/display settings, and providers' own reset moments (resetOverrides; an entry may carry source?: "report")
+ *   usage:settings                        STRING provider limits, shared reset/display settings, and providers' own reset moments (resetOverrides; an entry may carry source?: "report" | "reset") and reset modes (resetModes)
  *   usage:providers                       HASH   providerId → first-seen ms
  *   usage:events:{providerId}:{groupId}   ZSET   score = report time (epoch ms)
  *                                                 member = {"m": machineId, "t": tokens, "ts": ms,
  *                                                           "b": {modelId: tokens}, "$": usd,
- *                                                           "$b": {modelId: usd}, "c": 1, "x": 1}
+ *                                                           "$b": {modelId: usd}, "c": 1, "x": 1,
+ *                                                           "s": cycleStartMs}
  *                                                 ("b", the split by model, only from clients that send one;
  *                                                 "$"/"$b", the cost estimate; "c" marks a
  *                                                 day's or hour's checkpoint, see lib/days.ts; "x" a
- *                                                 merged machine's carry-over, see lib/machine-merge.ts)
+ *                                                 merged machine's carry-over, see lib/machine-merge.ts; "s" the cycle
+ *                                                 start the client counted from, see lib/resets.ts dropStaleBasis)
  *   usage:groups            HASH  groupId   → {"color": "#rrggbb", "ts": first-seen ms}
  *                                 (a bare ms number in entries older than group colours)
  *   usage:machines          HASH  providerId:machineId → {"g": groupId, "ts": ms, "t": tokens,
  *                                 "md": "manual", "iv": intervalMinutes} ("md"/"iv" only when not the default)
  *   usage:official           HASH  providerId, or providerId:subLimitId →
- *                                  {"raw": "45.5", "enteredAt": ms, "cycleStartMs": ms}
- *                                  (the ground-truth field on the dashboard; see lib/official-usage.ts)
+ *                                  {"raw": "45.5", "enteredAt": ms, "cycleStartMs": ms, "resetsAtMs": ms}
+ *                                  (the ground-truth field on the dashboard; see lib/official-usage.ts;
+ *                                  "cycleStartMs" is the start of the segment it was entered in,
+ *                                  "resetsAtMs" only on a report: its window's reset)
+ *   usage:resets             HASH  providerId → {"v": 1, "events": [ResetEvent…], "autoOffCycleStartMs": ms | null}
+ *                                  (the provider's usage resets: keep resets of its current and
+ *                                  previous cycle, restarts while their raw reports are kept,
+ *                                  see lib/resets.ts; pruned by lib/housekeeping.ts)
  *
  *   usage:api-token          STRING {"v":1,"kid","iv","ct","tag","updatedAt"}: AES-256-GCM, key
  *                                   TOKEN_ENCRYPTION_KEY (see lib/secret-box.ts, lib/token-vault.ts)
@@ -35,9 +43,10 @@
  *   usage:housekeeping:last  STRING {"at": ms, "report": HousekeepingReport} — the last run of
  *                                   lib/housekeeping.ts (see app/api/cron/housekeeping/route.ts)
  *
- *   usage:alert:{providerId}:{cycleStartMs}:{threshold}
+ *   usage:alert:{providerId}:{segmentStartMs}:{threshold}
  *                             STRING "1", SET NX EX 70d — the guard that makes a threshold
- *                                   alert fire once per provider per cycle (see lib/alerts.ts)
+ *                                   alert fire once per provider per segment of a cycle (the
+ *                                   cycle's start while it has no keep reset, see lib/alerts.ts)
  *
  *   usage:history:{providerId}   ZSET  score = cycle start (epoch ms), member = a CycleSummary
  *                                       (JSON, see lib/history.ts), kept for the newest
@@ -74,8 +83,8 @@
  * save on the panel) overwrite each other.
  *
  * lib/housekeeping.ts prunes the index hashes above (machines, providers,
- * groups, official usage), long-revoked tokens and old audit entries, and
- * archives the cycle that just ended; it never touches the event ZSETs,
+ * groups, official usage, resets), long-revoked tokens and old audit entries,
+ * and archives the cycle that just ended; it never touches the event ZSETs,
  * which already self-prune on every report (`storeReport` in lib/usage-store.ts).
  *
  * Auth and rate-limit keys are built next to their code: usage:session:*,
@@ -87,12 +96,13 @@ export const KEYS = {
   groups: "usage:groups",
   machines: "usage:machines",
   officialUsage: "usage:official",
+  resets: "usage:resets",
   events: (providerId: string, groupId: string) => `usage:events:${providerId}:${groupId}`,
   history: (providerId: string) => `usage:history:${providerId}`,
   apiToken: "usage:api-token",
   apiTokenAudit: "usage:api-token:audit",
   housekeepingLast: "usage:housekeeping:last",
   tokens: "usage:tokens",
-  alert: (providerId: string, cycleStartMs: number, threshold: number) =>
-    `usage:alert:${providerId}:${cycleStartMs}:${threshold}`,
+  alert: (providerId: string, segmentStartMs: number, threshold: number) =>
+    `usage:alert:${providerId}:${segmentStartMs}:${threshold}`,
 };

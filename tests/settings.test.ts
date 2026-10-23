@@ -11,12 +11,15 @@ import {
   MAX_GROUPS,
   NEUTRAL_COLOR,
   normalizeHexColor,
+  ownResetOf,
   PRESET_COLORS,
   parseGroupEntry,
   parseSettingsUpdate,
   parseStoredSettings,
   randomGroupColor,
+  readStoredResetOverride,
   resetFor,
+  resetModeOf,
   resolveConfig,
   resolveGroupColors,
   serializeGroupEntry,
@@ -25,6 +28,7 @@ import {
   suggestGroupColor,
   type UsageSettings,
   visibleProviderIds,
+  withResetOverride,
 } from "@/lib/settings";
 
 const config = getConfig({});
@@ -37,6 +41,7 @@ const MONTHLY: UsageSettings = {
   limits: { claude: 2_000_000, deepseek: 1_250_000 },
   reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30, timeZone: "America/New_York" },
   resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } },
+  resetModes: {},
   showRemaining: false,
   costEstimate: true,
   hiddenProviders: ["openai"],
@@ -75,6 +80,7 @@ describe("stored settings", () => {
       limits: {},
       reset: { weekday: 1, monthDay: 1, hour: 0, minute: 0, timeZone: "UTC" },
       resetOverrides: {},
+      resetModes: {},
       showRemaining: true,
       costEstimate: false,
       hiddenProviders: [],
@@ -100,6 +106,7 @@ describe("stored settings", () => {
       limits: {},
       reset: { weekday: 3, monthDay: 1, hour: 6, minute: 15, timeZone: "Asia/Tokyo" },
       resetOverrides: {},
+      resetModes: {},
       showRemaining: true,
       costEstimate: false,
       hiddenProviders: [],
@@ -161,6 +168,7 @@ describe("stored settings", () => {
       limits: {},
       reset: { weekday: 1, monthDay: 31, hour: 0, minute: 45, timeZone: "UTC" },
       resetOverrides: {},
+      resetModes: {},
       showRemaining: true,
       costEstimate: false,
       hiddenProviders: [],
@@ -182,6 +190,7 @@ describe("stored settings", () => {
       // The document has no `reset.timeZone` (it predates the field): the default zone wins.
       reset: { ...MONTHLY.reset, timeZone: DEFAULTS.reset.timeZone },
       resetOverrides: {},
+      resetModes: {},
       showRemaining: true,
       costEstimate: false,
       hiddenProviders: [],
@@ -321,6 +330,7 @@ describe("parseSettingsUpdate", () => {
     limits: { claude: 2_000_000, deepseek: 1_250_000 },
     reset: { weekday: 4, monthDay: 15, hour: 9, minute: 30, timeZone: "America/New_York" },
     resetOverrides: { Claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0 } },
+    resetModes: {},
     showRemaining: false,
     costEstimate: true,
     hiddenProviders: ["OpenAI", "openai"],
@@ -371,7 +381,44 @@ describe("parseSettingsUpdate", () => {
       resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 0, source: "panel" } },
     });
     expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(bad.errors).toContain('resetOverrides.claude.source must be "report", or absent');
+    if (!bad.ok) expect(bad.errors).toContain('resetOverrides.claude.source must be "report" or "reset", or absent');
+  });
+
+  it("requires resetModes, normalizes its ids and checks every mode", () => {
+    const { resetModes: _, ...missing } = valid;
+    expect(parseSettingsUpdate(missing)).toMatchObject({ ok: false });
+    const ok = parseSettingsUpdate({ ...valid, resetModes: { Claude: "restart" } });
+    if (!ok.ok) throw new Error(ok.errors.join("; "));
+    expect(ok.update.settings.resetModes).toEqual({ claude: "restart" });
+    const bad = parseSettingsUpdate({ ...valid, resetModes: { claude: "sideways" } });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.errors).toContain('resetModes.claude must be "keep" or "restart"');
+  });
+
+  it("reports a reset mode map that is no object, too long, or names a provider badly", () => {
+    const errorsOf = (resetModes: unknown) => {
+      const result = parseSettingsUpdate({ ...valid, resetModes });
+      if (result.ok) throw new Error("accepted");
+      return result.errors;
+    };
+    const tooMany = Object.fromEntries(Array.from({ length: MAX_PROVIDERS + 1 }, (_, i) => [`p${i}`, "keep"]));
+    const message = `resetModes must be a JSON object of at most ${MAX_PROVIDERS} providers`;
+    expect(errorsOf(["keep"])).toContain(message);
+    expect(errorsOf("keep")).toContain(message);
+    expect(errorsOf(tooMany)).toContain(message);
+    expect(errorsOf({ "bad/provider": "keep" })).toContain("resetModes.bad/provider has an invalid provider id");
+    expect(errorsOf({ claude: "keep", Claude: "restart" })).toContain(
+      "resetModes.Claude is listed twice after normalization",
+    );
+  });
+
+  it("accepts a restart's source marker on an override", () => {
+    const result = parseSettingsUpdate({
+      ...valid,
+      resetOverrides: { openai: { weekday: 2, monthDay: 22, hour: 14, minute: 0, source: "reset" } },
+    });
+    if (!result.ok) throw new Error(result.errors.join("; "));
+    expect(result.update.settings.resetOverrides.openai?.source).toBe("reset");
   });
 
   it("accepts a complete update and normalizes ids and colours", () => {
@@ -435,7 +482,7 @@ describe("parseSettingsUpdate", () => {
   it("defaults nothing: every budget field is required", () => {
     const result = parseSettingsUpdate({});
     expect(result.ok).toBe(false);
-    expect(!result.ok && result.errors).toHaveLength(15);
+    expect(!result.ok && result.errors).toHaveLength(16);
     expect(!result.ok && result.errors).toContain(
       `hiddenProviders must be an array of at most ${MAX_PROVIDERS} provider ids`,
     );
@@ -793,5 +840,65 @@ describe("per-provider reset", () => {
     const config = applySettings(base, settings);
     expect(config.resetOverrides).toEqual(settings.resetOverrides);
     expect(settingsFromConfig(config).resetOverrides).toEqual(settings.resetOverrides);
+  });
+});
+
+describe("reset modes", () => {
+  it("defaults Claude to keep and Codex (openai) to restart, anything else to keep", () => {
+    expect(resetModeOf(config, "claude")).toBe("keep");
+    expect(resetModeOf(config, "anthropic")).toBe("keep");
+    expect(resetModeOf(config, "openai")).toBe("restart");
+    expect(resetModeOf(config, "deepseek")).toBe("keep");
+  });
+
+  it("reads stored modes leniently: a stored mode wins, a bad entry is dropped on its own", () => {
+    const resolved = resolveConfig(
+      config,
+      JSON.stringify({ resetModes: { Claude: "restart", openai: "sideways", "!!": "keep" } }),
+    );
+    expect(resolved.resetModes).toEqual({ claude: "restart" });
+    expect(resetModeOf(resolved, "claude")).toBe("restart");
+    expect(resetModeOf(resolved, "openai")).toBe("restart");
+  });
+});
+
+describe("withResetOverride / ownResetOf", () => {
+  it("sets, replaces and removes one provider's own reset", () => {
+    const own = { weekday: 2, monthDay: 22, hour: 14, minute: 0, source: "reset" as const };
+    const set = withResetOverride(config, "openai", own);
+    expect(ownResetOf(set, "openai")).toEqual(own);
+    expect(ownResetOf(withResetOverride(set, "openai", null), "openai")).toBeNull();
+    expect(ownResetOf(config, "openai")).toBeNull();
+  });
+});
+
+describe("readStoredResetOverride", () => {
+  it("reads a stored own reset, with the marker of a restart", () => {
+    expect(readStoredResetOverride({ weekday: 2, monthDay: 22, hour: 14, minute: 0, source: "reset" })).toEqual({
+      weekday: 2,
+      monthDay: 22,
+      hour: 14,
+      minute: 0,
+      source: "reset",
+    });
+    expect(readStoredResetOverride({ weekday: 4, monthDay: 1, hour: 9, minute: 0 })).toEqual({
+      weekday: 4,
+      monthDay: 1,
+      hour: 9,
+      minute: 0,
+    });
+  });
+
+  it("ignores a marker it does not know, and reads a damaged entry as none", () => {
+    expect(readStoredResetOverride({ weekday: 4, monthDay: 1, hour: 9, minute: 0, source: "panel" })).toEqual({
+      weekday: 4,
+      monthDay: 1,
+      hour: 9,
+      minute: 0,
+    });
+    expect(readStoredResetOverride({ weekday: 7, monthDay: 1, hour: 9, minute: 0 })).toBeNull();
+    expect(readStoredResetOverride({ weekday: 4, monthDay: 1, hour: 9 })).toBeNull();
+    expect(readStoredResetOverride("Thursday")).toBeNull();
+    expect(readStoredResetOverride(null)).toBeNull();
   });
 });

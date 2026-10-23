@@ -125,13 +125,13 @@ export interface SubLimitModel {
   mode: SubLimitMode;
   /** "share": the most of the provider's budget it may use, 0–1; null for "separate". */
   shareCap: number | null;
-  /** Tokens its models measured this cycle. */
+  /** Tokens its models measured in the current segment (the cycle, without keep resets). */
   total: number;
-  /** Its cumulative tokens at each sample of the dashboard's timeline; the last one is `total`. */
+  /** Its cumulative tokens at each sample of the dashboard's timeline, restarting at each keep reset; the last one is `total`. */
   values: number[];
-  /** Whether any report of this cycle came with a split by model: without one nothing is known of it. */
+  /** Whether any report of the current segment came with a split by model: without one nothing is known of it. */
   hasSplit: boolean;
-  /** This cycle's models that belong to it, by label, the heaviest first. */
+  /** The current segment's models that belong to it, by label, the heaviest first. */
   models: string[];
   /** `total` against its token budget; null while the token limits are off. */
   quota: QuotaAssessment | null;
@@ -140,7 +140,8 @@ export interface SubLimitModel {
 /**
  * `reports` as split by `splitBySubLimits`; `times` are the samples of the
  * dashboard's timeline; `providerLimit` is the provider's token budget, null
- * while the token limits are off.
+ * while the token limits are off; `resetsMs` the cycle's keep resets up to
+ * now, ascending: a sub-limit counts the current segment, as the provider does.
  */
 export function measureSubLimits(
   subLimits: SubLimit[],
@@ -149,15 +150,17 @@ export function measureSubLimits(
   times: number[],
   mode: TokenMode,
   providerLimit: number | null,
+  resetsMs: number[] = [],
 ): SubLimitModel[] {
+  const fromMs = resetsMs.at(-1) ?? window.startMs;
   return subLimits.map((sub) => {
     const events = reports.get(sub.id) ?? [];
-    const inCycle = events.filter((event) => event.ts >= window.startMs && event.ts < window.endMs);
-    const total = summarizeUsage(events, window, mode).total;
+    const inSegment = events.filter((event) => event.ts >= fromMs && event.ts < window.endMs);
+    const total = summarizeUsage(events, window, mode, fromMs).total;
 
     // Only orders the labels: each model's largest reading is near enough to its share, in every token mode.
     const tokensByModel = new Map<string, number>();
-    for (const event of inCycle) {
+    for (const event of inSegment) {
       for (const [modelId, tokens] of Object.entries(event.models ?? {})) {
         const key = modelKey(modelId);
         tokensByModel.set(key, Math.max(tokensByModel.get(key) ?? 0, tokens));
@@ -175,10 +178,10 @@ export function measureSubLimits(
       mode: sub.mode,
       shareCap,
       total,
-      values: totalTimeline(events, times, window, mode),
-      hasSplit: inCycle.length > 0,
+      values: totalTimeline(events, times, window, mode, resetsMs),
+      hasSplit: inSegment.length > 0,
       models,
-      quota: limit === null ? null : assessQuota(total, limit, window),
+      quota: limit === null ? null : assessQuota(total, limit, { ...window, startMs: fromMs }),
     };
   });
 }

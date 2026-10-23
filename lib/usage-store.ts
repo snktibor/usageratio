@@ -2,12 +2,25 @@ import type { UsageEvent } from "@/lib/aggregate";
 import { getConfig, MAX_MACHINES, type ResetOverride } from "@/lib/config";
 import type { KnownMachine } from "@/lib/dashboard";
 import { type CycleStart, reportCheckpoints } from "@/lib/days";
-import { type CycleSummary, HISTORY_RETENTION, parseCycleSummary, serializeCycleSummary } from "@/lib/history";
+import {
+  type CycleSummary,
+  HISTORY_RETENTION,
+  parseCycleSummary,
+  serializeCycleSummary,
+  withCorrectedOfficial,
+} from "@/lib/history";
 import { type OfficialUsageUpdate, officialUsageField, storedEntryFor } from "@/lib/official-usage";
 import { MAX_PROVIDERS, mergeProviderIds, normalizeProviderId } from "@/lib/providers";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
 import { TxPlan } from "@/lib/redis-tx";
+import {
+  dropStaleBasis,
+  type ProviderResets,
+  parseProviderResets,
+  resetEventsOf,
+  serializeProviderResets,
+} from "@/lib/resets";
 import {
   type IndexedGroup,
   type KnownGroup,
@@ -30,18 +43,25 @@ import type { ReportMode, UsageReport } from "@/lib/validation";
  *   usage:events:{providerId}:{groupId}  ZSET  score = report time (epoch ms)
  *                                              member = {"m": machineId, "t": tokens, "ts": ms,
  *                                                        "b": {modelId: tokens}, "$": costUsd,
- *                                                        "$b": {modelId: costUsd}, "c": 1, "x": 1}
+ *                                                        "$b": {modelId: costUsd}, "c": 1, "x": 1,
+ *                                                        "s": cycleStartMs}
  *                                              ("b", the split by model, only from clients that send one;
  *                                              "$"/"$b", the API-list-price cost estimate and its split by
  *                                              model, from clients that send one (older ones only with COST=1);
  *                                              "c" marks a day's checkpoint, see lib/days.ts; "x" a merged
- *                                              machine's carry-over, see lib/machine-merge.ts)
+ *                                              machine's carry-over, see lib/machine-merge.ts; "s" the cycle
+ *                                              start the client counted from, see lib/resets.ts dropStaleBasis)
  *   usage:groups            HASH  groupId   → {"color": "#rrggbb", "ts": first-seen ms}
  *                                 (a bare ms number in entries older than group colours)
  *   usage:machines          HASH  providerId:machineId → {"g": groupId, "ts": ms, "t": tokens}
  *   usage:official           HASH  providerId, or providerId:subLimitId →
- *                                  {"raw": "45.5", "enteredAt": ms, "cycleStartMs": ms}
- *                                  (the ground-truth field on the dashboard; see lib/official-usage.ts)
+ *                                  {"raw": "45.5", "enteredAt": ms, "cycleStartMs": ms, "resetsAtMs": ms}
+ *                                  (the ground-truth field on the dashboard; see lib/official-usage.ts;
+ *                                  "cycleStartMs" is the start of the segment it was entered in,
+ *                                  "resetsAtMs" only on a report: its window's reset)
+ *   usage:resets             HASH  providerId → {"v": 1, "events": [ResetEvent…], "autoOffCycleStartMs": ms | null}
+ *                                  (the provider's usage resets of its current and previous cycle,
+ *                                  see lib/resets.ts; pruned by lib/housekeeping.ts)
  *
  * One time-ordered set per provider/group makes all filters native commands:
  * provider and group are in the key, a period is a score range. The reset
@@ -77,6 +97,7 @@ const DAY_MS = 86_400_000;
  * `costUsd`/`modelCosts` are the optional API-list-price estimate (lib/setup.ts
  * COST): absent for every client that does not opt in, and always absent from
  * a checkpoint, since a day's split carries no cost of its own (lib/days.ts).
+ * `basisMs` is the cycle start the client counted from (`"s"`), when the settings could be read.
  */
 export function eventMember(
   machineId: string,
@@ -87,6 +108,7 @@ export function eventMember(
   modelCosts: Record<string, number> | undefined,
   checkpoint = false,
   carried = false,
+  basisMs: number | null = null,
 ): string {
   const entries = Object.entries(models ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   const costEntries = Object.entries(modelCosts ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
@@ -99,6 +121,7 @@ export function eventMember(
     ...(costEntries.length > 0 && { $b: Object.fromEntries(costEntries) }),
     ...(checkpoint && { c: 1 }),
     ...(carried && { x: 1 }),
+    ...(basisMs !== null && { s: basisMs }),
   });
 }
 
@@ -221,6 +244,8 @@ export async function storeReport(
 
   const oldestMs = now.getTime() - retentionDays * DAY_MS;
   const startOf = cycle && (typeof cycle.startMs === "number" ? () => cycle.startMs as number : cycle.startMs);
+  // What each provider's running total counts from: the cycle start the client was given.
+  const basisOf = (providerId: string): number | null => (startOf ? startOf(providerId) : null);
   const checkpoints =
     cycle && startOf && !heartbeat
       ? reportCheckpoints(report, cycle.timeZone, (providerId) => Math.max(startOf(providerId), oldestMs))
@@ -242,6 +267,9 @@ export async function storeReport(
         report.models[providerId],
         report.costs[providerId],
         report.modelCosts[providerId],
+        false,
+        false,
+        basisOf(providerId),
       );
       const lastReport = machineEntry(
         report.groupId,
@@ -270,6 +298,8 @@ export async function storeReport(
             undefined,
             undefined,
             true,
+            false,
+            basisOf(providerId),
           ),
         }));
       const [first, ...rest] = members;
@@ -293,7 +323,7 @@ export function parseEvent(raw: unknown, groupId: string): UsageEvent | null {
   try {
     const value: unknown = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (typeof value !== "object" || value === null) return null;
-    const { m, t, ts, b, c, x, $: cost, $b: modelCostsRaw } = value as Record<string, unknown>;
+    const { m, t, ts, b, c, x, s, $: cost, $b: modelCostsRaw } = value as Record<string, unknown>;
     if (typeof m !== "string" || typeof t !== "number" || typeof ts !== "number") return null;
     if (!Number.isFinite(t) || t < 0 || !Number.isFinite(ts)) return null;
     const models = parseModelSplit(b);
@@ -311,6 +341,7 @@ export function parseEvent(raw: unknown, groupId: string): UsageEvent | null {
       ...(modelCosts && { modelCosts }),
       ...(c === 1 && { checkpoint: true }),
       ...(x === 1 && { carried: true }),
+      ...(typeof s === "number" && Number.isFinite(s) && { basisMs: s }),
     };
   } catch {
     return null;
@@ -377,11 +408,23 @@ export interface StoreIndexes {
   machines: ProviderMachine[];
   /** The official-usage fields, unparsed; see lib/official-usage.ts. */
   officialUsage: Record<string, string>;
+  /** Every provider's usage resets, parsed (lib/resets.ts); a provider with none is absent. */
+  resets: Record<string, ProviderResets>;
+}
+
+/** `usage:resets`, by provider: a field with an unknown provider id is skipped. */
+function parseResetsHash(raw: unknown): Record<string, ProviderResets> {
+  const resets: Record<string, ProviderResets> = {};
+  for (const [field, value] of Object.entries(toStringRecord(raw))) {
+    const providerId = normalizeProviderId(field);
+    if (providerId) resets[providerId] = parseProviderResets(value);
+  }
+  return resets;
 }
 
 /**
- * The settings and the group, machine and official-usage indexes, in one
- * round trip. The settings come first because they decide how far back
+ * The settings and the group, machine, official-usage and reset indexes, in
+ * one round trip. The settings come first because they decide how far back
  * `loadEvents` must reach.
  */
 export async function loadIndexes(): Promise<StoreIndexes> {
@@ -391,7 +434,9 @@ export async function loadIndexes(): Promise<StoreIndexes> {
   indexes.hgetall(KEYS.providers);
   indexes.hgetall(KEYS.machines);
   indexes.hgetall(KEYS.officialUsage);
-  const [rawSettings, rawGroups, rawProviders, rawMachines, rawOfficialUsage]: unknown[] = await indexes.exec();
+  indexes.hgetall(KEYS.resets);
+  const [rawSettings, rawGroups, rawProviders, rawMachines, rawOfficialUsage, rawResets]: unknown[] =
+    await indexes.exec();
 
   const groups: IndexedGroup[] = Object.entries(toStringRecord(rawGroups)).map(([groupId, raw]) =>
     parseGroupEntry(groupId, raw),
@@ -426,6 +471,7 @@ export async function loadIndexes(): Promise<StoreIndexes> {
     providers,
     machines,
     officialUsage: toStringRecord(rawOfficialUsage),
+    resets: parseResetsHash(rawResets),
   };
 }
 
@@ -463,12 +509,15 @@ export async function loadReportContext(): Promise<{ settings: string | null; pr
 
 /**
  * All reports of `groups` since `sinceMs`, and for every group whether it has
- * any stored report at all (also older ones). One round trip.
+ * any stored report at all (also older ones). One round trip. `resets` are the
+ * providers' resets (`loadIndexes().resets`): a cycle a restart began drops the
+ * snapshot reports counted from before it.
  */
 export async function loadEvents(
   providerIds: string[],
   groups: IndexedGroup[],
   sinceMs: number,
+  resets: Record<string, ProviderResets> = {},
 ): Promise<{ eventsByProvider: Record<string, UsageEvent[]>; groups: KnownGroup[] }> {
   const providers = mergeProviderIds(providerIds);
   const eventsByProvider = Object.fromEntries(providers.map((providerId) => [providerId, [] as UsageEvent[]]));
@@ -508,6 +557,7 @@ export async function loadEvents(
           event.ts,
           !!event.checkpoint,
           !!event.carried,
+          event.basisMs ?? null,
         ]);
         if (!seen.has(identity)) {
           seen.add(identity);
@@ -517,6 +567,15 @@ export async function loadEvents(
     }
     if (Number(plan.result(results, `exists:${index}`)) === 1) activeGroups.add(groupId);
   });
+
+  const { tokenMode } = getConfig();
+  for (const providerId of providers) {
+    eventsByProvider[providerId] = dropStaleBasis(
+      eventsByProvider[providerId]!,
+      resetEventsOf(resets, providerId),
+      tokenMode,
+    );
+  }
 
   return {
     eventsByProvider,
@@ -644,20 +703,99 @@ export async function saveOfficialUsage(update: OfficialUsageUpdate, now: Date):
   else await getRedis().hset(KEYS.officialUsage, { [field]: stored });
 }
 
+/** Every provider's usage resets (lib/resets.ts), one read. */
+export async function loadResets(): Promise<Record<string, ProviderResets>> {
+  return parseResetsHash(await getRedis().hgetall(KEYS.resets));
+}
+
+/** One provider's resets as the stored document; null when nothing is left in it (the field is removed). */
+function resetsDocument(resets: ProviderResets): string | null {
+  return resets.events.length === 0 && resets.autoOffCycleStartMs === null ? null : serializeProviderResets(resets);
+}
+
+/**
+ * Replaces one provider's usage resets as a whole (the field is overwritten,
+ * not merged): callers read it, change it, then write it back, and two writers
+ * racing (a report detecting a reset while one is edited by hand) leave the
+ * later one's. A document with nothing left in it is removed.
+ */
+export async function saveResets(providerId: string, resets: ProviderResets): Promise<void> {
+  const document = resetsDocument(resets);
+  if (document === null) await getRedis().hdel(KEYS.resets, providerId);
+  else await getRedis().hset(KEYS.resets, { [providerId]: document });
+}
+
+/** The stored settings with `providerId`'s own reset set (a value) or removed (null). */
+function settingsWithOverride(
+  rawSettings: string | null,
+  providerId: string,
+  override: ResetOverride | null,
+  now: Date,
+  providerIds: string[],
+): string {
+  const settings = parseStoredSettings(rawSettings, settingsFromConfig(getConfig(), providerIds));
+  const { [providerId]: _, ...others } = settings.resetOverrides;
+  settings.resetOverrides = override ? { ...others, [providerId]: override } : others;
+  return serializeSettings(settings, now);
+}
+
 /**
  * Sets one provider's own reset in the stored settings (an official report
- * moving it to the provider's window; lib/official-report.ts). Read, change,
- * write: a settings save racing it wins or loses as a whole, like two panel saves.
+ * moving it to the provider's window, lib/official-report.ts), or removes it
+ * (null). Read, change, write: a settings save racing it wins or loses as a
+ * whole, like two panel saves. A usage reset moves it through `saveResetChange`.
  */
 export async function saveResetOverride(
   providerId: string,
-  override: ResetOverride,
+  override: ResetOverride | null,
   now: Date,
   providerIds: string[],
 ): Promise<void> {
-  const settings = parseStoredSettings(await loadRawSettings(), settingsFromConfig(getConfig(), providerIds));
-  settings.resetOverrides = { ...settings.resetOverrides, [providerId]: override };
-  await getRedis().set(KEYS.settings, serializeSettings(settings, now));
+  await getRedis().set(
+    KEYS.settings,
+    settingsWithOverride(await loadRawSettings(), providerId, override, now, providerIds),
+  );
+}
+
+/**
+ * One change of a provider's usage resets, written in one transaction
+ * (lib/reset-store.ts): its resets; its own reset in the settings document
+ * when `override` is given (a value sets it, null removes it); the archived
+ * summary of the cycle starting at `deleteArchivedStartMs`, which a restart
+ * that was moved or deleted no longer cuts short where it did (the next
+ * archiving run writes it again, lib/archive.ts); and the official fields to
+ * write (a retag, lib/reset-recording.ts). All or nothing, so a failed write
+ * leaves the change to be repeated rather than half of it stored. The settings
+ * document is changed from `rawSettings`, the one read with the rest of the
+ * request, so a panel save in between loses: the same last-writer-wins race as
+ * `saveResetOverride`.
+ */
+export async function saveResetChange(change: {
+  providerId: string;
+  resets: ProviderResets;
+  override?: ResetOverride | null;
+  rawSettings: string | null;
+  providerIds: string[];
+  now: Date;
+  deleteArchivedStartMs?: number;
+  officialFields: Record<string, string>;
+}): Promise<void> {
+  const { providerId, override, deleteArchivedStartMs, officialFields } = change;
+  const tx = getRedis().multi();
+  const document = resetsDocument(change.resets);
+  if (document === null) tx.hdel(KEYS.resets, providerId);
+  else tx.hset(KEYS.resets, { [providerId]: document });
+  if (override !== undefined) {
+    tx.set(
+      KEYS.settings,
+      settingsWithOverride(change.rawSettings, providerId, override, change.now, change.providerIds),
+    );
+  }
+  if (deleteArchivedStartMs !== undefined) {
+    tx.zremrangebyscore(KEYS.history(providerId), deleteArchivedStartMs, deleteArchivedStartMs);
+  }
+  if (Object.keys(officialFields).length > 0) tx.hset(KEYS.officialUsage, officialFields);
+  await tx.exec();
 }
 
 // ── History (archived cycles) ────────────────────────────────────────────────
@@ -682,27 +820,31 @@ export async function archiveCycle(providerId: string, summary: CycleSummary): P
 
 /**
  * Corrects the official percentage archived with one of `providerId`'s cycles
- * (null clears it), keeping every other field of its summary. The summary is
- * replaced as a whole: `ZREMRANGEBYSCORE` on its start, then `ZADD`, in one
+ * (null clears it), keeping every other field of its summary: one segment's
+ * figure of a cycle with keep resets, named by its start, or the one the cycle
+ * ended on (lib/history.ts `withCorrectedOfficial`). The summary is replaced
+ * as a whole: `ZREMRANGEBYSCORE` on its start, then `ZADD`, in one
  * transaction, so two corrections racing each other still leave exactly one
  * summary of the cycle (the later one's). Returns false, writing nothing, when
- * the cycle has no readable summary to correct.
+ * the cycle has no readable summary, or no segment starting at `segmentStartMs`.
  */
 export async function saveArchivedOfficial(
   providerId: string,
   cycleStartMs: number,
   official: number | null,
+  segmentStartMs?: number,
 ): Promise<boolean> {
   const key = KEYS.history(providerId);
   const members = await getRedis().zrange(key, cycleStartMs, cycleStartMs, { byScore: true });
   const summary = (Array.isArray(members) ? members : [])
     .map((member) => parseCycleSummary(String(member)))
     .find((entry): entry is CycleSummary => entry !== null && entry.start === cycleStartMs);
-  if (!summary) return false;
+  const corrected = summary ? withCorrectedOfficial(summary, official, segmentStartMs) : null;
+  if (!corrected) return false;
 
   const tx = getRedis().multi();
   tx.zremrangebyscore(key, cycleStartMs, cycleStartMs);
-  tx.zadd(key, { score: cycleStartMs, member: serializeCycleSummary({ ...summary, official }) });
+  tx.zadd(key, { score: cycleStartMs, member: serializeCycleSummary(corrected) });
   await tx.exec();
   return true;
 }

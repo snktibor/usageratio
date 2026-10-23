@@ -3,13 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as postAlertsTest } from "@/app/api/alerts/test/route";
 import { PUT as putOfficialUsage } from "@/app/api/official-usage/route";
 import { POST as postUsage } from "@/app/api/usage/route";
-import { checkOfficialUsageAlerts } from "@/lib/alerts";
+import { checkIngestAlerts, checkOfficialUsageAlerts } from "@/lib/alerts";
 import { getConfig } from "@/lib/config";
 import { getCycle } from "@/lib/cycle";
+import { ingestReport } from "@/lib/ingest";
 import { getRedis } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
 import { flushDeferred } from "@/lib/request-context";
 import { serializeSettings, settingsFromConfig, type UsageSettings } from "@/lib/settings";
+import { saveResets } from "@/lib/usage-store";
 import en from "@/messages/en.json";
 import { useRedis } from "../helpers/redis-fixture";
 import { seedSession } from "../helpers/session";
@@ -208,6 +210,77 @@ describe("threshold alerts, wired into the routes", () => {
       const [, init] = fetchSpy.mock.calls[0]!;
       const payload = JSON.parse(String((init as RequestInit).body));
       expect(payload).toMatchObject({ provider: "claude", threshold: 80 });
+    });
+  });
+
+  describe("after a keep reset", () => {
+    const NOW = new Date("2026-09-23T12:00:00Z");
+    const S = Date.parse("2026-09-21T00:00:00Z");
+    const R = Date.parse("2026-09-23T08:00:00Z");
+    const resetDoc = {
+      v: 1 as const,
+      events: [
+        {
+          id: "r",
+          atMs: R,
+          kind: "keep" as const,
+          cycleStartMs: S,
+          before: 95,
+          beforeAtMs: null,
+          source: "manual" as const,
+          recordedAtMs: R,
+        },
+      ],
+      autoOffCycleStartMs: null,
+    };
+    const alerts = {
+      webhookUrl: "https://hooks.example.com/x",
+      thresholds: [50, 90],
+      perProvider: true,
+      format: "generic" as const,
+      locale: "en",
+    };
+
+    it("fires the thresholds again for the new segment's figure", async () => {
+      await seedSettings({ useTokenLimits: false, resetOverrides: {}, alerts });
+      await saveResets("claude", resetDoc);
+      const fetchSpy = mockFetch();
+
+      await checkOfficialUsageAlerts({ providerId: "claude", subLimitId: null, raw: "92", cycleStartMs: R }, NOW);
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(await getRedis().exists(KEYS.alert("claude", R, 90))).toBe(1);
+    });
+
+    it("ignores a figure tagged with an earlier segment", async () => {
+      await seedSettings({ useTokenLimits: false, resetOverrides: {}, alerts });
+      await saveResets("claude", resetDoc);
+      const fetchSpy = mockFetch();
+
+      await checkOfficialUsageAlerts({ providerId: "claude", subLimitId: null, raw: "92", cycleStartMs: S }, NOW);
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("measures the tokens of the segment only", async () => {
+      await seedSettings({ useTokenLimits: true, limits: { claude: 1000 }, resetOverrides: {}, alerts });
+      await saveResets("claude", resetDoc);
+      const fetchSpy = mockFetch();
+      const store = async (tokens: number, iso: string) => {
+        const at = new Date(iso);
+        const result = await ingestReport(
+          { machineId: "mac", groupId: "Personal", providers: { claude: tokens }, timestamp: iso },
+          at,
+        );
+        if (!result.ok) throw new Error(JSON.stringify(result));
+        return result.report;
+      };
+      await store(900, "2026-09-23T07:00:00Z");
+      const last = await store(1000, "2026-09-23T11:00:00Z");
+
+      // 1000 since the cycle start would be 100%; since the reset it is 100 tokens, 10%.
+      await checkIngestAlerts(last, NOW);
+      expect(fetchSpy).not.toHaveBeenCalled();
     });
   });
 

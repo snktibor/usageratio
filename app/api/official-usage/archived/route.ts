@@ -12,10 +12,12 @@ import { saveArchivedOfficial } from "@/lib/usage-store";
  *
  *   PUT  { "providerId": "claude",
  *           "raw": "100",                      as typed; empty clears the figure
- *           "cycleStartMs": 1758326400000 }    the archived cycle's start
+ *           "cycleStartMs": 1758326400000,     the archived cycle's start
+ *           "segmentStartMs": 1758499200000 }  optional: one segment of a cycle with keep resets
+ *                                              (absent: the figure the cycle ended on)
  *
  * 200 ok · 400 bad JSON/payload · 401 no session · 403 foreign origin ·
- * 404 not_found (no archived summary of that cycle) · 413 body too large ·
+ * 404 not_found (no archived summary of that cycle, or no segment starting there) · 413 body too large ·
  * 415 not JSON · 503 Redis down
  */
 
@@ -36,8 +38,10 @@ export const PUT = withApiHandler("api/official-usage/archived", async ({ reques
   const parsed = parseArchivedOfficialUpdate(body.value);
   if (!parsed.ok) return apiError("invalid_payload", 400, { details: parsed.errors });
 
-  const { providerId, cycleStartMs, official } = parsed.update;
-  if (!(await saveArchivedOfficial(providerId, cycleStartMs, official))) return apiError("not_found", 404);
+  const { providerId, cycleStartMs, official, segmentStartMs } = parsed.update;
+  if (!(await saveArchivedOfficial(providerId, cycleStartMs, official, segmentStartMs))) {
+    return apiError("not_found", 404);
+  }
 
   return json({ ok: true }, 200);
 });

@@ -10,9 +10,10 @@ import { isSubLimitId } from "@/lib/sub-limits";
  * dashboard's own polling (see components/auto-refresh.tsx) is what carries a
  * fresh one from one browser to the others.
  *
- * A stored entry is tagged with the cycle it was typed in — an official
- * percentage means nothing once the budget has reset — and the reader drops
- * it once that cycle is no longer the current one.
+ * A stored entry is tagged with the segment of the cycle it was entered in
+ * (its start; see lib/resets.ts) — an official percentage means nothing once
+ * the budget has reset — and the reader drops it once that cycle is no longer
+ * the current one.
  */
 
 /** What a browser shows for the field: the text as typed, and when that was. */
@@ -21,8 +22,23 @@ export interface OfficialEntryView {
   enteredAt: number;
 }
 
-interface StoredOfficialEntry extends OfficialEntryView {
+/** One `usage:official` field as stored. */
+export interface StoredOfficialEntry extends OfficialEntryView {
+  /** The segment it was entered in (lib/resets.ts): the cycle's start while the cycle has no keep resets. */
   cycleStartMs: number;
+  /**
+   * From a report (POST /api/official-usage/report): when the provider's window
+   * resets. Automatic reset detection (lib/official-report.ts) compares two
+   * readings by it; a typed figure has none.
+   */
+  resetsAtMs?: number;
+}
+
+/** A stored entry as read back: the view, its tag, and a report's window reset. */
+export interface StoredOfficialReading {
+  view: OfficialEntryView;
+  cycleStartMs: number;
+  resetsAtMs?: number;
 }
 
 export const OFFICIAL_USAGE_RAW_MAX_LENGTH = 16;
@@ -40,10 +56,15 @@ function parseStoredEntry(raw: string): StoredOfficialEntry | null {
     return null;
   }
   if (typeof value !== "object" || value === null) return null;
-  const { raw: text, enteredAt, cycleStartMs } = value as Record<string, unknown>;
+  const { raw: text, enteredAt, cycleStartMs, resetsAtMs } = value as Record<string, unknown>;
   if (typeof text !== "string" || typeof enteredAt !== "number" || typeof cycleStartMs !== "number") return null;
   if (!Number.isFinite(enteredAt) || !Number.isFinite(cycleStartMs)) return null;
-  return { raw: text, enteredAt, cycleStartMs };
+  return {
+    raw: text,
+    enteredAt,
+    cycleStartMs,
+    ...(typeof resetsAtMs === "number" && Number.isFinite(resetsAtMs) && { resetsAtMs }),
+  };
 }
 
 export function serializeOfficialEntry(entry: StoredOfficialEntry): string {
@@ -59,8 +80,9 @@ export function providerOfOfficialField(field: string): string {
 /**
  * The stored entries whose cycle still matches, by field: what every browser
  * should show right now. One typed in a cycle that has since rolled over is
- * as good as absent. `cycleStart`: the current cycle's start, or, now that a
- * provider can have its own reset, each provider's (by provider id).
+ * as good as absent. `cycleStart`: the start of the provider's current segment
+ * (a cycle's start while it has no keep reset, lib/provider-cycles.ts
+ * `currentSegmentStartMs`), by provider id, or one start for all of them.
  */
 export function currentOfficialEntries(
   stored: Record<string, string>,
@@ -76,10 +98,12 @@ export function currentOfficialEntries(
   return entries;
 }
 
-/** One stored entry, with the cycle it was saved for; null when it does not parse. */
-export function parseStoredOfficialEntry(raw: string): { view: OfficialEntryView; cycleStartMs: number } | null {
+/** One stored entry, with the segment it was saved for; null when it does not parse. */
+export function parseStoredOfficialEntry(raw: string): StoredOfficialReading | null {
   const entry = parseStoredEntry(raw);
-  return entry && { view: { raw: entry.raw, enteredAt: entry.enteredAt }, cycleStartMs: entry.cycleStartMs };
+  if (!entry) return null;
+  const { resetsAtMs, cycleStartMs, ...view } = entry;
+  return { view, cycleStartMs, ...(resetsAtMs !== undefined && { resetsAtMs }) };
 }
 
 export interface OfficialUsageUpdate {
@@ -88,6 +112,8 @@ export interface OfficialUsageUpdate {
   /** Empty clears the field. */
   raw: string;
   cycleStartMs: number;
+  /** Only POST /api/official-usage/report sets it: the window's reset, stored with the figure. */
+  resetsAtMs?: number;
 }
 
 export type OfficialUsageParseResult = { ok: true; update: OfficialUsageUpdate } | { ok: false; errors: string[] };
@@ -122,7 +148,12 @@ export function parseOfficialUsageUpdate(input: unknown): OfficialUsageParseResu
 /** What to write for a parsed update: null clears the field (an empty `raw`). */
 export function storedEntryFor(update: OfficialUsageUpdate, enteredAt: number): string | null {
   if (update.raw.trim() === "") return null;
-  return serializeOfficialEntry({ raw: update.raw, enteredAt, cycleStartMs: update.cycleStartMs });
+  return serializeOfficialEntry({
+    raw: update.raw,
+    enteredAt,
+    cycleStartMs: update.cycleStartMs,
+    ...(update.resetsAtMs !== undefined && { resetsAtMs: update.resetsAtMs }),
+  });
 }
 
 /**
@@ -137,6 +168,11 @@ export interface ArchivedOfficialUpdate {
   cycleStartMs: number;
   /** 0–100; null clears it (an empty `raw`). */
   official: number | null;
+  /**
+   * One segment of a cycle with keep resets, by its start (lib/history.ts
+   * `withCorrectedOfficial`); absent: the figure the cycle ended on.
+   */
+  segmentStartMs?: number;
 }
 
 export type ArchivedOfficialParseResult =
@@ -145,7 +181,7 @@ export type ArchivedOfficialParseResult =
 
 export function parseArchivedOfficialUpdate(input: unknown): ArchivedOfficialParseResult {
   if (typeof input !== "object" || input === null) return { ok: false, errors: ["body must be an object"] };
-  const { providerId: rawProviderId, raw, cycleStartMs } = input as Record<string, unknown>;
+  const { providerId: rawProviderId, raw, cycleStartMs, segmentStartMs } = input as Record<string, unknown>;
 
   const errors: string[] = [];
   const providerId = normalizeProviderId(rawProviderId);
@@ -156,10 +192,18 @@ export function parseArchivedOfficialUpdate(input: unknown): ArchivedOfficialPar
   if (typeof cycleStartMs !== "number" || !Number.isFinite(cycleStartMs)) {
     errors.push("cycleStartMs must be a finite number");
   }
+  if (segmentStartMs !== undefined && (typeof segmentStartMs !== "number" || !Number.isFinite(segmentStartMs))) {
+    errors.push("segmentStartMs must be a finite number when given");
+  }
   if (errors.length > 0) return { ok: false, errors };
 
   return {
     ok: true,
-    update: { providerId: providerId!, cycleStartMs: cycleStartMs as number, official: parsed!.percent },
+    update: {
+      providerId: providerId!,
+      cycleStartMs: cycleStartMs as number,
+      official: parsed!.percent,
+      ...(segmentStartMs !== undefined && { segmentStartMs: segmentStartMs as number }),
+    },
   };
 }

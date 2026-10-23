@@ -137,17 +137,23 @@ export function presetOf(window: TimeSpan, cycle: TimeSpan, lastMs: number): Zoo
 }
 
 export interface VisibleSamples {
-  /** The samples inside the window, thinned out to about `maxPoints`, the window's last one always kept: the crosshair, the keys and the table step through these. */
+  /** The samples inside the window, thinned out to about `maxPoints`, the window's last one always kept, and the ones asked to keep: the crosshair, the keys and the table step through these. */
   inside: number[];
   /** `inside`, plus the nearest sample beyond each edge: the lines run on to the edges and are clipped there. */
   drawn: number[];
 }
 
-/** Which of `times` (sample times, ascending) a chart shows for `window`; indices into `times`. */
+/**
+ * Which of `times` (sample times, ascending) a chart shows for `window`;
+ * indices into `times`. The samples at `keepMs` that fall inside the window
+ * are kept however far the rest is thinned: the two around a reset, so that
+ * the drop there is not drawn as a slope.
+ */
 export function visibleSamples(
   times: number[],
   window: TimeSpan,
   maxPoints: number = MAX_CHART_POINTS,
+  keepMs: number[] = [],
 ): VisibleSamples {
   const within: number[] = [];
   times.forEach((t, index) => {
@@ -155,7 +161,10 @@ export function visibleSamples(
   });
   const stride = Math.max(1, Math.ceil(within.length / maxPoints));
   const lastPosition = within.length - 1;
-  const inside = within.filter((_, position) => (lastPosition - position) % stride === 0);
+  const kept = new Set(keepMs);
+  const inside = within.filter(
+    (index, position) => (lastPosition - position) % stride === 0 || kept.has(times[index]!),
+  );
 
   const before = times.findLastIndex((t) => t < window.startMs);
   const after = times.findIndex((t) => t > window.endMs);

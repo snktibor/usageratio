@@ -214,10 +214,44 @@ describe("buildDemoDataset", () => {
     const parsed = parseSettingsUpdate(body);
     expect(parsed.ok, parsed.ok ? "" : parsed.errors.join("; ")).toBe(true);
     if (parsed.ok) expect(parsed.update).toEqual(dataset.settings);
+    // Typed after the week's reset: tagged with the segment since it (lib/official-usage.ts).
+    const resetAtMs = dataset.resets[0]!.resets.events[0]!.atMs;
     for (const entry of dataset.official) {
-      expect(entry.cycleStartMs).toBe(dataset.cycles.current.start.getTime());
+      expect(entry.cycleStartMs).toBe(resetAtMs);
+      expect(entry.enteredAtMs).toBeGreaterThan(resetAtMs);
       expect(entry.enteredAtMs).toBeLessThan(NOW.getTime());
     }
+  });
+
+  it("has one Claude keep reset on the Monday evening of the current week", () => {
+    const start = dataset.cycles.current.start.getTime();
+    expect(dataset.resets).toEqual([
+      {
+        providerId: "claude",
+        resets: {
+          v: 1,
+          events: [
+            {
+              id: "demo-claude-reset",
+              atMs: start + 20 * 3_600_000,
+              kind: "keep",
+              cycleStartMs: start,
+              before: 22.4,
+              beforeAtMs: start + 19 * 3_600_000,
+              source: "manual",
+              recordedAtMs: start + 20 * 3_600_000 + 5 * 60_000,
+            },
+          ],
+          autoOffCycleStartMs: null,
+        },
+      },
+    ]);
+  });
+
+  it("has no reset while the week is too young for one, and tags the figures with the cycle then", () => {
+    const early = buildDemoDataset(new Date(dataset.cycles.current.start.getTime() + 10 * 3_600_000));
+    expect(early.resets).toEqual([]);
+    for (const entry of early.official) expect(entry.cycleStartMs).toBe(early.cycles.current.start.getTime());
   });
 
   it("builds a dashboard with three groups and the intended machine health", () => {

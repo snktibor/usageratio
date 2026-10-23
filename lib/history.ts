@@ -35,6 +35,24 @@ export const HISTORY_RETENTION = 24;
 /** How many of a cycle's models are kept in its summary, the heaviest first. */
 export const HISTORY_TOP_MODELS = 8;
 
+/** The sum of the known figures (0–100 each), to two decimals; null when none is known. */
+export function sumOfFigures(figures: (number | null)[]): number | null {
+  const known = figures.filter((figure): figure is number => figure !== null);
+  return known.length > 0 ? Math.round(known.reduce((sum, figure) => sum + figure, 0) * 100) / 100 : null;
+}
+
+/** One stretch of an archived cycle (lib/resets.ts `segmentsOf`). */
+export interface CycleSegmentSummary {
+  start: number;
+  end: number;
+  /** The figure it ended on (0–100); null when unknown. */
+  official: number | null;
+  /** Measured tokens in it, the provider's own (as `CycleSummary.total`). */
+  total: number;
+  /** groupId → measured tokens in it. */
+  groups: Record<string, number>;
+}
+
 export interface CycleSummary {
   v: 1;
   /** Epoch ms, inclusive. */
@@ -51,7 +69,10 @@ export interface CycleSummary {
   cost?: number;
   /** The provider's token limit in that cycle; null while the token limits were off. */
   limit: number | null;
-  /** The official percentage (0–100) entered for that cycle; null when none was. */
+  /**
+   * The official percentage of that cycle; null when none was entered. With
+   * `segments`, the sum of their known figures: it can exceed 100.
+   */
   official: number | null;
   /** groupId → measured tokens. */
   groups: Record<string, number>;
@@ -70,6 +91,10 @@ export interface CycleSummary {
    * deterministic between them.
    */
   archivedAt: number;
+  /** The cycle's stretches between its keep resets (lib/resets.ts), in order; present only when it had any. */
+  segments?: CycleSegmentSummary[];
+  /** A restart-type reset cut the cycle short: `end` is the reset. */
+  endedByReset?: true;
 }
 
 export interface SummarizeCycleInput {
@@ -81,6 +106,13 @@ export interface SummarizeCycleInput {
   official: number | null;
   subLimits: SubLimit[];
   archivedAt: number;
+  /**
+   * The keep resets that split the window (lib/resets.ts), in order, each with
+   * the figure its segment ended on; `official` is then the last segment's figure.
+   */
+  keepResets?: { atMs: number; before: number | null }[];
+  /** A restart cut the cycle short at `window.endMs`. */
+  endedByReset?: boolean;
 }
 
 /** Everything measured in `events` up to `window.endMs`, one number (lib/aggregate.ts, one sample). */
@@ -109,7 +141,7 @@ function reportsOfModel(events: UsageEvent[], key: string): UsageEvent[] {
  * (lib/dashboard.ts `buildDashboard`, lib/timeline.ts). Pure.
  */
 export function summarizeCycle(input: SummarizeCycleInput): CycleSummary {
-  const { events, window, mode, limit, official, subLimits, archivedAt } = input;
+  const { events, window, mode, limit, official, subLimits, archivedAt, keepResets = [], endedByReset = false } = input;
   const split = splitBySubLimits(events, subLimits);
   const usage = summarizeUsage(split.main, window, mode);
   const cost = summarizeCost(split.main, window);
@@ -128,6 +160,26 @@ export function summarizeCycle(input: SummarizeCycleInput): CycleSummary {
     subLimits.map((sub) => [sub.id, totalOf(split.bySubLimit.get(sub.id) ?? [], window, mode)]),
   );
 
+  // Each segment's usage is its own difference of the running totals (lib/aggregate.ts `summarizeUsage`).
+  const bounds = [window.startMs, ...keepResets.map((reset) => reset.atMs), window.endMs];
+  const figures = [...keepResets.map((reset) => reset.before), official];
+  const segments: CycleSegmentSummary[] = figures.map((figure, index) => {
+    const segment = summarizeUsage(
+      split.main,
+      { startMs: window.startMs, endMs: bounds[index + 1]! },
+      mode,
+      bounds[index],
+    );
+    return {
+      start: bounds[index]!,
+      end: bounds[index + 1]!,
+      official: figure,
+      total: segment.total,
+      groups: Object.fromEntries(segment.groups.map((g) => [g.groupId, g.tokens])),
+    };
+  });
+  const summed = sumOfFigures(figures);
+
   return {
     v: 1,
     start: window.startMs,
@@ -135,12 +187,14 @@ export function summarizeCycle(input: SummarizeCycleInput): CycleSummary {
     total: usage.total,
     ...(cost.hasCost && { cost: cost.total }),
     limit,
-    official,
+    official: keepResets.length > 0 ? summed : official,
     groups: Object.fromEntries(usage.groups.map((g) => [g.groupId, g.tokens])),
     machines: new Set(usage.series.map((s) => s.machineId)).size,
     models: Object.fromEntries(models),
     subLimits: subLimitTotals,
     archivedAt,
+    ...(keepResets.length > 0 && { segments }),
+    ...(endedByReset && { endedByReset: true as const }),
   };
 }
 
@@ -183,6 +237,29 @@ export function archivedOfficialEntries(
 }
 
 /**
+ * `summary` with a corrected figure (null clears it): one segment's, named by
+ * its start, or, without `segmentStartMs`, the one the cycle ended on — its
+ * last segment's, or the whole cycle's when it had no keep resets. `official`
+ * then sums the segments' known figures again (`sumOfFigures`). Null when
+ * `segmentStartMs` names no segment of it.
+ */
+export function withCorrectedOfficial(
+  summary: CycleSummary,
+  official: number | null,
+  segmentStartMs?: number,
+): CycleSummary | null {
+  const segments = summary.segments ?? [];
+  if (segments.length === 0) return segmentStartMs === undefined ? { ...summary, official } : null;
+  const index =
+    segmentStartMs === undefined
+      ? segments.length - 1
+      : segments.findIndex((segment) => segment.start === segmentStartMs);
+  if (index < 0) return null;
+  const corrected = segments.map((segment, at) => (at === index ? { ...segment, official } : segment));
+  return { ...summary, segments: corrected, official: sumOfFigures(corrected.map((segment) => segment.official)) };
+}
+
+/**
  * How much of the quota a finished cycle came to (0–1): its official
  * percentage, else the measured share of its token limit; null with neither.
  */
@@ -210,19 +287,36 @@ export interface GroupShare {
  * A cycle's groups, heaviest first, with their share of its measured tokens
  * and of its quota: the final usage (`finalUsageOf`) split between them by
  * their measured tokens, the way the live dashboard splits the official
- * percentage (lib/dashboard.ts).
+ * percentage (lib/dashboard.ts). A cycle with keep resets splits each
+ * segment's own figure by that segment's tokens and adds the parts up; a
+ * segment without a figure adds nothing.
  */
 export function groupSharesOf(entry: CycleSummary): GroupShare[] {
   const entries = Object.entries(entry.groups).filter(([, tokens]) => tokens > 0);
   const total = entries.reduce((sum, [, tokens]) => sum + tokens, 0);
-  // Split in percent, then scaled down: the same arithmetic as the chart's stacked bars, so both round alike.
-  const percent = finalPercentOf(entry);
+  const percentOf = quotaPercentOf(entry);
   return entries
     .sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
     .map(([groupId, tokens]) => {
       const share = total > 0 ? tokens / total : 0;
-      return { groupId, tokens, share, quotaShare: percent === null ? null : (percent * share) / 100 };
+      const percent = percentOf(groupId, share);
+      // Split in percent, then scaled down: the same arithmetic as the chart's stacked bars, so both round alike.
+      return { groupId, tokens, share, quotaShare: percent === null ? null : percent / 100 };
     });
+}
+
+/** A group's part of the cycle's final percentage (0–100), by the rule `groupSharesOf` states; null when unknown. */
+function quotaPercentOf(entry: CycleSummary): (groupId: string, share: number) => number | null {
+  const percent = finalPercentOf(entry);
+  if (percent === null) return () => null;
+  const segments = entry.segments ?? [];
+  // No segment with a figure: the cycle's one figure (or the token limit's share) splits over the whole cycle.
+  if (segments.every((segment) => segment.official === null)) return (_groupId, share) => percent * share;
+  return (groupId) =>
+    segments.reduce((sum, segment) => {
+      const tokens = Object.hasOwn(segment.groups, groupId) ? segment.groups[groupId]! : 0;
+      return segment.official === null || segment.total <= 0 ? sum : sum + (segment.official * tokens) / segment.total;
+    }, 0);
 }
 
 // ── (De)serialization ────────────────────────────────────────────────────────
@@ -244,6 +338,20 @@ export function serializeCycleSummary(summary: CycleSummary): string {
   return JSON.stringify(summary);
 }
 
+function parseSegments(value: unknown): CycleSegmentSummary[] | null {
+  if (!Array.isArray(value)) return null;
+  const segments: CycleSegmentSummary[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) return null;
+    const { start, end, official, total, groups } = item as Record<string, unknown>;
+    if (!isFiniteNumber(start) || !isFiniteNumber(end) || !isFiniteNumber(total) || !isNumberRecord(groups))
+      return null;
+    if (official !== null && !isFiniteNumber(official)) return null;
+    segments.push({ start, end, official: official as number | null, total, groups });
+  }
+  return segments;
+}
+
 /** A stored member, read leniently: anything damaged (hand-edited Redis, a future format) reads back as null. */
 export function parseCycleSummary(raw: string): CycleSummary | null {
   let value: unknown;
@@ -253,8 +361,22 @@ export function parseCycleSummary(raw: string): CycleSummary | null {
     return null;
   }
   if (typeof value !== "object" || value === null) return null;
-  const { v, start, end, total, cost, limit, official, groups, machines, models, subLimits, archivedAt } =
-    value as Record<string, unknown>;
+  const {
+    v,
+    start,
+    end,
+    total,
+    cost,
+    limit,
+    official,
+    groups,
+    machines,
+    models,
+    subLimits,
+    archivedAt,
+    segments,
+    endedByReset,
+  } = value as Record<string, unknown>;
   if (v !== 1) return null;
   if (!isFiniteNumber(start) || !isFiniteNumber(end) || !isFiniteNumber(total)) return null;
   if (cost !== undefined && !isFiniteNumber(cost)) return null;
@@ -262,6 +384,9 @@ export function parseCycleSummary(raw: string): CycleSummary | null {
   if (official !== null && !isFiniteNumber(official)) return null;
   if (!isNumberRecord(groups) || !isNumberRecord(models) || !isNumberRecord(subLimits)) return null;
   if (!isFiniteNumber(machines) || !isFiniteNumber(archivedAt)) return null;
+  if (endedByReset !== undefined && endedByReset !== true) return null;
+  const parsedSegments = segments === undefined ? undefined : parseSegments(segments);
+  if (parsedSegments === null) return null;
   return {
     v: 1,
     start,
@@ -275,5 +400,7 @@ export function parseCycleSummary(raw: string): CycleSummary | null {
     models,
     subLimits,
     archivedAt,
+    ...(parsedSegments && { segments: parsedSegments }),
+    ...(endedByReset === true && { endedByReset: true as const }),
   };
 }

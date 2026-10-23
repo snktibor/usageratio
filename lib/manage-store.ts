@@ -560,6 +560,7 @@ export async function deleteProvider(providerId: string, force: boolean, now: Da
   if (machineFields.length > 0) tx.hdel(KEYS.machines, ...machineFields);
   tx.hdel(KEYS.providers, providerId);
   if (officialFields.length > 0) tx.hdel(KEYS.officialUsage, ...officialFields);
+  tx.hdel(KEYS.resets, providerId);
   await tx.exec();
 
   await scrubProviderInSettings(providerId, now);

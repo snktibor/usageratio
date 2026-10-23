@@ -7,6 +7,7 @@ import {
   providerCycleOptions,
   selectCycle,
 } from "@/lib/cycle-options";
+import type { ResetEvent } from "@/lib/resets";
 
 const UTC_MONDAY: ResetConfig = { period: "weekly", weekday: 1, monthDay: 1, hour: 0, minute: 0, timeZone: "UTC" };
 const ms = (iso: string) => new Date(iso).getTime();
@@ -197,5 +198,45 @@ describe("providerCycleOptions", () => {
   it("uses the shared reset for a provider without its own", () => {
     const options = providerCycleOptions({ now, config, providerId: "openai", history: [], oldestReportMs: null });
     expect(options[0]!.startMs).toBe(Date.parse("2026-09-21T00:00:00Z"));
+  });
+});
+
+describe("providerCycleOptions with a restart", () => {
+  it("offers the cycle the restart cut short, then older ones on the old schedule", () => {
+    const now = new Date("2026-09-23T12:00:00Z");
+    const R = Date.parse("2026-09-22T14:00:00Z");
+    const config = {
+      ...getConfig({}),
+      reset: { period: "weekly" as const, weekday: 1, monthDay: 1, hour: 0, minute: 0, timeZone: "UTC" },
+      resetOverrides: { openai: { weekday: 2, monthDay: 22, hour: 14, minute: 0, source: "reset" as const } },
+    };
+    const restart: ResetEvent = {
+      id: "r",
+      atMs: R,
+      kind: "restart",
+      cycleStartMs: Date.parse("2026-09-21T00:00:00Z"),
+      before: 90,
+      beforeAtMs: null,
+      source: "manual",
+      recordedAtMs: R,
+      previousOverride: null,
+    };
+    const options = providerCycleOptions({
+      now,
+      config,
+      providerId: "openai",
+      history: [],
+      oldestReportMs: Date.parse("2026-09-01T00:00:00Z"),
+      resets: [restart],
+    });
+    expect(
+      options
+        .slice(0, 3)
+        .map((option) => [new Date(option.startMs).toISOString(), new Date(option.endMs).toISOString()]),
+    ).toEqual([
+      ["2026-09-22T14:00:00.000Z", "2026-09-29T14:00:00.000Z"],
+      ["2026-09-21T00:00:00.000Z", "2026-09-22T14:00:00.000Z"],
+      ["2026-09-14T00:00:00.000Z", "2026-09-21T00:00:00.000Z"],
+    ]);
   });
 });

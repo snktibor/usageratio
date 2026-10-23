@@ -8,6 +8,8 @@ import { officialUsageField, parseStoredOfficialEntry } from "@/lib/official-usa
 import { mergeProviderIds } from "@/lib/providers";
 import { hit } from "@/lib/rate-limit";
 import { defer } from "@/lib/request-context";
+import { saveDetectedReset } from "@/lib/reset-store";
+import { resetsOf } from "@/lib/resets";
 import { resolveConfig, storedProviderIds } from "@/lib/settings";
 import { loadIndexes, saveOfficialUsage, saveResetOverride } from "@/lib/usage-store";
 
@@ -20,9 +22,12 @@ import { loadIndexes, saveOfficialUsage, saveResetOverride } from "@/lib/usage-s
  *
  * The server decides (lib/official-report.ts): a monthly dashboard refuses it;
  * a provider whose cycle ends elsewhere than the window gets its reset moved
- * to the window's; a reading no newer than the stored one is not written.
+ * to the window's; a reading no newer than the stored one is not written; a
+ * reading that reveals a usage reset records it (lib/resets.ts) and answers it
+ * in `detectedReset`; while detection is off for the cycle, a reading whose
+ * window ends elsewhere is ignored (`saved: false`).
  *
- * 200 { ok, saved, cycleChanged, reset } · 400 bad payload · 401 bad token ·
+ * 200 { ok, saved, cycleChanged, reset, detectedReset } · 400 bad payload · 401 bad token ·
  * 403 official_scope_required · 409 period_not_weekly | stale_reading ·
  * 413 body too large · 415 not JSON · 429 rate limited · 503 Redis down
  */
@@ -57,16 +62,40 @@ export const POST = withApiHandler("api/official-usage/report", async ({ request
   const storedRaw = indexes.officialUsage[officialUsageField(report.providerId, null)];
   const stored = storedRaw ? parseStoredOfficialEntry(storedRaw) : null;
 
-  const decision = decideOfficialReport(report, config, now, stored?.view ?? null, stored?.cycleStartMs ?? null);
+  const resets = resetsOf(indexes.resets, report.providerId);
+
+  const decision = decideOfficialReport(report, config, now, stored, resets);
+  // Detection is off for this cycle (a reverted reset) and the window ends elsewhere: nothing to do.
+  if (decision.kind === "ignored") {
+    return json({ ok: true, saved: false, cycleChanged: false, reset: null, detectedReset: null }, 200);
+  }
   if (decision.kind !== "accept") return apiError(decision.kind, 409);
 
-  if (decision.override) await saveResetOverride(report.providerId, decision.override, now, providerIds);
+  // A detected reset moves the provider's reset itself, in its own transaction.
+  if (decision.override && !decision.reset) {
+    await saveResetOverride(report.providerId, decision.override, now, providerIds);
+  }
+  const detected =
+    decision.reset &&
+    (await saveDetectedReset({
+      providerId: report.providerId,
+      config,
+      resets,
+      reset: decision.reset,
+      override: decision.override,
+      rawSettings: indexes.settings,
+      providerIds,
+      rawOfficialUsage: indexes.officialUsage,
+      now,
+    }));
   if (decision.save) {
     const update = {
       providerId: report.providerId,
       subLimitId: null,
       raw: decision.raw,
       cycleStartMs: decision.cycleStartMs,
+      // Kept with the figure: the next reading is compared with it (reset detection).
+      resetsAtMs: report.resetsAtMs,
     };
     // The reading's own time: the dashboard says when the figure was true, not when it arrived.
     await saveOfficialUsage(update, new Date(report.observedAtMs));
@@ -80,6 +109,7 @@ export const POST = withApiHandler("api/official-usage/report", async ({ request
       saved: decision.save,
       cycleChanged: override !== null,
       reset: override && { weekday: override.weekday, hour: override.hour, minute: override.minute },
+      detectedReset: detected ? { id: detected.id, kind: detected.kind, atMs: detected.atMs } : null,
     },
     200,
   );

@@ -1,7 +1,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { CycleChart, LineKey } from "@/components/cycle-chart";
 import { formatPercentTick, formatTokenTick } from "@/lib/chart";
-import type { DashboardModel } from "@/lib/dashboard";
+import { type DashboardModel, resetMoments } from "@/lib/dashboard";
 import { formatHeroPercent, formatPercent, formatTokens } from "@/lib/format";
 import type { DashboardView } from "@/lib/ground-truth";
 import { groupMachineChart } from "@/lib/group-machines";
@@ -25,10 +25,12 @@ export function GroupMachines({ group, model, view }: { group: Group; model: Das
   const { basis, series } = groupMachineChart(model, view, group);
   // Without a token limit and an official figure there is no budget: the lines stay in tokens.
   const inFractions = basis !== "tokens";
+  // The lines restart at an open cycle's keep resets and at a closed cycle's segments alike.
+  const since = resetMoments(model).length > 0 ? "reset" : "cycle";
 
   return (
     <>
-      <p className="max-w-2xl text-sm text-ink-3">{t("group_machines_desc", { basis })}</p>
+      <p className="max-w-2xl text-sm text-ink-3">{t("group_machines_desc", { basis, since })}</p>
       <ul className="mt-4 flex flex-wrap gap-x-6 gap-y-1.5 text-sm">
         {series.map(({ machine, color }) => (
           <li key={machine.machineId} className="flex min-w-0 items-center gap-2">

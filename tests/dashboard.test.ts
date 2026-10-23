@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { getConfig } from "@/lib/config";
-import { buildDashboard, buildProviderDashboards, type StoreSnapshot } from "@/lib/dashboard";
+import {
+  buildDashboard,
+  buildProviderDashboards,
+  resetMoments,
+  type StoreSnapshot,
+  segmentSince,
+} from "@/lib/dashboard";
+import type { CycleSummary } from "@/lib/history";
+import type { ResetEvent } from "@/lib/resets";
 import { type KnownGroup, NEUTRAL_COLOR, PRESET_COLORS } from "@/lib/settings";
 
 const HOUR = 3_600_000;
@@ -633,5 +641,372 @@ describe("buildProviderDashboards — which provider counts where", () => {
     expect(buildProviderDashboards(NOW, config, [], store)).toEqual([]);
     // Also with a store that has nothing at all: a fresh install with only heartbeats so far.
     expect(buildProviderDashboards(NOW, config, [], { eventsByProvider: {}, groups: [], machines: [] })).toEqual([]);
+  });
+});
+
+function keepReset(hoursIntoCycle: number, before: number | null, overrides: Partial<ResetEvent> = {}): ResetEvent {
+  const atMs = CYCLE_START + hoursIntoCycle * HOUR;
+  return {
+    id: `r${hoursIntoCycle}`,
+    atMs,
+    kind: "keep",
+    cycleStartMs: CYCLE_START,
+    before,
+    beforeAtMs: null,
+    source: "manual",
+    recordedAtMs: atMs,
+    ...overrides,
+  };
+}
+
+describe("buildDashboard — a keep reset", () => {
+  // Work's 30k on Monday 10:00 and Home's 20k on Monday 20:00; the reset on Tuesday 14:00 (38 h in); then 12k of Work's.
+  const events = [
+    report("win", "Work", 30_000, 10),
+    report("mac", "Home", 20_000, 20),
+    report("win", "Work", 12_000, 40),
+  ];
+  const model = buildDashboard(NOW, config, snapshot({ events, resets: [keepReset(38, 80)] }));
+
+  it("counts the segment since the reset only", () => {
+    expect(model.total).toBe(12_000);
+    expect(model.groups.map((group) => [group.groupId, group.tokens])).toEqual([["Work", 12_000]]);
+    expect(model.machines.map((machine) => [machine.machineId, machine.tokens])).toEqual([["win", 12_000]]);
+    expect(model.quota!.usedFraction).toBeCloseTo(12_000 / 500_000);
+  });
+
+  it("judges the pace over the segment: the quota's window starts at the reset", () => {
+    expect(model.segment).toMatchObject({ startMs: CYCLE_START + 38 * HOUR, endMs: CYCLE_START + 168 * HOUR });
+    expect(model.segment.elapsedFraction).toBeCloseTo(22 / 130);
+    expect(model.cycle.elapsedFraction).toBeCloseTo(60 / 168);
+    expect(model.quota!.pace.dailyShare).toBeCloseTo(24 / 130);
+  });
+
+  it("lays the segment's days out for the ruler: Tuesday from 14:00, then whole days", () => {
+    expect(model.segment.days).toHaveLength(6);
+    expect(model.segment.days[0]).toMatchObject({ startFraction: 0, weekday: 2 });
+    expect(model.segment.days[0]!.endFraction).toBeCloseTo(10 / 130);
+    expect(model.segment.days.at(-1)!.endFraction).toBeCloseTo(1);
+  });
+
+  it("lists the reset with the tokens of the segment it ended", () => {
+    expect(model.resets).toEqual([
+      { id: "r38", atMs: CYCLE_START + 38 * HOUR, kind: "keep", before: 80, source: "manual", tokens: 50_000 },
+    ]);
+  });
+
+  it("charts the whole cycle, every line restarting from 0 at the reset, every group in its colour", () => {
+    const { times, groups } = model.timeline;
+    const home = groups.find((group) => group.groupId === "Home")!;
+    const work = groups.find((group) => group.groupId === "Work")!;
+    const before = times.indexOf(CYCLE_START + 38 * HOUR - 1);
+    const at = times.indexOf(CYCLE_START + 38 * HOUR);
+    expect([home.values[before], work.values[before]]).toEqual([20_000, 30_000]);
+    expect([home.values[at], work.values[at]]).toEqual([0, 0]);
+    expect(work.values.at(-1)).toBe(12_000);
+    expect(Object.keys(model.groupColors).sort()).toEqual(["Home", "Work"]);
+  });
+
+  it("estimates the segment's cost only", () => {
+    const priced = buildDashboard(
+      NOW,
+      { ...config, costEstimate: true },
+      snapshot({
+        events: [
+          { ...report("win", "Work", 30_000, 10), costUsd: 3 },
+          { ...report("win", "Work", 12_000, 40), costUsd: 4 },
+        ],
+        resets: [keepReset(38, 80)],
+      }),
+    );
+    expect(priced.cost?.total).toBeCloseTo(1);
+  });
+
+  it("leaves out a reset of another cycle, and one still ahead", () => {
+    const other = buildDashboard(
+      NOW,
+      config,
+      snapshot({ events, resets: [keepReset(38, 80, { cycleStartMs: CYCLE_START - 168 * HOUR }), keepReset(70, 50)] }),
+    );
+    expect(other.total).toBe(62_000);
+    expect(other.resets).toEqual([]);
+    expect(other.segment).toMatchObject({ startMs: CYCLE_START, elapsedFraction: other.cycle.elapsedFraction });
+  });
+
+  it("counts a closed cycle whole", () => {
+    const closed = buildDashboard(
+      new Date(CYCLE_START + 200 * HOUR),
+      config,
+      snapshot({ events, resets: [keepReset(38, 80)] }),
+      [],
+      {
+        cycle: { start: new Date(CYCLE_START), end: new Date(CYCLE_START + 168 * HOUR) },
+        previous: { start: new Date(CYCLE_START - 168 * HOUR), end: new Date(CYCLE_START) },
+      },
+    );
+    expect(closed.total).toBe(62_000);
+    expect(closed.resets).toEqual([]);
+    expect(closed.segment.startMs).toBe(CYCLE_START);
+  });
+});
+
+/** A restart at `hoursIntoCycle` of the cycle that started at CYCLE_START: the new cycle runs from there. */
+function restartReset(hoursIntoCycle: number, before: number | null): ResetEvent {
+  const atMs = CYCLE_START + hoursIntoCycle * HOUR;
+  return {
+    id: `restart${hoursIntoCycle}`,
+    atMs,
+    kind: "restart",
+    cycleStartMs: CYCLE_START,
+    before,
+    beforeAtMs: null,
+    source: "manual",
+    recordedAtMs: atMs,
+    previousOverride: null,
+  };
+}
+
+/** The window of the cycle a restart at `hoursIntoCycle` began: a week long, after the one it cut short. */
+function restartedWindow(hoursIntoCycle: number) {
+  const startMs = CYCLE_START + hoursIntoCycle * HOUR;
+  return {
+    cycle: { start: new Date(startMs), end: new Date(startMs + 168 * HOUR) },
+    previous: { start: new Date(CYCLE_START), end: new Date(startMs) },
+  };
+}
+
+describe("segmentSince", () => {
+  const events = [report("win", "Work", 30_000, 10), report("win", "Work", 12_000, 40)];
+
+  it("is the cycle while it has no keep reset", () => {
+    expect(segmentSince(buildDashboard(NOW, config, snapshot({ events })))).toBe("cycle");
+  });
+
+  it("is the reset once a keep reset has cut the cycle", () => {
+    const model = buildDashboard(NOW, config, snapshot({ events, resets: [keepReset(38, 80)] }));
+    expect(segmentSince(model)).toBe("reset");
+  });
+
+  it("is still the cycle when a restart began it: the restart is the cycle's start, not a cut of it", () => {
+    const model = buildDashboard(
+      NOW,
+      config,
+      snapshot({ events, resets: [restartReset(38, 62)] }),
+      [],
+      restartedWindow(38),
+    );
+    expect(model.cycle.startMs).toBe(CYCLE_START + 38 * HOUR);
+    expect(segmentSince(model)).toBe("cycle");
+  });
+});
+
+describe("buildDashboard — two keep resets in one cycle", () => {
+  // Work's 30k on Monday 10:00 and Home's 20k at 20:00; reset 1 on Tuesday 14:00 (38 h in), Work's 12k at 40 h;
+  // reset 2 on Tuesday 22:00 (46 h in), then 7k of Work's at 50 h.
+  const R1 = CYCLE_START + 38 * HOUR;
+  const R2 = CYCLE_START + 46 * HOUR;
+  const events = [
+    report("win", "Work", 30_000, 10),
+    report("mac", "Home", 20_000, 20),
+    report("win", "Work", 12_000, 40),
+    report("win", "Work", 7_000, 50),
+  ];
+  const model = buildDashboard(NOW, config, snapshot({ events, resets: [keepReset(38, 80), keepReset(46, 60)] }));
+  /** All groups' cumulative tokens at the sample of `ms`. */
+  const charted = (ms: number) => {
+    const index = model.timeline.times.indexOf(ms);
+    expect(index).toBeGreaterThanOrEqual(0);
+    return model.timeline.groups.reduce((sum, group) => sum + group.values[index]!, 0);
+  };
+
+  it("counts the segment since the second reset only", () => {
+    expect(model.total).toBe(7_000);
+    expect(model.segment.startMs).toBe(R2);
+  });
+
+  it("lists each reset with the tokens of the segment it ended, the second not counting the first's", () => {
+    expect(model.resets.map((reset) => [reset.id, reset.tokens])).toEqual([
+      ["r38", 50_000],
+      ["r46", 12_000],
+    ]);
+  });
+
+  it("restarts the timeline at both resets, ending on the segment's total", () => {
+    expect([charted(R1 - 1), charted(R1)]).toEqual([50_000, 0]);
+    expect([charted(R2 - 1), charted(R2)]).toEqual([12_000, 0]);
+    expect(charted(model.timeline.times.at(-1)!)).toBe(model.total);
+  });
+});
+
+describe("buildDashboard — a keep reset in a cycle a restart began", () => {
+  // The restart on Tuesday 14:00 (38 h in) began the cycle; the keep reset on Wednesday 04:00 (50 h in) cut it.
+  // 30k before the restart (the cycle it cut short), 12k between the two, 8k since the keep reset.
+  const RESTART = CYCLE_START + 38 * HOUR;
+  const KEEP = CYCLE_START + 50 * HOUR;
+  const model = buildDashboard(
+    NOW,
+    config,
+    snapshot({
+      events: [report("win", "Work", 30_000, 10), report("win", "Work", 12_000, 40), report("win", "Work", 8_000, 55)],
+      resets: [restartReset(38, 62), keepReset(50, 80, { cycleStartMs: RESTART })],
+    }),
+    [],
+    restartedWindow(38),
+  );
+
+  it("starts the cycle at the restart and the current segment at the keep reset", () => {
+    expect(model.cycle.startMs).toBe(RESTART);
+    expect(model.segment.startMs).toBe(KEEP);
+    expect(model.total).toBe(8_000);
+  });
+
+  it("lists the restart, then the keep reset with the tokens of the stretch the restart opened", () => {
+    expect(model.resets).toEqual([
+      { id: "restart38", atMs: RESTART, kind: "restart", before: 62, source: "manual", tokens: null },
+      { id: "r50", atMs: KEEP, kind: "keep", before: 80, source: "manual", tokens: 12_000 },
+    ]);
+  });
+});
+
+describe("buildProviderDashboards — a restart", () => {
+  it("compares with the cycle the restart cut short, and lists the restart", () => {
+    // Codex reset on Tuesday 14:00: its own reset moved there, and a fresh cycle started.
+    const R = CYCLE_START + 38 * HOUR;
+    const restart: ResetEvent = {
+      id: "codex",
+      atMs: R,
+      kind: "restart",
+      cycleStartMs: CYCLE_START,
+      before: 62,
+      beforeAtMs: R - HOUR,
+      source: "report",
+      recordedAtMs: R,
+      previousOverride: null,
+    };
+    const [openai] = buildProviderDashboards(
+      NOW,
+      {
+        ...config,
+        resetOverrides: { openai: { weekday: 2, monthDay: 22, hour: 14, minute: 0, source: "reset" as const } },
+      },
+      ["openai"],
+      {
+        // 5k the Sunday before (outside [S, R), inside the week before R), 30k on Monday, 12k since the reset.
+        eventsByProvider: {
+          openai: [
+            report("win", "Work", 5_000, -5),
+            report("win", "Work", 30_000, 10),
+            report("win", "Work", 12_000, 40),
+          ],
+        },
+        groups: [],
+        machines: [],
+        resets: { openai: { v: 1, events: [restart], autoOffCycleStartMs: null } },
+      },
+    );
+    expect(openai!.resetMode).toBe("restart");
+    expect(openai!.dashboard.cycle.startMs).toBe(R);
+    expect(openai!.dashboard.total).toBe(12_000);
+    expect(openai!.dashboard.previousTotal).toBe(30_000);
+    expect(openai!.dashboard.resets).toEqual([
+      { id: "codex", atMs: R, kind: "restart", before: 62, source: "report", tokens: null },
+    ]);
+  });
+});
+
+describe("buildDashboard — a closed cycle with keep resets", () => {
+  const R = CYCLE_START + 38 * HOUR;
+  const END = CYCLE_START + 168 * HOUR;
+  const window = {
+    cycle: { start: new Date(CYCLE_START), end: new Date(END) },
+    previous: { start: new Date(CYCLE_START - 168 * HOUR), end: new Date(CYCLE_START) },
+  };
+  // As archived: the segments' bounds and figures (their archived totals are not what the model reads).
+  const archivedSegments = [
+    { start: CYCLE_START, end: R, official: 80, total: 0, groups: {} },
+    { start: R, end: END, official: 44, total: 0, groups: {} },
+  ];
+  const events = [
+    report("win", "Work", 30_000, 10),
+    report("mac", "Home", 20_000, 20),
+    report("win", "Work", 12_000, 40),
+  ];
+  const later = new Date(END + 32 * HOUR);
+  const closed = buildDashboard(later, config, snapshot({ events, archivedSegments }), [], window);
+
+  it("counts the whole cycle, and carries each segment's measured tokens with its archived figure", () => {
+    expect(closed.total).toBe(62_000);
+    expect(closed.segment.startMs).toBe(CYCLE_START);
+    expect(closed.resets).toEqual([]);
+    expect(closed.pastSegments).toEqual([
+      {
+        startMs: CYCLE_START,
+        endMs: R,
+        official: 80,
+        total: 50_000,
+        groups: { Work: 30_000, Home: 20_000 },
+        machines: [
+          { machineId: "win", groupId: "Work", tokens: 30_000 },
+          { machineId: "mac", groupId: "Home", tokens: 20_000 },
+        ],
+      },
+      {
+        startMs: R,
+        endMs: END,
+        official: 44,
+        total: 12_000,
+        groups: { Work: 12_000 },
+        machines: [{ machineId: "win", groupId: "Work", tokens: 12_000 }],
+      },
+    ]);
+  });
+
+  it("restarts its timeline's lines at each segment", () => {
+    const { times, groups } = closed.timeline;
+    const work = groups.find((group) => group.groupId === "Work")!;
+    expect(work.values[times.indexOf(R - 1)]).toBe(30_000);
+    expect(work.values[times.indexOf(R)]).toBe(0);
+    expect(work.values.at(-1)).toBe(12_000);
+    expect(resetMoments(closed)).toEqual([R]);
+  });
+
+  it("has no segments with a single archived one, and ignores archived ones for an open cycle", () => {
+    const single = buildDashboard(
+      later,
+      config,
+      snapshot({ events, archivedSegments: archivedSegments.slice(0, 1) }),
+      [],
+      window,
+    );
+    expect(single.pastSegments).toEqual([]);
+    expect(resetMoments(single)).toEqual([]);
+    const open = buildDashboard(NOW, config, snapshot({ events, archivedSegments }));
+    expect(open.pastSegments).toEqual([]);
+  });
+
+  it("reads a past cycle's segments from the provider's archived summary", () => {
+    const summary: CycleSummary = {
+      v: 1,
+      start: CYCLE_START,
+      end: END,
+      total: 62_000,
+      limit: null,
+      official: 124,
+      groups: {},
+      machines: 2,
+      models: {},
+      subLimits: {},
+      archivedAt: END,
+      segments: archivedSegments,
+    };
+    const [claude] = buildProviderDashboards(
+      later,
+      config,
+      ["claude"],
+      { eventsByProvider: { claude: events }, groups: [], machines: [], history: { claude: [summary] } },
+      new Map(),
+      window,
+    );
+    expect(claude!.dashboard.pastSegments.map((segment) => segment.official)).toEqual([80, 44]);
   });
 });

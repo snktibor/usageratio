@@ -30,6 +30,12 @@ export interface UsageEvent {
    * It is a series of its own, summed with the machine's other one.
    */
   carried?: boolean;
+  /**
+   * The cycle start the server gave the client when it was stored (lib/ingest.ts): what a
+   * snapshot running total counts from. Absent from members stored before the stamp existed.
+   * A cycle a restart began ignores those counted from before it (lib/resets.ts `dropStaleBasis`).
+   */
+  basisMs?: number;
 }
 
 /** `startMs` inclusive, `endMs` exclusive. */
@@ -100,11 +106,6 @@ export function usageOfSeriesUntil(events: UsageEvent[], startMs: number, endsMs
   return usages;
 }
 
-/** Tokens one series used inside the window; `events` sorted by time, may start before the window. */
-function usageOfSeries(events: UsageEvent[], window: TimeWindow, mode: TokenMode): number {
-  return usageOfSeriesUntil(events, window.startMs, [window.endMs], mode)[0]!;
-}
-
 /**
  * Reports split into series: one per group and machine (and a merged
  * machine's carry-over apart from its reports), each sorted by time.
@@ -129,18 +130,31 @@ export function groupIntoSeries(events: UsageEvent[]): UsageEvent[][] {
  * Aggregates raw reports into per-group and per-machine usage for one window.
  * Pass events from before the window too when available: counter mode uses
  * them as the baseline.
+ *
+ * `fromMs` (default: the window's start) counts only what was used from then
+ * on: each series' usage up to the window's end less its usage up to
+ * `fromMs`, both counted from the window's start. That is one segment of a
+ * cycle (lib/resets.ts): snapshot reports are running totals since the cycle
+ * start, so only the difference says what the segment used. Only the series
+ * that reported inside `[fromMs, endMs)` are listed.
  */
-export function summarizeUsage(events: UsageEvent[], window: TimeWindow, mode: TokenMode): UsageSummary {
+export function summarizeUsage(
+  events: UsageEvent[],
+  window: TimeWindow,
+  mode: TokenMode,
+  fromMs: number = window.startMs,
+): UsageSummary {
   // A merged machine's carry-over is a series of its own, but the same row: keyed by group and machine only.
   const byMachine = new Map<string, SeriesUsage>();
   for (const list of groupIntoSeries(events)) {
     const inWindow = list.filter(
-      (e) => e.ts >= window.startMs && e.ts < window.endMs && (!e.checkpoint || mode === "snapshot"),
+      (e) => e.ts >= fromMs && e.ts < window.endMs && (!e.checkpoint || mode === "snapshot"),
     );
     const last = inWindow[inWindow.length - 1];
     if (!last) continue;
     const reports = inWindow.filter((e) => !e.checkpoint);
-    const tokens = usageOfSeries(list, window, mode);
+    const [before, until] = usageOfSeriesUntil(list, window.startMs, [fromMs, window.endMs], mode);
+    const tokens = until! - before!;
     const lastReportAt = reports[reports.length - 1]?.ts ?? null;
     const key = JSON.stringify([last.groupId, last.machineId]);
     const known = byMachine.get(key);
@@ -221,19 +235,22 @@ export function costOfSeriesUntil(events: UsageEvent[], startMs: number, endsMs:
  * The window's cost, by machine and by group, and in total; only over the
  * machines that reported a cost figure at all in the window (a machine that
  * sent none is simply left out, rather than shown at $0). Mirrors
- * `summarizeUsage`, minus the token-mode/share/report bookkeeping cost has no use for.
+ * `summarizeUsage`, minus the token-mode/share/report bookkeeping cost has no
+ * use for, `fromMs` included: only what accrued from then on counts, one
+ * segment of a cycle (lib/resets.ts).
  */
-export function summarizeCost(events: UsageEvent[], window: TimeWindow): CostSummary {
+export function summarizeCost(events: UsageEvent[], window: TimeWindow, fromMs: number = window.startMs): CostSummary {
   let total = 0;
   const byGroup: Record<string, number> = {};
   const byMachine: Record<string, number> = {};
   let hasCost = false;
 
   for (const series of groupIntoSeries(events)) {
-    const inWindow = series.filter((e) => e.ts >= window.startMs && e.ts < window.endMs);
+    const inWindow = series.filter((e) => e.ts >= fromMs && e.ts < window.endMs);
     if (!inWindow.some((e) => e.costUsd !== undefined)) continue;
     hasCost = true;
-    const cost = costOfSeriesUntil(series, window.startMs, [window.endMs])[0]!;
+    const [before, until] = costOfSeriesUntil(series, window.startMs, [fromMs, window.endMs]);
+    const cost = until! - before!;
     const { machineId, groupId } = series[0]!;
     byMachine[machineId] = (byMachine[machineId] ?? 0) + cost;
     byGroup[groupId] = (byGroup[groupId] ?? 0) + cost;

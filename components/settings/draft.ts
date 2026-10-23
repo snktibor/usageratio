@@ -1,4 +1,10 @@
-import { type AlertsFormat, type BudgetPeriod, isValidTimeZone, type ResetOverride } from "@/lib/config";
+import {
+  type AlertsFormat,
+  type BudgetPeriod,
+  isValidTimeZone,
+  type ResetMode,
+  type ResetOverride,
+} from "@/lib/config";
 import {
   MAX_ALERT_THRESHOLDS,
   MAX_GROUPS,
@@ -42,7 +48,7 @@ export interface DraftOwnReset {
   monthDay: number;
   /** "HH:MM", as typed. */
   time: string;
-  source?: "report";
+  source?: "report" | "reset";
 }
 
 export interface DraftSubLimit {
@@ -99,6 +105,8 @@ export interface Draft {
   timeZone: string;
   /** providerId → its own reset; absent: the shared one. */
   resetOverrides: Record<string, DraftOwnReset>;
+  /** providerId → how it resets early; only the stored entries (lib/settings.ts `resetModeOf` fills in defaults). */
+  resetModes: Record<string, ResetMode>;
   showRemaining: boolean;
   costEstimate: boolean;
   groups: DraftGroup[];
@@ -116,6 +124,7 @@ export interface SettingsRequest {
   limits: Record<string, number>;
   reset: { weekday: number; monthDay: number; hour: number; minute: number; timeZone: string };
   resetOverrides: Record<string, ResetOverride>;
+  resetModes: Record<string, ResetMode>;
   showRemaining: boolean;
   costEstimate: boolean;
   hiddenProviders: string[];
@@ -164,6 +173,7 @@ export function draftFrom(view: SettingsView): Draft {
     limits,
     reset,
     resetOverrides,
+    resetModes,
     showRemaining,
     costEstimate,
     hiddenProviders,
@@ -206,6 +216,7 @@ export function draftFrom(view: SettingsView): Draft {
         },
       ]),
     ),
+    resetModes: { ...resetModes },
     showRemaining,
     costEstimate,
     groups: view.groups.map((group) => ({
@@ -455,6 +466,7 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
         timeZone,
       },
       resetOverrides,
+      resetModes: { ...draft.resetModes },
       showRemaining: draft.showRemaining,
       costEstimate: draft.costEstimate,
       hiddenProviders: draft.providers.filter((provider) => !provider.visible).map((provider) => provider.id),

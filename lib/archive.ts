@@ -3,6 +3,7 @@ import type { AppConfig } from "@/lib/config";
 import { officialPercentForCycle, summarizeCycle } from "@/lib/history";
 import { log } from "@/lib/log";
 import { providerCycle } from "@/lib/provider-cycles";
+import { keepResetsOf, type ProviderResets, resetEventsOf, restartStarting } from "@/lib/resets";
 import { configForProvider, countsForProvider, subLimitsOf } from "@/lib/settings";
 import { archiveCycle, loadNewestArchivedStarts } from "@/lib/usage-store";
 
@@ -14,6 +15,8 @@ export interface ArchiveInput {
   eventsByProvider: Record<string, UsageEvent[]>;
   /** The raw `usage:official` hash, for the previous cycle's typed-in percentage. */
   rawOfficialUsage: Record<string, string>;
+  /** Every provider's resets (`loadIndexes().resets`): a restart's cut-short cycle, keep resets' segments. */
+  resets: Record<string, ProviderResets>;
   /** Only report which providers are due; write nothing. */
   dryRun?: boolean;
 }
@@ -31,7 +34,9 @@ export interface ArchiveInput {
  * that only differs by when each happened to run. See lib/history.ts for why
  * only this one cycle can be archived this way, and for `summarizeCycle`.
  * Each provider's cycles are its own (lib/provider-cycles.ts): the shared
- * reset, or the provider's override.
+ * reset, or the provider's override. A cycle a restart cut short (lib/resets.ts)
+ * is archived as `[S, R)`, marked `endedByReset`; a cycle with keep resets
+ * carries its segments.
  *
  * Best-effort per provider: a failure is logged and skipped, never thrown, so
  * one bad provider neither breaks the dashboard nor the rest of the run.
@@ -43,12 +48,13 @@ export async function archiveDueCycles({
   now,
   eventsByProvider,
   rawOfficialUsage,
+  resets,
   dryRun = false,
 }: ArchiveInput): Promise<string[]> {
   if (providerIds.length === 0) return [];
   const newestStarts = await loadNewestArchivedStarts(providerIds);
   const windowOf = (providerId: string) => {
-    const { cycle, previous } = providerCycle(now, config, providerId);
+    const { cycle, previous } = providerCycle(now, config, providerId, resetEventsOf(resets, providerId));
     return { previousStartMs: previous.start.getTime(), cycleStartMs: cycle.start.getTime() };
   };
 
@@ -66,14 +72,22 @@ export async function archiveDueCycles({
         const { previousStartMs, cycleStartMs } = windowOf(providerId);
         const counts = (groupId: string) => countsForProvider(config.excludedProviders, groupId, providerId);
         const providerConfig = configForProvider(config, providerId);
+        const events = resetEventsOf(resets, providerId);
+        const window = { startMs: previousStartMs, endMs: cycleStartMs };
+        const keep = keepResetsOf(window, events);
+        // A cycle a restart cut short ended on the restart's before-figure; else its last segment's figure.
+        const cut = restartStarting(events, cycleStartMs);
+        const lastStartMs = keep.at(-1)?.atMs ?? previousStartMs;
         const summary = summarizeCycle({
           events: (eventsByProvider[providerId] ?? []).filter((event) => counts(event.groupId)),
-          window: { startMs: previousStartMs, endMs: cycleStartMs },
+          window,
           mode: config.tokenMode,
           limit: config.useTokenLimits ? providerConfig.limit : null,
-          official: officialPercentForCycle(rawOfficialUsage, providerId, previousStartMs),
+          official: cut?.before ?? officialPercentForCycle(rawOfficialUsage, providerId, lastStartMs),
           subLimits: subLimitsOf(config, providerId),
           archivedAt: cycleStartMs,
+          keepResets: keep.map(({ atMs, before }) => ({ atMs, before })),
+          endedByReset: cut !== undefined,
         });
         await archiveCycle(providerId, summary);
         return providerId;

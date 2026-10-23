@@ -1,9 +1,9 @@
 import { useLocale, useTranslations } from "next-intl";
 import { ChartLegend, type ChartSeries, CycleChart } from "@/components/cycle-chart";
 import { formatPercentTick } from "@/lib/chart";
-import type { DashboardModel } from "@/lib/dashboard";
+import { type DashboardModel, resetMoments } from "@/lib/dashboard";
 import { formatHeroPercent } from "@/lib/format";
-import { type DashboardView, type SubLimitView, subLimitTimeline } from "@/lib/ground-truth";
+import { type DashboardView, type SubLimitView, subLimitTimeline, timelineRates } from "@/lib/ground-truth";
 import { NEUTRAL_COLOR } from "@/lib/settings";
 
 /** The percentage axis never shrinks below this: a quiet start of the cycle stays low on the chart. */
@@ -18,10 +18,13 @@ function subLimitColor(index: number): string {
 /**
  * How the budget went over the cycle: each group's share of it and, dashed,
  * all of them together. The measured tokens become a share of the budget at
- * one rate, the headline figure over all measured tokens, so the dashed line
- * ends on the headline percentage and the groups split it as their tokens do.
- * Each sub-limit whose figure is known runs beside them in a fainter shade,
- * as the share of its own budget: the same rule, ending on its own figure.
+ * the rates of lib/ground-truth.ts `timelineRates`: the current segment's at
+ * the headline figure over its measured tokens, so the dashed line ends on
+ * the headline percentage and the groups split it as their tokens do; a
+ * segment a keep reset ended at that reset's own figure, every line starting
+ * again from 0 at the reset. Each sub-limit whose figure is known runs beside
+ * them in a fainter shade, as the share of its own budget: the same rule,
+ * ending on its own figure.
  */
 export function UsageChart({
   model,
@@ -34,9 +37,22 @@ export function UsageChart({
 }) {
   const locale = useLocale();
   const t = useTranslations("Widgets");
-  // Per measured token: the official figure's share of it, or 1/limit when measured against a token limit.
-  const fractionPerToken = view.quota && model.total > 0 ? view.quota.usedFraction / model.total : null;
-  const colorOf = new Map(model.groups.map((group) => [group.groupId, group.color]));
+  const rates = timelineRates(model, view);
+  const colorOf = new Map(Object.entries(model.groupColors));
+  const keeps = model.resets.filter((reset) => reset.kind === "keep");
+  // Under an official reading, a finished segment without a figure of its own is only an estimate.
+  const paleSpans = !view.calibrated
+    ? []
+    : model.pastSegments.length > 0
+      ? model.pastSegments.flatMap((segment, index) =>
+          view.segmentFigures?.[index] === null ? [{ startMs: segment.startMs, endMs: segment.endMs }] : [],
+        )
+      : keeps.flatMap((reset, index) =>
+          reset.before === null ? [{ startMs: keeps[index - 1]?.atMs ?? model.cycle.startMs, endMs: reset.atMs }] : [],
+        );
+  // Right after a reset the segment has nothing measured yet, but the cycle has.
+  const measured = model.total > 0 || keeps.some((reset) => (reset.tokens ?? 0) > 0);
+  const restarts = resetMoments(model).length > 0;
 
   const subLimitSeries: ChartSeries[] = subLimits.flatMap((subView, index) => {
     const values = subLimitTimeline(subView);
@@ -54,9 +70,9 @@ export function UsageChart({
   });
 
   let body: React.ReactNode;
-  if (model.total === 0) {
+  if (!measured) {
     body = <p className="mt-3 max-w-xl text-ink-2">{t("no_measured_usage_chart")}</p>;
-  } else if (fractionPerToken === null) {
+  } else if (rates === null) {
     body = (
       <p className="mt-3 max-w-xl text-ink-2">
         {model.closed ? t("chart_closed_no_official") : t("chart_official_explanation")}
@@ -67,7 +83,7 @@ export function UsageChart({
       id: `group:${group.groupId}`,
       label: group.groupId,
       color: colorOf.get(group.groupId) ?? NEUTRAL_COLOR,
-      values: group.values.map((tokens) => tokens * fractionPerToken),
+      values: group.values.map((tokens, index) => tokens * rates[index]!),
     }));
     const total: ChartSeries = {
       id: "total",
@@ -92,6 +108,7 @@ export function UsageChart({
             formatTick={(fraction, scale) => formatPercentTick(fraction, scale.step, locale)}
             formatValue={(val) => formatHeroPercent(val, locale)}
             label={subLimitSeries.length > 0 ? t("chart_aria_with_sublimits") : t("chart_aria_no_sublimits")}
+            paleSpans={paleSpans}
           />
         </div>
       </>
@@ -103,10 +120,12 @@ export function UsageChart({
       <h2 id="usage-chart-heading" className="text-xl font-medium">
         {t("burn_over_time")}
       </h2>
-      {fractionPerToken !== null && (
+      {measured && rates !== null && (
         <p className="mt-1 text-sm text-ink-3">
           {view.calibrated ? t("chart_desc_official") : t("chart_desc_measured")}
           {subLimitSeries.length > 0 && t("chart_desc_sublimits")}
+          {restarts && t("chart_desc_resets")}
+          {paleSpans.length > 0 && t("chart_desc_pale")}
         </p>
       )}
       {body}

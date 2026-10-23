@@ -1,5 +1,6 @@
 import type { AppConfig, BudgetPeriod, ResetConfig } from "@/lib/config";
-import { type Cycle, getCycle, getPreviousCycle } from "@/lib/cycle";
+import { type Cycle, getCycle } from "@/lib/cycle";
+import { cycleBefore, type ResetEvent } from "@/lib/resets";
 import { resetFor } from "@/lib/settings";
 
 /**
@@ -18,6 +19,10 @@ import { resetFor } from "@/lib/settings";
  * cycles worked out that way no longer match the ones that really ran. An
  * archived cycle knows its own boundaries: where there is one, its `start`
  * and `end` are taken, and a worked-out cycle that overlaps it is dropped.
+ *
+ * A cycle a restart began (lib/resets.ts) is preceded by the one it cut
+ * short, and the cycles before that are worked out from the reset that one ran
+ * on.
  */
 
 const DAY_MS = 86_400_000;
@@ -40,6 +45,10 @@ export interface CycleOptionsInput {
   retentionDays: number;
   /** When the oldest report still stored was made (lib/usage-store.ts `loadOldestReportTime`); null: none. */
   oldestReportMs: number | null;
+  /** The shared reset: what a restart's cut-short cycle ran on when the provider had no own reset. Default: `reset`. */
+  shared?: ResetConfig;
+  /** The provider's reset events (lib/resets.ts): a cycle a restart began comes after the one it cut short. */
+  resets?: ResetEvent[];
 }
 
 const overlaps = (a: { startMs: number; endMs: number }, b: { startMs: number; endMs: number }) =>
@@ -52,6 +61,8 @@ export function listCycleOptions({
   archived,
   retentionDays,
   oldestReportMs,
+  shared = reset,
+  resets = [],
 }: CycleOptionsInput): CycleOption[] {
   const nowMs = now.getTime();
   const cutoffMs = nowMs - retentionDays * DAY_MS;
@@ -71,12 +82,15 @@ export function listCycleOptions({
 
   const computed: { startMs: number; endMs: number }[] = [];
   let cursor: Cycle = current;
+  let cursorReset = reset;
   // A month back at most every step; the bound is only a safety net against a zero-length cycle.
   for (let step = 0; step < 400; step++) {
-    const previous = getPreviousCycle(cursor, reset);
+    const before = cycleBefore(cursor, cursorReset, shared, resets);
+    const previous = before.cycle;
     if (previous.start.getTime() >= cursor.start.getTime() || previous.start.getTime() < cutoffMs) break;
     computed.push({ startMs: previous.start.getTime(), endMs: previous.end.getTime() });
     cursor = previous;
+    cursorReset = before.reset;
   }
 
   const past = [
@@ -140,12 +154,14 @@ export function providerCycleOptions({
   providerId,
   history,
   oldestReportMs,
+  resets = [],
 }: {
   now: Date;
   config: AppConfig;
   providerId: string;
   history: { start: number; end: number }[];
   oldestReportMs: number | null;
+  resets?: ResetEvent[];
 }): CycleOption[] {
   return listCycleOptions({
     now,
@@ -153,5 +169,7 @@ export function providerCycleOptions({
     archived: history,
     retentionDays: config.retentionDays,
     oldestReportMs,
+    shared: config.reset,
+    resets,
   });
 }

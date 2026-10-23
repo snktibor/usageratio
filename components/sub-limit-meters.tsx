@@ -7,7 +7,7 @@ import { AlertTriangleIcon, CheckCircleIcon, InfoCircleIcon, StopCircleIcon } fr
 import { statusLabel } from "@/components/quota-meter";
 import { StatusLine } from "@/components/status-line";
 import type { Entry, EntryStatus } from "@/components/use-official-entry";
-import type { DashboardModel } from "@/lib/dashboard";
+import { type DashboardModel, segmentSince } from "@/lib/dashboard";
 import { formatCycleMoment, formatHeroPercent, formatPercent, formatTokens } from "@/lib/format";
 import type { SubLimitView } from "@/lib/ground-truth";
 import type { Translator } from "@/lib/i18n";
@@ -195,7 +195,7 @@ function SubLimitRow({ model, state, onChange: setEntry, providerLabel }: RowPro
             <strong className="font-medium text-ink">
               {t("sublimit_consumed_status", {
                 percent: formatHeroPercent(quota.usedFraction, locale),
-                status: statusLabel(quota, t),
+                status: statusLabel(quota, t, segmentSince(model)),
               })}
             </strong>
             {!readOnly && paceNote(subView, model, t, locale)} {sourceNote(subView, providerLabel, t, locale)}

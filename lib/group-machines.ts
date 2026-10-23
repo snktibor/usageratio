@@ -1,5 +1,5 @@
 import type { DashboardModel } from "@/lib/dashboard";
-import type { DashboardView } from "@/lib/ground-truth";
+import { type DashboardView, timelineRates } from "@/lib/ground-truth";
 import { PRESET_COLORS } from "@/lib/settings";
 
 type Group = DashboardModel["groups"][number];
@@ -65,10 +65,10 @@ export interface GroupMachineChart {
 
 /**
  * The machines of `group` over the cycle, for the chart that opens under its
- * row. Their measured tokens become a share of the budget at the rate the
- * usage chart uses (the headline figure over all measured tokens), so the
- * machines of all groups add up to the headline percentage, and every line
- * ends on its machine's share of the budget. A machine without usage this
+ * row. Their measured tokens become a share of the budget at the rates the
+ * usage chart uses (lib/ground-truth.ts `timelineRates`), so the machines of
+ * all groups add up to the headline percentage, and every line ends on its
+ * machine's share of the budget. A machine without usage this
  * cycle keeps its place, as a line on the axis.
  */
 export function groupMachineChart(model: DashboardModel, view: DashboardView, group: Group): GroupMachineChart {
@@ -78,9 +78,10 @@ export function groupMachineChart(model: DashboardModel, view: DashboardView, gr
     group.color,
     model.groups.map((other) => other.color),
   );
-  const fractionPerToken = view.quota && model.total > 0 ? view.quota.usedFraction / model.total : null;
+  // Per measured token at each sample: a finished segment may go at its own before-figure (lib/ground-truth.ts).
+  const rates = timelineRates(model, view);
   return {
-    basis: fractionPerToken === null ? "tokens" : view.calibrated ? "official" : "measured",
+    basis: rates === null ? "tokens" : view.calibrated ? "official" : "measured",
     series: machines.map((machine, index) => {
       const measured = model.timeline.machines.find(
         (series) => series.groupId === group.groupId && series.machineId === machine.machineId,
@@ -88,7 +89,7 @@ export function groupMachineChart(model: DashboardModel, view: DashboardView, gr
       return {
         machine,
         color: colors[index]!,
-        values: model.timeline.times.map((_, sample) => (measured?.values[sample] ?? 0) * (fractionPerToken ?? 1)),
+        values: model.timeline.times.map((_, sample) => (measured?.values[sample] ?? 0) * (rates?.[sample] ?? 1)),
       };
     }),
   };

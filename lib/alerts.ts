@@ -9,8 +9,9 @@ import type { OfficialUsageUpdate } from "@/lib/official-usage";
 import { providerLabel } from "@/lib/providers";
 import { getRedis } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
+import { resetEventsOf, segmentStartAt } from "@/lib/resets";
 import { countsForProvider, parseStoredSettings, settingsFromConfig, type UsageSettings } from "@/lib/settings";
-import { loadEvents, loadIndexes, loadRawSettings } from "@/lib/usage-store";
+import { loadEvents, loadIndexes, loadRawSettings, loadResets } from "@/lib/usage-store";
 import type { UsageReport } from "@/lib/validation";
 import { sendWebhook, type WebhookResult } from "@/lib/webhook";
 
@@ -26,14 +27,15 @@ import { sendWebhook, type WebhookResult } from "@/lib/webhook";
  *    is then the only figure the dashboard has): `checkOfficialUsageAlerts`,
  *    called from PUT /api/official-usage.
  *
- * A threshold fires once per provider per cycle: `SET … NX` on
- * `usage:alert:{providerId}:{cycleStartMs}:{threshold}` (lib/redis-keys.ts)
+ * A threshold fires once per provider per segment of a cycle (the whole cycle
+ * when it has no keep reset, lib/resets.ts): `SET … NX` on
+ * `usage:alert:{providerId}:{segmentStartMs}:{threshold}` (lib/redis-keys.ts)
  * is the guard, so two concurrent requests crossing the same threshold only
- * ever send one message, and a new cycle (a different cycleStartMs) starts
- * every threshold fresh. Crossing several thresholds in one evaluation (a
- * burst of usage, or the first report of a new cycle already over 100%)
- * sends exactly one message, for the highest of them; the lower ones are
- * still marked as sent, so they never fire late on their own.
+ * ever send one message, and a new cycle or a reset (a different
+ * segmentStartMs) starts every threshold fresh. Crossing several thresholds
+ * in one evaluation (a burst of usage, or the first report of a new cycle
+ * already over 100%) sends exactly one message, for the highest of them; the
+ * lower ones are still marked as sent, so they never fire late on their own.
  *
  * Never throws into the request that triggers it: both entry points are
  * called through `defer()` (lib/request-context.ts), and every failure here
@@ -45,6 +47,11 @@ const ALERT_TTL_SECONDS = 70 * 86_400;
 export interface AlertCycle {
   startMs: number;
   endMs: number;
+  /**
+   * The segment the usage was measured in (lib/resets.ts): a threshold fires
+   * once per segment, so a reset lets them fire again. Default: `startMs`.
+   */
+  segmentStartMs?: number;
   /** For the "the cycle ends …" text; UTC when the reset time zone is not known. */
   timeZone?: string;
 }
@@ -149,7 +156,7 @@ async function sendAlert(params: EvaluateAlertsParams & { threshold: number; use
 
 /**
  * For every threshold at or below `usedFraction * 100`, claims it (`SET NX`)
- * for this provider's current cycle, then sends one webhook message for the
+ * for this provider's current segment, then sends one webhook message for the
  * highest threshold this call newly claimed — the others are marked sent
  * without a message of their own. A no-op without a webhook URL, or when
  * nothing new was crossed.
@@ -166,7 +173,7 @@ export async function evaluateAlerts(params: EvaluateAlertsParams): Promise<void
     const redis = getRedis();
     let highestNew: number | null = null;
     for (const threshold of crossed) {
-      const key = KEYS.alert(providerId, cycle.startMs, threshold);
+      const key = KEYS.alert(providerId, cycle.segmentStartMs ?? cycle.startMs, threshold);
       const result = await redis.set(key, 1, { nx: true, ex: ALERT_TTL_SECONDS });
       if (result === "OK") highestNew = threshold;
     }
@@ -201,12 +208,18 @@ export async function checkIngestAlerts(report: UsageReport, now: Date): Promise
       const cycle = getCycle(now, resetConfigOf(settings, providerId));
       const startMs = cycle.start.getTime();
       const endMs = cycle.end.getTime();
+      // Since the cycle's last keep reset: what the dashboard's meter counts (lib/resets.ts).
+      const segmentStartMs = segmentStartAt(
+        { startMs, endMs },
+        resetEventsOf(indexes.resets, providerId),
+        now.getTime(),
+      );
 
-      const { eventsByProvider } = await loadEvents([providerId], indexes.groups, startMs);
+      const { eventsByProvider } = await loadEvents([providerId], indexes.groups, startMs, indexes.resets);
       const events = (eventsByProvider[providerId] ?? []).filter((event) =>
         countsForProvider(settings.excludedProviders, event.groupId, providerId),
       );
-      const summary = summarizeUsage(events, { startMs, endMs }, config.tokenMode);
+      const summary = summarizeUsage(events, { startMs, endMs }, config.tokenMode, segmentStartMs);
       const limit = settings.limits[providerId] ?? config.limit;
       if (!(limit > 0)) continue;
 
@@ -214,7 +227,7 @@ export async function checkIngestAlerts(report: UsageReport, now: Date): Promise
         providerId,
         label: providerLabel(providerId),
         usedFraction: summary.total / limit,
-        cycle: { startMs, endMs, timeZone: settings.reset.timeZone },
+        cycle: { startMs, endMs, segmentStartMs, timeZone: settings.reset.timeZone },
         settings: alerts,
         now,
       });
@@ -228,8 +241,8 @@ export async function checkIngestAlerts(report: UsageReport, now: Date): Promise
  * The official-percentage signal: called after `PUT /api/official-usage`
  * saves a provider's own figure (not a sub-limit's), while the token limits
  * are off — with them on, `checkIngestAlerts` already covers this provider
- * from measured tokens. Skipped for a figure typed for a cycle that has
- * since rolled over: it says nothing about the current one.
+ * from measured tokens. Skipped for a figure saved for an earlier segment or
+ * cycle: it says nothing about the current one.
  */
 export async function checkOfficialUsageAlerts(update: OfficialUsageUpdate, now: Date): Promise<void> {
   try {
@@ -239,20 +252,23 @@ export async function checkOfficialUsageAlerts(update: OfficialUsageUpdate, now:
     if (percent === null) return;
 
     const config = getConfig();
-    const rawSettings = await loadRawSettings();
+    const [rawSettings, resets] = await Promise.all([loadRawSettings(), loadResets()]);
     const settings = parseStoredSettings(rawSettings, settingsFromConfig(config));
     const { alerts } = settings;
     if (!alerts.webhookUrl || settings.useTokenLimits) return;
     if (!alerts.perProvider && settings.hiddenProviders.includes(update.providerId)) return;
 
     const cycle = getCycle(now, resetConfigOf(settings, update.providerId));
-    if (cycle.start.getTime() !== update.cycleStartMs) return;
+    const window = { startMs: cycle.start.getTime(), endMs: cycle.end.getTime() };
+    // A figure counts for the segment it was saved for, and only while that segment runs.
+    const segmentStartMs = segmentStartAt(window, resetEventsOf(resets, update.providerId), now.getTime());
+    if (update.cycleStartMs !== segmentStartMs) return;
 
     await evaluateAlerts({
       providerId: update.providerId,
       label: providerLabel(update.providerId),
       usedFraction: percent / 100,
-      cycle: { startMs: cycle.start.getTime(), endMs: cycle.end.getTime(), timeZone: settings.reset.timeZone },
+      cycle: { ...window, segmentStartMs, timeZone: settings.reset.timeZone },
       settings: alerts,
       now,
     });

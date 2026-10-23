@@ -2,7 +2,8 @@ import type { DashboardModel } from "@/lib/dashboard";
 import type { DashboardView } from "@/lib/ground-truth";
 
 /**
- * The pace of the last few hours, next to the cycle's average (lib/quota.ts):
+ * The pace of the last few hours, next to the current segment's average (lib/quota.ts; the cycle's, without a
+ * usage reset):
  * where in the last 8 hours the pace changed, and how long the budget lasts if
  * the pace since then keeps up. It never changes the status: the average
  * decides that. Pure; shared by the dashboard and GET /api/status.
@@ -40,19 +41,23 @@ interface Bin {
 
 /**
  * The timeline's tokens between its hourly samples, from 8 hours before
- * `untilMs` (not before the cycle) up to `untilMs`. Nothing came in after the
- * newest report, so the timeline's last value is the total at `untilMs`.
+ * `untilMs` (not before the segment) up to `untilMs`. Nothing came in after
+ * the newest report, so the timeline's last value is the total at `untilMs`.
+ * The hourly grid is the cycle's; a segment begun off it starts with its own
+ * first sample, the reset (lib/timeline.ts `withResetSamples`).
  */
 function windowBins(model: DashboardModel, untilMs: number): Bin[] {
   const { times, groups } = model.timeline;
-  const startMs = model.cycle.startMs;
-  const fromMs = Math.max(startMs, untilMs - RECENT_WINDOW_MS);
+  const gridStartMs = model.cycle.startMs;
+  const segmentStartMs = model.segment.startMs;
+  const fromMs = Math.max(segmentStartMs, untilMs - RECENT_WINDOW_MS);
   const totalAt = (index: number) => groups.reduce((sum, group) => sum + group.values[index]!, 0);
 
   // The last sample is the dashboard's own moment: on the hourly grid only by chance.
   const points: { ms: number; tokens: number }[] = [];
   times.forEach((ms, index) => {
-    if (ms >= fromMs && ms < untilMs && (ms - startMs) % HOUR === 0) points.push({ ms, tokens: totalAt(index) });
+    const onGrid = (ms - gridStartMs) % HOUR === 0 || ms === segmentStartMs;
+    if (ms >= fromMs && ms < untilMs && onGrid) points.push({ ms, tokens: totalAt(index) });
   });
   points.push({ ms: untilMs, tokens: totalAt(times.length - 1) });
 
@@ -115,7 +120,7 @@ export function recentPace(model: DashboardModel, view: DashboardView): RecentPa
 
   const bins = windowBins(model, untilMs);
   if (bins.length === 0 || untilMs - bins[0]!.startMs < HOUR) return null;
-  const elapsedMs = view.asOfMs - model.cycle.startMs;
+  const elapsedMs = view.asOfMs - model.segment.startMs;
   if (elapsedMs <= 0) return null;
 
   const index = changePoint(bins);

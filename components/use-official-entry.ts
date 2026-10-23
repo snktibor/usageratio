@@ -42,7 +42,7 @@ type PutResult = { ok: true } | { ok: false; reason: SaveProblem };
 /** The current cycle's field (app/api/official-usage/route.ts), or a finished cycle's archived figure (…/archived). */
 async function putOfficialUsage(
   path: "/api/official-usage" | "/api/official-usage/archived",
-  body: { providerId: string; subLimitId?: string | null; raw: string; cycleStartMs: number },
+  body: { providerId: string; subLimitId?: string | null; raw: string; cycleStartMs: number; segmentStartMs?: number },
 ): Promise<PutResult> {
   let response: Response;
   try {
@@ -75,6 +75,10 @@ async function putOfficialUsage(
  * The returned status reflects only the last write attempt: a fresh change
  * always starts a fresh "saving" attempt, so editing after a failure is
  * itself the retry.
+ *
+ * `cycleStartMs` is what the figure is tagged with: the start of the current
+ * segment (the cycle's, without a usage reset; lib/resets.ts), or a finished
+ * cycle's own start.
  *
  * `closedAtMs`, the end of a finished cycle, makes it a correction of the
  * figure archived with that cycle (lib/history.ts): it stands for the cycle's
@@ -197,6 +201,94 @@ export function useSubLimitEntries(
       );
     },
     [providerId, cycleStartMs],
+  );
+
+  return [entries, update, statuses];
+}
+
+/**
+ * A finished cycle's figures when it had keep resets, one per segment, keyed
+ * by the segment's start (lib/history.ts `CycleSegmentSummary`): each is
+ * corrected on its own (app/api/official-usage/archived/route.ts,
+ * `segmentStartMs`), and once saved the page is refreshed, so the
+ * previous-cycles list shows the new sum. Each start carries its own save
+ * status, as `useSubLimitEntries` does for a sub-limit; `server` changes
+ * reach a field only while no edit of it is on its way.
+ */
+export function useSegmentEntries(
+  providerId: string,
+  cycleStartMs: number,
+  segments: { startMs: number; official: number | null }[],
+  closedAtMs: number,
+): [Map<number, Entry>, (startMs: number, raw: string) => void, Map<number, EntryStatus>] {
+  const router = useRouter();
+  const toEntry = (official: number | null): Entry =>
+    official === null ? EMPTY_ENTRY : { raw: String(official), enteredAt: closedAtMs };
+  const [entries, setEntries] = useState<Map<number, Entry>>(
+    () => new Map(segments.map((segment) => [segment.startMs, toEntry(segment.official)])),
+  );
+  const [statuses, setStatuses] = useState<Map<number, EntryStatus>>(new Map());
+  const pending = useRef<Set<number>>(new Set());
+  const timers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  // The saves in the order they were sent, each starting after the previous one has settled.
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  // A stable dependency for the effect: the segments are a new array every render.
+  const serverKey = segments.map((segment) => `${segment.startMs}=${segment.official ?? ""}`).join("\n");
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `serverKey` stands in for the ever-new `segments`
+  useEffect(() => {
+    setEntries((current) => {
+      const next = new Map<number, Entry>();
+      // Every dashboard mounts this hook: when nothing differs, keep the state, so React does not render again.
+      let changed = current.size !== segments.length;
+      for (const segment of segments) {
+        const held = current.get(segment.startMs);
+        const value = pending.current.has(segment.startMs) ? (held ?? EMPTY_ENTRY) : toEntry(segment.official);
+        next.set(segment.startMs, value);
+        if (held?.raw !== value.raw || held.enteredAt !== value.enteredAt) changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [serverKey]);
+
+  const update = useCallback(
+    (startMs: number, raw: string) => {
+      const next: Entry = raw.trim() === "" ? EMPTY_ENTRY : { raw, enteredAt: closedAtMs };
+      setEntries((current) => new Map(current).set(startMs, next));
+      setStatuses((current) => new Map(current).set(startMs, { status: "saving", problem: null }));
+      pending.current.add(startMs);
+      clearTimeout(timers.current.get(startMs));
+      const handle: ReturnType<typeof setTimeout> = setTimeout(() => {
+        // One save at a time: the server edits one segment of the cycle's whole summary and writes it back, so a
+        // second request that read it before the first was written would undo the first correction.
+        const saved = queue.current
+          .then(() =>
+            putOfficialUsage("/api/official-usage/archived", {
+              providerId,
+              raw: next.raw,
+              cycleStartMs,
+              segmentStartMs: startMs,
+            }),
+          )
+          .then((result) => {
+            setStatuses((current) =>
+              new Map(current).set(
+                startMs,
+                result.ok ? { status: "saved", problem: null } : { status: "failed", problem: result.reason },
+              ),
+            );
+            if (result.ok) router.refresh();
+          })
+          .finally(() => {
+            // A newer edit arms its own timer while this save is on its way: the field stays pending until that one is sent.
+            if (timers.current.get(startMs) === handle) pending.current.delete(startMs);
+          });
+        // A save that failed or threw must not hold up the ones behind it.
+        queue.current = saved.catch(() => undefined);
+      }, DEBOUNCE_MS);
+      timers.current.set(startMs, handle);
+    },
+    [providerId, cycleStartMs, closedAtMs, router],
   );
 
   return [entries, update, statuses];

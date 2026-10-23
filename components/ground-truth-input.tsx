@@ -26,16 +26,25 @@ interface GroundTruthInputProps {
   onProviderChange: (providerId: string) => void;
   /** Under the field: the provider's sub-limits, if it has any. */
   children?: React.ReactNode;
+  /** Right under the field's hint: the "Was there a reset?" question (components/reset-panel.tsx), when it stands. */
+  belowField?: React.ReactNode;
+  /**
+   * A finished cycle with keep resets: what Correct opens instead of the
+   * single field — one field per segment (components/segment-figures.tsx).
+   */
+  correction?: React.ReactNode;
   /**
    * A finished cycle: the figure archived with it is shown, and only edited
    * once asked to (a correction, say 82% → 100%, of a figure that went stale
    * before the reset; see components/use-official-entry.ts `closedAtMs`).
    */
   readOnly?: boolean;
+  /** What the measured figures count from (lib/dashboard.ts `segmentSince`): a keep reset, or the cycle's start. */
+  since: "reset" | "cycle";
 }
 
 function hint(
-  { invalid, enteredAt, view, timeZone, providerLabel, readOnly: readOnlyCycle }: GroundTruthInputProps,
+  { invalid, enteredAt, view, timeZone, providerLabel, readOnly: readOnlyCycle, since }: GroundTruthInputProps,
   correcting: boolean,
   t: Translator<"Widgets">,
   locale: string,
@@ -57,7 +66,7 @@ function hint(
   const entered =
     enteredAt === null || readOnlyCycle ? "" : t("entered_at", { time: formatDateTime(enteredAt, timeZone, locale) });
   if (view.measured.total === 0) {
-    return t("no_consumption_yet", { entered });
+    return t("no_consumption_yet", { since, entered });
   }
   // Without a token limit there is neither a measured share of the limit nor a factor to state.
   if (view.scale === null || view.measured.usedFraction === null) {
@@ -97,7 +106,7 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
       }`}
     >
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-hairline pb-4">
-        {readOnly && !correcting ? (
+        {readOnly && (!correcting || props.correction) ? (
           <h2 className="text-base font-medium">{t("final_official_consumption")}</h2>
         ) : readOnly ? (
           <label htmlFor={fieldId} className="text-base font-medium">
@@ -136,6 +145,17 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
             className="ml-auto shrink-0 self-center rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
           >
             {t("official_correct")}
+          </button>
+        </div>
+      ) : readOnly && props.correction ? (
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          {props.correction}
+          <button
+            type="button"
+            onClick={() => setCorrecting(false)}
+            className="rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
+          >
+            {t("official_correct_done")}
           </button>
         </div>
       ) : (
@@ -216,6 +236,7 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
         </div>
       )}
 
+      {props.belowField}
       {props.children}
     </section>
   );

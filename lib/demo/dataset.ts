@@ -2,6 +2,7 @@ import { DEFAULT_ALERTS, DEFAULT_RESET, type ResetConfig } from "@/lib/config";
 import { type Cycle, getCycle, getDayEnd, getDaySegments, getDayStart, getPreviousCycle } from "@/lib/cycle";
 import { type CycleSummary, HISTORY_TOP_MODELS } from "@/lib/history";
 import type { OfficialUsageUpdate } from "@/lib/official-usage";
+import type { ProviderResets } from "@/lib/resets";
 import { PRESET_COLORS, type SettingsUpdate } from "@/lib/settings";
 
 /**
@@ -183,6 +184,13 @@ export interface DemoDataset {
   /** Oldest first; a machine's reports are in order among themselves. */
   reports: DemoReport[];
   official: DemoOfficialEntry[];
+  /**
+   * Usage resets (lib/resets.ts), stored as they are by `seedStore`: one Claude
+   * keep reset on the Monday evening of the current week, once the week is far
+   * enough in, so the dashboard shows the stretch since it, the line under the
+   * meter, the chart's marker and the reset list.
+   */
+  resets: { providerId: string; resets: ProviderResets }[];
   /**
    * A handful of cycles before `cycles.previous`, already archived (lib/history.ts):
    * the real reports going that far back are never generated (there is nothing for
@@ -639,6 +647,7 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
         timeZone: reset.timeZone,
       },
       resetOverrides: {},
+      resetModes: {},
       showRemaining: true,
       // The demo's reports carry a cost: with this on, the dashboard shows it, with its energy and water.
       costEstimate: true,
@@ -655,12 +664,40 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
   };
 
   const cycleStartMs = current.start.getTime();
+  // Claude's keep reset, 20 hours into the week, when the figures below were typed after it.
+  const resetAtMs = cycleStartMs + 20 * HOUR_MS;
+  const withReset = resetAtMs <= nowMs - 2 * HOUR_MS;
+  const resets: DemoDataset["resets"] = withReset
+    ? [
+        {
+          providerId: "claude",
+          resets: {
+            v: 1,
+            events: [
+              {
+                id: "demo-claude-reset",
+                atMs: resetAtMs,
+                kind: "keep",
+                cycleStartMs,
+                before: 22.4,
+                beforeAtMs: resetAtMs - HOUR_MS,
+                source: "manual",
+                recordedAtMs: resetAtMs + 5 * MINUTE_MS,
+              },
+            ],
+            autoOffCycleStartMs: null,
+          },
+        },
+      ]
+    : [];
+  // A figure belongs to the segment it was typed in (lib/official-usage.ts): since the reset, when there is one.
+  const tagMs = withReset ? resetAtMs : cycleStartMs;
   const official: DemoOfficialEntry[] = [
-    { providerId: "claude", subLimitId: null, raw: "62.5", cycleStartMs, enteredAtMs: nowMs - 2 * HOUR_MS },
-    { providerId: "claude", subLimitId: "fable", raw: "48", cycleStartMs, enteredAtMs: nowMs - 2 * HOUR_MS },
+    { providerId: "claude", subLimitId: null, raw: "62.5", cycleStartMs: tagMs, enteredAtMs: nowMs - 2 * HOUR_MS },
+    { providerId: "claude", subLimitId: "fable", raw: "48", cycleStartMs: tagMs, enteredAtMs: nowMs - 2 * HOUR_MS },
   ];
 
   const history = buildDemoHistory(previous, reset, seed);
 
-  return { timeZone, reset, cycles: { current, previous }, settings, reports, official, history };
+  return { timeZone, reset, cycles: { current, previous }, settings, reports, official, resets, history };
 }

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { ResetConfig } from "@/lib/config";
-import { getCycle, getDaySegments, getPreviousCycle, wallClockOf } from "@/lib/cycle";
+import {
+  fromWallClockInput,
+  getCycle,
+  getDaySegments,
+  getPreviousCycle,
+  wallClockInput,
+  wallClockOf,
+} from "@/lib/cycle";
 
 const HOUR = 3_600_000;
 
@@ -275,5 +282,22 @@ describe("wallClockOf", () => {
       hour: 9,
       minute: 0,
     });
+  });
+});
+
+describe("the datetime-local field's wall clock", () => {
+  it("writes a moment as the field's value in its zone, to the minute", () => {
+    expect(wallClockInput(Date.parse("2026-09-22T12:05:30Z"), "Europe/Budapest")).toBe("2026-09-22T14:05");
+  });
+
+  it("reads the value back, dropping seconds", () => {
+    expect(fromWallClockInput("2026-09-22T14:05", "Europe/Budapest")).toBe(Date.parse("2026-09-22T12:05:00Z"));
+    expect(fromWallClockInput("2026-09-22T14:05:59", "Europe/Budapest")).toBe(Date.parse("2026-09-22T12:05:00Z"));
+  });
+
+  it("refuses anything else", () => {
+    for (const value of ["", "2026-09-22", "2026-13-01T10:00", "2026-09-22T24:00", "22/09/2026 14:05"]) {
+      expect(fromWallClockInput(value, "Europe/Budapest")).toBeNull();
+    }
   });
 });

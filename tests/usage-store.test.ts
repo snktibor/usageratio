@@ -1,10 +1,22 @@
-import { describe, expect, it } from "vitest";
-import { MAX_MACHINES } from "@/lib/config";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getConfig, MAX_MACHINES } from "@/lib/config";
+import { type CycleSummary, serializeCycleSummary } from "@/lib/history";
 import { MAX_PROVIDERS } from "@/lib/providers";
 import { getMemoryStoreForTests, getRedis } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
-import { MAX_GROUPS } from "@/lib/settings";
-import { loadEvents, loadIndexes, loadOldestReportTime, storeReport } from "@/lib/usage-store";
+import { emptyResets, type ProviderResets } from "@/lib/resets";
+import { MAX_GROUPS, ownResetOf, resolveConfig } from "@/lib/settings";
+import {
+  loadEvents,
+  loadIndexes,
+  loadOldestReportTime,
+  loadRawSettings,
+  loadResets,
+  saveResetChange,
+  saveResetOverride,
+  saveResets,
+  storeReport,
+} from "@/lib/usage-store";
 import { parseUsageReport, type UsageReport } from "@/lib/validation";
 import { useRedis } from "./helpers/redis-fixture";
 
@@ -171,7 +183,14 @@ describe("storeReport — day checkpoints", () => {
     const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
     const checkpoints = eventsByProvider.claude!.filter((event) => event.checkpoint);
     expect(checkpoints).toEqual([
-      { machineId: "mac", groupId: "Personal", tokens: 1000, ts: Date.parse("2026-09-22T00:00:00Z"), checkpoint: true },
+      {
+        machineId: "mac",
+        groupId: "Personal",
+        tokens: 1000,
+        ts: Date.parse("2026-09-22T00:00:00Z"),
+        checkpoint: true,
+        basisMs: Date.parse("2026-09-20T00:00:00Z"),
+      },
     ]);
     // The report itself, plus the one finished day's checkpoint: nothing for the day in progress.
     expect(eventsByProvider.claude).toHaveLength(2);
@@ -348,5 +367,195 @@ describe("storeReport — registry caps", () => {
     // Providers (and their "provider:mac" machines) are already at their cap; a heartbeat still goes through.
     const heartbeat = await storeReport(report({ providers: {}, machineId: "another" }), NOW, 70, null);
     expect(heartbeat).toEqual({ ok: true, duplicate: false, newGroup: false, newProviders: [], heartbeat: true });
+  });
+});
+
+describe("resets", () => {
+  useRedis();
+  const resets: ProviderResets = {
+    v: 1,
+    events: [
+      {
+        id: "r1",
+        atMs: Date.parse("2026-09-22T14:00:00Z"),
+        kind: "keep",
+        cycleStartMs: Date.parse("2026-09-21T00:00:00Z"),
+        before: 80,
+        beforeAtMs: null,
+        source: "manual",
+        recordedAtMs: Date.parse("2026-09-22T14:05:00Z"),
+      },
+    ],
+    autoOffCycleStartMs: null,
+  };
+
+  it("saves and loads one provider's resets, and drops a document left empty", async () => {
+    await saveResets("claude", resets);
+    expect((await loadResets()).claude).toEqual(resets);
+    expect((await loadIndexes()).resets.claude).toEqual(resets);
+    await saveResets("claude", emptyResets());
+    expect(await loadResets()).toEqual({});
+  });
+
+  it("sets and removes a provider's own reset", async () => {
+    const own = { weekday: 2, monthDay: 22, hour: 14, minute: 0, source: "reset" as const };
+    await saveResetOverride("openai", own, NOW, ["openai"]);
+    expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toEqual(own);
+    await saveResetOverride("openai", null, NOW, ["openai"]);
+    expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toBeNull();
+  });
+
+  describe("saveResetChange", () => {
+    const own = { weekday: 2, monthDay: 22, hour: 14, minute: 0, source: "reset" as const };
+    const figure = '{"raw":"5","enteredAt":1,"cycleStartMs":0}';
+    const archived = (start: number): CycleSummary => ({
+      v: 1,
+      start,
+      end: start + 1000,
+      total: 5,
+      limit: null,
+      official: null,
+      groups: {},
+      machines: 1,
+      models: {},
+      subLimits: {},
+      archivedAt: start + 1000,
+    });
+    const change = { providerId: "openai", providerIds: ["openai"], now: NOW, officialFields: {} };
+
+    it("writes the resets, and removes a document left empty", async () => {
+      await saveResetChange({ ...change, resets, rawSettings: null });
+      expect((await loadResets()).openai).toEqual(resets);
+      await saveResetChange({ ...change, resets: emptyResets(), rawSettings: null });
+      expect(await loadResets()).toEqual({});
+    });
+
+    it("sets and removes the provider's own reset, and leaves it alone when none is given", async () => {
+      await saveResetChange({ ...change, resets, override: own, rawSettings: await loadRawSettings() });
+      expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toEqual(own);
+      await saveResetChange({ ...change, resets, rawSettings: await loadRawSettings() });
+      expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toEqual(own);
+      await saveResetChange({ ...change, resets, override: null, rawSettings: await loadRawSettings() });
+      expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toBeNull();
+    });
+
+    it("deletes the archived summary at the given start only", async () => {
+      const history = KEYS.history("openai");
+      await getRedis().zadd(history, { score: 1000, member: serializeCycleSummary(archived(1000)) });
+      await getRedis().zadd(history, { score: 5000, member: serializeCycleSummary(archived(5000)) });
+      await saveResetChange({ ...change, resets, rawSettings: null, deleteArchivedStartMs: 1000 });
+      expect(await getRedis().zrange(history, 0, -1)).toEqual([serializeCycleSummary(archived(5000))]);
+    });
+
+    it("writes the official fields, and nothing for none", async () => {
+      await saveResetChange({ ...change, resets, rawSettings: null });
+      expect((await loadIndexes()).officialUsage).toEqual({});
+      await saveResetChange({ ...change, resets, rawSettings: null, officialFields: { claude: figure } });
+      expect((await loadIndexes()).officialUsage).toEqual({ claude: figure });
+    });
+
+    it("writes all of it in one transaction", async () => {
+      await getRedis().zadd(KEYS.history("openai"), { score: 1000, member: serializeCycleSummary(archived(1000)) });
+      const multi = vi.spyOn(getRedis(), "multi");
+      await saveResetChange({
+        ...change,
+        resets,
+        override: own,
+        rawSettings: null,
+        deleteArchivedStartMs: 1000,
+        officialFields: { claude: figure },
+      });
+      expect(multi).toHaveBeenCalledTimes(1);
+      expect((await loadResets()).openai).toEqual(resets);
+      expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toEqual(own);
+      expect(await getRedis().zcard(KEYS.history("openai"))).toBe(0);
+      expect((await loadIndexes()).officialUsage).toEqual({ claude: figure });
+    });
+  });
+});
+
+describe("storeReport — the counting basis", () => {
+  useRedis();
+  const S = Date.parse("2026-09-21T00:00:00Z");
+  const R = Date.parse("2026-09-22T14:00:00Z");
+
+  it("stamps every report and checkpoint with the cycle start it was counted from", async () => {
+    const withDays = report({
+      providers: { claude: 1200 },
+      days: {
+        "2026-09-21": { providers: { claude: 1000 } },
+        "2026-09-22": { providers: { claude: 200 } },
+      },
+    });
+    await storeOk(withDays, NOW, 70, { timeZone: "UTC", startMs: S });
+    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    expect(eventsByProvider.claude!.some((event) => event.checkpoint)).toBe(true);
+    expect(eventsByProvider.claude!.every((event) => event.basisMs === S)).toBe(true);
+  });
+
+  it("stamps nothing when the cycle could not be read", async () => {
+    await storeOk(report({}), NOW, 70, null);
+    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    expect(eventsByProvider.claude![0]).not.toHaveProperty("basisMs");
+  });
+
+  describe("after a restart at R", () => {
+    const resets = {
+      claude: {
+        v: 1 as const,
+        events: [
+          {
+            id: "r",
+            atMs: R,
+            kind: "restart" as const,
+            cycleStartMs: S,
+            before: 90,
+            beforeAtMs: null,
+            source: "manual" as const,
+            recordedAtMs: R,
+            previousOverride: null,
+          },
+        ],
+        autoOffCycleStartMs: null,
+      },
+    };
+    const tokensOf = async (withResets: Record<string, ProviderResets>) => {
+      const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0, withResets);
+      return eventsByProvider.claude!.map((event) => event.tokens);
+    };
+
+    beforeEach(async () => {
+      vi.stubEnv("TOKEN_MODE", "snapshot");
+      // Made after R but counted from S, the shared cycle start; then one counted from R.
+      await storeOk(report({ timestamp: "2026-09-22T15:00:00Z", providers: { claude: 9000 } }), NOW, 70, {
+        timeZone: "UTC",
+        startMs: S,
+      });
+      await storeOk(report({ timestamp: "2026-09-22T16:00:00Z", providers: { claude: 300 } }), NOW, 70, {
+        timeZone: "UTC",
+        startMs: R,
+      });
+    });
+    afterEach(() => vi.unstubAllEnvs());
+
+    it("drops the snapshot reports a restart made stale", async () => {
+      expect(await tokensOf(resets)).toEqual([300]);
+    });
+
+    it("keeps both without the restart", async () => {
+      expect(await tokensOf({})).toEqual([9000, 300]);
+    });
+
+    it("reads a member with a damaged stamp as unstamped, which a restart does not drop", async () => {
+      await getRedis().zadd(KEYS.events("claude", "Personal"), {
+        score: Date.parse("2026-09-22T17:00:00Z"),
+        member: JSON.stringify({ m: "linux", t: 50, ts: Date.parse("2026-09-22T17:00:00Z"), s: "yesterday" }),
+      });
+      const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0, resets);
+      const damaged = eventsByProvider.claude!.filter((event) => event.machineId === "linux");
+      expect(damaged).toHaveLength(1);
+      expect(damaged[0]).not.toHaveProperty("basisMs");
+      expect(eventsByProvider.claude!.map((event) => event.tokens)).toEqual([300, 50]);
+    });
   });
 });

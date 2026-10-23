@@ -12,7 +12,7 @@ import {
   subLimitIdFor,
   subLimitOf,
 } from "@/lib/sub-limits";
-import { sampleTimes } from "@/lib/timeline";
+import { sampleTimes, withResetSamples } from "@/lib/timeline";
 
 const HOUR = 3_600_000;
 // Wednesday 12:00 Budapest time; the weekly cycle started Monday 00:00 (= Sunday 22:00 UTC), 60 h ago.
@@ -184,6 +184,47 @@ describe("measureSubLimits", () => {
     );
     expect(fable).toMatchObject({ total: 0, hasSplit: false, models: [] });
     expect(fable!.values.every((value) => value === 0)).toBe(true);
+  });
+
+  it("measures the current segment after a keep reset, its line restarting from 0", () => {
+    const reset = CYCLE_START + 15 * HOUR;
+    const events = [
+      report("mac", "Home", 10, { "claude-fable-5-1": 100 }),
+      report("mac", "Home", 20, { "claude-fable-5-1": 250 }),
+      report("win", "Work", 30, { "claude-fable-5-1": 40 }),
+    ];
+    const segmentTimes = withResetSamples(times, [reset]);
+    const [fable] = measureSubLimits(
+      [FABLE],
+      splitBySubLimits(events, [FABLE]).bySubLimit,
+      window,
+      segmentTimes,
+      "snapshot",
+      1_000_000,
+      [reset],
+    );
+    // Running totals: the Mac's 250 less the 100 it had counted before the reset, and the PC's 40.
+    expect(fable!.total).toBe(190);
+    expect(fable!.values[segmentTimes.indexOf(reset - 1)]).toBe(100);
+    expect(fable!.values[segmentTimes.indexOf(reset)]).toBe(0);
+    expect(fable!.values.at(-1)).toBe(190);
+    expect(fable!.quota).toMatchObject({ limit: 200_000, usedFraction: 190 / 200_000 });
+    expect(fable!.quota!.pace.dailyShare).toBeCloseTo((24 * HOUR) / (CYCLE_END - reset));
+  });
+
+  it("knows nothing of a sub-limit whose models reported only before the reset", () => {
+    const reset = CYCLE_START + 15 * HOUR;
+    const events = [report("mac", "Home", 10, { "claude-fable-5-1": 100 })];
+    const [fable] = measureSubLimits(
+      [FABLE],
+      splitBySubLimits(events, [FABLE]).bySubLimit,
+      window,
+      withResetSamples(times, [reset]),
+      "snapshot",
+      null,
+      [reset],
+    );
+    expect(fable).toMatchObject({ total: 0, hasSplit: false, models: [] });
   });
 });
 

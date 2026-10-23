@@ -16,17 +16,18 @@ local development and tests.
 
 | Key | Type | Shape | Retention | Written by |
 | --- | --- | --- | --- | --- |
-| `usage:settings` | STRING | JSON: `{v, period, useTokenLimits, limits, reset, resetOverrides, showRemaining, costEstimate, hiddenProviders, excludedProviders, subLimits, alerts, updatedAt}` — see [the settings document](#the-settings-document) | Forever (one document) | `PUT /api/settings` (`lib/usage-store.ts` `saveSettings`) |
+| `usage:settings` | STRING | JSON: `{v, period, useTokenLimits, limits, reset, resetOverrides, resetModes, showRemaining, costEstimate, hiddenProviders, excludedProviders, subLimits, alerts, updatedAt}` — see [the settings document](#the-settings-document) | Forever (one document) | `PUT /api/settings` (`lib/usage-store.ts` `saveSettings`) |
 | `usage:providers` | HASH | `providerId → firstSeenMs` | Pruned by housekeeping once dead (no events, no live machine, unreferenced by settings, older than the retention window) | First report of a new provider (`HSETNX`); `npm run seed` |
-| `usage:events:{providerId}:{groupId}` | ZSET | score = report time (epoch ms); member = JSON `{"m": machineId, "t": tokens, "ts": ms, "b"?: {modelId: tokens}, "$"?: costUsd, "$b"?: {modelId: costUsd}, "c"?: 1}` — `"c":1` marks a day/hour checkpoint, not a real report | Self-pruning: every write also trims members older than `RETENTION_DAYS` (70) and re-sets the key's own TTL to `(RETENTION_DAYS + 1)` days | `POST /api/usage` (`storeReport`) |
+| `usage:events:{providerId}:{groupId}` | ZSET | score = report time (epoch ms); member = JSON `{"m": machineId, "t": tokens, "ts": ms, "b"?: {modelId: tokens}, "$"?: costUsd, "$b"?: {modelId: costUsd}, "c"?: 1, "s"?: cycleStartMs}` — `"c":1` marks a day/hour checkpoint, not a real report; `"s"` is the cycle start the client counted from (set by the server; a cycle a restart began ignores snapshot reports counted from before it) | Self-pruning: every write also trims members older than `RETENTION_DAYS` (70) and re-sets the key's own TTL to `(RETENTION_DAYS + 1)` days | `POST /api/usage` (`storeReport`) |
 | `usage:groups` | HASH | `groupId → JSON {"color": "#rrggbb", "ts": firstSeenMs}` (a bare number in entries older than group colors) | Pruned by housekeeping once a group has zero events across every provider and is old enough | `POST /api/usage` (auto-register, `HSETNX`), `PUT /api/settings` (create/recolor) |
 | `usage:machines` | HASH | `providerId:machineId → JSON {"g": groupId, "ts": ms, "t": tokens, "md"?: "manual", "iv"?: intervalMinutes}` (`md`/`iv` omitted for the common case: mode `"auto"` with no custom interval) | Pruned by housekeeping once silent longer than `RETENTION_DAYS` (70); the settings panel's "remove silent machines" button prunes those silent longer than `INACTIVE_MACHINE_DAYS` (35) | `POST /api/usage` |
-| `usage:official` | HASH | `providerId`, or `providerId:subLimitId`, → JSON `{"raw": "45.5", "enteredAt": ms, "cycleStartMs": ms}` | Pruned by housekeeping once its `cycleStartMs` is no longer the current cycle | `PUT /api/official-usage` |
+| `usage:official` | HASH | `providerId`, or `providerId:subLimitId`, → JSON `{"raw": "45.5", "enteredAt": ms, "cycleStartMs": ms, "resetsAtMs"?: ms}` (`resetsAtMs`: a report's window reset) | Pruned by housekeeping once its tag (`cycleStartMs`, the start of the segment it was entered in) is older than the provider's current segment | `PUT /api/official-usage` |
+| `usage:resets` | HASH | `providerId → JSON {"v": 1, "events": [{"id", "atMs", "kind": "keep"\|"restart", "cycleStartMs", "before", "beforeAtMs", "source": "manual"\|"report", "recordedAtMs", "previousOverride"?}], "autoOffCycleStartMs": ms \| null}` — see `lib/resets.ts` | Housekeeping drops a `keep` event once it is older than the provider's previous cycle and a `restart` event once it is older than `RETENTION_DAYS` (70, while its raw reports exist), and `autoOffCycleStartMs` once that cycle is over | `/api/resets`; `POST /api/official-usage/report` (a detected reset) |
 | `usage:api-token` | STRING | JSON `{"v":1, "kid"?, "iv", "ct", "tag", "updatedAt"}` — AES-256-GCM, see [security.md](security.md) | Forever (one document, until overwritten) | `PUT /api/api-token` |
 | `usage:api-token:audit` | LIST | Newest first, JSON per entry: `{"at","a","ua","ch","pf","s", "ip"|"iph"+"ipp"}` | Capped at 500 entries (`LTRIM` on write); older-than-`AUDIT_RETENTION_DAYS` entries pruned by housekeeping | `PUT`/`POST /api/api-token(/reveal)` |
 | `usage:tokens` | HASH | `sha256(token) → JSON {"id","label","machineId","createdAt","lastUsedAt","revokedAt"}` — the field is the token's own hash, the plaintext is never stored | Up to `MAX_TOKENS` (100) live; a revoked entry is dropped entirely 90 days after `revokedAt` (housekeeping) | `POST`/`DELETE /api/tokens*` |
 | `usage:housekeeping:last` | STRING | JSON `{"at": ms, "report": HousekeepingReport}` | Forever (overwritten each run) | `runHousekeeping` (non-dry-run) |
-| `usage:alert:{providerId}:{cycleStartMs}:{threshold}` | STRING | `"1"`, `SET NX` | 70 days TTL | `lib/alerts.ts` `evaluateAlerts` — the guard that makes a threshold fire once per provider per cycle |
+| `usage:alert:{providerId}:{segmentStartMs}:{threshold}` | STRING | `"1"`, `SET NX` | 70 days TTL | `lib/alerts.ts` `evaluateAlerts` — the guard that makes a threshold fire once per provider per segment of a cycle (the cycle's start while it has no keep reset) |
 | `usage:history:{providerId}` | ZSET | score = cycle start (epoch ms); member = JSON `CycleSummary` (see [History](#history-archived-cycles)) | Newest 24 entries per provider (`HISTORY_RETENTION`), trimmed on write | The first dashboard render after a cycle ends, or the daily housekeeping run's `history` step — whichever comes first (`archiveCycle` via `archiveDueCycles`); also `npm run seed`'s pre-archived entries |
 | `usage:session:{sha256(sessionId:pin)}` | STRING | JSON `{"c": createdAtMs, "s": lastSeenMs}` (a bare `"1"` for a legacy pre-rolling session) | Ends after `SESSION_IDLE_DAYS` (default 7) without use, and `SESSION_MAX_DAYS` (default 30) after creation at the latest; the key's TTL is the remaining maximum lifetime | Login (`attemptLogin`); `s` refreshed at most hourly by `isAuthenticated` |
 | `usage:session:{...}:sudo` | STRING | `"1"` | 5 minutes | `POST /api/auth/sudo` |
@@ -94,6 +95,11 @@ deploy-time default (`lib/config.ts`) rather than failing the whole read:
 the shared period and time zone; `{}` for none. A document without it reads as no overrides. An entry
 may carry `source?: "report"` — set by an official report; the panel drops it when the entry is edited.
 
+`resetOverrides` entries may also carry `source?: "reset"` — set by a restart-type usage reset
+(`lib/resets.ts`). `resetModes` (providerId → `"keep"` | `"restart"`) says how a provider resets a
+user's usage early; a provider without an entry gets its default (`claude`/`anthropic` keep their
+week, `openai` restarts it, anything else keeps).
+
 `PUT /api/settings`, in contrast to the lenient reader above, requires **every** field on every save —
 nothing is defaulted on write, so a client that only wants to change one field must first `GET`, edit,
 and send the whole document back.
@@ -136,6 +142,13 @@ cycle even for a monthly budget (up to 62 days) — so anything older is summari
 
 `cost` is present only if at least one event of that cycle carried a cost estimate; `models` keeps
 only the heaviest `HISTORY_TOP_MODELS` (8) models, largest first.
+
+A cycle with keep-type resets (Claude) also carries `segments`: `[{ "start", "end", "official", "total",
+"groups" }]`, one per stretch between its resets, each with the figure it ended on; `official` is then the
+sum of the known figures and can exceed 100. A cycle a restart-type reset (Codex) cut short carries
+`"endedByReset": true`; its `end` is the reset and its `official` the figure from right before it. A
+correction of a segmented cycle (`PUT /api/official-usage/archived`) rewrites one segment's figure and sums
+them again.
 
 **Archived from two places, whichever runs first.** For every provider, if the newest archived cycle
 is older than the *previous* cycle's start, and that previous cycle actually has events, the previous

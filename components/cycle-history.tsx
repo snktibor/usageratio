@@ -121,7 +121,10 @@ function groupOrderOf(history: CycleSummary[]): string[] {
   return [...totals].sort(([a, x], [b, y]) => y - x || a.localeCompare(b)).map(([groupId]) => groupId);
 }
 
-/** How much of the budget the cycle came to: the official figure, else the share of its token limit. */
+/**
+ * How much of the budget the cycle came to: the official figure, else the share of its token limit. A cycle
+ * with keep resets came to the sum of its segments' figures, listed after it ("124% (80% + 44%)").
+ */
 function FinalUsage({ entry, t, locale }: { entry: CycleSummary; t: Translator<"Widgets">; locale: string }) {
   const limitShare = limitShareOf(entry);
   const [figure, note] =
@@ -130,9 +133,16 @@ function FinalUsage({ entry, t, locale }: { entry: CycleSummary; t: Translator<"
       : limitShare !== null
         ? [formatHeroPercent(limitShare / 100, locale), t("history_final_limit")]
         : ["–", t("history_final_unknown")];
+  const parts =
+    entry.official !== null && entry.segments
+      ? entry.segments
+          .map((segment) => (segment.official === null ? "–" : formatPercent(segment.official / 100, locale)))
+          .join(" + ")
+      : null;
   return (
     <span className="flex flex-col items-end text-right">
       <span className={`text-xl font-medium tabular-nums ${figure === "–" ? "text-ink-3" : "text-ink"}`}>{figure}</span>
+      {parts && <span className="text-xs tabular-nums text-ink-3">({parts})</span>}
       <span className="text-xs text-ink-3">{note}</span>
     </span>
   );
@@ -179,14 +189,17 @@ function HistoryChart({
   const isPercent = metric !== "measured";
   const groupOrder = groupOrderOf(history);
   const colorOf = (groupId: string) => groupColors[groupId] ?? NEUTRAL_COLOR;
-  // Each column's value split between its groups by their measured tokens, bottom to top in `groupOrder`.
+  // Each column's value split between its groups, bottom to top in `groupOrder`: a percentage as the cycle's own
+  // figure splits (per segment, with keep resets: lib/history.ts `groupSharesOf`), tokens by their share.
   const segments = chronological.map((entry, index) => {
     const value = values[index]!;
     if (value === null) return [];
-    const shares = new Map(groupSharesOf(entry).map((group) => [group.groupId, group.share]));
+    const shares = new Map(groupSharesOf(entry).map((group) => [group.groupId, group]));
     return groupOrder.flatMap((groupId) => {
-      const share = shares.get(groupId);
-      return share === undefined ? [] : [{ groupId, value: value * share }];
+      const group = shares.get(groupId);
+      if (!group) return [];
+      const part = metric !== "measured" && group.quotaShare !== null ? group.quotaShare * 100 : value * group.share;
+      return [{ groupId, value: part }];
     });
   });
   const groupCells = (index: number) =>
@@ -574,6 +587,11 @@ export function CycleHistory({
                               {summaryOnly && (
                                 <span className="rounded-full border border-rule px-2 py-0.5 text-xs text-ink-3">
                                   {t("history_summary_badge")}
+                                </span>
+                              )}
+                              {entry.endedByReset && (
+                                <span className="rounded-full border border-rule px-2 py-0.5 text-xs text-ink-3">
+                                  {t("history_ended_by_reset")}
                                 </span>
                               )}
                             </span>

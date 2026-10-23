@@ -8,6 +8,7 @@ import { Segmented } from "@/components/ui/segmented";
 import {
   type AxisScale,
   clampWindow,
+  MAX_CHART_POINTS,
   MIN_ZOOM_MS,
   niceRange,
   niceScale,
@@ -19,7 +20,7 @@ import {
   type ZoomPreset,
   zoomTicks,
 } from "@/lib/chart";
-import type { DashboardModel } from "@/lib/dashboard";
+import { type DashboardModel, resetMoments } from "@/lib/dashboard";
 import { formatClock, formatCycleMoment } from "@/lib/format";
 
 export interface ChartSeries {
@@ -48,6 +49,8 @@ interface CycleChartProps {
   formatEndLabel?: (value: number) => string;
   /** What the chart shows: its accessible name and the table's caption. */
   label: string;
+  /** Stretches drawn faded, under a veil: lines there are only an estimate (components/usage-chart.tsx). */
+  paleSpans?: TimeSpan[];
 }
 
 /** Room above the top gridline for its label. */
@@ -60,6 +63,12 @@ const DASH = "6 5";
 const MIN_DRAG_PX = 8;
 /** Room one time label on a zoomed axis needs ("szept. 29.", "21:00"). */
 const TICK_ROOM_PX = 72;
+/** The value axis's labels fill this much of the plot's right edge. */
+const AXIS_LABEL_ROOM_PX = 48;
+/** A reset label centred on a marker closer than this to the right edge would run into the value axis's labels. */
+const RESET_LABEL_RIGHT_EDGE_PX = 64;
+/** ... and closer than this to the left edge, out of the plot. */
+const RESET_LABEL_LEFT_EDGE_PX = 32;
 
 /** The zoomed axis's ticks for the plot's width. */
 const ticksFor = (zoomWindow: TimeSpan, timeZone: string, width: number) =>
@@ -133,6 +142,8 @@ function ZoomAxis({ zoomWindow, width, model }: { zoomWindow: TimeSpan; width: n
  * and the value axis fits the lines in view. A crosshair (pointer, or the
  * arrow keys once focused) reads every series at one moment of the window;
  * the table under the chart holds the same figures for the window alone.
+ * A keep reset of the cycle (lib/resets.ts) is marked with a labelled vertical
+ * line: the lines start again from 0 there (lib/timeline.ts).
  */
 export function CycleChart({
   model,
@@ -142,6 +153,7 @@ export function CycleChart({
   formatValue,
   formatEndLabel = formatValue,
   label,
+  paleSpans = [],
 }: CycleChartProps) {
   const locale = useLocale();
   const t = useTranslations("Widgets");
@@ -179,7 +191,14 @@ export function CycleChart({
   const preset = presetOf(zoomWindow, cycle, lastMs);
   const moment = (ms: number) => formatCycleMoment(ms, model.period, model.timeZone, locale);
 
-  const { inside, drawn } = visibleSamples(times, zoomWindow);
+  // Where the lines restart (an open cycle's keep resets, a closed cycle's segments): the samples right before and at each (lib/timeline.ts) survive the thinning of a long window.
+  const keepMs = resetMoments(model);
+  const { inside, drawn } = visibleSamples(
+    times,
+    zoomWindow,
+    MAX_CHART_POINTS,
+    keepMs.flatMap((atMs) => [atMs - 1, atMs]),
+  );
   const insideValues = series.flatMap((s) => inside.map((index) => s.values[index]!));
   const scale = zoomed
     ? niceRange(Math.min(...insideValues, Infinity), Math.max(...insideValues, 0), minAxis / 10)
@@ -201,6 +220,9 @@ export function CycleChart({
           `${position === 0 ? "M" : "L"}${xOf(times[index]!).toFixed(1)},${yOf(values[index]!).toFixed(1)}`,
       )
       .join("");
+
+  // The keep resets inside the window: every line restarts from 0 at each.
+  const resetMarks = keepMs.filter((atMs) => atMs >= zoomWindow.startMs && atMs <= zoomWindow.endMs);
 
   // Values at the line ends, right of them where there is room; a label too close to one already placed is left to the legend and tooltip.
   const endX = lastInside === undefined ? 0 : xOf(times[lastInside]!);
@@ -390,7 +412,31 @@ export function CycleChart({
                   strokeDasharray={s.dashed ? DASH : undefined}
                 />
               ))}
+              {paleSpans.map((span) => (
+                <rect
+                  key={span.startMs}
+                  data-pale=""
+                  x={xOf(span.startMs)}
+                  y={PAD_TOP}
+                  width={Math.max(0, xOf(span.endMs) - xOf(span.startMs))}
+                  height={Math.max(0, height - PAD_TOP)}
+                  fill="var(--color-page)"
+                  opacity={0.6}
+                />
+              ))}
             </g>
+            {resetMarks.map((atMs) => (
+              <line
+                key={atMs}
+                data-reset-marker=""
+                x1={Math.round(xOf(atMs)) + 0.5}
+                x2={Math.round(xOf(atMs)) + 0.5}
+                y1={PAD_TOP}
+                y2={height}
+                stroke="var(--color-ink-3)"
+                strokeDasharray="2 3"
+              />
+            ))}
 
             {drag && (
               <rect
@@ -438,6 +484,29 @@ export function CycleChart({
             </span>
           ))}
 
+        {size &&
+          resetMarks.map((atMs) => {
+            const x = xOf(atMs);
+            // Centred on its marker, except near an edge: left of the marker at the right one (and never over the
+            // value axis's labels, which share its row), right of it at the left one.
+            const nearRight = x > width - RESET_LABEL_RIGHT_EDGE_PX;
+            const align = nearRight
+              ? "-translate-x-full"
+              : x < RESET_LABEL_LEFT_EDGE_PX
+                ? "translate-x-0"
+                : "-translate-x-1/2";
+            return (
+              <span
+                key={atMs}
+                aria-hidden="true"
+                className={`absolute top-0 ${align} whitespace-nowrap rounded-sm bg-page px-1 text-xs leading-none text-ink-3`}
+                style={{ left: nearRight ? Math.min(x, width - AXIS_LABEL_ROOM_PX) : x }}
+              >
+                {t("chart_reset_marker")}
+              </span>
+            );
+          })}
+
         {activeIndex === undefined &&
           endLabels.map(({ series: s, y }) => (
             <span
@@ -479,7 +548,11 @@ export function CycleChart({
         </p>
       </div>
 
-      {zoomed ? <ZoomAxis zoomWindow={zoomWindow} width={width} model={model} /> : <CycleRuler model={model} />}
+      {zoomed ? (
+        <ZoomAxis zoomWindow={zoomWindow} width={width} model={model} />
+      ) : (
+        <CycleRuler model={model} span={{ elapsedFraction: model.cycle.elapsedFraction, days: model.cycle.segments }} />
+      )}
 
       <details className="mt-2 text-sm">
         <summary className="w-fit cursor-pointer text-ink-3 transition-colors hover:text-ink">{t("as_table")}</summary>

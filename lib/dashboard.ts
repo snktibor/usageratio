@@ -1,15 +1,26 @@
-import { summarizeCost, summarizeUsage, type UsageEvent } from "@/lib/aggregate";
-import type { AppConfig, BudgetPeriod, TokenMode } from "@/lib/config";
+import { summarizeCost, summarizeUsage, type TimeWindow, type UsageEvent } from "@/lib/aggregate";
+import type { AppConfig, BudgetPeriod, ResetMode, TokenMode } from "@/lib/config";
 import { type Cycle, getCycle, getDaySegments, getPreviousCycle } from "@/lib/cycle";
+import type { CycleSegmentSummary, CycleSummary } from "@/lib/history";
 import { type OfficialEntryView, officialUsageField } from "@/lib/official-usage";
+import { providerCycle } from "@/lib/provider-cycles";
 import { providerLabel } from "@/lib/providers";
 import { assessQuota, type QuotaAssessment } from "@/lib/quota";
+import {
+  keepResetsOf,
+  type ProviderResets,
+  type ResetEvent,
+  type ResetSource,
+  resetEventsOf,
+  restartStarting,
+} from "@/lib/resets";
 import { estimateResources, type ResourceEstimate } from "@/lib/resources";
 import {
   configForProvider,
   countsForProvider,
   type KnownGroup,
   NEUTRAL_COLOR,
+  resetModeOf,
   resolveGroupColors,
   subLimitsOf,
   visibleProviderIds,
@@ -41,6 +52,10 @@ export interface StoreSnapshot {
   events: UsageEvent[];
   groups: KnownGroup[];
   machines: KnownMachine[];
+  /** The provider's reset events (lib/resets.ts); none: its cycle has no segments. */
+  resets?: ResetEvent[];
+  /** A closed cycle's segments as archived (lib/history.ts `CycleSummary.segments`); an open cycle ignores them. */
+  archivedSegments?: CycleSegmentSummary[];
 }
 
 /**
@@ -48,6 +63,41 @@ export interface StoreSnapshot {
  * "manual"): it is never "late", since there is no schedule to miss.
  */
 export type MachineHealth = "active" | "late" | "manual" | "inactive";
+
+/** One day of a stretch of time, as fractions of it: what the rulers under the meter and the charts lay out. */
+export interface DaySpan {
+  startFraction: number;
+  endFraction: number;
+  weekday: number;
+  monthDay: number;
+}
+
+/** A reset of the cycle on screen (lib/resets.ts): the restart it began with, or one of its keep resets. */
+export interface DashboardReset {
+  id: string;
+  /** R: a whole minute. */
+  atMs: number;
+  kind: ResetMode;
+  /** 0–100, the official figure right before it; null while unknown. A restart's belongs to the previous cycle. */
+  before: number | null;
+  source: ResetSource;
+  /** Keep: the tokens the machines measured in the segment it ended; null for a restart. */
+  tokens: number | null;
+}
+
+/** A closed cycle's stretch between its keep resets, as archived (lib/history.ts), with what was measured in it. */
+export interface PastSegment {
+  startMs: number;
+  endMs: number;
+  /** 0–100: the figure it ended on, as archived; null when unknown. */
+  official: number | null;
+  /** Tokens the machines measured in it (a separate sub-limit's are not among them). */
+  total: number;
+  /** groupId → measured tokens in it. */
+  groups: Record<string, number>;
+  /** Every machine's measured tokens in it, within its group. */
+  machines: { machineId: string; groupId: string; tokens: number }[];
+}
 
 /**
  * What the machines measured, and, with the token limits on, how that stands
@@ -67,7 +117,7 @@ export interface DashboardModel {
   period: BudgetPeriod;
   /** False: nothing on the page may state the tokens left, nor the overage. */
   showRemaining: boolean;
-  /** Tokens the machines measured this cycle; a separate sub-limit's are not among them. */
+  /** Tokens the machines measured in the current segment (`segment`); a separate sub-limit's are not among them. */
   total: number;
   /**
    * `total` against the provider's token limit. Null while the token limits
@@ -80,12 +130,32 @@ export interface DashboardModel {
     startMs: number;
     endMs: number;
     elapsedFraction: number;
-    segments: { startFraction: number; endFraction: number; weekday: number; monthDay: number }[];
+    /** The cycle's days: the chart's ruler. */
+    segments: DaySpan[];
   };
+  /**
+   * The current segment (lib/resets.ts): the stretch since the cycle's last
+   * keep reset; the whole cycle while it has none, and for a closed cycle.
+   * Every figure but the timeline counts it alone (`total`, `quota`, the
+   * groups and machines, the sub-limits, `cost`), and the meter's ruler
+   * covers it. It always ends with the cycle.
+   */
+  segment: { startMs: number; endMs: number; elapsedFraction: number; days: DaySpan[] };
+  /** The cycle's resets up to now, oldest first: the restart it began with, then its keep resets; none for a closed cycle. */
+  resets: DashboardReset[];
+  /**
+   * A closed cycle's segments, from its archived summary (lib/history.ts: its
+   * keep-reset events may be pruned by now), when it had keep resets; none for
+   * an open cycle (its segments are `resets` and `segment`) and for a cycle
+   * without them. The timeline's lines restart at each.
+   */
+  pastSegments: PastSegment[];
+  /** groupId → colour, for every group on the timeline: one that used tokens only before a keep reset is charted, but not among `groups`. */
+  groupColors: Record<string, string>;
   groups: {
     groupId: string;
     tokens: number;
-    /** Fraction of this cycle's usage. */
+    /** Fraction of the segment's usage. */
     share: number;
     /** Fraction of the limit; null without one. */
     limitShare: number | null;
@@ -131,10 +201,24 @@ export interface DashboardModel {
   }[];
 }
 
+/** What the current figures count from: a keep reset of the cycle ("reset"), or its start ("cycle"). */
+export function segmentSince(model: Pick<DashboardModel, "cycle" | "segment">): "reset" | "cycle" {
+  return model.segment.startMs > model.cycle.startMs ? "reset" : "cycle";
+}
+
+/** Where the timeline's lines restart: an open cycle's keep resets, a closed cycle's segments after its first. */
+export function resetMoments(model: Pick<DashboardModel, "resets" | "pastSegments">): number[] {
+  return model.pastSegments.length > 0
+    ? model.pastSegments.slice(1).map((segment) => segment.startMs)
+    : model.resets.flatMap((reset) => (reset.kind === "keep" ? [reset.atMs] : []));
+}
+
 /** One provider/account and the complete dashboard calculated for it. */
 export interface ProviderDashboardModel {
   id: string;
   label: string;
+  /** How the provider resets a user's usage early (lib/settings.ts `resetModeOf`): what a reset recorded on the dashboard is. */
+  resetMode: ResetMode;
   dashboard: DashboardModel;
   /** The provider's own ground-truth figure, typed on some browser; null while none is stored for this cycle. */
   officialEntry: OfficialEntryView | null;
@@ -165,10 +249,33 @@ function healthOf(
   return "inactive";
 }
 
+/** How far `nowMs` is into `span`, 0–1. */
+function fractionOf(nowMs: number, span: TimeWindow): number {
+  return Math.min(1, Math.max(0, (nowMs - span.startMs) / (span.endMs - span.startMs)));
+}
+
+/** The days of `span`, as fractions of it. */
+function daySpans(span: Cycle, timeZone: string): DaySpan[] {
+  const startMs = span.start.getTime();
+  const lengthMs = span.end.getTime() - startMs;
+  return getDaySegments(span, timeZone).map((day) => ({
+    startFraction: (day.start.getTime() - startMs) / lengthMs,
+    endFraction: (day.end.getTime() - startMs) / lengthMs,
+    weekday: day.weekday,
+    monthDay: day.monthDay,
+  }));
+}
+
+function dashboardReset(event: ResetEvent, tokens: number | null): DashboardReset {
+  return { id: event.id, atMs: event.atMs, kind: event.kind, before: event.before, source: event.source, tokens };
+}
+
 /**
- * A cycle other than the one `now` falls in: a past one, with the cycle
- * before it (the footer's comparison, counter mode's baseline). Its
- * boundaries are taken as given, not worked out from the reset settings.
+ * The cycle on screen, with the cycle before it (the footer's comparison,
+ * counter mode's baseline), taken as given rather than worked out from the
+ * reset settings: a past one opened from the previous cycles, or the
+ * current one with a previous cycle that knows of a restart
+ * (lib/provider-cycles.ts `providerCycle`).
  */
 export interface CycleWindow {
   cycle: Cycle;
@@ -180,7 +287,9 @@ export interface CycleWindow {
  * `config` is the effective one: the saved settings already applied.
  * `subLimits` are the provider's: a separate one's tokens are taken out of
  * every figure but the models and its own. `window`: see `CycleWindow`; the
- * snapshot's events must then reach back to its `previous.start`.
+ * snapshot's events must then reach back to its `previous.start`. The
+ * provider's keep resets (`snapshot.resets`) split an open cycle into
+ * segments: see `DashboardModel.segment`.
  */
 export function buildDashboard(
   now: Date,
@@ -194,23 +303,33 @@ export function buildDashboard(
   const previousCycle = window?.previous ?? getPreviousCycle(cycle, config.reset);
   const startMs = cycle.start.getTime();
   const endMs = cycle.end.getTime();
-  const lengthMs = endMs - startMs;
   const closed = endMs <= nowMs;
+  const cycleWindow = { startMs, endMs };
+
+  // A closed cycle counts whole: adding its segments up is the past-cycle views' job.
+  const resetEvents = closed ? [] : (snapshot.resets ?? []);
+  const keepResets = keepResetsOf(cycleWindow, resetEvents).filter((reset) => reset.atMs <= nowMs);
+  const restart = restartStarting(resetEvents, startMs);
+  const resetsMs = keepResets.map((reset) => reset.atMs);
+  const segmentStartMs = resetsMs.at(-1) ?? startMs;
+  // A closed cycle counts whole; its archived segments restart the timeline's lines and split its figure.
+  const archived = closed && (snapshot.archivedSegments?.length ?? 0) > 1 ? snapshot.archivedSegments! : [];
+  const linesRestartMs = closed ? archived.slice(1).map((segment) => segment.start) : resetsMs;
 
   const split = splitBySubLimits(snapshot.events, subLimits);
-  const current = summarizeUsage(split.main, { startMs, endMs }, config.tokenMode);
+  const current = summarizeUsage(split.main, cycleWindow, config.tokenMode, segmentStartMs);
   const previous = summarizeUsage(
     split.main,
     { startMs: previousCycle.start.getTime(), endMs: startMs },
     config.tokenMode,
   );
+  // The timeline charts the whole cycle: a group that used tokens only before a reset keeps its line.
+  const whole = keepResets.length === 0 ? current : summarizeUsage(split.main, cycleWindow, config.tokenMode);
+  const chartedIds = [...new Set([...current.groups, ...whole.groups].map((group) => group.groupId))];
 
   const limit = config.useTokenLimits ? config.limit : null;
   const limitShareOf = (tokens: number) => (limit === null ? null : tokens / limit);
-  const colorOf = resolveGroupColors(
-    snapshot.groups,
-    current.groups.map((g) => g.groupId),
-  );
+  const colorOf = resolveGroupColors(snapshot.groups, chartedIds);
 
   const machines: DashboardModel["machines"] = current.series.map((s) => {
     const known = snapshot.machines.find((m) => m.machineId === s.machineId);
@@ -258,15 +377,17 @@ export function buildDashboard(
 
   const timeline = buildTimeline(
     split.main,
-    current.groups.map((g) => g.groupId),
-    { startMs, endMs },
+    chartedIds,
+    cycleWindow,
     nowMs,
     config.tokenMode,
     snapshot.events,
+    linesRestartMs,
+    segmentStartMs,
   );
 
   // The clients price every report; the page shows it only with the settings' cost estimate on.
-  const costSummary = config.costEstimate ? summarizeCost(split.main, { startMs, endMs }) : null;
+  const costSummary = config.costEstimate ? summarizeCost(split.main, cycleWindow, segmentStartMs) : null;
   const cost = costSummary?.hasCost
     ? {
         total: costSummary.total,
@@ -287,19 +408,45 @@ export function buildDashboard(
     period: config.reset.period,
     showRemaining: config.showRemaining,
     total: current.total,
-    quota: limit === null ? null : assessQuota(current.total, limit, { startMs, endMs, nowMs }),
+    quota: limit === null ? null : assessQuota(current.total, limit, { startMs: segmentStartMs, endMs, nowMs }),
     previousTotal: previous.total,
     cycle: {
       startMs,
       endMs,
-      elapsedFraction: Math.min(1, Math.max(0, (nowMs - startMs) / lengthMs)),
-      segments: getDaySegments(cycle, config.reset.timeZone).map((segment) => ({
-        startFraction: (segment.start.getTime() - startMs) / lengthMs,
-        endFraction: (segment.end.getTime() - startMs) / lengthMs,
-        weekday: segment.weekday,
-        monthDay: segment.monthDay,
-      })),
+      elapsedFraction: fractionOf(nowMs, cycleWindow),
+      segments: daySpans(cycle, config.reset.timeZone),
     },
+    segment: {
+      startMs: segmentStartMs,
+      endMs,
+      elapsedFraction: fractionOf(nowMs, { startMs: segmentStartMs, endMs }),
+      days: daySpans({ start: new Date(segmentStartMs), end: cycle.end }, config.reset.timeZone),
+    },
+    resets: [
+      ...(restart ? [dashboardReset(restart, null)] : []),
+      ...keepResets.map((reset, index) =>
+        dashboardReset(
+          reset,
+          summarizeUsage(split.main, { startMs, endMs: reset.atMs }, config.tokenMode, resetsMs[index - 1] ?? startMs)
+            .total,
+        ),
+      ),
+    ],
+    pastSegments: archived.map((segment) => {
+      const usage = summarizeUsage(split.main, { startMs, endMs: segment.end }, config.tokenMode, segment.start);
+      return {
+        startMs: segment.start,
+        endMs: segment.end,
+        official: segment.official,
+        total: usage.total,
+        groups: Object.fromEntries(usage.groups.map((group) => [group.groupId, group.tokens])),
+        machines: usage.series.map((series) => ({
+          machineId: series.machineId,
+          groupId: series.groupId,
+          tokens: series.tokens,
+        })),
+      };
+    }),
     groups: current.groups.map((g) => ({
       groupId: g.groupId,
       tokens: g.tokens,
@@ -308,6 +455,7 @@ export function buildDashboard(
       machines: g.machines,
       color: colorOf.get(g.groupId) ?? NEUTRAL_COLOR,
     })),
+    groupColors: Object.fromEntries(chartedIds.map((groupId) => [groupId, colorOf.get(groupId) ?? NEUTRAL_COLOR])),
     // Each model's cost is left out with the rest, so the model chart names none either.
     timeline: config.costEstimate
       ? timeline
@@ -320,6 +468,7 @@ export function buildDashboard(
       timeline.times,
       config.tokenMode,
       limit,
+      resetsMs,
     ),
     machines,
   };
@@ -330,6 +479,10 @@ export interface ProviderStoreSnapshot {
   eventsByProvider: Record<string, UsageEvent[]>;
   groups: KnownGroup[];
   machines: (KnownMachine & { providerId: string })[];
+  /** Every provider's resets, as `loadIndexes` read them (lib/usage-store.ts). */
+  resets?: Record<string, ProviderResets>;
+  /** Every provider's archived cycles (lib/usage-store.ts `loadHistory`): a past cycle's segments are its summary's. */
+  history?: Record<string, CycleSummary[]>;
 }
 
 /**
@@ -348,9 +501,15 @@ export function buildProviderDashboards(
   return visibleProviderIds(config, providerIds).map((providerId) => {
     const counts = (groupId: string) => countsForProvider(config.excludedProviders, groupId, providerId);
     const subLimits = subLimitsOf(config, providerId);
+    const resets = resetEventsOf(store.resets ?? {}, providerId);
+    // A past cycle's segments are its archived summary's.
+    const archivedSegments = window
+      ? (store.history?.[providerId] ?? []).find((entry) => entry.start === window.cycle.start.getTime())?.segments
+      : undefined;
     return {
       id: providerId,
       label: providerLabel(providerId),
+      resetMode: resetModeOf(config, providerId),
       dashboard: buildDashboard(
         now,
         configForProvider(config, providerId),
@@ -359,9 +518,12 @@ export function buildProviderDashboards(
           // All of them: a group's colour must not depend on which provider is selected.
           groups: store.groups,
           machines: store.machines.filter((machine) => machine.providerId === providerId && counts(machine.groupId)),
+          resets,
+          ...(archivedSegments && { archivedSegments }),
         },
         subLimits,
-        window,
+        // The current cycle's previous one is the cycle a restart cut short, when one began it.
+        window ?? providerCycle(now, config, providerId, resets),
       ),
       officialEntry: officialUsage.get(officialUsageField(providerId, null)) ?? null,
       subLimitEntries: Object.fromEntries(
