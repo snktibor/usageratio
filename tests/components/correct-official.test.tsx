@@ -205,6 +205,11 @@ describe("correcting a finished cycle's official percentage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Correct" }));
     expect(screen.queryByRole("textbox", { name: "Official consumption at the end of the cycle" })).toBeNull();
+    // The heading is a heading, not a label for a field that is not there.
+    expect(screen.getByRole("heading", { name: "Official consumption at the end of the cycle" })).toBeDefined();
+    for (const label of document.querySelectorAll("label[for]")) {
+      expect(document.getElementById(label.getAttribute("for")!)).not.toBeNull();
+    }
     const fields = screen.getAllByRole("textbox", { name: /Official percentage/ });
     expect(fields.map((field) => (field as HTMLInputElement).value)).toEqual(["80", "20"]);
 

@@ -475,4 +475,36 @@ describe("applySegmentFigures — a closed cycle with keep resets", () => {
     const partial = timelineRates(closed, applySegmentFigures(closed, [null, 44]))!;
     expect(partial[times.indexOf(R - 1)]! * 500_000).toBeCloseTo(1);
   });
+
+  it("adds the figures up to two decimals, so a sum of 100 is the full budget and critical", () => {
+    const R1 = CYCLE_START + 38 * HOUR;
+    const R2 = CYCLE_START + 90 * HOUR;
+    const three = buildDashboard(
+      new Date(END + 32 * HOUR),
+      config,
+      {
+        events: [
+          report("win-1", "Work", 30_000, 10),
+          report("win-1", "Work", 20_000, 50),
+          report("win-1", "Work", 12_000, 100),
+        ],
+        groups: [],
+        machines: [],
+        archivedSegments: [
+          { start: CYCLE_START, end: R1, official: 0.08, total: 0, groups: {} },
+          { start: R1, end: R2, official: 86.07, total: 0, groups: {} },
+          { start: R2, end: END, official: 13.85, total: 0, groups: {} },
+        ],
+      },
+      [],
+      {
+        cycle: { start: new Date(CYCLE_START), end: new Date(END) },
+        previous: { start: new Date(CYCLE_START - 168 * HOUR), end: new Date(CYCLE_START) },
+      },
+    );
+    // 0.08 + 86.07 + 13.85 is 99.99999999999999 as floats.
+    const view = applySegmentFigures(three, [0.08, 86.07, 13.85]);
+    expect(view.quota!.usedFraction).toBe(1);
+    expect(view.quota!.status).toBe("critical");
+  });
 });

@@ -106,7 +106,7 @@ export function GroundTruthInput(props: GroundTruthInputProps) {
       }`}
     >
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-hairline pb-4">
-        {readOnly && !correcting ? (
+        {readOnly && (!correcting || props.correction) ? (
           <h2 className="text-base font-medium">{t("final_official_consumption")}</h2>
         ) : readOnly ? (
           <label htmlFor={fieldId} className="text-base font-medium">

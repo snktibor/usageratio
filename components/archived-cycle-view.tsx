@@ -134,7 +134,7 @@ function ArchivedOfficialFigure({
         )}
       </dt>
       {correcting ? (
-        <dd className="mt-1 flex flex-wrap items-start gap-2">
+        <dd className={`mt-1 flex flex-wrap gap-2 ${segmented ? "items-start" : "items-center"}`}>
           {segmented ? (
             <SegmentFigures
               segments={pastSegments}

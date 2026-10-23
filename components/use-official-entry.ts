@@ -230,6 +230,8 @@ export function useSegmentEntries(
   const [statuses, setStatuses] = useState<Map<number, EntryStatus>>(new Map());
   const pending = useRef<Set<number>>(new Set());
   const timers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  // The saves in the order they were sent, each starting after the previous one has settled.
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
   // A stable dependency for the effect: the segments are a new array every render.
   const serverKey = segments.map((segment) => `${segment.startMs}=${segment.official ?? ""}`).join("\n");
 
@@ -237,15 +239,15 @@ export function useSegmentEntries(
   useEffect(() => {
     setEntries((current) => {
       const next = new Map<number, Entry>();
+      // Every dashboard mounts this hook: when nothing differs, keep the state, so React does not render again.
+      let changed = current.size !== segments.length;
       for (const segment of segments) {
-        next.set(
-          segment.startMs,
-          pending.current.has(segment.startMs)
-            ? (current.get(segment.startMs) ?? EMPTY_ENTRY)
-            : toEntry(segment.official),
-        );
+        const held = current.get(segment.startMs);
+        const value = pending.current.has(segment.startMs) ? (held ?? EMPTY_ENTRY) : toEntry(segment.official);
+        next.set(segment.startMs, value);
+        if (held?.raw !== value.raw || held.enteredAt !== value.enteredAt) changed = true;
       }
-      return next;
+      return changed ? next : current;
     });
   }, [serverKey]);
 
@@ -257,12 +259,17 @@ export function useSegmentEntries(
       pending.current.add(startMs);
       clearTimeout(timers.current.get(startMs));
       const handle: ReturnType<typeof setTimeout> = setTimeout(() => {
-        void putOfficialUsage("/api/official-usage/archived", {
-          providerId,
-          raw: next.raw,
-          cycleStartMs,
-          segmentStartMs: startMs,
-        })
+        // One save at a time: the server edits one segment of the cycle's whole summary and writes it back, so a
+        // second request that read it before the first was written would undo the first correction.
+        const saved = queue.current
+          .then(() =>
+            putOfficialUsage("/api/official-usage/archived", {
+              providerId,
+              raw: next.raw,
+              cycleStartMs,
+              segmentStartMs: startMs,
+            }),
+          )
           .then((result) => {
             setStatuses((current) =>
               new Map(current).set(
@@ -276,6 +283,8 @@ export function useSegmentEntries(
             // A newer edit arms its own timer while this save is on its way: the field stays pending until that one is sent.
             if (timers.current.get(startMs) === handle) pending.current.delete(startMs);
           });
+        // A save that failed or threw must not hold up the ones behind it.
+        queue.current = saved.catch(() => undefined);
       }, DEBOUNCE_MS);
       timers.current.set(startMs, handle);
     },

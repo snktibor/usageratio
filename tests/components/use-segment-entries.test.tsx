@@ -75,4 +75,83 @@ describe("useSegmentEntries", () => {
       segmentStartMs: A,
     });
   });
+  describe("two segments edited in a row", () => {
+    const B = A + 3 * 24 * 3_600_000;
+    const renderTwo = () =>
+      renderHook(
+        () =>
+          useSegmentEntries(
+            "claude",
+            START,
+            [
+              { startMs: A, official: 20 },
+              { startMs: B, official: 30 },
+            ],
+            END,
+          ),
+        {},
+      );
+
+    it("sends the second save only once the first has settled, each with its own segment", async () => {
+      let finishFirst: (response: Response) => void = () => {};
+      fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => (finishFirst = resolve)));
+      fetchMock.mockImplementation(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+      const hook = renderTwo();
+
+      act(() => hook.result.current[1](A, "50"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      act(() => hook.result.current[1](B, "60"));
+
+      // The first save goes out at 600 ms and is held; the second one's pause is over at 700 ms.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(700);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        finishFirst(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(bodies(fetchMock)).toEqual([
+        { providerId: "claude", raw: "50", cycleStartMs: START, segmentStartMs: A },
+        { providerId: "claude", raw: "60", cycleStartMs: START, segmentStartMs: B },
+      ]);
+      expect(hook.result.current[2].get(A)).toEqual({ status: "saved", problem: null });
+      expect(hook.result.current[2].get(B)).toEqual({ status: "saved", problem: null });
+    });
+
+    it("does not stall behind a save that was rejected or never got through", async () => {
+      fetchMock.mockImplementationOnce(() => Promise.reject(new TypeError("offline")));
+      fetchMock.mockImplementation(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+      const hook = renderTwo();
+
+      act(() => hook.result.current[1](A, "50"));
+      act(() => hook.result.current[1](B, "60"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(hook.result.current[2].get(A)).toEqual({ status: "failed", problem: "network" });
+      expect(hook.result.current[2].get(B)).toEqual({ status: "saved", problem: null });
+    });
+  });
+  it("does not render again on mount, and still takes a changed server figure", () => {
+    let renders = 0;
+    const hook = renderHook(
+      ({ official }: Props) => {
+        renders += 1;
+        return useSegmentEntries("claude", START, [{ startMs: A, official }], END);
+      },
+      { initialProps: { official: 20 } as Props },
+    );
+    expect(hook.result.current[0].get(A)?.raw).toBe("20");
+    expect(renders).toBe(1);
+
+    hook.rerender({ official: 35 });
+    expect(hook.result.current[0].get(A)?.raw).toBe("35");
+  });
 });

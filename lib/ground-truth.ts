@@ -1,4 +1,5 @@
 import type { DashboardModel, PastSegment } from "@/lib/dashboard";
+import { sumOfFigures } from "@/lib/history";
 import { assessQuota, type QuotaAssessment } from "@/lib/quota";
 import type { SubLimitModel } from "@/lib/sub-limits";
 
@@ -131,7 +132,8 @@ export function applySegmentFigures(model: DashboardModel, figures: (number | nu
 
   const inTokens = model.quota !== null;
   const limit = model.quota?.limit ?? 1;
-  const officialTotal = (known.reduce((sum, figure) => sum + figure, 0) / 100) * limit;
+  // The same rounded sum the field and the list show: 0.08 + 86.07 + 13.85 must be 100, not 99.99999999999999.
+  const officialTotal = (sumOfFigures(figures)! / 100) * limit;
   const asOfMs = Math.min(model.generatedAt, model.cycle.endMs);
   const partOf = (tokensIn: (segment: PastSegment) => number) =>
     model.pastSegments.reduce((sum, segment, index) => {
