@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { getConfig } from "@/lib/config";
 import { buildDashboard } from "@/lib/dashboard";
-import { applyGroundTruth, parseOfficialPercent } from "@/lib/ground-truth";
+import { applyGroundTruth, parseOfficialPercent, timelineRates } from "@/lib/ground-truth";
+import type { ResetEvent } from "@/lib/resets";
 
 const HOUR = 3_600_000;
 // The zone is fixed explicitly: these fixtures are written in Budapest time, independent of
@@ -263,5 +264,65 @@ describe("applyGroundTruth — nothing measured", () => {
     expect(view.quota?.total).toBe(150_000);
     expect(view.scale).toBeNull();
     expect(view.machines.map((m) => [m.tokens, m.limitShare])).toEqual([[0, 0]]);
+  });
+});
+
+describe("applyGroundTruth — after a keep reset", () => {
+  // Tuesday 14:00, 38 h into the cycle; 50k measured before it (Work 30k, Home 20k), 12k of Work's since.
+  const R = CYCLE_START + 38 * HOUR;
+  const keep = (before: number | null): ResetEvent => ({
+    id: "k",
+    atMs: R,
+    kind: "keep",
+    cycleStartMs: CYCLE_START,
+    before,
+    beforeAtMs: null,
+    source: "manual",
+    recordedAtMs: R,
+  });
+  const events = [
+    report("win-1", "Work", 30_000, 10),
+    report("mac", "Home", 20_000, 20),
+    report("win-1", "Work", 12_000, 40),
+  ];
+  const withReset = (before: number | null, limits = true) =>
+    buildDashboard(
+      NOW,
+      { ...config, useTokenLimits: limits },
+      { events, groups: [], machines: [], resets: [keep(before)] },
+    );
+
+  it("judges the pace from the reset, never from before it", () => {
+    const model = withReset(80);
+    const view = applyGroundTruth(model, { percent: 6, atMs: CYCLE_START + 20 * HOUR });
+    expect(view.asOfMs).toBe(R);
+    expect(view.quota!.pace.dailyShare).toBeCloseTo(24 / 130);
+  });
+
+  it("rates each finished segment at its own before-figure under an official reading", () => {
+    const model = withReset(80);
+    const rates = timelineRates(model, applyGroundTruth(model, { percent: 6, atMs: null }))!;
+    const { times } = model.timeline;
+    expect(rates).toHaveLength(times.length);
+    expect(rates[times.indexOf(R - 1)]).toBeCloseTo(0.8 / 50_000);
+    expect(rates[times.indexOf(R)]).toBeCloseTo(0.06 / 12_000);
+    expect(rates.at(-1)).toBeCloseTo(0.06 / 12_000);
+  });
+
+  it("rates every sample at the token limit's rate without an official reading", () => {
+    const model = withReset(80);
+    const rates = timelineRates(model, applyGroundTruth(model, null))!;
+    for (const rate of rates) expect(rate).toBeCloseTo(1 / 500_000);
+  });
+
+  it("rates a finished segment with no known before-figure at the current rate", () => {
+    const model = withReset(null);
+    const rates = timelineRates(model, applyGroundTruth(model, { percent: 6, atMs: null }))!;
+    expect(rates[model.timeline.times.indexOf(R - 1)]).toBeCloseTo(0.06 / 12_000);
+  });
+
+  it("has no rates while nothing tells how much of the budget is gone", () => {
+    const model = withReset(80, false);
+    expect(timelineRates(model, applyGroundTruth(model, null))).toBeNull();
   });
 });

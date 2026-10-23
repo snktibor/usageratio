@@ -3,6 +3,7 @@ import { getConfig } from "@/lib/config";
 import { buildDashboard } from "@/lib/dashboard";
 import { applyGroundTruth } from "@/lib/ground-truth";
 import { groupMachineChart, machineColors, machinesOfGroup } from "@/lib/group-machines";
+import type { ResetEvent } from "@/lib/resets";
 import { PRESET_COLORS } from "@/lib/settings";
 
 const HOUR = 3_600_000;
@@ -154,5 +155,37 @@ describe("groupMachineChart", () => {
     const chart = groupMachineChart(unlimited, official, groupOf(official.groups, "Work"));
     expect(chart.basis).toBe("official");
     expect(chart.series[0]!.values[last]).toBeCloseTo(0.18);
+  });
+});
+
+describe("groupMachineChart — after a keep reset", () => {
+  it("scales a machine's stretch before the reset by that reset's before-figure", () => {
+    const R = CYCLE_START + 38 * HOUR;
+    const reset: ResetEvent = {
+      id: "k",
+      atMs: R,
+      kind: "keep",
+      cycleStartMs: CYCLE_START,
+      before: 80,
+      beforeAtMs: null,
+      source: "manual",
+      recordedAtMs: R,
+    };
+    const withReset = buildDashboard(NOW, config, {
+      events: [
+        report("win-1", "Work", 30_000, 10),
+        report("mac", "Home", 20_000, 20),
+        report("win-1", "Work", 12_000, 40),
+      ],
+      groups: [],
+      machines: [],
+      resets: [reset],
+    });
+    const view = applyGroundTruth(withReset, { percent: 6, atMs: null });
+    const { series } = groupMachineChart(withReset, view, groupOf(view.groups, "Work"));
+    const values = series.find((row) => row.machine.machineId === "win-1")!.values;
+    // 30k of the 50k measured before the reset, at its 80%; then 12k of 12k at 6%.
+    expect(values[withReset.timeline.times.indexOf(R - 1)]).toBeCloseTo(0.48);
+    expect(values.at(-1)).toBeCloseTo(0.06);
   });
 });

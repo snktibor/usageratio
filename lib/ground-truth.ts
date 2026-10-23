@@ -14,6 +14,9 @@ import type { SubLimitModel } from "@/lib/sub-limits";
  * Without them there is no limit to convert by: the token counts stay as
  * measured, and the official percentage is the only measure of the budget.
  *
+ * Everything counts the current segment (lib/dashboard.ts `segment`): after a
+ * keep reset, the official percentage is the one since that reset.
+ *
  * Runs in the browser, on every keystroke; pure.
  */
 
@@ -61,9 +64,9 @@ export function parseOfficialPercent(raw: string): { percent: number | null; inv
   return percent <= 100 ? { percent, invalid: false } : { percent: null, invalid: true };
 }
 
-/** A reading taken hours ago says how fast the budget went until then, not until now. */
+/** A reading taken hours ago says how fast the budget went until then, not until now; never before its segment began. */
 function readingTime(model: DashboardModel, reading: OfficialReading): number {
-  return Math.min(model.generatedAt, Math.max(model.cycle.startMs, reading.atMs ?? model.generatedAt));
+  return Math.min(model.generatedAt, Math.max(model.segment.startMs, reading.atMs ?? model.generatedAt));
 }
 
 export function applyGroundTruth(model: DashboardModel, reading: OfficialReading | null): DashboardView {
@@ -99,8 +102,8 @@ export function applyGroundTruth(model: DashboardModel, reading: OfficialReading
   return {
     calibrated: true,
     quota: assessQuota(officialTotal, limit, {
-      startMs: model.cycle.startMs,
-      endMs: model.cycle.endMs,
+      startMs: model.segment.startMs,
+      endMs: model.segment.endMs,
       nowMs: asOfMs,
     }),
     inTokens,
@@ -110,6 +113,29 @@ export function applyGroundTruth(model: DashboardModel, reading: OfficialReading
     groups: model.groups.map(restate),
     machines: model.machines.map(restate),
   };
+}
+
+/**
+ * What one measured token on the timeline (lib/timeline.ts) is as a fraction
+ * of the budget, at each of its samples. The current segment's tokens go at
+ * the headline figure over its measured tokens (1/limit without a reading).
+ * Under an official reading, a finished segment's go at its own before-figure
+ * over the tokens measured in it (lib/resets.ts); one whose figure is unknown
+ * takes the current rate. Null while nothing tells how much of the budget is
+ * gone: no token limit and no reading.
+ */
+export function timelineRates(model: DashboardModel, view: DashboardView): number[] | null {
+  const { quota } = view;
+  if (!quota) return null;
+  // Right after a reset nothing is measured yet: the segment's samples are all 0, the limit's rate is as good as any.
+  const current = model.total > 0 ? quota.usedFraction / model.total : view.inTokens ? 1 / quota.limit : 0;
+  const keeps = model.resets.filter((reset) => reset.kind === "keep");
+  return model.timeline.times.map((ms) => {
+    // The reset that ends the segment this sample falls in; none in the current segment.
+    const ending = keeps.find((reset) => reset.atMs > ms);
+    if (!ending || !view.calibrated || ending.before === null || !ending.tokens) return current;
+    return ending.before / 100 / ending.tokens;
+  });
 }
 
 // ── Sub-limits ───────────────────────────────────────────────────────────────
@@ -160,7 +186,7 @@ export function applySubLimitReading(
   reading: OfficialReading | null,
 ): SubLimitView {
   const assess = (fraction: number, nowMs: number) =>
-    assessQuota(fraction, 1, { startMs: model.cycle.startMs, endMs: model.cycle.endMs, nowMs });
+    assessQuota(fraction, 1, { startMs: model.segment.startMs, endMs: model.segment.endMs, nowMs });
   const providerUsedFraction = view.quota?.usedFraction ?? null;
 
   if (reading) {

@@ -3,6 +3,7 @@ import { getConfig } from "@/lib/config";
 import { buildDashboard } from "@/lib/dashboard";
 import { applyGroundTruth } from "@/lib/ground-truth";
 import { recentPace } from "@/lib/recent-pace";
+import type { ResetEvent } from "@/lib/resets";
 
 const HOUR = 3_600_000;
 // Fixed to Budapest time, independent of DEFAULT_RESET's own (deploy-time) default.
@@ -122,5 +123,32 @@ describe("recentPace — the budget figure", () => {
     expect(paceOf([event(1_000_000, at(10)), ...hourly(Array(8).fill(10_000))]).recent).toBeNull();
     const { model, view } = paceOf(BURST);
     expect(recentPace({ ...model, closed: true }, view)).toBeNull();
+  });
+});
+
+describe("recentPace — after a keep reset", () => {
+  it("never looks back past the reset, and compares with the segment's own average", () => {
+    const reset: ResetEvent = {
+      id: "k",
+      atMs: at(55),
+      kind: "keep",
+      cycleStartMs: CYCLE_START,
+      before: 40,
+      beforeAtMs: null,
+      source: "manual",
+      recordedAtMs: at(55),
+    };
+    const model = buildDashboard(new Date(at(60)), config, {
+      events: BURST,
+      groups: [],
+      machines: [],
+      resets: [reset],
+    });
+    const recent = recentPace(model, applyGroundTruth(model, null));
+    // Since the reset: 5k at 55, 56, 57 and 58, then 40k at 59 and 60 — 100k in 5 hours.
+    expect(recent).not.toBeNull();
+    expect(recent!.sinceMs).toBe(at(58));
+    // 40k an hour since 58:00 against the segment's 20k an hour.
+    expect(recent!.ratio).toBeCloseTo(2);
   });
 });
