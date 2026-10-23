@@ -304,21 +304,21 @@ describe("applyGroundTruth — after a keep reset", () => {
     const rates = timelineRates(model, applyGroundTruth(model, { percent: 6, atMs: null }))!;
     const { times } = model.timeline;
     expect(rates).toHaveLength(times.length);
-    expect(rates[times.indexOf(R - 1)]).toBeCloseTo(0.8 / 50_000);
-    expect(rates[times.indexOf(R)]).toBeCloseTo(0.06 / 12_000);
-    expect(rates.at(-1)).toBeCloseTo(0.06 / 12_000);
+    expect(rates[times.indexOf(R - 1)]! * 50_000).toBeCloseTo(0.8);
+    expect(rates[times.indexOf(R)]! * 12_000).toBeCloseTo(0.06);
+    expect(rates.at(-1)! * 12_000).toBeCloseTo(0.06);
   });
 
   it("rates every sample at the token limit's rate without an official reading", () => {
     const model = withReset(80);
     const rates = timelineRates(model, applyGroundTruth(model, null))!;
-    for (const rate of rates) expect(rate).toBeCloseTo(1 / 500_000);
+    for (const rate of rates) expect(rate * 500_000).toBeCloseTo(1);
   });
 
   it("rates a finished segment with no known before-figure at the current rate", () => {
     const model = withReset(null);
     const rates = timelineRates(model, applyGroundTruth(model, { percent: 6, atMs: null }))!;
-    expect(rates[model.timeline.times.indexOf(R - 1)]).toBeCloseTo(0.06 / 12_000);
+    expect(rates[model.timeline.times.indexOf(R - 1)]! * 12_000).toBeCloseTo(0.06);
   });
 
   it("has no rates while nothing tells how much of the budget is gone", () => {
@@ -358,12 +358,12 @@ describe("timelineRates — more than one reset", () => {
     const rates = timelineRates(twice, applyGroundTruth(twice, { percent: 6, atMs: null }))!;
     const { times } = twice.timeline;
     expect(rates).toHaveLength(times.length);
-    expect(rateAt(rates, times, CYCLE_START)).toBeCloseTo(0.8 / 50_000);
-    expect(rateAt(rates, times, R1 - 1)).toBeCloseTo(0.8 / 50_000);
-    expect(rateAt(rates, times, R1)).toBeCloseTo(0.6 / 12_000);
-    expect(rateAt(rates, times, R2 - 1)).toBeCloseTo(0.6 / 12_000);
-    expect(rateAt(rates, times, R2)).toBeCloseTo(0.06 / 7_000);
-    expect(rates.at(-1)).toBeCloseTo(0.06 / 7_000);
+    expect(rateAt(rates, times, CYCLE_START)! * 50_000).toBeCloseTo(0.8);
+    expect(rateAt(rates, times, R1 - 1)! * 50_000).toBeCloseTo(0.8);
+    expect(rateAt(rates, times, R1)! * 12_000).toBeCloseTo(0.6);
+    expect(rateAt(rates, times, R2 - 1)! * 12_000).toBeCloseTo(0.6);
+    expect(rateAt(rates, times, R2)! * 7_000).toBeCloseTo(0.06);
+    expect(rates.at(-1)! * 7_000).toBeCloseTo(0.06);
   });
 
   it("does not take the restart a cycle began with for the end of a segment", () => {
@@ -413,10 +413,10 @@ describe("timelineRates — more than one reset", () => {
     const rates = timelineRates(restarted, applyGroundTruth(restarted, { percent: 6, atMs: null }))!;
     const { times } = restarted.timeline;
     // The cycle's first sample is the restart itself: rated as the stretch the keep reset ended, not as a segment end of its own.
-    expect(rateAt(rates, times, RESTART)).toBeCloseTo(0.8 / 12_000);
-    expect(rateAt(rates, times, KEEP - 1)).toBeCloseTo(0.8 / 12_000);
-    expect(rateAt(rates, times, KEEP)).toBeCloseTo(0.06 / 8_000);
-    expect(rates.at(-1)).toBeCloseTo(0.06 / 8_000);
+    expect(rateAt(rates, times, RESTART)! * 12_000).toBeCloseTo(0.8);
+    expect(rateAt(rates, times, KEEP - 1)! * 12_000).toBeCloseTo(0.8);
+    expect(rateAt(rates, times, KEEP)! * 8_000).toBeCloseTo(0.06);
+    expect(rates.at(-1)! * 8_000).toBeCloseTo(0.06);
   });
 });
 
@@ -470,9 +470,9 @@ describe("applySegmentFigures — a closed cycle with keep resets", () => {
   it("rates each segment of the timeline at its own figure, an unknown one at the token limit's rate", () => {
     const { times } = closed.timeline;
     const rates = timelineRates(closed, applySegmentFigures(closed, [80, 44]))!;
-    expect(rates[times.indexOf(R - 1)]).toBeCloseTo(0.8 / 50_000);
-    expect(rates.at(-1)).toBeCloseTo(0.44 / 12_000);
+    expect(rates[times.indexOf(R - 1)]! * 50_000).toBeCloseTo(0.8);
+    expect(rates.at(-1)! * 12_000).toBeCloseTo(0.44);
     const partial = timelineRates(closed, applySegmentFigures(closed, [null, 44]))!;
-    expect(partial[times.indexOf(R - 1)]).toBeCloseTo(1 / 500_000);
+    expect(partial[times.indexOf(R - 1)]! * 500_000).toBeCloseTo(1);
   });
 });
