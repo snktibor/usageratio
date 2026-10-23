@@ -113,6 +113,12 @@ test("the settings page opens from the header, follows its menu, and refuses to 
   await menu.getByRole("link", { name: "Machines" }).click();
   await expect(page.getByRole("heading", { level: 2, name: "Machines" })).toBeInViewport();
   await expect(menu.getByRole("link", { name: "Machines" })).toHaveAttribute("aria-current", "location");
+  // The header and its way back stay in view, and the section jumped to starts below them.
+  const back = page.getByRole("banner").getByRole("link", { name: "Dashboard" });
+  await expect(back).toBeInViewport();
+  const header = await page.getByRole("banner").boundingBox();
+  const machines = await page.getByRole("heading", { level: 2, name: "Machines" }).boundingBox();
+  expect(machines!.y).toBeGreaterThanOrEqual(header!.y + header!.height);
 
   // Readable, but demo mode refuses the write (PUT /api/settings answers 403 demo_read_only).
   await page.getByRole("button", { name: "Save" }).click();
