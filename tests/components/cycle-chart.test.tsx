@@ -4,6 +4,7 @@ import { type ChartSeries, CycleChart } from "@/components/cycle-chart";
 import type { TimeSpan } from "@/lib/chart";
 import { getConfig } from "@/lib/config";
 import { buildDashboard, type StoreSnapshot } from "@/lib/dashboard";
+import { formatCycleMoment } from "@/lib/format";
 import { renderWithIntl } from "../helpers/render";
 
 const HOUR = 3_600_000;
@@ -234,5 +235,62 @@ describe("CycleChart — the reset label near the plot's edges", () => {
     const [label] = zoomedLabels([keep("new", 0.25)]);
     // Its right edge is where its `left` is: no further right than the room the axis's labels take.
     expect(Number.parseFloat(label!.style.left)).toBeLessThanOrEqual(800 - 48);
+  });
+});
+
+describe("CycleChart — a month, thinned", () => {
+  // A monthly cycle (Budapest time) 540 hours in: more samples than a chart draws, so it keeps every third.
+  const MONTH_START = Date.parse("2026-08-31T22:00:00Z");
+  const monthly = {
+    ...getConfig({}),
+    reset: { ...getConfig({}).reset, period: "monthly" as const, timeZone: "Europe/Budapest" },
+  };
+  // 07:30 on the 18th: between two hourly samples, so a plain thinning has no reason to keep the ones around it.
+  const R = MONTH_START + 17 * 24 * HOUR + 7.5 * HOUR;
+
+  it("keeps the samples around a reset, so the crosshair can stand on both sides of the drop", () => {
+    const model = buildDashboard(
+      NOW,
+      monthly,
+      snapshot({
+        resets: [
+          {
+            id: "k",
+            atMs: R,
+            kind: "keep",
+            cycleStartMs: MONTH_START,
+            before: null,
+            beforeAtMs: null,
+            source: "manual",
+            recordedAtMs: R,
+          },
+        ],
+      }),
+    );
+    renderWithIntl(
+      <CycleChart
+        model={model}
+        series={[{ id: "total", label: "Total", color: "#fff", values: model.timeline.times.map(() => 0) }]}
+        minAxis={1}
+        formatTick={(value) => String(value)}
+        formatValue={(value) => String(value)}
+        label="Usage"
+      />,
+    );
+    const plot = screen.getByRole("group", { name: "Usage" });
+
+    // Step through every sample the chart shows.
+    fireEvent.focus(plot);
+    fireEvent.keyDown(plot, { key: "Home" });
+    const readouts: string[] = [];
+    for (let step = 0; step < model.timeline.times.length; step++) {
+      readouts.push(liveRegion().textContent ?? "");
+      fireEvent.keyDown(plot, { key: "ArrowRight" });
+    }
+
+    for (const ms of [R - 1, R]) {
+      const moment = formatCycleMoment(ms, "monthly", "Europe/Budapest", "en");
+      expect(readouts.some((readout) => readout.startsWith(`${moment}:`))).toBe(true);
+    }
   });
 });

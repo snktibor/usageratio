@@ -8,6 +8,7 @@ import { Segmented } from "@/components/ui/segmented";
 import {
   type AxisScale,
   clampWindow,
+  MAX_CHART_POINTS,
   MIN_ZOOM_MS,
   niceRange,
   niceScale,
@@ -190,7 +191,14 @@ export function CycleChart({
   const preset = presetOf(zoomWindow, cycle, lastMs);
   const moment = (ms: number) => formatCycleMoment(ms, model.period, model.timeZone, locale);
 
-  const { inside, drawn } = visibleSamples(times, zoomWindow);
+  // The cycle's keep resets: the samples right before and at each (lib/timeline.ts) survive the thinning of a long window.
+  const keepMs = model.resets.filter((reset) => reset.kind === "keep").map((reset) => reset.atMs);
+  const { inside, drawn } = visibleSamples(
+    times,
+    zoomWindow,
+    MAX_CHART_POINTS,
+    keepMs.flatMap((atMs) => [atMs - 1, atMs]),
+  );
   const insideValues = series.flatMap((s) => inside.map((index) => s.values[index]!));
   const scale = zoomed
     ? niceRange(Math.min(...insideValues, Infinity), Math.max(...insideValues, 0), minAxis / 10)
@@ -213,10 +221,8 @@ export function CycleChart({
       )
       .join("");
 
-  // The cycle's keep resets inside the window: every line restarts from 0 at each.
-  const resetMarks = model.resets
-    .filter((reset) => reset.kind === "keep" && reset.atMs >= zoomWindow.startMs && reset.atMs <= zoomWindow.endMs)
-    .map((reset) => reset.atMs);
+  // The keep resets inside the window: every line restarts from 0 at each.
+  const resetMarks = keepMs.filter((atMs) => atMs >= zoomWindow.startMs && atMs <= zoomWindow.endMs);
 
   // Values at the line ends, right of them where there is room; a label too close to one already placed is left to the legend and tooltip.
   const endX = lastInside === undefined ? 0 : xOf(times[lastInside]!);

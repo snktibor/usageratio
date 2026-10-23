@@ -163,6 +163,43 @@ describe("visibleSamples", () => {
   });
 });
 
+describe("visibleSamples — the samples to keep", () => {
+  // A month of hourly samples, and around a reset at 07:30 on the eleventh day, the samples at R − 1 and R (lib/timeline.ts).
+  const START = Date.parse("2026-09-01T00:00:00Z");
+  const R = START + 10 * DAY + 7 * HOUR + 30 * 60_000;
+  const times = [...Array.from({ length: 30 * 24 + 1 }, (_, index) => START + index * HOUR), R - 1, R].sort(
+    (a, b) => a - b,
+  );
+  const whole = { startMs: START, endMs: times.at(-1)! };
+  const around = [R - 1, R].map((ms) => times.indexOf(ms));
+
+  it("loses the samples around a reset to the thinning of a month, unless told to keep them", () => {
+    const thinned = visibleSamples(times, whole);
+    expect(thinned.inside).not.toContain(around[0]);
+    expect(thinned.inside).not.toContain(around[1]);
+
+    const kept = visibleSamples(times, whole, undefined, [R - 1, R]);
+    expect(kept.inside).toEqual(expect.arrayContaining(around));
+    expect(kept.inside).toEqual([...kept.inside].sort((a, b) => a - b));
+    // The rest is thinned just the same, and the last sample is still kept.
+    expect(kept.inside).toEqual([...new Set([...thinned.inside, ...around])].sort((a, b) => a - b));
+    expect(kept.inside.at(-1)).toBe(times.length - 1);
+    expect(kept.drawn).toEqual(kept.inside);
+  });
+
+  it("keeps only the samples inside the window", () => {
+    const after = { startMs: R + DAY, endMs: whole.endMs };
+    expect(visibleSamples(times, after, undefined, [R - 1, R])).toEqual(visibleSamples(times, after));
+  });
+
+  it("changes nothing where nothing is thinned", () => {
+    const day = { startMs: R - 12 * HOUR, endMs: R + 12 * HOUR };
+    const plain = visibleSamples(times, day);
+    expect(visibleSamples(times, day, undefined, [R - 1, R])).toEqual(plain);
+    expect(plain.inside).toEqual(expect.arrayContaining(around));
+  });
+});
+
 describe("zoomTicks", () => {
   it("labels whole local hours at a step that fits, and a midnight by its date", () => {
     const ticks = zoomTicks(
