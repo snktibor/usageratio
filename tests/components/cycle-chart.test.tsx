@@ -176,6 +176,22 @@ describe("CycleChart — resets", () => {
     renderChart([{ startMs: S, endMs: R }]);
     expect(document.querySelectorAll("[data-pale]")).toHaveLength(1);
   });
+
+  it("breaks each line at the reset instead of drawing its drop along the marker", () => {
+    const { times } = model.timeline;
+    renderWithIntl(
+      <CycleChart
+        model={model}
+        series={[{ id: "total", label: "Total", color: "#fff", values: times.map((ms) => (ms < R ? 5 : 0)) }]}
+        minAxis={1}
+        formatTick={(value) => String(value)}
+        formatValue={(value) => String(value)}
+        label="Usage"
+      />,
+    );
+    const d = document.querySelector("svg path[stroke='#fff']")?.getAttribute("d") ?? "";
+    expect(d.match(/M/g)).toHaveLength(2);
+  });
 });
 
 describe("CycleChart — the reset label near the plot's edges", () => {
