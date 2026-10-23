@@ -106,7 +106,7 @@ describe("ResetPanel", () => {
     });
   });
 
-  it("edits a reset of the list", async () => {
+  it("edits only the figure of a reset of the list, without sending its moment", async () => {
     const fetchMock = answering(200, { ok: true });
     renderPanel([reset("k", 38)]);
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
@@ -114,8 +114,25 @@ describe("ResetPanel", () => {
     fireEvent.change(screen.getByLabelText(/Used before the reset/), { target: { value: "75" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(refresh).toHaveBeenCalled());
+    // The moment stays as it is: sending it back would round-trip the wall clock, which can land on the other hour of a repeated one.
     expect(sent(fetchMock)).toEqual([
-      { path: "/api/resets", method: "PUT", body: { providerId: "claude", id: "k", atMs: S + 38 * HOUR, before: 75 } },
+      { path: "/api/resets", method: "PUT", body: { providerId: "claude", id: "k", before: 75 } },
+    ]);
+  });
+
+  it("sends the moment of an edited reset once it was changed", async () => {
+    const fetchMock = answering(200, { ok: true });
+    renderPanel([reset("k", 38)]);
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText(/When/), { target: { value: "2026-09-22T15:30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(sent(fetchMock)).toEqual([
+      {
+        path: "/api/resets",
+        method: "PUT",
+        body: { providerId: "claude", id: "k", atMs: S + 39.5 * HOUR, before: 80 },
+      },
     ]);
   });
 

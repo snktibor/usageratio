@@ -24,6 +24,8 @@ interface ResetForm {
   kind: ResetMode | null;
   /** The `datetime-local` field, as typed. */
   when: string;
+  /** `when` as the form opened: an edit sends the moment only once it differs. */
+  initialWhen: string;
   /** "Used before the reset", as typed. */
   before: string;
   /** False while `before` is still the stored figure: it then follows the moment. */
@@ -81,22 +83,26 @@ export function ResetPanel({
 
   const openNew = () => {
     const atMs = Math.floor(Date.now() / MINUTE_MS) * MINUTE_MS;
+    const when = wallClockInput(atMs, timeZone);
     setProblem(null);
     setForm({
       id: null,
       kind: null,
-      when: wallClockInput(atMs, timeZone),
+      when,
+      initialWhen: when,
       before: storedBefore(entry, atMs),
       beforeTouched: false,
     });
   };
 
   const openEdit = (reset: DashboardReset) => {
+    const when = wallClockInput(reset.atMs, timeZone);
     setProblem(null);
     setForm({
       id: reset.id,
       kind: reset.kind,
-      when: wallClockInput(reset.atMs, timeZone),
+      when,
+      initialWhen: when,
       before: reset.before === null ? "" : String(reset.before),
       beforeTouched: true,
     });
@@ -125,9 +131,11 @@ export function ResetPanel({
       return;
     }
     const before = parsed.percent;
+    // The moment of an edited reset goes along only when it was changed: the wall clock does not round-trip
+    // the repeated hour of a clock change, and a restart's moment also moves the provider's own reset.
     void (form.id === null
       ? send("POST", { providerId, atMs, before })
-      : send("PUT", { providerId, id: form.id, atMs, before }));
+      : send("PUT", { providerId, id: form.id, ...(form.when !== form.initialWhen && { atMs }), before }));
   };
 
   return (
