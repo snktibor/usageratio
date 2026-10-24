@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.0](https://github.com/snktibor/usageratio/compare/v0.10.0...v0.11.0) (2026-10-24)
+
+
+### Features
+
+* price every report, and show the cost only with the settings switch ([#36](https://github.com/snktibor/usageratio/issues/36)) ([77dbd20](https://github.com/snktibor/usageratio/commit/77dbd204f17b673ab8d8597b11a20f9bdf089dc1))
+* usage resets (keep/restart), per-segment figures and past-cycle sums ([#38](https://github.com/snktibor/usageratio/issues/38)) ([689aa1d](https://github.com/snktibor/usageratio/commit/689aa1de56a144cbed48be0c3c02f14979f53bdf))
+
+
+### Bug Fixes
+
+* mark a reset with one yellow line, and keep the settings header in view ([#40](https://github.com/snktibor/usageratio/issues/40)) ([d1f96d8](https://github.com/snktibor/usageratio/commit/d1f96d815e2e467fcd585a42667283b36c91d290))
+
 ## [0.10.0](https://github.com/snktibor/usageratio/compare/v0.9.0...v0.10.0) (2026-10-20)
 
 
