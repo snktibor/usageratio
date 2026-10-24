@@ -16,6 +16,9 @@
   --color-good: #0ca30c;
   --color-warning: #fab219;
   --color-critical: #d03b3b;
+
+  /* A usage reset's marker on the charts */
+  --color-reset: #f5c542;
 }
 
 /*

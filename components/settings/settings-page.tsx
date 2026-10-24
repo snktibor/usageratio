@@ -95,7 +95,7 @@ function SettingsGroup({
 }) {
   const id = anchorId(sectionKey);
   return (
-    <section id={id} aria-labelledby={`${id}-heading`} className="scroll-mt-6">
+    <section id={id} aria-labelledby={`${id}-heading`} className="scroll-mt-22">
       <h2 id={`${id}-heading`} className="text-xl font-medium tracking-tight">
         {title}
       </h2>
@@ -127,8 +127,9 @@ export function SettingsPage({ view }: { view: SettingsView }) {
   }, [dirty]);
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-5 pt-6 sm:px-8 sm:pt-8">
-      <header className="flex items-center justify-between gap-4">
+    <div className="mx-auto w-full max-w-5xl px-5 pt-3 sm:px-8 sm:pt-5">
+      {/* Stays in view while the page scrolls, so the way back is always one click away. */}
+      <header className="sticky top-0 z-20 -mx-5 flex items-center justify-between gap-4 bg-page px-5 py-3 sm:-mx-8 sm:px-8">
         <Link href="/" className="text-lg font-medium tracking-tight">
           usageratio
         </Link>
@@ -146,7 +147,7 @@ export function SettingsPage({ view }: { view: SettingsView }) {
       </h1>
 
       <div className="mt-8 lg:mt-12 lg:grid lg:grid-cols-[11rem_minmax(0,1fr)] lg:gap-12">
-        <nav aria-label={t("sections_nav_aria")} className="lg:sticky lg:top-8 lg:self-start">
+        <nav aria-label={t("sections_nav_aria")} className="lg:sticky lg:top-22 lg:self-start">
           <ul className="flex flex-wrap gap-2 lg:flex-col lg:gap-0.5">
             {SECTIONS.map((key) => {
               const current = key === active;

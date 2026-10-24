@@ -213,12 +213,15 @@ export function CycleChart({
   const insideXs = inside.map((index) => xOf(times[index]!));
   const lastInside = inside[inside.length - 1];
 
+  // A line breaks at a reset and picks up again from 0, so its drop is not drawn over the reset's marker.
   const pathOf = (values: number[]) =>
     drawn
-      .map(
-        (index, position) =>
-          `${position === 0 ? "M" : "L"}${xOf(times[index]!).toFixed(1)},${yOf(values[index]!).toFixed(1)}`,
-      )
+      .map((index, position) => {
+        const previous = drawn[position - 1];
+        const restarts =
+          previous === undefined || keepMs.some((atMs) => times[previous]! < atMs && atMs <= times[index]!);
+        return `${restarts ? "M" : "L"}${xOf(times[index]!).toFixed(1)},${yOf(values[index]!).toFixed(1)}`;
+      })
       .join("");
 
   // The keep resets inside the window: every line restarts from 0 at each.
@@ -429,12 +432,12 @@ export function CycleChart({
               <line
                 key={atMs}
                 data-reset-marker=""
-                x1={Math.round(xOf(atMs)) + 0.5}
-                x2={Math.round(xOf(atMs)) + 0.5}
+                x1={xOf(atMs)}
+                x2={xOf(atMs)}
                 y1={PAD_TOP}
                 y2={height}
-                stroke="var(--color-ink-3)"
-                strokeDasharray="2 3"
+                stroke="var(--color-reset)"
+                strokeWidth={2.5}
               />
             ))}
 
