@@ -29,6 +29,7 @@ local development and tests.
 | `usage:housekeeping:last` | STRING | JSON `{"at": ms, "report": HousekeepingReport}` | Forever (overwritten each run) | `runHousekeeping` (non-dry-run) |
 | `usage:alert:{providerId}:{segmentStartMs}:{threshold}` | STRING | `"1"`, `SET NX` | 70 days TTL | `lib/alerts.ts` `evaluateAlerts` — the guard that makes a threshold fire once per provider per segment of a cycle (the cycle's start while it has no keep reset) |
 | `usage:history:{providerId}` | ZSET | score = cycle start (epoch ms); member = JSON `CycleSummary` (see [History](#history-archived-cycles)) | Newest 24 entries per provider (`HISTORY_RETENTION`), trimmed on write | The first dashboard render after a cycle ends, or the daily housekeeping run's `history` step — whichever comes first (`archiveCycle` via `archiveDueCycles`); also `npm run seed`'s pre-archived entries |
+| `usage:alltime:{providerId}` | HASH | field = cycle start (epoch ms); value = JSON `CycleSummary` without `models`/`subLimits` (see [All-time totals](#all-time-totals)) | Never trimmed: one small entry per cycle | `archiveCycle`, together with the history entry (`HSETNX`, also for every summary still in the history); rewritten by `PUT /api/official-usage/archived`, deleted with the history entry when a restart is moved or deleted |
 | `usage:session:{sha256(sessionId:pin)}` | STRING | JSON `{"c": createdAtMs, "s": lastSeenMs}` (a bare `"1"` for a legacy pre-rolling session) | Ends after `SESSION_IDLE_DAYS` (default 7) without use, and `SESSION_MAX_DAYS` (default 30) after creation at the latest; the key's TTL is the remaining maximum lifetime | Login (`attemptLogin`); `s` refreshed at most hourly by `isAuthenticated` |
 | `usage:session:{...}:sudo` | STRING | `"1"` | 5 minutes | `POST /api/auth/sudo` |
 | `usage:auth:device:{sha256(deviceId)}` | STRING | `"1"` | 365 days | A successful login |
@@ -165,6 +166,23 @@ the cron configured (see [getting-started.md](getting-started.md) and
 [self-hosting.md](self-hosting.md)), history no longer depends on anyone opening the dashboard. The
 housekeeping report lists the archived providers under `history: { archived, ids }`; a dry run
 names the providers that are due and writes nothing.
+
+## All-time totals
+
+The dashboard's "All time" section (`components/all-time-groups.tsx`) adds up every cycle of the
+selected provider by group: tokens, share, cycles, and the quota used (each cycle's final usage —
+its official percentage, else its share of the token limit — split between the groups by their
+tokens, the way the history's per-group shares are, and added up: `1×` is one cycle's whole quota).
+The current cycle counts so far, summarized the way it will be archived (`lib/archive.ts`
+`summarizeProviderCycle`).
+
+Since the history keeps only `HISTORY_RETENTION` cycles, `archiveCycle` also writes each summary,
+minus its `models` and `subLimits`, into `usage:alltime:{providerId}`, which is never trimmed. It
+copies the summaries already in the history too, before its trim can drop them, so a store archived
+before the ledger existed loses nothing. On read (`lib/all-time.ts`), a cycle present in both comes
+from the history. A group counts under the id it reported with in each cycle: a machine moved or a
+group renamed later keeps its past usage where it was, and a group that no longer exists is marked
+as such.
 
 ## The legacy migration
 

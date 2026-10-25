@@ -15,7 +15,7 @@ vi.mock("@/i18n/routing", async (importOriginal) => ({
 
 const START = Date.parse("2026-09-28T00:00:00Z");
 const END = Date.parse("2026-10-05T00:00:00Z");
-const historyContext = { groupColors: {}, kinds: {} } as never;
+const historyContext = { groupColors: {}, kinds: {}, allTimeByProvider: {} } as never;
 
 /** The PUTs sent so far: path and parsed body. */
 function sent(fetchMock: ReturnType<typeof vi.fn>) {

@@ -1,4 +1,5 @@
 import type { UsageEvent } from "@/lib/aggregate";
+import { ledgerEntryOf } from "@/lib/all-time";
 import { getConfig, MAX_MACHINES, type ResetOverride } from "@/lib/config";
 import type { KnownMachine } from "@/lib/dashboard";
 import { type CycleStart, reportCheckpoints } from "@/lib/days";
@@ -761,7 +762,7 @@ export async function saveResetOverride(
  * One change of a provider's usage resets, written in one transaction
  * (lib/reset-store.ts): its resets; its own reset in the settings document
  * when `override` is given (a value sets it, null removes it); the archived
- * summary of the cycle starting at `deleteArchivedStartMs`, which a restart
+ * summary of the cycle starting at `deleteArchivedStartMs` (and its ledger entry), which a restart
  * that was moved or deleted no longer cuts short where it did (the next
  * archiving run writes it again, lib/archive.ts); and the official fields to
  * write (a retag, lib/reset-recording.ts). All or nothing, so a failed write
@@ -793,6 +794,7 @@ export async function saveResetChange(change: {
   }
   if (deleteArchivedStartMs !== undefined) {
     tx.zremrangebyscore(KEYS.history(providerId), deleteArchivedStartMs, deleteArchivedStartMs);
+    tx.hdel(KEYS.allTime(providerId), String(deleteArchivedStartMs));
   }
   if (Object.keys(officialFields).length > 0) tx.hset(KEYS.officialUsage, officialFields);
   await tx.exec();
@@ -805,15 +807,30 @@ export async function saveResetChange(change: {
 /**
  * Archives one cycle's summary for `providerId`: `ZADD NX` (so a render that
  * loses a race with another one is a harmless no-op) then, in the same
- * transaction, trims the set to the newest HISTORY_RETENTION entries.
- * Returns whether this call is the one that actually wrote it.
+ * transaction, trims the set to the newest HISTORY_RETENTION entries. The
+ * all-time ledger (lib/all-time.ts) gets the summary too, and every one
+ * already archived, before the trim can drop it: `HSETNX`, so the ones it
+ * already holds stay as they are. Returns whether this call is the one that
+ * actually wrote the summary into the history.
  */
 export async function archiveCycle(providerId: string, summary: CycleSummary): Promise<boolean> {
   const key = KEYS.history(providerId);
+  const ledger = KEYS.allTime(providerId);
+  const archived = await getRedis().zrange(key, 0, -1);
+  const entries = [
+    summary,
+    ...(Array.isArray(archived) ? archived : [])
+      .map((member) => parseCycleSummary(String(member)))
+      .filter((entry): entry is CycleSummary => entry !== null),
+  ];
+
   const tx = getRedis().multi();
   const plan = new TxPlan();
   plan.add("added", () => tx.zadd(key, { nx: true }, { score: summary.start, member: serializeCycleSummary(summary) }));
   plan.add(null, () => tx.zremrangebyrank(key, 0, -(HISTORY_RETENTION + 1)));
+  for (const entry of entries) {
+    plan.add(null, () => tx.hsetnx(ledger, String(entry.start), serializeCycleSummary(ledgerEntryOf(entry))));
+  }
   const results: unknown[] = await tx.exec();
   return Number(plan.result(results, "added")) === 1;
 }
@@ -825,7 +842,8 @@ export async function archiveCycle(providerId: string, summary: CycleSummary): P
  * ended on (lib/history.ts `withCorrectedOfficial`). The summary is replaced
  * as a whole: `ZREMRANGEBYSCORE` on its start, then `ZADD`, in one
  * transaction, so two corrections racing each other still leave exactly one
- * summary of the cycle (the later one's). Returns false, writing nothing, when
+ * summary of the cycle (the later one's). Its all-time ledger entry is
+ * rewritten in the same transaction. Returns false, writing nothing, when
  * the cycle has no readable summary, or no segment starting at `segmentStartMs`.
  */
 export async function saveArchivedOfficial(
@@ -845,6 +863,7 @@ export async function saveArchivedOfficial(
   const tx = getRedis().multi();
   tx.zremrangebyscore(key, cycleStartMs, cycleStartMs);
   tx.zadd(key, { score: cycleStartMs, member: serializeCycleSummary(corrected) });
+  tx.hset(KEYS.allTime(providerId), { [String(cycleStartMs)]: serializeCycleSummary(ledgerEntryOf(corrected)) });
   await tx.exec();
   return true;
 }
@@ -895,4 +914,25 @@ export async function loadHistory(providerIds: string[]): Promise<Record<string,
       .filter((summary): summary is CycleSummary => summary !== null);
   }
   return history;
+}
+
+/** Every cycle in each provider's all-time ledger (lib/all-time.ts), oldest first. One round trip. */
+export async function loadAllTime(providerIds: string[]): Promise<Record<string, CycleSummary[]>> {
+  const ledgers: Record<string, CycleSummary[]> = {};
+  if (providerIds.length === 0) return ledgers;
+
+  const reads = getRedis().pipeline();
+  const plan = new TxPlan();
+  for (const providerId of providerIds) {
+    plan.add(`ledger:${providerId}`, () => reads.hgetall(KEYS.allTime(providerId)));
+  }
+  const results: unknown[] = await reads.exec();
+
+  for (const providerId of providerIds) {
+    ledgers[providerId] = Object.values(toStringRecord(plan.result(results, `ledger:${providerId}`)))
+      .map((member) => parseCycleSummary(member))
+      .filter((summary): summary is CycleSummary => summary !== null)
+      .sort((a, b) => a.start - b.start);
+  }
+  return ledgers;
 }

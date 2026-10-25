@@ -6,6 +6,7 @@ import { CycleBar } from "@/components/cycle-bar";
 import { DashboardView, type HistoryContext } from "@/components/dashboard-view";
 import { DownloadIcon, ExportIcon, GitHubIcon, LogOutIcon, SlidersIcon } from "@/components/icons";
 import { Link } from "@/i18n/routing";
+import type { AllTimeSummary } from "@/lib/all-time";
 import { getConfig } from "@/lib/config";
 import type { CycleOption, CycleSelection } from "@/lib/cycle-options";
 import type { ProviderDashboardModel } from "@/lib/dashboard";
@@ -57,6 +58,7 @@ export async function Dashboard({
   timeZone,
   generatedAt,
   historyByProvider,
+  allTimeByProvider,
   options,
   selection,
   exportCycle,
@@ -70,6 +72,8 @@ export async function Dashboard({
   timeZone: string;
   generatedAt: number;
   historyByProvider: Record<string, CycleSummary[]>;
+  /** Every visible provider's all-time totals by group (lib/all-time.ts). */
+  allTimeByProvider: Record<string, AllTimeSummary | null>;
   /** The cycles that can be opened, and the one on screen: see lib/cycle-options.ts. */
   options: CycleOption[];
   selection: CycleSelection;
@@ -87,6 +91,7 @@ export async function Dashboard({
   const historyContext: HistoryContext = {
     groupColors,
     kinds: Object.fromEntries(options.map((option) => [option.startMs, option.kind])),
+    allTimeByProvider,
   };
 
   return (

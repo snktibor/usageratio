@@ -141,6 +141,11 @@ export function formatDateTime(ms: number, timeZone: string, locale: string): st
   return zoned(ms, timeZone, locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+/** "2026. ápr. 6.": a day, with its year, for a moment that may lie long ago. */
+export function formatDate(ms: number, timeZone: string, locale: string): string {
+  return zoned(ms, timeZone, locale, { year: "numeric", month: "short", day: "numeric" });
+}
+
 /** "szept. 21. 00:00 – szept. 28. 00:00": a cycle's span, the end exclusive. */
 export function formatCycleRange(startMs: number, endMs: number, timeZone: string, locale: string): string {
   return `${formatDateTime(startMs, timeZone, locale)} – ${formatDateTime(endMs, timeZone, locale)}`;

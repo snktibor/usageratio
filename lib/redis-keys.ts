@@ -56,6 +56,14 @@
  *                                       comes first (lib/archive.ts). Its official figure can be
  *                                       corrected later; the summary is then rewritten in place
  *                                       (`saveArchivedOfficial` in lib/usage-store.ts).
+ *   usage:alltime:{providerId}   HASH  cycle start (epoch ms) → the same CycleSummary without its
+ *                                       models and sub-limits (lib/all-time.ts `ledgerEntryOf`),
+ *                                       for every cycle ever archived: never trimmed, so the
+ *                                       all-time totals reach past HISTORY_RETENTION. Written
+ *                                       with the history (`archiveCycle`, HSETNX: the summaries
+ *                                       still in the history go in too, before its trim drops
+ *                                       them), rewritten by a correction, deleted with it by a
+ *                                       restart (`saveResetChange`).
  *
  * One time-ordered set per provider/group makes all filters native commands:
  * provider and group are in the key, a period is a score range. The reset
@@ -99,6 +107,7 @@ export const KEYS = {
   resets: "usage:resets",
   events: (providerId: string, groupId: string) => `usage:events:${providerId}:${groupId}`,
   history: (providerId: string) => `usage:history:${providerId}`,
+  allTime: (providerId: string) => `usage:alltime:${providerId}`,
   apiToken: "usage:api-token",
   apiTokenAudit: "usage:api-token:audit",
   housekeepingLast: "usage:housekeeping:last",

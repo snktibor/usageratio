@@ -2,6 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useId, useState } from "react";
+import { AllTimeGroups } from "@/components/all-time-groups";
 import { CycleHistory } from "@/components/cycle-history";
 import type { HistoryContext } from "@/components/dashboard-view";
 import { writeProviderCookie } from "@/components/dashboard-view";
@@ -364,6 +365,11 @@ export function ArchivedCycleView({
         groupColors={historyContext.groupColors}
         kinds={historyContext.kinds}
         selectedStartMs={selectedStartMs}
+      />
+      <AllTimeGroups
+        summary={historyContext.allTimeByProvider[selected.id] ?? null}
+        timeZone={timeZone}
+        groupColors={historyContext.groupColors}
       />
     </main>
   );
