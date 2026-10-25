@@ -18,7 +18,7 @@ const providers = buildProviderDashboards(new Date("2026-09-23T12:00:00Z"), getC
   groups: [],
   machines: [],
 });
-const historyContext = { groupColors: {}, kinds: {} } as never;
+const historyContext = { groupColors: {}, kinds: {}, allTimeByProvider: {} } as never;
 
 function renderView(pastCycle: boolean) {
   renderWithIntl(

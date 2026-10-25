@@ -5,7 +5,8 @@ import { Dashboard, type PastSummary } from "@/components/dashboard";
 import { PinGate } from "@/components/pin-gate";
 import { StorageProblem } from "@/components/storage-problem";
 import { routing } from "@/i18n/routing";
-import { archiveDueCycles } from "@/lib/archive";
+import { type AllTimeSummary, allTimeCycles, summarizeAllTime } from "@/lib/all-time";
+import { archiveDueCycles, summarizeProviderCycle } from "@/lib/archive";
 import { isAuthenticated } from "@/lib/auth";
 import { currentTime } from "@/lib/clock";
 import { getConfig } from "@/lib/config";
@@ -38,7 +39,7 @@ import {
   storedProviderIds,
   visibleProviderIds,
 } from "@/lib/settings";
-import { loadEvents, loadHistory, loadIndexes, loadOldestReportTime } from "@/lib/usage-store";
+import { loadAllTime, loadEvents, loadHistory, loadIndexes, loadOldestReportTime } from "@/lib/usage-store";
 
 // Rendered per request: the page depends on the session cookie and on live data.
 export const dynamic = "force-dynamic";
@@ -52,6 +53,8 @@ interface DashboardData {
   timeZone: string;
   generatedAt: number;
   historyByProvider: Record<string, CycleSummary[]>;
+  /** Every visible provider's all-time totals by group (lib/all-time.ts); null while it has no usage. */
+  allTimeByProvider: Record<string, AllTimeSummary | null>;
   options: CycleOption[];
   selection: CycleSelection;
   /** What the export menu can download for the cycle on screen (app/api/export/route.ts); null: nothing. */
@@ -108,10 +111,27 @@ async function loadDashboard(
     rawOfficialUsage: indexes.officialUsage,
     resets: indexes.resets,
   });
-  const [historyByProvider, oldestReportMs] = await Promise.all([
+  const [historyByProvider, ledgerByProvider, oldestReportMs] = await Promise.all([
     loadHistory(providerIds),
+    loadAllTime(visible),
     loadOldestReportTime(providerIds, indexes.groups),
   ]);
+  // The current cycle counts so far, summarized as it will be archived once it ends.
+  const allTimeByProvider = Object.fromEntries(
+    visible.map((providerId) => {
+      const { cycle } = providerCycle(now, config, providerId, resetEventsFor(providerId));
+      const current = summarizeProviderCycle({
+        providerId,
+        config,
+        events: eventsByProvider[providerId] ?? [],
+        window: { startMs: cycle.start.getTime(), endMs: cycle.end.getTime() },
+        rawOfficialUsage: indexes.officialUsage,
+        resetEvents: resetEventsFor(providerId),
+      });
+      const archived = allTimeCycles(ledgerByProvider[providerId] ?? [], historyByProvider[providerId] ?? []);
+      return [providerId, summarizeAllTime(archived, current)];
+    }),
+  );
 
   const options = selectedId
     ? providerCycleOptions({
@@ -171,6 +191,7 @@ async function loadDashboard(
     timeZone: config.reset.timeZone,
     generatedAt: now.getTime(),
     historyByProvider,
+    allTimeByProvider,
     options,
     selection,
     exportCycle: selected.kind === "current" ? "current" : isPrevious ? "previous" : null,
@@ -225,6 +246,7 @@ export default async function Page({
       timeZone={data.timeZone}
       generatedAt={data.generatedAt}
       historyByProvider={data.historyByProvider}
+      allTimeByProvider={data.allTimeByProvider}
       options={data.options}
       selection={data.selection}
       exportCycle={data.exportCycle}

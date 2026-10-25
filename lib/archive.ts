@@ -1,9 +1,9 @@
 import type { UsageEvent } from "@/lib/aggregate";
 import type { AppConfig } from "@/lib/config";
-import { officialPercentForCycle, summarizeCycle } from "@/lib/history";
+import { type CycleSummary, officialPercentForCycle, summarizeCycle } from "@/lib/history";
 import { log } from "@/lib/log";
 import { providerCycle } from "@/lib/provider-cycles";
-import { keepResetsOf, type ProviderResets, resetEventsOf, restartStarting } from "@/lib/resets";
+import { keepResetsOf, type ProviderResets, type ResetEvent, resetEventsOf, restartStarting } from "@/lib/resets";
 import { configForProvider, countsForProvider, subLimitsOf } from "@/lib/settings";
 import { archiveCycle, loadNewestArchivedStarts } from "@/lib/usage-store";
 
@@ -19,6 +19,48 @@ export interface ArchiveInput {
   resets: Record<string, ProviderResets>;
   /** Only report which providers are due; write nothing. */
   dryRun?: boolean;
+}
+
+/**
+ * One provider's cycle `window`, summarized the way it is archived: only the
+ * groups it counts, its token limit while the limits are on, the official
+ * figure typed in its last segment (or the before-figure of the restart that
+ * cut it short at `window.endMs`), its keep resets' segments. The dashboard
+ * also runs it on the current cycle, for the all-time totals (lib/all-time.ts).
+ */
+export function summarizeProviderCycle({
+  providerId,
+  config,
+  events,
+  window,
+  rawOfficialUsage,
+  resetEvents,
+}: {
+  providerId: string;
+  config: AppConfig;
+  /** The provider's reports, any group. */
+  events: UsageEvent[];
+  window: { startMs: number; endMs: number };
+  rawOfficialUsage: Record<string, string>;
+  resetEvents: ResetEvent[];
+}): CycleSummary {
+  const counts = (groupId: string) => countsForProvider(config.excludedProviders, groupId, providerId);
+  const providerConfig = configForProvider(config, providerId);
+  const keep = keepResetsOf(window, resetEvents);
+  // A cycle a restart cut short ended on the restart's before-figure; else its last segment's figure.
+  const cut = restartStarting(resetEvents, window.endMs);
+  const lastStartMs = keep.at(-1)?.atMs ?? window.startMs;
+  return summarizeCycle({
+    events: events.filter((event) => counts(event.groupId)),
+    window,
+    mode: config.tokenMode,
+    limit: config.useTokenLimits ? providerConfig.limit : null,
+    official: cut?.before ?? officialPercentForCycle(rawOfficialUsage, providerId, lastStartMs),
+    subLimits: subLimitsOf(config, providerId),
+    archivedAt: window.endMs,
+    keepResets: keep.map(({ atMs, before }) => ({ atMs, before })),
+    endedByReset: cut !== undefined,
+  });
 }
 
 /**
@@ -70,24 +112,13 @@ export async function archiveDueCycles({
     due.map(async (providerId) => {
       try {
         const { previousStartMs, cycleStartMs } = windowOf(providerId);
-        const counts = (groupId: string) => countsForProvider(config.excludedProviders, groupId, providerId);
-        const providerConfig = configForProvider(config, providerId);
-        const events = resetEventsOf(resets, providerId);
-        const window = { startMs: previousStartMs, endMs: cycleStartMs };
-        const keep = keepResetsOf(window, events);
-        // A cycle a restart cut short ended on the restart's before-figure; else its last segment's figure.
-        const cut = restartStarting(events, cycleStartMs);
-        const lastStartMs = keep.at(-1)?.atMs ?? previousStartMs;
-        const summary = summarizeCycle({
-          events: (eventsByProvider[providerId] ?? []).filter((event) => counts(event.groupId)),
-          window,
-          mode: config.tokenMode,
-          limit: config.useTokenLimits ? providerConfig.limit : null,
-          official: cut?.before ?? officialPercentForCycle(rawOfficialUsage, providerId, lastStartMs),
-          subLimits: subLimitsOf(config, providerId),
-          archivedAt: cycleStartMs,
-          keepResets: keep.map(({ atMs, before }) => ({ atMs, before })),
-          endedByReset: cut !== undefined,
+        const summary = summarizeProviderCycle({
+          providerId,
+          config,
+          events: eventsByProvider[providerId] ?? [],
+          window: { startMs: previousStartMs, endMs: cycleStartMs },
+          rawOfficialUsage,
+          resetEvents: resetEventsOf(resets, providerId),
         });
         await archiveCycle(providerId, summary);
         return providerId;

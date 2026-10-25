@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getConfig, MAX_MACHINES } from "@/lib/config";
 import { type CycleSummary, serializeCycleSummary } from "@/lib/history";
 import { MAX_PROVIDERS } from "@/lib/providers";
-import { getMemoryStoreForTests, getRedis } from "@/lib/redis";
+import { getMemoryStoreForTests, getRedis, toStringRecord } from "@/lib/redis";
 import { KEYS } from "@/lib/redis-keys";
 import { emptyResets, type ProviderResets } from "@/lib/resets";
 import { MAX_GROUPS, ownResetOf, resolveConfig } from "@/lib/settings";
@@ -445,6 +445,14 @@ describe("resets", () => {
       await getRedis().zadd(history, { score: 5000, member: serializeCycleSummary(archived(5000)) });
       await saveResetChange({ ...change, resets, rawSettings: null, deleteArchivedStartMs: 1000 });
       expect(await getRedis().zrange(history, 0, -1)).toEqual([serializeCycleSummary(archived(5000))]);
+    });
+
+    it("deletes the cycle's all-time ledger entry with it, so its next archiving writes it again", async () => {
+      const ledger = KEYS.allTime("openai");
+      await getRedis().hset(ledger, { "1000": serializeCycleSummary(archived(1000)) });
+      await getRedis().hset(ledger, { "5000": serializeCycleSummary(archived(5000)) });
+      await saveResetChange({ ...change, resets, rawSettings: null, deleteArchivedStartMs: 1000 });
+      expect(Object.keys(toStringRecord(await getRedis().hgetall(ledger)))).toEqual(["5000"]);
     });
 
     it("writes the official fields, and nothing for none", async () => {

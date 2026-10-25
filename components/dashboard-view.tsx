@@ -2,6 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useMemo, useState } from "react";
+import { AllTimeGroups } from "@/components/all-time-groups";
 import { CycleHistory } from "@/components/cycle-history";
 import { GroundTruthInput } from "@/components/ground-truth-input";
 import { GroupBreakdown } from "@/components/group-breakdown";
@@ -15,6 +16,7 @@ import { UsageChart } from "@/components/usage-chart";
 import { EMPTY_ENTRY, useOfficialEntry, useSegmentEntries, useSubLimitEntries } from "@/components/use-official-entry";
 import { useResetPrompt } from "@/components/use-reset-prompt";
 import { Link, useRouter } from "@/i18n/routing";
+import type { AllTimeSummary } from "@/lib/all-time";
 import type { TokenMode } from "@/lib/config";
 import type { CycleKind } from "@/lib/cycle-options";
 import { type ProviderDashboardModel, segmentSince } from "@/lib/dashboard";
@@ -29,12 +31,14 @@ const MODE_NOTE = {
   counter: "mode_note_counter",
 } as const satisfies Record<TokenMode, string>;
 
-/** What the previous-cycles list needs besides the provider's own history. */
+/** What the previous-cycles list, and the all-time totals under it, need besides the provider's own history. */
 export interface HistoryContext {
   /** groupId → colour, for every known group (an archived cycle may name one no longer reporting). */
   groupColors: Record<string, string>;
   /** A cycle's start → how it opens. */
   kinds: Record<number, CycleKind>;
+  /** Every visible provider's all-time totals by group (lib/all-time.ts); null, or missing, while it has none. */
+  allTimeByProvider: Record<string, AllTimeSummary | null>;
 }
 
 /**
@@ -232,6 +236,11 @@ function ProviderView({
           groupColors={historyContext.groupColors}
           kinds={historyContext.kinds}
           selectedStartMs={model.closed ? model.cycle.startMs : null}
+        />
+        <AllTimeGroups
+          summary={historyContext.allTimeByProvider[selected.id] ?? null}
+          timeZone={model.timeZone}
+          groupColors={historyContext.groupColors}
         />
       </main>
       <footer className="mt-16 max-w-2xl border-t border-hairline pt-6 text-sm leading-relaxed text-ink-3">

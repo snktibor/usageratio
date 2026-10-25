@@ -25,7 +25,7 @@ warning instead of a blank page. Once authenticated: load the settings and index
 round trip → resolve the effective config → compute the current and previous cycle
 (`lib/cycle.ts`) → load that window's events → archive the previous cycle for any provider not yet
 archived (`lib/archive.ts`, shared with the daily housekeeping run — see below) → load the archived
-history → build each provider's dashboard model
+history and the all-time ledger (`lib/all-time.ts`) → build each provider's dashboard model
 (`lib/aggregate.ts`, `lib/dashboard.ts`, `lib/quota.ts`, `lib/timeline.ts`). With `?cycle=<start ms>`
 the same page shows a past cycle (`lib/cycle-options.ts` lists them; an archived cycle's own
 boundaries win over ones worked out from changed settings): read-only in full while its reports are
