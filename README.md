@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://github.com/snktibor/usageratio/actions/workflows/ci.yml"><img src="https://github.com/snktibor/usageratio/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/snktibor/usageratio/actions/workflows/codeql.yml"><img src="https://github.com/snktibor/usageratio/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/snktibor/usageratio" alt="License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue" alt="License: PolyForm Noncommercial 1.0.0"></a>
   <a href="https://github.com/snktibor/usageratio/releases"><img src="https://img.shields.io/github/v/release/snktibor/usageratio" alt="Latest release"></a>
   <a href=".nvmrc"><img src="https://img.shields.io/badge/node-24-339933?logo=node.js&logoColor=white" alt="Node version"></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs welcome"></a>
@@ -220,5 +220,14 @@ store, and the screenshot suite.
 
 ## License
 
-Licensed under the GNU General Public License, version 3 or (at your option) any later version.
-Copyright (C) 2026 Tibor Sinka. See [LICENSE](LICENSE) for the full text.
+usageratio is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE).
+Copyright (C) 2026 Tibor Sinka.
+
+You may use, modify, self-host, and share it for any noncommercial purpose: personal use, hobby
+projects, research, and use by charitable, educational, and other noncommercial organizations.
+You may not sell it, or offer it as a paid or commercial service. For any other use, including
+running it inside a for-profit company, ask for a separate permission through a
+[GitHub issue](https://github.com/snktibor/usageratio/issues).
+
+Releases up to and including v0.11.0 were published under the GNU General Public License,
+version 3 or later, and stay available under that license.
