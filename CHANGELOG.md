@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.0](https://github.com/snktibor/usageratio/compare/v0.11.0...v0.12.0) (2026-10-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* relicense under PolyForm Noncommercial 1.0.0 ([#44](https://github.com/snktibor/usageratio/issues/44))
+
+### chore
+
+* relicense under PolyForm Noncommercial 1.0.0 ([#44](https://github.com/snktibor/usageratio/issues/44)) ([5603df6](https://github.com/snktibor/usageratio/commit/5603df6c625fd2b31ba72e10071c5c315e8dc210))
+
 ## [0.11.0](https://github.com/snktibor/usageratio/compare/v0.10.0...v0.11.0) (2026-10-25)
 
 
