@@ -164,6 +164,14 @@ A breaking change is marked either with `!` after the type/scope (`feat(api)!: â
 - [ ] Screenshots attached for a UI change.
 - [ ] The PR title (or, for a single-commit PR, the commit message) follows Conventional Commits.
 
+## License of contributions
+
+usageratio is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). By submitting a
+contribution, you license it under the same terms. You also grant Tibor Sinka a perpetual,
+worldwide, non-exclusive, royalty-free license to use, modify, and license your contribution under
+other terms, so that the separate permissions described in the README's License section can cover
+it too.
+
 ## Where docs live
 
 - [`README.md`](README.md) â€” quick start and feature overview.

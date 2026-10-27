@@ -3,7 +3,7 @@
   "version": "0.11.0",
   "private": true,
   "description": "A lightweight, self-hosted usage tracker for weekly or monthly token budgets across multiple AI providers or accounts.",
-  "license": "GPL-3.0-or-later",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "author": {
     "name": "Tibor Sinka",
     "url": "https://github.com/snktibor"
