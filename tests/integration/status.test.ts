@@ -348,9 +348,10 @@ describe("GET /api/status after a restart", () => {
     // The restart is recorded and the client counts from R now.
     await ingest(1000, "2026-09-23T10:00:00Z");
 
+    // Even without the reset event: counted from more than a day before the cycle start (lib/aggregate.ts STALE_BASIS_MS).
     const withoutRestart = await openaiOf();
     expect(withoutRestart.cycle.start).toBe(new Date(R).toISOString());
-    expect(withoutRestart.tokens).toBe(900_000);
+    expect(withoutRestart.tokens).toBe(1000);
 
     await saveResets("openai", {
       v: 1,

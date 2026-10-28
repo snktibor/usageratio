@@ -153,13 +153,21 @@ describe("cycleBefore", () => {
 
 describe("restartOverride / sameOverride", () => {
   it("makes the reset moment the provider's own reset, in the reset time zone", () => {
-    expect(restartOverride(R, "UTC")).toEqual({ weekday: 2, monthDay: 22, hour: 14, minute: 0, source: "reset" });
+    expect(restartOverride(R, "UTC")).toEqual({
+      weekday: 2,
+      monthDay: 22,
+      hour: 14,
+      minute: 0,
+      source: "reset",
+      anchorMs: R,
+    });
     expect(restartOverride(R, "Europe/Budapest")).toEqual({
       weekday: 2,
       monthDay: 22,
       hour: 16,
       minute: 0,
       source: "reset",
+      anchorMs: R,
     });
   });
 

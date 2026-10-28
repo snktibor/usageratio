@@ -54,7 +54,15 @@ describe("decideOfficialReport", () => {
     expect(decideOfficialReport(parsed(), base, NOW, null, emptyResets())).toEqual({
       kind: "accept",
       save: true,
-      override: { weekday: 4, monthDay: 1, hour: 9, minute: 0, source: "report" },
+      override: {
+        weekday: 4,
+        monthDay: 1,
+        hour: 9,
+        minute: 0,
+        source: "report",
+        anchorMs: Date.parse("2026-09-24T09:00:00Z"),
+      },
+      refresh: null,
       cycleStartMs: Date.parse("2026-09-17T09:00:00Z"),
       raw: "41.2",
       reset: null,
@@ -113,9 +121,16 @@ describe("decideOfficialReport", () => {
 
 describe("decideOfficialReport — reset detection", () => {
   // Claude already aligned to its window: Thursday 09:00 UTC, cycle 2026-09-17 09:00 → 2026-09-24 09:00.
-  const claude = withResetOverride(base, "claude", { weekday: 4, monthDay: 1, hour: 9, minute: 0, source: "report" });
   const CLAUDE_START = Date.parse("2026-09-17T09:00:00Z");
   const CLAUDE_END = Date.parse("2026-09-24T09:00:00Z");
+  const claude = withResetOverride(base, "claude", {
+    weekday: 4,
+    monthDay: 1,
+    hour: 9,
+    minute: 0,
+    source: "report",
+    anchorMs: CLAUDE_END,
+  });
   const earlier = (raw: string, overrides = {}) => ({
     view: { raw, enteredAt: Date.parse("2026-09-23T10:00:00Z") },
     cycleStartMs: CLAUDE_START,
@@ -135,6 +150,7 @@ describe("decideOfficialReport — reset detection", () => {
       kind: "accept",
       save: true,
       override: null,
+      refresh: null,
       cycleStartMs: R,
       raw: "3",
       reset: {
@@ -195,7 +211,8 @@ describe("decideOfficialReport — reset detection", () => {
       expect(decideOfficialReport(jumped(), base, NOW, stored, on)).toEqual({
         kind: "accept",
         save: true,
-        override: { weekday: 3, monthDay: 23, hour: 8, minute: 0, source: "reset" },
+        override: { weekday: 3, monthDay: 23, hour: 8, minute: 0, source: "reset", anchorMs: R },
+        refresh: null,
         cycleStartMs: R,
         raw: "1",
         reset: {
@@ -255,6 +272,89 @@ describe("decideOfficialReport — reset detection", () => {
         override: null,
         reset: null,
       });
+    });
+  });
+});
+
+describe("decideOfficialReport — a provider's own reset instant across DST", () => {
+  // Budapest left summer time on 2026-10-25; Claude's window resets every Saturday 11:00 UTC.
+  const budapest = { ...base, reset: { ...base.reset, timeZone: "Europe/Budapest" } };
+  const OLD_END = Date.parse("2026-10-24T11:00:00Z");
+  const NEXT_END = Date.parse("2026-10-31T11:00:00Z");
+  const own = (override: Record<string, unknown>) =>
+    withResetOverride(budapest, "claude", {
+      weekday: 6,
+      monthDay: 1,
+      minute: 0,
+      source: "report",
+      hour: 13,
+      ...override,
+    });
+  const reading = (now: Date, overrides = {}) => {
+    const result = parseOfficialReport(
+      {
+        providerId: "claude",
+        usedPercent: 2,
+        resetsAtMs: NEXT_END,
+        observedAtMs: now.getTime() - 60_000,
+        ...overrides,
+      },
+      now,
+    );
+    if (!result.ok) throw new Error(result.errors.join("; "));
+    return result.report;
+  };
+
+  it("2026-10-24: the new window starts where the old one ended, not an hour before it", () => {
+    // Stored before the instant existed: Saturday 13:00 on the wall clock, which winter time turns into 12:00 UTC.
+    const now = new Date("2026-10-24T11:30:00Z");
+    const decision = decideOfficialReport(reading(now), own({}), now, null, emptyResets());
+    expect(decision).toMatchObject({
+      kind: "accept",
+      override: { weekday: 6, hour: 12, minute: 0, source: "report", anchorMs: NEXT_END },
+      refresh: null,
+      cycleStartMs: OLD_END,
+    });
+  });
+
+  it("gives a matching reset stored without its instant the instant, and the cycle starts from it", () => {
+    const now = new Date("2026-10-28T12:00:00Z");
+    const decision = decideOfficialReport(reading(now), own({ hour: 12 }), now, null, emptyResets());
+    expect(decision).toMatchObject({
+      kind: "accept",
+      override: null,
+      refresh: { weekday: 6, hour: 12, minute: 0, source: "report", anchorMs: NEXT_END },
+      cycleStartMs: OLD_END,
+    });
+  });
+
+  it("reads the wall clock again after a DST shift, without moving the cycle", () => {
+    const now = new Date("2026-10-28T12:00:00Z");
+    const decision = decideOfficialReport(reading(now), own({ hour: 13, anchorMs: OLD_END }), now, null, emptyResets());
+    expect(decision).toMatchObject({
+      override: null,
+      refresh: { hour: 12, anchorMs: NEXT_END },
+      cycleStartMs: OLD_END,
+    });
+  });
+
+  it("stores nothing again while the stored instant and wall clock still match, give or take a wobble", () => {
+    const now = new Date("2026-10-28T12:00:00Z");
+    const anchored = own({ hour: 12, anchorMs: NEXT_END });
+    expect(decideOfficialReport(reading(now), anchored, now, null, emptyResets())).toMatchObject({ refresh: null });
+    const wobbled = reading(now, { resetsAtMs: NEXT_END + 5 * 60_000 });
+    expect(decideOfficialReport(wobbled, anchored, now, null, emptyResets())).toMatchObject({
+      override: null,
+      refresh: null,
+    });
+  });
+
+  it("leaves a reset the panel set alone", () => {
+    const now = new Date("2026-10-28T12:00:00Z");
+    const panel = withResetOverride(budapest, "claude", { weekday: 6, monthDay: 1, hour: 12, minute: 0 });
+    expect(decideOfficialReport(reading(now), panel, now, null, emptyResets())).toMatchObject({
+      override: null,
+      refresh: null,
     });
   });
 });

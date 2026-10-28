@@ -51,7 +51,8 @@ import type { ReportMode, UsageReport } from "@/lib/validation";
  *                                              model, from clients that send one (older ones only with COST=1);
  *                                              "c" marks a day's checkpoint, see lib/days.ts; "x" a merged
  *                                              machine's carry-over, see lib/machine-merge.ts; "s" the cycle
- *                                              start the client counted from, see lib/resets.ts dropStaleBasis)
+ *                                              start the client counted from, see lib/resets.ts dropStaleBasis
+ *                                              and lib/aggregate.ts STALE_BASIS_MS)
  *   usage:groups            HASH  groupId   → {"color": "#rrggbb", "ts": first-seen ms}
  *                                 (a bare ms number in entries older than group colours)
  *   usage:machines          HASH  providerId:machineId → {"g": groupId, "ts": ms, "t": tokens}

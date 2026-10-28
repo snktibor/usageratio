@@ -33,9 +33,25 @@ export interface UsageEvent {
   /**
    * The cycle start the server gave the client when it was stored (lib/ingest.ts): what a
    * snapshot running total counts from. Absent from members stored before the stamp existed.
-   * A cycle a restart began ignores those counted from before it (lib/resets.ts `dropStaleBasis`).
+   * A cycle a restart began ignores those counted from before it (lib/resets.ts `dropStaleBasis`);
+   * any other window ignores those counted from well before it (`STALE_BASIS_MS`).
    */
   basisMs?: number;
+}
+
+/**
+ * How far before a window's start a running total may have counted from and
+ * still count in it. A cycle start that moved after the report was stored
+ * (a reset edited on the panel, or aligned to a provider's window by a
+ * report) leaves totals a little off; one counted from the cycle before
+ * (e.g. reported in the hour a DST shift later moved into this cycle) holds
+ * that whole cycle, so it is no reading of this one at all.
+ */
+export const STALE_BASIS_MS = 86_400_000;
+
+/** Whether a running total was counted from well before `startMs` (see `STALE_BASIS_MS`). */
+function staleBasis(event: UsageEvent, startMs: number): boolean {
+  return event.basisMs !== undefined && event.basisMs < startMs - STALE_BASIS_MS;
 }
 
 /** `startMs` inclusive, `endMs` exclusive. */
@@ -93,7 +109,7 @@ export function usageOfSeriesUntil(events: UsageEvent[], startMs: number, endsMs
     } else if (mode === "snapshot") {
       // A running total never falls within a cycle: a lower reading only means
       // the client lost logs it once counted (e.g. deleted session files).
-      if (inWindow) usage = Math.max(usage, event.tokens);
+      if (inWindow && !staleBasis(event, startMs)) usage = Math.max(usage, event.tokens);
     } else {
       if (inWindow && previous !== null) {
         // A reading below the previous one means the counter restarted from zero.
@@ -225,7 +241,9 @@ export function costOfSeriesUntil(events: UsageEvent[], startMs: number, endsMs:
   for (const event of events) {
     while (usages.length < endsMs.length && event.ts >= endsMs[usages.length]!) usages.push(usage);
     if (usages.length === endsMs.length) break;
-    if (event.costUsd !== undefined && event.ts >= startMs) usage = Math.max(usage, event.costUsd);
+    if (event.costUsd !== undefined && event.ts >= startMs && !staleBasis(event, startMs)) {
+      usage = Math.max(usage, event.costUsd);
+    }
   }
   while (usages.length < endsMs.length) usages.push(usage);
   return usages;

@@ -49,6 +49,8 @@ export interface DraftOwnReset {
   /** "HH:MM", as typed. */
   time: string;
   source?: "report" | "reset";
+  /** Kept with `source`, never shown: the instant a report or a reset set it from (lib/config.ts `ResetOverride`). */
+  anchorMs?: number;
 }
 
 export interface DraftSubLimit {
@@ -213,6 +215,7 @@ export function draftFrom(view: SettingsView): Draft {
           monthDay: override.monthDay,
           time: `${twoDigits(override.hour)}:${twoDigits(override.minute)}`,
           ...(override.source ? { source: override.source } : {}),
+          ...(override.anchorMs !== undefined ? { anchorMs: override.anchorMs } : {}),
         },
       ]),
     ),
@@ -374,15 +377,15 @@ export function withOwnReset(draft: Draft, providerId: string, own: boolean): Dr
   };
 }
 
-/** Edits a provider's own reset; an edit makes it the panel's own, so a report's marker goes. */
+/** Edits a provider's own reset; an edit makes it the panel's own, so a report's marker (and its instant) goes. */
 export function patchOwnReset(
   draft: Draft,
   providerId: string,
-  changes: Partial<Omit<DraftOwnReset, "source">>,
+  changes: Partial<Omit<DraftOwnReset, "source" | "anchorMs">>,
 ): Draft {
   const current = draft.resetOverrides[providerId];
   if (!current) return draft;
-  const { source: _, ...rest } = current;
+  const { source: _, anchorMs: __, ...rest } = current;
   return { ...draft, resetOverrides: { ...draft.resetOverrides, [providerId]: { ...rest, ...changes } } };
 }
 
@@ -418,6 +421,7 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
       hour: Number(ownTime[1]),
       minute: Number(ownTime[2]),
       ...(own.source ? { source: own.source } : {}),
+      ...(own.anchorMs !== undefined ? { anchorMs: own.anchorMs } : {}),
     };
   }
 

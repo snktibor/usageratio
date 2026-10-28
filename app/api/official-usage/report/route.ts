@@ -74,6 +74,9 @@ export const POST = withApiHandler("api/official-usage/report", async ({ request
   // A detected reset moves the provider's reset itself, in its own transaction.
   if (decision.override && !decision.reset) {
     await saveResetOverride(report.providerId, decision.override, now, providerIds);
+  } else if (decision.refresh) {
+    // The same reset, its instant or wall clock read again: the cycle does not change.
+    await saveResetOverride(report.providerId, decision.refresh, now, providerIds);
   }
   const detected =
     decision.reset &&

@@ -1,7 +1,7 @@
 /**
  * Redis key layout — every key name the app uses, in one place.
  *
- *   usage:settings                        STRING provider limits, shared reset/display settings, and providers' own reset moments (resetOverrides; an entry may carry source?: "report" | "reset") and reset modes (resetModes)
+ *   usage:settings                        STRING provider limits, shared reset/display settings, and providers' own reset moments (resetOverrides; an entry may carry source?: "report" | "reset", and with it anchorMs?: the instant its weekly cycles step from by whole weeks) and reset modes (resetModes)
  *   usage:providers                       HASH   providerId → first-seen ms
  *   usage:events:{providerId}:{groupId}   ZSET   score = report time (epoch ms)
  *                                                 member = {"m": machineId, "t": tokens, "ts": ms,
@@ -12,7 +12,8 @@
  *                                                 "$"/"$b", the cost estimate; "c" marks a
  *                                                 day's or hour's checkpoint, see lib/days.ts; "x" a
  *                                                 merged machine's carry-over, see lib/machine-merge.ts; "s" the cycle
- *                                                 start the client counted from, see lib/resets.ts dropStaleBasis)
+ *                                                 start the client counted from, see lib/resets.ts dropStaleBasis
+ *                                                 and lib/aggregate.ts STALE_BASIS_MS)
  *   usage:groups            HASH  groupId   → {"color": "#rrggbb", "ts": first-seen ms}
  *                                 (a bare ms number in entries older than group colours)
  *   usage:machines          HASH  providerId:machineId → {"g": groupId, "ts": ms, "t": tokens,

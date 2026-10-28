@@ -209,10 +209,10 @@ export function cycleBefore(
   };
 }
 
-/** The provider's own reset a restart at `atMs` sets: R's wall clock in the reset time zone. */
+/** The provider's own reset a restart at `atMs` sets: R itself, and its wall clock in the reset time zone. */
 export function restartOverride(atMs: number, timeZone: string): ResetOverride {
   const { weekday, day, hour, minute } = wallClockOf(new Date(atMs), timeZone);
-  return { weekday, monthDay: day, hour, minute, source: "reset" };
+  return { weekday, monthDay: day, hour, minute, source: "reset", anchorMs: atMs };
 }
 
 /** Whether two own resets are the same moment from the same source (null: none). */
@@ -223,7 +223,8 @@ export function sameOverride(a: ResetOverride | null, b: ResetOverride | null): 
     a.monthDay === b.monthDay &&
     a.hour === b.hour &&
     a.minute === b.minute &&
-    a.source === b.source
+    a.source === b.source &&
+    a.anchorMs === b.anchorMs
   );
 }
 

@@ -374,3 +374,39 @@ describe("per-provider resets", () => {
     });
   });
 });
+
+describe("a report's own reset with its instant", () => {
+  const anchorMs = Date.parse("2026-10-31T11:00:00Z");
+  const draft = draftFrom(
+    buildSettingsView(
+      {
+        ...config,
+        resetOverrides: { claude: { weekday: 6, monthDay: 1, hour: 12, minute: 0, source: "report", anchorMs } },
+      },
+      [],
+      ["claude"],
+      {},
+    ),
+  );
+
+  it("keeps the instant through a save, so a save from the panel does not undo it", () => {
+    const result = toRequest(draft);
+    if (!("request" in result)) throw new Error(JSON.stringify(result.problem));
+    expect(result.request.resetOverrides.claude).toEqual({
+      weekday: 6,
+      monthDay: 1,
+      hour: 12,
+      minute: 0,
+      source: "report",
+      anchorMs,
+    });
+  });
+
+  it("drops it with the source on an edit: the panel's own follows the wall clock", () => {
+    expect(patchOwnReset(draft, "claude", { time: "13:00" }).resetOverrides.claude).toEqual({
+      weekday: 6,
+      monthDay: 1,
+      time: "13:00",
+    });
+  });
+});

@@ -106,6 +106,12 @@ export type OfficialReportDecision =
       save: boolean;
       /** The provider's new reset, when it moves; null when it already matches. */
       override: ResetOverride | null;
+      /**
+       * With `override` null: the same reset, its wall clock read again from the
+       * window's instant (and that instant kept, `ResetOverride.anchorMs`), to
+       * store quietly; null when the stored one already says so.
+       */
+      refresh: ResetOverride | null;
       /** The tag to store the figure under: the start of the segment it belongs to. */
       cycleStartMs: number;
       /** `usedPercent` as the dashboard's ground-truth field stores it. */
@@ -175,6 +181,7 @@ export function decideOfficialReport(
         kind: "accept",
         save: true,
         override: restartOverride(atMs, config.reset.timeZone),
+        refresh: null,
         cycleStartMs: atMs,
         raw,
         reset: detected(atMs, "restart", current.startMs),
@@ -187,11 +194,12 @@ export function decideOfficialReport(
   let override: ResetOverride | null = null;
   if (!near(current.endMs, report.resetsAtMs)) {
     if (resets.autoOffCycleStartMs === current.startMs) return { kind: "ignored" };
-    const resetAt = new Date(Math.round(report.resetsAtMs / MINUTE_MS) * MINUTE_MS);
-    const { weekday, hour, minute } = wallClockOf(resetAt, config.reset.timeZone);
-    override = { weekday, monthDay: resetFor(config, providerId).monthDay, hour, minute, source: "report" };
+    override = reportOverride(report, config);
     effective = withResetOverride(config, providerId, override);
   }
+  // Only a reset stored without its instant steps elsewhere once it has one (`refreshOf`).
+  const refresh = override ? null : refreshOf(report, config);
+  if (refresh) effective = withResetOverride(config, providerId, refresh);
   const cycle = windowOf(providerCycle(now, effective, providerId, events).cycle);
   const segmentStartMs = segmentStartAt(cycle, events, nowMs);
   if (report.observedAtMs < segmentStartMs) return { kind: "stale_reading" };
@@ -212,6 +220,7 @@ export function decideOfficialReport(
         kind: "accept",
         save: true,
         override: null,
+        refresh,
         cycleStartMs: atMs,
         raw,
         reset: detected(atMs, "keep", cycle.startMs),
@@ -221,5 +230,38 @@ export function decideOfficialReport(
 
   const newer =
     stored === null || stored.cycleStartMs !== segmentStartMs || stored.view.enteredAt < report.observedAtMs;
-  return { kind: "accept", save: newer, override, cycleStartMs: segmentStartMs, raw, reset: null };
+  return { kind: "accept", save: newer, override, refresh, cycleStartMs: segmentStartMs, raw, reset: null };
+}
+
+/** The own reset a report's window sets: its reset instant, and that instant's wall clock. */
+function reportOverride(report: OfficialReport, config: AppConfig): ResetOverride {
+  const anchorMs = Math.round(report.resetsAtMs / MINUTE_MS) * MINUTE_MS;
+  const { weekday, hour, minute } = wallClockOf(new Date(anchorMs), config.reset.timeZone);
+  return {
+    weekday,
+    monthDay: resetFor(config, report.providerId).monthDay,
+    hour,
+    minute,
+    source: "report",
+    anchorMs,
+  };
+}
+
+/**
+ * A report-set reset whose window still matches, stored again when it lacks
+ * its instant (stored before `anchorMs` existed) or reads otherwise on the
+ * wall clock (a DST shift since); null: nothing to store. A stored instant is
+ * kept, stepped to this window by whole weeks: a window's own reset time may
+ * wobble within the tolerance without being written each time.
+ */
+function refreshOf(report: OfficialReport, config: AppConfig): ResetOverride | null {
+  const own = ownResetOf(config, report.providerId);
+  if (own?.source !== "report") return null;
+  const fresh = reportOverride(report, config);
+  if (own.anchorMs === undefined) return fresh;
+  const anchorMs = own.anchorMs + Math.round((fresh.anchorMs! - own.anchorMs) / WEEK_MS) * WEEK_MS;
+  if (Math.abs(fresh.anchorMs! - anchorMs) > RESET_TOLERANCE_MS) return fresh;
+  const { weekday, hour, minute } = wallClockOf(new Date(anchorMs), config.reset.timeZone);
+  if (weekday === own.weekday && hour === own.hour && minute === own.minute) return null;
+  return { ...own, weekday, hour, minute, anchorMs };
 }
