@@ -200,20 +200,31 @@ function readResetOverride(value: unknown, field: string, errors?: string[]): Re
     if (entry.source !== undefined && entry.source !== "report" && entry.source !== "reset" && errors) {
       problems.push(`${field}.source must be "report" or "reset", or absent`);
     }
+    if (entry.anchorMs !== undefined && !isAnchor(entry.anchorMs) && errors) {
+      problems.push(`${field}.anchorMs must be epoch milliseconds, or absent`);
+    }
   }
   if (problems.length > 0) {
     errors?.push(...problems);
     return null;
   }
-  const { weekday, monthDay, hour, minute, source } = entry as Record<string, unknown>;
+  const { weekday, monthDay, hour, minute, source, anchorMs } = entry as Record<string, unknown>;
   const override: ResetOverride = {
     weekday: weekday as number,
     monthDay: monthDay as number,
     hour: hour as number,
     minute: minute as number,
   };
-  if (source === "report" || source === "reset") override.source = source;
+  if (source === "report" || source === "reset") {
+    override.source = source;
+    // Only one a report or a reset set: the panel's own follows the wall clock.
+    if (isAnchor(anchorMs)) override.anchorMs = anchorMs;
+  }
   return override;
+}
+
+function isAnchor(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 /** The stored map, leniently: an unknown provider id or a bad entry is dropped on its own. */

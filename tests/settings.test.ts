@@ -384,6 +384,26 @@ describe("parseSettingsUpdate", () => {
     if (!bad.ok) expect(bad.errors).toContain('resetOverrides.claude.source must be "report" or "reset", or absent');
   });
 
+  it("keeps an override's instant with its source, and drops it without one", () => {
+    const anchorMs = Date.parse("2026-10-31T11:00:00Z");
+    const own = (entry: Record<string, unknown>) => {
+      const result = parseSettingsUpdate({
+        ...valid,
+        resetOverrides: { claude: { weekday: 6, monthDay: 1, hour: 12, minute: 0, ...entry } },
+      });
+      if (!result.ok) throw new Error(result.errors.join("; "));
+      return result.update.settings.resetOverrides.claude;
+    };
+    expect(own({ source: "report", anchorMs })).toMatchObject({ source: "report", anchorMs });
+    expect(own({ anchorMs })).not.toHaveProperty("anchorMs");
+    const bad = parseSettingsUpdate({
+      ...valid,
+      resetOverrides: { claude: { weekday: 6, monthDay: 1, hour: 12, minute: 0, source: "report", anchorMs: "x" } },
+    });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.errors).toContain("resetOverrides.claude.anchorMs must be epoch milliseconds, or absent");
+  });
+
   it("requires resetModes, normalizes its ids and checks every mode", () => {
     const { resetModes: _, ...missing } = valid;
     expect(parseSettingsUpdate(missing)).toMatchObject({ ok: false });

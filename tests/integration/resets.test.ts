@@ -124,7 +124,14 @@ describe("/api/resets", () => {
     const recorded = await call("POST", { providerId: "openai", atMs: R, before: 90 }, cookie);
     expect(recorded.body.cycle).toEqual({ startMs: R, endMs: R + WEEK });
     expect(recorded.body.events[0]).toMatchObject({ kind: "restart", cycleStartMs: S, previousOverride: null });
-    expect(await ownReset("openai")).toEqual({ weekday: 2, monthDay: 22, hour: 14, minute: 0, source: "reset" });
+    expect(await ownReset("openai")).toEqual({
+      weekday: 2,
+      monthDay: 22,
+      hour: 14,
+      minute: 0,
+      source: "reset",
+      anchorMs: R,
+    });
 
     const deleted = await call("DELETE", { providerId: "openai", id: recorded.body.events[0].id }, cookie);
     expect(deleted.body).toEqual({ ok: true, events: [], cycle: { startMs: S, endMs: E } });

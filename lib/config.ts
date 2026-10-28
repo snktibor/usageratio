@@ -167,6 +167,8 @@ export interface ResetConfig {
   minute: number;
   /** IANA time zone, e.g. "Europe/Budapest" */
   timeZone: string;
+  /** Weekly budgets: a reset instant the cycles step from by whole weeks, overriding the wall clock (see `ResetOverride`). */
+  anchorMs?: number;
 }
 
 /**
@@ -189,6 +191,15 @@ export interface ResetOverride {
    * restart-type reset (lib/resets.ts). The panel drops it on edit.
    */
   source?: "report" | "reset";
+  /**
+   * The instant it was set from (epoch ms), with `source`. A provider's own
+   * window resets every 7 × 24 hours, whatever the local clock does, so a
+   * weekly cycle steps from here by whole weeks; the wall-clock fields above
+   * are what it read as when set. Without it (the panel's own, or one stored
+   * before it existed) the cycle follows the wall clock, which a DST shift
+   * moves by an hour against the provider's window.
+   */
+  anchorMs?: number;
 }
 
 export interface AppConfig {

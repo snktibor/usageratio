@@ -106,6 +106,7 @@ describe("POST /api/official-usage/report", () => {
       hour: 9,
       minute: 0,
       source: "report",
+      anchorMs: Date.parse("2026-09-24T09:00:00Z"),
     });
     const stored = await getRedis().hget<unknown>(KEYS.officialUsage, "claude");
     expect(typeof stored === "string" ? JSON.parse(stored) : stored).toEqual({
@@ -196,7 +197,14 @@ describe("POST /api/official-usage/report", () => {
     expect(answer.detectedReset).toEqual({ id: expect.any(String), kind: "restart", atMs: R });
 
     const settings = JSON.parse((await getRedis().get<string>(KEYS.settings)) as string);
-    expect(settings.resetOverrides.openai).toEqual({ weekday: 3, monthDay: 23, hour: 8, minute: 0, source: "reset" });
+    expect(settings.resetOverrides.openai).toEqual({
+      weekday: 3,
+      monthDay: 23,
+      hour: 8,
+      minute: 0,
+      source: "reset",
+      anchorMs: R,
+    });
     expect((await loadResets()).openai?.events).toEqual([
       expect.objectContaining({
         id: answer.detectedReset.id,

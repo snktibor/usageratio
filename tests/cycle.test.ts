@@ -193,6 +193,45 @@ describe("getCycle — monthly", () => {
   });
 });
 
+describe("getCycle — anchored to a provider's own reset instant", () => {
+  // Claude's window resets every 7 × 24 h at 11:00 UTC: 13:00 in Budapest before 2026-10-25, 12:00 after.
+  const anchored: ResetConfig = {
+    ...BUDAPEST_MONDAY,
+    weekday: 6,
+    hour: 12,
+    minute: 0,
+    anchorMs: Date.parse("2026-10-31T11:00:00Z"),
+  };
+
+  it("steps by whole weeks across a DST shift, where the wall clock moves by an hour", () => {
+    const now = new Date("2026-10-24T10:30:00Z");
+    expect(getCycle(now, anchored)).toEqual({
+      start: new Date("2026-10-17T11:00:00Z"),
+      end: new Date("2026-10-24T11:00:00Z"),
+    });
+    // The wall clock would already have started the next cycle an hour early, inside this one.
+    expect(getCycle(now, { ...anchored, anchorMs: undefined }).start.toISOString()).toBe("2026-10-24T10:00:00.000Z");
+  });
+
+  it("is the same week before and after its anchor, and the previous one ends where it starts", () => {
+    const cycle = getCycle(new Date("2026-11-03T09:00:00Z"), anchored);
+    expect(cycle.start.toISOString()).toBe("2026-10-31T11:00:00.000Z");
+    expect(getCycle(new Date("2026-10-31T11:00:00Z"), anchored)).toEqual(cycle);
+    expect(getCycle(new Date("2027-04-01T00:00:00Z"), anchored).start.toISOString()).toBe("2027-03-27T11:00:00.000Z");
+    expect(getPreviousCycle(cycle, anchored)).toEqual({
+      start: new Date("2026-10-24T11:00:00Z"),
+      end: cycle.start,
+    });
+  });
+
+  it("is ignored by a monthly budget", () => {
+    const monthly = { ...anchored, period: "monthly" as const };
+    expect(getCycle(new Date("2026-09-23T10:15:00Z"), monthly)).toEqual(
+      getCycle(new Date("2026-09-23T10:15:00Z"), { ...monthly, anchorMs: undefined }),
+    );
+  });
+});
+
 describe("getPreviousCycle", () => {
   it("ends where the current cycle starts", () => {
     const cycle = getCycle(new Date("2026-09-23T10:15:00Z"), BUDAPEST_MONDAY);

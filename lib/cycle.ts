@@ -161,8 +161,14 @@ function getMonthlyCycle(now: Date, reset: ResetConfig): Cycle {
   return { start: resetIn(monthOffset), end: resetIn(monthOffset + 1) };
 }
 
+const WEEK_MS = 7 * 86_400_000;
+
 function getWeeklyCycle(now: Date, reset: ResetConfig): Cycle {
-  const { timeZone, weekday, hour, minute } = reset;
+  const { timeZone, weekday, hour, minute, anchorMs } = reset;
+  if (anchorMs !== undefined) {
+    const startMs = anchorMs + Math.floor((now.getTime() - anchorMs) / WEEK_MS) * WEEK_MS;
+    return { start: new Date(startMs), end: new Date(startMs + WEEK_MS) };
+  }
   const today = zonedParts(now, timeZone);
   const daysSinceResetDay = (today.weekday - weekday + 7) % 7;
 
