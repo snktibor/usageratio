@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizeCost, summarizeUsage, type UsageEvent } from "@/lib/aggregate";
+import { STALE_BASIS_MS, summarizeCost, summarizeUsage, type UsageEvent } from "@/lib/aggregate";
 
 const WINDOW = { startMs: 1000, endMs: 2000 };
 
@@ -265,5 +265,28 @@ describe("summarizeCost — from a moment", () => {
       byMachine: { mac: 3 },
       hasCost: true,
     });
+  });
+});
+
+describe("a running total counted from well before the window", () => {
+  // 2026-10-24: a report of the old week, made in the hour a DST shift later moved into the new cycle.
+  const DAY = STALE_BASIS_MS;
+  const cycle = { startMs: 10 * DAY, endMs: 17 * DAY };
+  const stale: UsageEvent = { ...ev("zsiga-mac", "zsiga", 3_700, 10 * DAY + 240_000), costUsd: 90, basisMs: 3 * DAY };
+  const fresh: UsageEvent = { ...ev("zsiga-mac", "zsiga", 120, 10 * DAY + 7_200_000), costUsd: 3, basisMs: 10 * DAY };
+
+  it("does not count in snapshot mode, nor in the cost", () => {
+    expect(summarizeUsage([stale, fresh], cycle, "snapshot").total).toBe(120);
+    expect(summarizeCost([stale, fresh], cycle).total).toBe(3);
+  });
+
+  it("still counts when it is only a little early, as after a reset moved by an hour", () => {
+    const early = { ...fresh, basisMs: 10 * DAY - 3_600_000 };
+    expect(summarizeUsage([early], cycle, "snapshot").total).toBe(120);
+    expect(summarizeCost([early], cycle).total).toBe(3);
+  });
+
+  it("does not matter in delta mode", () => {
+    expect(summarizeUsage([stale, fresh], cycle, "delta").total).toBe(3_820);
   });
 });
