@@ -1,6 +1,6 @@
 {
   "name": "usageratio",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "private": true,
   "description": "A lightweight, self-hosted usage tracker for weekly or monthly token budgets across multiple AI providers or accounts.",
   "license": "PolyForm-Noncommercial-1.0.0",
