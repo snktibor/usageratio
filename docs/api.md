@@ -327,8 +327,9 @@ required on every save (a document stored before some of them existed is still r
 
 `resetOverrides` is required: providerId → `{ weekday, monthDay, hour, minute }`, the provider's own
 reset over the shared period and time zone (`{}` for none). An entry may add `source?: "report"` —
-set by an official report — or `"reset"`, set by a restart-type usage reset; the panel drops it when
-the entry is edited. `resetModes` is required too: providerId → `"keep"` | `"restart"`, how the
+set by an official report — or `"reset"`, set by a restart-type usage reset, and with it
+`anchorMs?`, the instant its weekly cycles step from by whole weeks; the panel drops both when the
+entry is edited. `resetModes` is required too: providerId → `"keep"` | `"restart"`, how the
 provider resets a user's usage early (`{}` for all defaults: `claude`/`anthropic` keep, `openai`
 restarts, anything else keeps).
 
