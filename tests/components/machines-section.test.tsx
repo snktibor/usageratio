@@ -193,7 +193,7 @@ describe("MachinesSection", () => {
     // In the same dialog, which stays open, focused, and saying what it is for.
     const unlock = await within(dialog).findByRole("button", { name: "Unlock" });
     expect(screen.getByRole("alertdialog")).toBe(dialog);
-    expect(document.activeElement?.id).toBe("sudo-pin");
+    await waitFor(() => expect(document.activeElement?.id).toBe("sudo-pin"));
     expect(
       within(dialog).getByText("Confirm this with your PIN. It will not ask again for the next 5 minutes."),
     ).not.toBeNull();
