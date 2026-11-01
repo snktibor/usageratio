@@ -267,20 +267,39 @@ public enum Display {
         }
         guard nested else { return (shown.map(machineRow), hidden) }
 
-        var rows: [BreakdownRow] = []
-        var placed = Set<String>()
-        for group in provider.groups {
-            rows.append(BreakdownRow(
-                kind: .group, id: group.id, percent: group.percent, tokens: group.tokens,
-                fraction: fraction(group.percent, group.tokens), lastReportAt: nil, scope: .group(group.id)
-            ))
-            for machine in shown where machine.groupId == group.id {
-                rows.append(machineRow(machine))
-                placed.insert(machine.id)
-            }
+        let groupRow = { (id: String, percent: Double?, tokens: Double) in
+            BreakdownRow(
+                kind: .group, id: id, percent: percent, tokens: tokens,
+                fraction: fraction(percent, tokens), lastReportAt: nil, scope: .group(id)
+            )
         }
-        // A machine whose group is not listed (should not happen): at the end, rather than lost.
-        rows += shown.filter { !placed.contains($0.id) }.map(machineRow)
+        var rows: [BreakdownRow] = []
+        for group in provider.groups {
+            rows.append(groupRow(group.id, group.percent, group.tokens))
+            rows += shown.filter { $0.groupId == group.id }.map(machineRow)
+        }
+        // A group that used nothing since a reset is not among `groups`, but a machine of it may be listed:
+        // it gets its group's row, at 0, or it would read as part of the last group above.
+        let listed = Set(provider.groups.map(\.id))
+        var unlisted: [String] = []
+        for machine in shown where !listed.contains(machine.groupId) && !unlisted.contains(machine.groupId) {
+            unlisted.append(machine.groupId)
+        }
+        for id in unlisted {
+            let machines = shown.filter { $0.groupId == id }
+            rows.append(groupRow(id, machines[0].percent, 0))
+            rows += machines.map(machineRow)
+        }
         return (rows, hidden)
+    }
+
+    /// The id of the group or machine `scope` names while the provider does not list it, which is
+    /// usually only until it reports in this cycle. Nil when it is listed, and for the whole provider.
+    public static func unlistedName(of scope: MenuBarScope, in provider: StatusPayload.Provider) -> String? {
+        switch scope {
+        case .group(let id): provider.groups.contains { $0.id == id } ? nil : id
+        case .machine(let id): provider.machines.contains { $0.id == id } ? nil : id
+        case .total: nil
+        }
     }
 }
