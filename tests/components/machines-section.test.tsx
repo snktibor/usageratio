@@ -122,7 +122,8 @@ describe("MachinesSection", () => {
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(await screen.findByText("studio")).not.toBeNull();
-    expect(onMachineIds).toHaveBeenLastCalledWith(["studio"]);
+    // The list reaches the page in an effect, which may run after the row is on screen.
+    await waitFor(() => expect(onMachineIds).toHaveBeenLastCalledWith(["studio"]));
     expect(fetchMock.mock.calls.slice(1).map((call) => [call[0], call[1].method])).toEqual([
       ["/api/machines/claude/mac-1", "PATCH"],
       ["/api/machines/openai/mac-1", "PATCH"],
