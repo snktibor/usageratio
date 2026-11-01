@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.1](https://github.com/snktibor/usageratio/compare/v0.12.0...v0.12.1) (2026-11-01)
+
+
+### Bug Fixes
+
+* ignore a report that counted a provider from before its cycle ([#48](https://github.com/snktibor/usageratio/issues/48)) ([165898f](https://github.com/snktibor/usageratio/commit/165898ffc19d47d38b24100f4ec2ddf4318da9f0))
+* keep provider resets on their instant across DST, and ignore stale running totals ([#46](https://github.com/snktibor/usageratio/issues/46)) ([b9a83a6](https://github.com/snktibor/usageratio/commit/b9a83a6f312e5517db6bb983c1f11189e229a28e))
+
 ## [0.12.0](https://github.com/snktibor/usageratio/compare/v0.11.0...v0.12.0) (2026-10-27)
 
 
