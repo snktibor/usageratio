@@ -4,7 +4,7 @@ import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import { CommandBlock, FileBlock } from "@/components/code-block";
 import { panelId, tabId } from "@/components/setup/route-tabs";
-import { Code, Step, TokenNote } from "@/components/setup/steps";
+import { richCode, Step, TokenNote } from "@/components/setup/steps";
 import type { ApiTokenStatus } from "@/lib/api-token";
 import {
   type ClientSources,
@@ -68,7 +68,7 @@ export function ManualRoute({
           <Step number={2}>
             <p className="max-w-2xl">
               {os === "linux"
-                ? t.rich("manual_step_2_linux", { Code: (chunks: ReactNode) => <Code>{chunks}</Code> })
+                ? t.rich("manual_step_2_linux", { Code: richCode })
                 : t.rich("manual_step_2_win_mac", {
                     os,
                     strong: (chunks: ReactNode) => <strong className="font-medium text-ink">{chunks}</strong>,
