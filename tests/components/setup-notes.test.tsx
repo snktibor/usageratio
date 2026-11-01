@@ -11,4 +11,16 @@ describe("SetupNotes", () => {
     expect(code).toContain("node --version");
     expect(code).toContain(INSTALLED_CONFIG.windows);
   });
+
+  it("names the alias line to delete only for a manual install on macOS or Linux", () => {
+    const codeOf = (container: HTMLElement) =>
+      [...container.querySelectorAll("code")].map((element) => element.textContent);
+
+    const manual = renderWithIntl(<SetupNotes os="macos" mode="manual" notesId="notes" />);
+    expect(codeOf(manual.container)).toContain("alias sync-tokens=");
+    manual.unmount();
+
+    const auto = renderWithIntl(<SetupNotes os="macos" mode="auto" notesId="notes" />);
+    expect(codeOf(auto.container)).not.toContain("alias sync-tokens=");
+  });
 });
