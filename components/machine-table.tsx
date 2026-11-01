@@ -71,6 +71,8 @@ export function MachineTable({ model, view }: { model: DashboardModel; view: Das
   // No token limit and no official figure: there is no limit to take a share of.
   const hasLimitShare = view.quota !== null;
   const hasCost = Boolean(model.cost);
+  const machines = view.machines.filter((machine) => machine.reportedInCycle);
+  if (machines.length === 0) return null;
 
   return (
     <section aria-labelledby="machines-heading">
@@ -81,7 +83,7 @@ export function MachineTable({ model, view }: { model: DashboardModel; view: Das
 
       {/* Narrow screens: one stacked entry per machine instead of six squeezed columns. */}
       <ul className="mt-3 sm:hidden">
-        {view.machines.map((machine) => (
+        {machines.map((machine) => (
           <li key={rowKey(machine)} className="border-t border-hairline py-3.5">
             <div className="flex items-baseline justify-between gap-4">
               <span className="min-w-0 wrap-anywhere">{machine.machineId}</span>
@@ -140,7 +142,7 @@ export function MachineTable({ model, view }: { model: DashboardModel; view: Das
           </tr>
         </thead>
         <tbody>
-          {view.machines.map((machine) => (
+          {machines.map((machine) => (
             <tr key={rowKey(machine)} className="border-t border-hairline">
               <th scope="row" className="py-3 pr-4 font-normal">
                 <span className="wrap-anywhere">{machine.machineId}</span>

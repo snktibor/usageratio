@@ -198,6 +198,8 @@ export interface DashboardModel {
     reports: number;
     lastSeenAt: number;
     health: MachineHealth;
+    /** False for a machine silent all cycle: the status payload still names it, the page leaves it out. */
+    reportedInCycle: boolean;
   }[];
 }
 
@@ -348,10 +350,11 @@ export function buildDashboard(
         { mode: known?.mode ?? "auto", intervalMinutes: known?.intervalMinutes ?? null },
         config,
       ),
+      reportedInCycle: true,
     };
   });
 
-  // Machines that have gone quiet stay listed, so a dead scheduled task is noticed.
+  // Machines that have gone quiet stay in the model, so the status payload can name a dead scheduled task.
   const listedMs = config.inactiveMachineDays * 24 * HOUR;
   const silent = snapshot.machines
     .filter((m) => !machines.some((row) => row.machineId === m.machineId))
@@ -372,6 +375,8 @@ export function buildDashboard(
         { mode: m.mode ?? "auto", intervalMinutes: m.intervalMinutes ?? null },
         config,
       ),
+      // Its last report, not only the segment's: one from before a keep reset was still made in this cycle.
+      reportedInCycle: m.lastSeenAt >= startMs && m.lastSeenAt < endMs,
     });
   }
 

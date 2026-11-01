@@ -31,8 +31,12 @@ const model = buildDashboard(NOW, config, {
     report("win-2", "Work", 12_000),
   ],
   groups: [],
-  // Silent this cycle, but seen recently enough to stay listed.
-  machines: [{ machineId: "win-3", groupId: "Work", lastSeenAt: NOW.getTime() - 100 * HOUR, lastTokens: 0 }],
+  machines: [
+    // Reported in the cycle, but none of it counts: still one of the group's.
+    { machineId: "win-3", groupId: "Work", lastSeenAt: CYCLE_START + 2 * HOUR, lastTokens: 0 },
+    // Seen recently enough to stay listed, but silent all cycle.
+    { machineId: "win-4", groupId: "Work", lastSeenAt: CYCLE_START - HOUR, lastTokens: 0 },
+  ],
 });
 const groupOf = (groups: typeof model.groups, groupId: string) => groups.find((group) => group.groupId === groupId)!;
 
@@ -43,7 +47,7 @@ describe("machinesOfGroup", () => {
     expect(rows.map((row) => row.machineId)).toEqual(["win-1", "win-2", "win-3"]);
     expect(rows[0]!.groupShare).toBeCloseTo(0.6);
     expect(rows[1]!.groupShare).toBeCloseTo(0.4);
-    // A machine that reported nothing this cycle is still one of the group's.
+    // A machine that used nothing this cycle is still one of the group's; one that never reported in it is not.
     expect(rows[2]!.groupShare).toBe(0);
     // Its share of the whole cycle is left as it was.
     expect(rows[0]!.share).toBeCloseTo(0.45);

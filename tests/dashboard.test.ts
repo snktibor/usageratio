@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getConfig } from "@/lib/config";
+import { getCycle, getPreviousCycle } from "@/lib/cycle";
 import {
   buildDashboard,
   buildProviderDashboards,
@@ -378,6 +379,65 @@ describe("buildDashboard — machines", () => {
       [0.25, 100 / 500_000],
       [0, 0],
     ]);
+  });
+});
+
+describe("buildDashboard — machines that reported in the cycle", () => {
+  const cycle = getCycle(NOW, config.reset);
+  const startMs = cycle.start.getTime();
+  const silentMachine = (machineId: string, lastSeenAt: number) => ({
+    machineId,
+    groupId: "Work",
+    lastSeenAt,
+    lastTokens: 0,
+  });
+  const reportedIn = (model: ReturnType<typeof buildDashboard>) =>
+    model.machines.map((m) => [m.machineId, m.reportedInCycle]);
+
+  it("tells a machine silent since before the cycle from one that reported in it", () => {
+    const model = buildDashboard(
+      NOW,
+      config,
+      snapshot({
+        machines: [silentMachine("at-start", startMs), silentMachine("before", startMs - 1)],
+        events: [{ machineId: "mac", groupId: "Personal", tokens: 300, ts: NOW.getTime() - HOUR }],
+      }),
+    );
+    expect(reportedIn(model)).toEqual([
+      ["mac", true],
+      ["at-start", true],
+      ["before", false],
+    ]);
+  });
+
+  it("counts a machine that reported only before a keep reset as having reported in the cycle", () => {
+    const reportedAt = startMs + HOUR;
+    const model = buildDashboard(
+      NOW,
+      config,
+      snapshot({
+        machines: [silentMachine("before-reset", reportedAt)],
+        events: [{ machineId: "before-reset", groupId: "Work", tokens: 300, ts: reportedAt }],
+        resets: [keepReset(2, null, { atMs: startMs + 2 * HOUR, cycleStartMs: startMs })],
+      }),
+    );
+    expect(model.total).toBe(0);
+    expect(reportedIn(model)).toEqual([["before-reset", true]]);
+  });
+
+  it("does not count a report from after a closed cycle as one in it", () => {
+    const previous = getPreviousCycle(cycle, config.reset);
+    const model = buildDashboard(
+      NOW,
+      config,
+      snapshot({
+        machines: [silentMachine("since", startMs + HOUR)],
+      }),
+      undefined,
+      { cycle: previous, previous: getPreviousCycle(previous, config.reset) },
+    );
+    expect(model.closed).toBe(true);
+    expect(reportedIn(model)).toEqual([["since", false]]);
   });
 });
 
