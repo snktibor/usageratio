@@ -277,11 +277,6 @@ final class StatusStore {
                let fresh = try? await client.fetch(base: serverURL, token: token) {
                 payload = fresh
             }
-            // A group or machine gone from the list (deleted, merged) reads as the whole provider: say so in the picker too.
-            if selectedScope != .total, let provider = selectedProvider,
-               Display.figure(of: provider, scope: selectedScope).name == nil {
-                selectedScope = .total
-            }
             lastSuccess = Date()
             now = Date()
             error = nil

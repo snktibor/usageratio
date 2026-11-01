@@ -12,14 +12,14 @@ export type GroupMachine = Machine & {
 };
 
 /**
- * The machines of `group`, in the dashboard's own order (heaviest first, the
- * silent ones last), each with its fraction of the group's usage. Taken from
- * the shares rather than the tokens: an official reading restates the tokens
- * (lib/ground-truth.ts) but leaves the measured proportions alone.
+ * The machines of `group` that reported in this cycle, in the dashboard's own
+ * order (heaviest first), each with its fraction of the group's usage. Taken
+ * from the shares rather than the tokens: an official reading restates the
+ * tokens (lib/ground-truth.ts) but leaves the measured proportions alone.
  */
 export function machinesOfGroup(machines: Machine[], group: Group): GroupMachine[] {
   return machines
-    .filter((machine) => machine.groupId === group.groupId)
+    .filter((machine) => machine.reportedInCycle && machine.groupId === group.groupId)
     .map((machine) => ({ ...machine, groupShare: group.share > 0 ? machine.share / group.share : 0 }));
 }
 
@@ -68,8 +68,8 @@ export interface GroupMachineChart {
  * row. Their measured tokens become a share of the budget at the rates the
  * usage chart uses (lib/ground-truth.ts `timelineRates`), so the machines of
  * all groups add up to the headline percentage, and every line ends on its
- * machine's share of the budget. A machine without usage this
- * cycle keeps its place, as a line on the axis.
+ * machine's share of the budget. A machine that reported in this cycle but
+ * without usage in its segment keeps its place, as a line on the axis.
  */
 export function groupMachineChart(model: DashboardModel, view: DashboardView, group: Group): GroupMachineChart {
   const machines = machinesOfGroup(view.machines, group);

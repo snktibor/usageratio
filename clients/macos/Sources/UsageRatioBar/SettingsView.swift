@@ -77,6 +77,10 @@ struct SettingsView: View {
                 row(strings.menuBarShows) {
                     Picker(strings.menuBarShows, selection: $store.selectedScope) {
                         Text(strings.wholeProvider).tag(MenuBarScope.total)
+                        // Kept while it is off the list, as every machine is at a cycle's start: it comes back with its report.
+                        if let name = Display.unlistedName(of: store.selectedScope, in: provider) {
+                            Text(name).tag(store.selectedScope)
+                        }
                         Section(strings.groupsSection) {
                             ForEach(provider.groups) { group in
                                 Text(Display.shareText(

@@ -22,9 +22,11 @@ test("dashboard shows the Claude view with 62.5% and machines", async ({ page })
   // Only the machines that report Claude usage show up under the Claude view (lib/demo/dataset.ts:
   // build-box only reports deepseek/openai, so it is absent here). The machine table renders a
   // mobile list (hidden at this viewport) and a desktop table; .last() is the one actually visible.
-  for (const machineId of ["mac-studio", "win-desktop", "thinkpad", "old-laptop"]) {
+  for (const machineId of ["mac-studio", "win-desktop", "thinkpad"]) {
     await expect(page.getByText(machineId).last()).toBeVisible();
   }
+  // old-laptop last reported before this cycle began.
+  await expect(page.getByText("old-laptop")).toHaveCount(0);
 });
 
 test("a group's row opens the chart of its machines, one group at a time", async ({ page }) => {
@@ -45,7 +47,7 @@ test("a group's row opens the chart of its machines, one group at a time", async
     .locator(`#${await work.getAttribute("aria-controls")}`)
     .getByRole("list")
     .first();
-  await expect(key.getByRole("listitem")).toHaveText([/^win-desktop/, /^thinkpad/, /^old-laptop/]);
+  await expect(key.getByRole("listitem")).toHaveText([/^win-desktop/, /^thinkpad/]);
 
   // Opening another group closes this one.
   await personal.click();

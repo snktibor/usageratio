@@ -100,6 +100,27 @@ describe("GET /api/status", () => {
     ]);
   });
 
+  it("leaves out a machine that did not report in this cycle, whose newest report still counts", async () => {
+    await report(2500);
+    const lastSeenAt = getCycle(new Date(), getConfig().reset).start.getTime() - 1;
+    await getRedis().hset(KEYS.machines, { "claude:gone": JSON.stringify({ g: "Other", ts: lastSeenAt, t: 0 }) });
+
+    const body = (await (await GET(get())).json()) as StatusPayload;
+    const claude = body.providers.find((provider) => provider.id === "claude");
+    expect(claude?.machines.map((machine) => machine.id)).toEqual(["mac"]);
+    expect(claude?.groups.map((group) => group.id)).toEqual(["Personal"]);
+  });
+
+  it("keeps the last report of a provider no machine has reported to yet this cycle", async () => {
+    const lastSeenAt = getCycle(new Date(), getConfig().reset).start.getTime() - 1;
+    await getRedis().hset(KEYS.machines, { "claude:gone": JSON.stringify({ g: "Other", ts: lastSeenAt, t: 0 }) });
+
+    const body = (await (await GET(get())).json()) as StatusPayload;
+    const claude = body.providers.find((provider) => provider.id === "claude");
+    expect(claude?.machines).toEqual([]);
+    expect(claude?.lastReportAt).toBe(new Date(lastSeenAt).toISOString());
+  });
+
   it("lets an official reading of this cycle lead, as the dashboard does", async () => {
     await seedSettings({ useTokenLimits: true, limits: { claude: 10_000 } });
     await report(2500);

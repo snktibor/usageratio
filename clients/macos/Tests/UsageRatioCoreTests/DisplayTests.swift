@@ -216,6 +216,38 @@ private func recentJSON(since: Date, changed: Bool, ratio: Double, runOutAt: Dat
     #expect(left == 1)
 }
 
+@Test func putsAMachineUnderItsOwnGroupWhenThatIsNotListed() throws {
+    let json = """
+    {"v":1,"generatedAt":"2026-10-07T09:12:00Z",
+     "cycle":{"period":"weekly","start":"2026-10-05T07:00:00Z","end":"2026-10-12T07:00:00Z","timeZone":"UTC"},
+     "providers":[{"id":"claude","label":"X","percent":40,"source":null,"estimatedPercent":null,
+       "asOf":"2026-10-07T09:12:00Z","tokens":30,"limit":null,"status":null,"pace":null,"subLimits":[],
+       "groups":[{"id":"A","percent":30,"tokens":20},{"id":"B","percent":10,"tokens":10}],
+       "machines":[{"id":"a","groupId":"A","percent":30,"tokens":20,"lastReportAt":"2026-10-07T09:00:00Z"},
+                   {"id":"b","groupId":"B","percent":10,"tokens":10,"lastReportAt":"2026-10-07T09:00:00Z"},
+                   {"id":"c","groupId":"C","percent":0,"tokens":0,"lastReportAt":"2026-10-06T09:00:00Z"},
+                   {"id":"d","groupId":"C","percent":0,"tokens":0,"lastReportAt":"2026-10-06T09:00:00Z"}],
+       "lastReportAt":"2026-10-07T09:00:00Z"}]}
+    """
+    let provider = try StatusPayload.decode(Data(json.utf8)).providers[0]
+    let (rows, hidden) = Display.breakdown(provider, limit: 8)
+    #expect(hidden == 0)
+    #expect(rows.map(\.id) == ["A", "a", "B", "b", "C", "c", "d"])
+    #expect(rows.map(\.kind) == [.group, .machine, .group, .machine, .group, .machine, .machine])
+    #expect(rows[4].scope == .group("C"))
+    #expect(rows[4].percent == 0)
+    #expect(rows[4].tokens == 0)
+}
+
+@Test func namesAScopeTheProviderDoesNotListAtTheMoment() throws {
+    let claude = try fixturePayload().providers[0]
+    #expect(Display.unlistedName(of: .total, in: claude) == nil)
+    #expect(Display.unlistedName(of: .group("Work"), in: claude) == nil)
+    #expect(Display.unlistedName(of: .machine("mac-studio"), in: claude) == nil)
+    #expect(Display.unlistedName(of: .group("Gone"), in: claude) == "Gone")
+    #expect(Display.unlistedName(of: .machine("gone"), in: claude) == "gone")
+}
+
 @Test func listsTheMachinesAloneUnderOneGroup() throws {
     let json = """
     {"v":1,"generatedAt":"2026-10-07T09:12:00Z",
