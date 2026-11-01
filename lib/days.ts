@@ -1,4 +1,5 @@
-import { getDayEnd } from "@/lib/cycle";
+import { STALE_BASIS_MS } from "@/lib/aggregate";
+import { dateInTimeZone, getDayEnd, getDayStart } from "@/lib/cycle";
 import type { UsageReport } from "@/lib/validation";
 
 /**
@@ -17,6 +18,20 @@ export const MAX_REPORT_DAYS = 32;
 export const MAX_DAY_HOURS = 25;
 
 export const HOUR_MS = 3_600_000;
+
+/**
+ * What a report's running total of `providerId` counts from: its own cycle
+ * start, unless the report's days name tokens from before that cycle's first
+ * day. A client installed before providers had their own resets reads every
+ * provider from the earliest start the server names, which for the hour or
+ * days between two resets is still the old week; such a total is stale, however
+ * close that first early day is (lib/aggregate.ts `STALE_BASIS_MS`).
+ */
+export function countedFromMs(report: UsageReport, providerId: string, startMs: number, timeZone: string): number {
+  const firstDate = dateInTimeZone(new Date(startMs), timeZone);
+  const early = report.days.find((day) => day.date < firstDate && (day.providers[providerId] ?? 0) > 0);
+  return early ? Math.min(getDayStart(early.date, timeZone).getTime(), startMs - STALE_BASIS_MS) : startMs;
+}
 
 export interface Checkpoint {
   providerId: string;
