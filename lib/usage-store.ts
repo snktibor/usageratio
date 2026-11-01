@@ -2,7 +2,7 @@ import type { UsageEvent } from "@/lib/aggregate";
 import { ledgerEntryOf } from "@/lib/all-time";
 import { getConfig, MAX_MACHINES, type ResetOverride } from "@/lib/config";
 import type { KnownMachine } from "@/lib/dashboard";
-import { type CycleStart, reportCheckpoints } from "@/lib/days";
+import { type CycleStart, countedFromMs, reportCheckpoints } from "@/lib/days";
 import {
   type CycleSummary,
   HISTORY_RETENTION,
@@ -247,7 +247,8 @@ export async function storeReport(
   const oldestMs = now.getTime() - retentionDays * DAY_MS;
   const startOf = cycle && (typeof cycle.startMs === "number" ? () => cycle.startMs as number : cycle.startMs);
   // What each provider's running total counts from: the cycle start the client was given.
-  const basisOf = (providerId: string): number | null => (startOf ? startOf(providerId) : null);
+  const basisOf = (providerId: string): number | null =>
+    cycle && startOf ? countedFromMs(report, providerId, startOf(providerId), cycle.timeZone) : null;
   const checkpoints =
     cycle && startOf && !heartbeat
       ? reportCheckpoints(report, cycle.timeZone, (providerId) => Math.max(startOf(providerId), oldestMs))

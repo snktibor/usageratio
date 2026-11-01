@@ -74,8 +74,10 @@ A provider can now have its own budget reset moment, apart from the shared one. 
 until one does. Once any provider has its own reset, re-run the installer on every machine. The
 server exposes each provider's own start (`cycle.providers` of `GET /api/usage`), and the
 reporting clients now count every provider from its own. A machine installed before this release
-keeps over-counting a provider with a later reset (it counts that provider from the earliest
-start) until the installer is re-run on it: download a fresh setup package from the settings page.
+counts a provider with a later reset from the earliest start. The server ignores such a report as
+soon as its split by day shows it (a machine too old to send one still over-counts), and that
+provider's usage is missing from the machine until the installer is re-run on it: download a fresh
+setup package from the settings page.
 
 ## Behaviour changes
 
