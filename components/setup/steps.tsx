@@ -53,6 +53,11 @@ export function Segmented<T extends string>({
   );
 }
 
+/** The `<Code>` tag of a message, for `t.rich`. */
+export function richCode(chunks: ReactNode) {
+  return <Code>{chunks}</Code>;
+}
+
 export function Step({ number, children }: { number: number; children: ReactNode }) {
   return (
     <li className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-4">
@@ -74,7 +79,7 @@ export function TokenNote({ os, mode, tokenStatus }: { os: SetupOs; mode: SetupM
       <p>
         {t.rich("token_note", {
           auto: os === "windows" && mode === "auto" ? "true" : "false",
-          Code: (chunks: ReactNode) => <Code>{chunks}</Code>,
+          Code: richCode,
         })}
       </p>
       <TokenCopyButton status={tokenStatus} />

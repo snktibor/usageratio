@@ -31,8 +31,9 @@ export interface UsageEvent {
    */
   carried?: boolean;
   /**
-   * The cycle start the server gave the client when it was stored (lib/ingest.ts): what a
-   * snapshot running total counts from. Absent from members stored before the stamp existed.
+   * The cycle start the server gave the client when it was stored (lib/ingest.ts), or an earlier
+   * moment when the report's own days show it counted from before that (lib/days.ts
+   * `countedFromMs`): what a snapshot running total counts from. Absent from members stored before the stamp existed.
    * A cycle a restart began ignores those counted from before it (lib/resets.ts `dropStaleBasis`);
    * any other window ignores those counted from well before it (`STALE_BASIS_MS`).
    */
@@ -51,7 +52,7 @@ export const STALE_BASIS_MS = 86_400_000;
 
 /** Whether a running total was counted from well before `startMs` (see `STALE_BASIS_MS`). */
 function staleBasis(event: UsageEvent, startMs: number): boolean {
-  return event.basisMs !== undefined && event.basisMs < startMs - STALE_BASIS_MS;
+  return event.basisMs !== undefined && event.basisMs <= startMs - STALE_BASIS_MS;
 }
 
 /** `startMs` inclusive, `endMs` exclusive. */
