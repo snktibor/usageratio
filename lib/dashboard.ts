@@ -198,7 +198,7 @@ export interface DashboardModel {
     reports: number;
     lastSeenAt: number;
     health: MachineHealth;
-    /** False for a machine silent all cycle: the status payload still names it, the page leaves it out. */
+    /** False for a machine silent all cycle: neither the page nor the status payload lists it. */
     reportedInCycle: boolean;
   }[];
 }
@@ -354,7 +354,8 @@ export function buildDashboard(
     };
   });
 
-  // Machines that have gone quiet stay in the model, so the status payload can name a dead scheduled task.
+  // Machines that have gone quiet stay in the model: they tell a cycle no machine has reported in yet from an
+  // account none ever reported to, and the status payload's newest report counts them.
   const listedMs = config.inactiveMachineDays * 24 * HOUR;
   const silent = snapshot.machines
     .filter((m) => !machines.some((row) => row.machineId === m.machineId))

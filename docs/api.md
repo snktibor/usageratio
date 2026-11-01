@@ -270,10 +270,13 @@ times are ISO 8601. `v` only changes for a breaking change — new fields are ad
   or with the budget already gone. It never changes `status`.
 - `subLimits[].source` — `official`, `provider` (a share of the provider's official figure) or
   `measured`; `percent` is of its own budget, `null` while unknown.
-- `groups` / `machines` — the dashboard's breakdown, heaviest first (machines silent this cycle last,
-  at 0): `percent` is each one's part of the provider's whole budget, restated by the official
-  reading like the dashboard's, `null` whenever the provider's `percent` is.
-- `lastReportAt` — the newest report of any machine counted for the provider this cycle.
+- `groups` / `machines` — the dashboard's breakdown, heaviest first: `percent` is each one's part of
+  the provider's whole budget, restated by the official reading like the dashboard's, `null` whenever
+  the provider's `percent` is. `groups` has the groups with usage since the last reset; `machines` has
+  the machines that reported in this cycle, so one that used nothing since a reset is listed last at 0,
+  and its group may be missing from `groups`.
+- `lastReportAt` — the newest report of any machine counted for the provider, even from before this
+  cycle.
 
 The full example is `clients/tests/fixtures/status-v1.json`, the contract both the server's tests
 (`tests/integration/status.test.ts`) and the app's own check against.

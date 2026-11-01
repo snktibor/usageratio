@@ -162,13 +162,15 @@ function providerStatus(provider: ProviderDashboardModel): StatusProvider {
       percent: view.quota && group.limitShare !== null ? percentOf(group.limitShare) : null,
       tokens: Math.round(group.tokens),
     })),
-    machines: view.machines.map((machine) => ({
-      id: machine.machineId,
-      groupId: machine.groupId,
-      percent: view.quota && machine.limitShare !== null ? percentOf(machine.limitShare) : null,
-      tokens: Math.round(machine.tokens),
-      lastReportAt: iso(machine.lastSeenAt),
-    })),
+    machines: view.machines
+      .filter((machine) => machine.reportedInCycle)
+      .map((machine) => ({
+        id: machine.machineId,
+        groupId: machine.groupId,
+        percent: view.quota && machine.limitShare !== null ? percentOf(machine.limitShare) : null,
+        tokens: Math.round(machine.tokens),
+        lastReportAt: iso(machine.lastSeenAt),
+      })),
     lastReportAt: lastSeen > 0 ? iso(lastSeen) : null,
   };
 }
