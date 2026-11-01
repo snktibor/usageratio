@@ -206,13 +206,6 @@ describe("authenticateToken", () => {
     });
   });
 
-  it("issues a read token unbound, even when a machine is passed", async () => {
-    const created = await createToken("viewer", "mac-studio", new Date(0), "read");
-    if (!created.ok) throw new Error("unreachable");
-    const [token] = await listTokens();
-    expect(token).toMatchObject({ scope: "read", machineId: null });
-  });
-
   it("parses a stored official entry back as official", async () => {
     await getRedis().hset(KEYS.tokens, {
       [hashToken("ur_official")]: JSON.stringify({

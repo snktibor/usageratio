@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { CommandBlock } from "@/components/code-block";
 import { DownloadIcon } from "@/components/icons";
 import { panelId, tabId } from "@/components/setup/route-tabs";
-import { Code, Step, TokenNote } from "@/components/setup/steps";
+import { richCode, Step, TokenNote } from "@/components/setup/steps";
 import type { ApiTokenStatus } from "@/lib/api-token";
 import { type SetupMode, type SetupOs, zipInstallCommand } from "@/lib/setup";
 
@@ -76,14 +76,12 @@ export function ZipRoute({
           {unix ? (
             <>
               <Step number={1}>
-                <p>{t.rich("zip_step_1_unix", { name, Code: (chunks: ReactNode) => <Code>{chunks}</Code> })}</p>
+                <p>{t.rich("zip_step_1_unix", { name, Code: richCode })}</p>
               </Step>
               <Step number={2}>
                 <p>{t("zip_step_2_unix")}</p>
                 <CommandBlock command={zipInstallCommand(os, mode)} label={t("installer_command")} />
-                <p className="text-sm text-ink-3">
-                  {t.rich("zip_step_2_unix_alt", { Code: (chunks: ReactNode) => <Code>{chunks}</Code> })}
-                </p>
+                <p className="text-sm text-ink-3">{t.rich("zip_step_2_unix_alt", { Code: richCode })}</p>
               </Step>
             </>
           ) : (
@@ -99,7 +97,7 @@ export function ZipRoute({
                 <p>
                   {t.rich("zip_step_2_win", {
                     auto: mode === "auto" ? "true" : "false",
-                    Code: (chunks: ReactNode) => <Code>{chunks}</Code>,
+                    Code: richCode,
                   })}
                 </p>
                 <p className="text-sm text-ink-3">{t("start_from_powershell")}</p>

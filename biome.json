@@ -47,6 +47,16 @@
       "tailwindDirectives": true
     }
   },
+  "markdown": {
+    "formatter": {
+      "enabled": false
+    }
+  },
+  "yaml": {
+    "formatter": {
+      "enabled": false
+    }
+  },
   "linter": {
     "enabled": true,
     "domains": {
@@ -82,6 +92,16 @@
         "rules": {
           "style": {
             "noCommonJs": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["lib/redis-memory.ts"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noComponentHookFactories": "off"
           }
         }
       }

@@ -6,6 +6,7 @@ import en from "@/messages/en.json";
 /** Renders `ui` the way a page does: inside the next-intl provider with the English messages. */
 export function renderWithIntl(ui: ReactElement, options: RenderOptions & { locale?: Locale } = {}) {
   const { locale = "en", ...rest } = options;
+  // biome-ignore lint/correctness/noComponentHookFactories: made once per render call, and it closes over `locale`
   const Wrapper = ({ children }: { children: ReactNode }) => (
     <NextIntlClientProvider locale={locale} messages={en} timeZone="Europe/Budapest">
       {children}
