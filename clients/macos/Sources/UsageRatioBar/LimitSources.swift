@@ -11,11 +11,16 @@ struct SourceReading: Sendable {
 }
 
 /// Where this Mac keeps the providers' own usage limits: Claude Code's status line (saved by
-/// the pass-through script) and Codex's session logs. Read only; every failure is "no snapshot".
+/// the pass-through script) or, for Claude run inside T3 Code, T3 Code's provider event log, and
+/// Codex's session logs. Read only; every failure is "no snapshot".
 enum LimitSources {
     /// Of a Codex log, only the tail is read: the newest limits are at the end.
     private static let codexTail: UInt64 = 512 * 1024
     private static let codexDayFolders = 3
+    /// T3 Code logs every SDK message, so a turn can bury the limits deep: read more of it.
+    private static let t3Tail: UInt64 = 4 * 1024 * 1024
+    /// One log per T3 thread; the newest few are searched (the newest may be a Codex thread).
+    private static let t3Logs = 5
 
     static func readAll(home: URL = FileManager.default.homeDirectoryForCurrentUser, codexHome: String? = ProcessInfo.processInfo.environment["CODEX_HOME"])
         async -> (claude: SourceReading, codex: SourceReading)
@@ -25,17 +30,44 @@ enum LimitSources {
         }.value
     }
 
+    /// The later of the status line's snapshot and T3 Code's log, so both ways of running Claude count.
     static func claude(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> SourceReading {
+        let statusLine = claudeStatusLine(home: home)
+        let t3 = claudeT3(home: home)
+        guard let snapshot = LimitsSnapshot.newest(statusLine.snapshot, t3.snapshot) else {
+            return statusLine.fileDate != nil ? statusLine : t3
+        }
+        return snapshot == t3.snapshot ? t3 : statusLine
+    }
+
+    private static func claudeStatusLine(home: URL) -> SourceReading {
         let file = home.appending(path: ".usageratio/claude-limits.json")
         guard let date = modificationDate(file) else { return .missing }
         let snapshot = (try? Data(contentsOf: file)).flatMap(ClaudeLimits.parse)
         return SourceReading(snapshot: snapshot, fileDate: date)
     }
 
+    /// The newest Claude limits in T3 Code's newest few `events.*.log` files.
+    private static func claudeT3(home: URL) -> SourceReading {
+        let folder = home.appending(path: ".t3/userdata/logs/provider")
+        let logs = children(of: folder)
+            .filter { $0.lastPathComponent.hasPrefix("events.") && $0.pathExtension == "log" }
+            .compactMap { file in modificationDate(file).map { (file, $0) } }
+            .sorted { $0.1 > $1.1 }
+            .prefix(t3Logs)
+        guard let newestDate = logs.first?.1 else { return .missing }
+        for (file, date) in logs {
+            if let text = tail(of: file, bytes: t3Tail), let snapshot = T3ClaudeLimits.latest(inLog: text) {
+                return SourceReading(snapshot: snapshot, fileDate: date)
+            }
+        }
+        return SourceReading(snapshot: nil, fileDate: newestDate)
+    }
+
     static func codex(home: URL = FileManager.default.homeDirectoryForCurrentUser, codexHome: String? = nil) -> SourceReading {
         let root = codexHome.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) } ?? home.appending(path: ".codex")
         guard let (file, date) = newestRollout(in: root.appending(path: "sessions")) else { return .missing }
-        guard let text = tail(of: file) else { return SourceReading(snapshot: nil, fileDate: date) }
+        guard let text = tail(of: file, bytes: codexTail) else { return SourceReading(snapshot: nil, fileDate: date) }
         return SourceReading(snapshot: CodexLimits.latest(inLog: text), fileDate: date)
     }
 
@@ -74,13 +106,13 @@ enum LimitSources {
         return best
     }
 
-    /// The last 512 KB as text, without a first line that started mid-file.
-    private static func tail(of file: URL) -> String? {
+    /// The last `bytes` as text, without a first line that started mid-file.
+    private static func tail(of file: URL, bytes: UInt64) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
         defer { try? handle.close() }
         do {
             let size = try handle.seekToEnd()
-            let start = size > codexTail ? size - codexTail : 0
+            let start = size > bytes ? size - bytes : 0
             try handle.seek(toOffset: start)
             guard let data = try handle.readToEnd() else { return nil }
             var text = String(decoding: data, as: UTF8.self)

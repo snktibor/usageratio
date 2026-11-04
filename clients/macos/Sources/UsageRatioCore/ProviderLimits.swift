@@ -26,6 +26,13 @@ public struct LimitsSnapshot: Equatable, Sendable {
         self.fiveHour = fiveHour
         self.observedAt = observedAt
     }
+
+    /// Of two readings of the same provider, the one seen later.
+    public static func newest(_ a: LimitsSnapshot?, _ b: LimitsSnapshot?) -> LimitsSnapshot? {
+        guard let a else { return b }
+        guard let b else { return a }
+        return b.observedAt > a.observedAt ? b : a
+    }
 }
 
 private func number(_ value: Any?) -> Double? {
@@ -110,6 +117,62 @@ public enum CodexLimits {
         }
         guard weekly != nil || fiveHour != nil else { return nil }
         return LimitsSnapshot(providerId: "openai", weekly: weekly, fiveHour: fiveHour, observedAt: observedAt)
+    }
+
+    private static func parseDate(_ text: String) -> Date? {
+        (try? Date(text, strategy: .iso8601.year().month().day().time(includingFractionalSeconds: true)))
+            ?? (try? Date(text, strategy: .iso8601))
+    }
+}
+
+/// T3 Code's provider event log (~/.t3/userdata/logs/provider/events.*.log). T3 Code runs Claude
+/// through the Claude Agent SDK, which shows no status line; instead the SDK hands T3 Code a
+/// `rate_limit_event` after each turn, and T3 Code logs it, one line per event:
+///
+///     [2026-11-04T16:20:38.107Z] NTIVE: {"provider":"claudeAgent",…,"event":{…,"payload":{"type":"rate_limit_event",
+///       "rate_limit_info":{…,"unifiedWindows":{"seven_day":{"utilization":0.48,"resetsAt":1794049200,…}}}}}}
+///
+/// The log is T3 Code's own debug trace, not a documented interface: anything unexpected is "no snapshot".
+public enum T3ClaudeLimits {
+    public static func latest(inLog text: String) -> LimitsSnapshot? {
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true).reversed() {
+            guard line.contains("rate_limit_event"), line.contains("claudeAgent"), let snapshot = parse(line: line) else { continue }
+            return snapshot
+        }
+        return nil
+    }
+
+    private static func parse(line: Substring) -> LimitsSnapshot? {
+        guard line.first == "[", let close = line.firstIndex(of: "]"),
+              let observedAt = parseDate(String(line[line.index(after: line.startIndex)..<close])),
+              let brace = line[close...].firstIndex(of: "{"),
+              let object = try? JSONSerialization.jsonObject(with: Data(line[brace...].utf8)),
+              let info = find("rate_limit_info", in: object),
+              let windows = info["unifiedWindows"] as? [String: Any]
+        else { return nil }
+        func window(_ key: String) -> LimitWindow? {
+            guard let entry = windows[key] as? [String: Any],
+                  let fraction = number(entry["utilization"]), (0...100).contains(fraction),
+                  let resetsAt = epochDate(entry["resetsAt"])
+            else { return nil }
+            return LimitWindow(usedPercent: fraction * 100, resetsAt: resetsAt)
+        }
+        let weekly = window("seven_day")
+        let fiveHour = window("five_hour")
+        guard weekly != nil || fiveHour != nil else { return nil }
+        return LimitsSnapshot(providerId: "claude", weekly: weekly, fiveHour: fiveHour, observedAt: observedAt)
+    }
+
+    /// The first dictionary under `key`, however deep T3 Code nests the SDK message.
+    private static func find(_ key: String, in value: Any, depth: Int = 0) -> [String: Any]? {
+        guard depth < 8 else { return nil }
+        if let dictionary = value as? [String: Any] {
+            if let hit = dictionary[key] as? [String: Any] { return hit }
+            for child in dictionary.values {
+                if let hit = find(key, in: child, depth: depth + 1) { return hit }
+            }
+        }
+        return nil
     }
 
     private static func parseDate(_ text: String) -> Date? {

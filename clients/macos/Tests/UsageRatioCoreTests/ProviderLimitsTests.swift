@@ -68,3 +68,37 @@ not json at all
     #expect(CodexLimits.latest(inLog: line(#"{"used_percent":5,"window_minutes":10080,"resets_at":1e300}"#)) == nil)
     #expect(CodexLimits.latest(inLog: line(#"{"used_percent":5,"window_minutes":10080,"resets_in_seconds":1e300}"#)) == nil)
 }
+
+private func t3Line(_ stamp: String, _ windows: String, provider: String = "claudeAgent") -> String {
+    #"[\#(stamp)] NTIVE: {"provider":"\#(provider)","kind":"protocol","event":{"direction":"incoming","payload":{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{\#(windows)}}}}}"#
+}
+
+@Test func readsTheNewestClaudeLimitsFromTheT3Log() throws {
+    let log = [
+        t3Line("2026-11-04T15:34:03.944Z", #""seven_day":{"utilization":0.47,"resetsAt":1794049200,"status":"allowed"}"#),
+        #"[2026-11-04T15:35:00.000Z] NTIVE: {"provider":"claudeAgent","event":{"payload":{"type":"assistant"}}}"#,
+        t3Line("2026-11-04T16:20:38.107Z", #""five_hour":{"utilization":0.1,"resetsAt":1793800000,"status":"allowed"},"seven_day":{"utilization":0.48,"resetsAt":1794049200,"status":"allowed"}"#),
+        "not a log line",
+    ].joined(separator: "\n")
+    let snapshot = try #require(T3ClaudeLimits.latest(inLog: log))
+    #expect(snapshot.providerId == "claude")
+    #expect(snapshot.weekly == LimitWindow(usedPercent: 48, resetsAt: Date(timeIntervalSince1970: 1_794_049_200)))
+    #expect(snapshot.fiveHour?.usedPercent == 10)
+    #expect(abs(snapshot.observedAt.timeIntervalSince1970 - 1_793_809_238.107) < 0.001)
+}
+
+@Test func findsNoClaudeLimitsInAT3LogWithoutThem() {
+    #expect(T3ClaudeLimits.latest(inLog: "") == nil)
+    #expect(T3ClaudeLimits.latest(inLog: t3Line("2026-11-04T16:20:38Z", #""seven_day":{"utilization":0.48}"#)) == nil)
+    #expect(T3ClaudeLimits.latest(inLog: t3Line("2026-11-04T16:20:38Z", #""seven_day":{"utilization":0.48,"resetsAt":1794049200}"#, provider: "codex")) == nil)
+    #expect(T3ClaudeLimits.latest(inLog: #"[garbage] {"rate_limit_event":1,"claudeAgent":2}"#) == nil)
+}
+
+@Test func newestPicksTheLaterSnapshot() {
+    let old = LimitsSnapshot(providerId: "claude", weekly: nil, fiveHour: nil, observedAt: Date(timeIntervalSince1970: 1))
+    let new = LimitsSnapshot(providerId: "claude", weekly: nil, fiveHour: nil, observedAt: Date(timeIntervalSince1970: 2))
+    #expect(LimitsSnapshot.newest(old, new) == new)
+    #expect(LimitsSnapshot.newest(new, old) == new)
+    #expect(LimitsSnapshot.newest(nil, old) == old)
+    #expect(LimitsSnapshot.newest(nil, nil) == nil)
+}
