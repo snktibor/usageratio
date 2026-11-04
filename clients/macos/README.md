@@ -83,6 +83,13 @@ Wrap your status line command in `~/.claude/settings.json`:
 Your own script is not changed and the status line looks the same. To undo, put the old command
 back. Settings → Sources shows whether each source has been seen.
 
+**Claude inside [T3 Code](https://t3.codes)** runs through the Claude Agent SDK, which has no
+status line. The app reads the SDK's `rate_limit_event` from T3 Code's own provider log instead
+(`~/.t3/userdata/logs/provider/events.*.log`, the newest few files), and of the two Claude sources
+uses whichever was seen later. Nothing needs setting up. That log is T3 Code's debug trace rather
+than a documented interface, so if a T3 Code update changes its format the app ignores it and falls
+back to the status line.
+
 ## This Mac's usage (instead of the script)
 
 The app can report this Mac's token usage itself, hourly and on ↻, so the cron job of the setup
