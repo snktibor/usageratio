@@ -244,6 +244,7 @@ Set once at deploy time. Every variable here is also listed, with a short commen
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `NEXT_PUBLIC_SITE_URL` | the Vercel production domain | The dashboard's public address (e.g. `https://usage.example.com`): the ingest URL written into setup packages, and the dashboard link in alerts. Set it when the deployment has more than one domain, since Vercel's production domain is the shortest one. A change needs a redeploy. |
 | `CRON_SECRET` | unset | Bearer token Vercel Cron uses to call `GET /api/cron/housekeeping` daily (at least 16 characters). Without it, the housekeeping endpoint refuses to run. |
 | `ERROR_WEBHOOK_URL` | unset | Server errors are POSTed here as JSON (`message`, `digest`, `path`, request id). |
 | `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error`. |
