@@ -15,7 +15,8 @@ npm run dev:demo
 Runs the app with `DEMO_MODE=1`: an in-memory store (no Docker, no Redis) seeded with a synthetic
 dataset, no PIN required (`isAuthenticated()` short-circuits to `true`), and every mutating
 endpoint refuses with `demo_read_only` before touching anything. It exists for local exploration,
-screenshots, and end-to-end tests — never for a real deployment.
+screenshots, end-to-end tests, and a public demo deployment (below) — never on a deployment that
+holds real data.
 
 The synthetic dataset (`lib/demo/dataset.ts`) is deterministic (seeded random, default seed 42):
 3 groups (`Work`, `Personal`, `Lab`), 4 providers (`claude`, `openai`, `deepseek`, `gemini`) each
@@ -33,6 +34,24 @@ don't double-seed.
 **`DEMO_FIXED_TIME`** (e.g. `2026-09-23T12:00:00Z`) freezes what `lib/clock.ts`'s `currentTime()`
 returns in demo mode, so the seeded dataset, screenshots, and end-to-end tests always see the same
 "now" — otherwise the deterministic dataset would still drift relative to the wall clock.
+
+### A public demo deployment
+
+A demo is a deployment of its own, never a mode of the real one: on Vercel, a second project
+imported from the same repository.
+
+- Set `DEMO_MODE=1` (Production) and nothing else: no `KV_REST_API_*`/`UPSTASH_*`, no
+  `USAGE_API_TOKEN`, no `DASHBOARD_PIN`. Demo mode always uses the in-memory store, so the
+  project needs no Redis at all. Leave `DEMO_FIXED_TIME` unset, so the dataset follows the clock.
+- Optionally set `CRON_SECRET`, or the daily housekeeping cron from `vercel.json` answers
+  `server_misconfigured` once a day. Either way it only touches the in-memory store.
+- Under Settings → Git → Ignored Build Step, use `[ "$VERCEL_ENV" != "production" ]`, so pull
+  requests don't build a second preview for the demo.
+- Like the real dashboard, the demo is kept out of search engines (`app/robots.ts`, the
+  `X-Robots-Tag` header).
+
+Each function instance seeds its own copy, so two page loads may come from different instances;
+the dataset is deterministic, and only the "now" it is relative to can differ between them.
 
 ## Seeding a real store
 

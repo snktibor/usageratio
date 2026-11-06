@@ -73,16 +73,34 @@ function firstValue(header: string | null): string {
   return header?.split(",")[0]?.trim() ?? "";
 }
 
+/** `NEXT_PUBLIC_SITE_URL`'s origin, when it is a valid http(s) URL. */
+function configuredOrigin(env: Record<string, string | undefined>): string | null {
+  const configured = env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (!configured) return null;
+  try {
+    const url = new URL(configured);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * The ingest address a new client reports to. In production it is the
- * project's production domain: the deployment-specific *.vercel.app addresses
- * sit behind Vercel Authentication, where every report would bounce with 401.
- * Anywhere else (local development) it is the address the page was opened on.
+ * The ingest address a new client reports to. `NEXT_PUBLIC_SITE_URL` wins,
+ * as it does for the dashboard links in alerts: Vercel's production domain is
+ * the project's shortest one, which is the wrong one while a deployment moves
+ * to a longer domain. Otherwise, in production it is that production domain:
+ * the deployment-specific *.vercel.app addresses sit behind Vercel
+ * Authentication, where every report would bounce with 401. Anywhere else
+ * (local development) it is the address the page was opened on.
  */
 export function usageEndpoint(
   headers: { get(name: string): string | null },
   env: Record<string, string | undefined> = process.env,
 ): string {
+  const origin = configuredOrigin(env);
+  if (origin) return `${origin}/api/usage`;
+
   const production = env.VERCEL_ENV === "production" ? env.VERCEL_PROJECT_PRODUCTION_URL?.trim() : undefined;
   if (production) return HOST_PATTERN.test(production) ? `https://${production}/api/usage` : DEFAULT_API_URL;
 

@@ -152,6 +152,29 @@ describe("checkMachineSettings", () => {
 });
 
 describe("usageEndpoint", () => {
+  it("prefers NEXT_PUBLIC_SITE_URL over the production domain", () => {
+    const env = {
+      VERCEL_ENV: "production",
+      VERCEL_PROJECT_PRODUCTION_URL: "usageratio.example.com",
+      NEXT_PUBLIC_SITE_URL: " https://app.usageratio.example.com/ ",
+    };
+    expect(usageEndpoint(headers({ host: "usageratio.example.com" }), env)).toBe(
+      "https://app.usageratio.example.com/api/usage",
+    );
+    expect(usageEndpoint(headers({ host: "localhost:3111" }), { NEXT_PUBLIC_SITE_URL: "http://dash.lan:8080/x" })).toBe(
+      "http://dash.lan:8080/api/usage",
+    );
+  });
+
+  it("ignores a NEXT_PUBLIC_SITE_URL that is not an http(s) URL", () => {
+    const env = { VERCEL_ENV: "production", VERCEL_PROJECT_PRODUCTION_URL: "usageratio.example.com" };
+    for (const value of ["not a url", "javascript:alert(1)", "ftp://usageratio.example.com", ""]) {
+      expect(usageEndpoint(headers({}), { ...env, NEXT_PUBLIC_SITE_URL: value })).toBe(
+        "https://usageratio.example.com/api/usage",
+      );
+    }
+  });
+
   it("points production clients at the production domain, not the deployment URL", () => {
     const env = { VERCEL_ENV: "production", VERCEL_PROJECT_PRODUCTION_URL: "usageratio.example.com" };
     expect(usageEndpoint(headers({ host: "usageratio-abc123-my-projects.vercel.app" }), env)).toBe(
