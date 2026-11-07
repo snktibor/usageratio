@@ -15,7 +15,7 @@ import { revokeToken } from "@/lib/tokens";
  *
  * 200 ok (idempotent: revoking an already-revoked token still answers ok) ·
  * 401 no session · 403 foreign origin, demo mode, or no sudo grant ·
- * 404 no token with this id · 503 Redis down
+ * 404 no token with this id · 409 tokens_busy (a rotation is running; try again) · 503 Redis down
  */
 
 type Params = { id: string };
@@ -34,7 +34,7 @@ export async function DELETE(request: Request, context: { params: Promise<Params
 
     const now = new Date();
     const result = await revokeToken(store, id, now, tokenAudit("token_revoked", tenant, now));
-    if (!result.ok) return apiError("not_found", 404);
+    if (!result.ok) return result.reason === "busy" ? apiError("tokens_busy", 409) : apiError("not_found", 404);
     return json({ ok: true }, 200);
   })(request);
 }

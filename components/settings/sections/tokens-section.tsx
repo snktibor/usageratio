@@ -61,11 +61,14 @@ export function TokensSection({
   knownMachines,
   onManaged,
   sharedToken = true,
+  tokenHistory = true,
 }: {
   titleId: string;
   timeZone: string;
   /** False in multi-tenant mode, where there is no shared token to compare these with. */
   sharedToken?: boolean;
+  /** False for a workspace member: the token history is the owner's. */
+  tokenHistory?: boolean;
   /** The machines that have reported, to bind a new token to (from the Machines section's list). */
   knownMachines: string[];
   onManaged: () => void;
@@ -179,19 +182,27 @@ export function TokensSection({
   }
 
   async function performRotate(token: MachineTokenView) {
-    const response = await fetch(`/api/tokens/${encodeURIComponent(token.id)}/rotate`, { method: "POST" });
-    if (response.ok) {
-      setJustCreated((await response.json()) as { id: string; token: string });
+    setProblem(null);
+    try {
+      const response = await fetch(`/api/tokens/${encodeURIComponent(token.id)}/rotate`, { method: "POST" });
+      if (response.ok) {
+        setJustCreated((await response.json()) as { id: string; token: string });
+        reload();
+        onManaged();
+        return;
+      }
+      const error = await errorCode(response);
+      if (error === "sudo_required") {
+        setSudoRetry({ kind: "rotate", token });
+        return;
+      }
+      setProblem(error === "too_many_tokens" ? t("tokens_rotate_too_many") : t("tokens_action_failed"));
+    } catch {
+      // The answer was lost: the rotation may have happened, and its new secret is then gone. The
+      // list shows which; rotating again gives a fresh one.
+      setProblem(t("tokens_rotate_lost"));
       reload();
-      onManaged();
-      return;
     }
-    const error = await errorCode(response);
-    if (error === "sudo_required") {
-      setSudoRetry({ kind: "rotate", token });
-      return;
-    }
-    setProblem(t("tokens_action_failed"));
   }
 
   return (
@@ -204,10 +215,16 @@ export function TokensSection({
           ? t.rich("tokens_explanation", { code: (chunks) => <code className="text-ink-2">{chunks}</code> })
           : t("tokens_explanation_multi")}
       </p>
-      <button type="button" onClick={() => setHistoryOpen(true)} className={`flex items-center gap-2 ${QUIET_BUTTON}`}>
-        <HistoryIcon />
-        {t("tokens_audit_button")}
-      </button>
+      {tokenHistory && (
+        <button
+          type="button"
+          onClick={() => setHistoryOpen(true)}
+          className={`flex items-center gap-2 ${QUIET_BUTTON}`}
+        >
+          <HistoryIcon />
+          {t("tokens_audit_button")}
+        </button>
+      )}
 
       {load.phase === "loading" ? (
         <p className="text-sm text-ink-3">{t("loading_status")}</p>

@@ -270,6 +270,7 @@ export function SettingsPage({ view }: { view: SettingsView }) {
                 knownMachines={machineIds}
                 onManaged={actions.refresh}
                 sharedToken={view.sharedToken !== false}
+                tokenHistory={view.tokenHistory !== false}
               />
             </SettingsGroup>
 

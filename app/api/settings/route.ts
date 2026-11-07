@@ -67,7 +67,7 @@ export const GET = withApiHandler("api/settings", async () => {
       ...buildSettingsView(
         config,
         groups,
-        { maskWebhook: isMultiTenant(), sharedToken: !isMultiTenant() },
+        { multiTenant: isMultiTenant(), owner: tenant.role === "owner" },
         providerIds,
       ),
     },

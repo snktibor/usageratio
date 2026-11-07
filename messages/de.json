@@ -314,7 +314,9 @@
     "tokens_rotate_button": "Ersetzen",
     "tokens_rotate_aria": "„{label}“ ersetzen",
     "tokens_rotate_title": "Dieses Token ersetzen?",
-    "tokens_rotate_body": "„{label}“ funktioniert ab sofort nicht mehr, und ein neues Token ersetzt es, das nur einmal angezeigt wird. Trage das neue in die Client-Konfiguration des Geräts ein, sonst meldet es nicht mehr."
+    "tokens_rotate_body": "„{label}“ funktioniert ab sofort nicht mehr, und ein neues Token ersetzt es, das nur einmal angezeigt wird. Trage das neue in die Client-Konfiguration des Geräts ein, sonst meldet es nicht mehr.",
+    "tokens_rotate_too_many": "Es werden noch zu viele widerrufene Tokens aufbewahrt (sie werden 90 Tage nach dem Widerruf vergessen). Versuche es später erneut.",
+    "tokens_rotate_lost": "Die Antwort kam nicht an. Prüfe die Liste: Wurde das Token ersetzt, ersetze es erneut, um ein neues Geheimnis zu erhalten."
   },
   "Alerts": {
     "threshold_text": "{label} hat {threshold}% seines Kontingents verbraucht (aktuell bei {used}%); der Zyklus endet am {end}."

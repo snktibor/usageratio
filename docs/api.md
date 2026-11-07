@@ -484,6 +484,8 @@ never again. See [clients.md](clients.md#per-machine-tokens-vs-the-master-token)
 New tokens are `ur_live_` followed by 32 random bytes, base64url; tokens issued earlier start with
 a bare `ur_` and keep working. Every create, revoke and rotate goes on the workspace's audit trail.
 
+Up to 100 live tokens per workspace (`422 too_many_tokens` with `limit` past that).
+
 - **`GET /api/tokens`** → `{ "tokens": [{id, label, machineId, scope, createdAt, lastUsedAt, revokedAt, createdBy}] }`
   (never the token or its hash). `401` no session · `503` Redis down.
 - **`POST /api/tokens`** (session + sudo, same-origin) `{ "label": "…", "machineId"?: "…", "scope"?:
@@ -499,13 +501,15 @@ a bare `ur_` and keep working. Every create, revoke and rotate goes on the works
   `401` no session · `403` foreign origin, demo mode, or no sudo grant · `404` no such token · `503`
   Redis down.
 - **`POST /api/tokens/[id]/rotate`** (session + sudo, same-origin) → `200 { "id", "token" }`: a fresh
-  token with the same label, machine and scope; the old one is revoked in the same step. `404` no
-  such token · `409 token_revoked` · otherwise as `DELETE`.
-- **`GET /api/tokens/audit`** (session) → `{ "entries": [{ "at", "action": "token_created" |
-  "token_revoked" | "token_rotated" | …, "browser", "os", "userAgent", "ip", "session", "token": {
-  "id", "label" } | null, "by": login | null }], "currentSession" }`: the workspace's audit trail,
-  newest first (on a single-user instance it also holds the shared token's own `created`, `updated`
-  and `revealed` entries). `by` is the GitHub login in multi-tenant mode.
+  token with the same label, machine, scope and creator; the old one is revoked in the same step.
+  `404` no such token · `409 token_revoked` / `tokens_busy` (another revoke or rotate is running) ·
+  `422 too_many_tokens` (200 entries, revoked ones included, until housekeeping forgets them) ·
+  otherwise as `DELETE`. `DELETE` can answer `409 tokens_busy` too.
+- **`GET /api/tokens/audit`** (session, the owner's) → `{ "entries": [{ "at", "action":
+  "token_created" | "token_revoked" | "token_rotated", "browser", "os", "userAgent", "ip", "session",
+  "token": { "id", "label", "replacement"? }, "by": login | null }], "currentSession" }`: the
+  per-machine tokens' audit trail, newest first. `by` is the GitHub login in multi-tenant mode.
+  `403 owner_only` for a workspace member: the trail carries other people's network details.
 
 ## Machines
 

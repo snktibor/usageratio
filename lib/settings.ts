@@ -141,6 +141,8 @@ export interface SettingsView {
   webhookMasked?: boolean;
   /** False in multi-tenant mode: there is no shared API token, so no vault section (per-machine tokens only). */
   sharedToken?: boolean;
+  /** False for a workspace member: the token history carries other people's network details, and is the owner's. */
+  tokenHistory?: boolean;
   timeZone: string;
   /** `models`: this cycle's model ids of the provider (without their dates), for picking a sub-limit's. */
   providers: { id: string; label: string; models: string[] }[];
@@ -962,8 +964,12 @@ export function suggestGroupColor(usedColors: string[], random: () => number = M
 export function buildSettingsView(
   config: AppConfig,
   groups: KnownGroup[],
-  /** Multi-tenant mode: the webhook URL never reaches a browser (lib/webhook.ts `maskWebhookUrl`). Every caller decides. */
-  options: { maskWebhook: boolean; sharedToken?: boolean },
+  /**
+   * Every caller decides. `multiTenant`: the webhook URL never reaches a browser (lib/webhook.ts
+   * `maskWebhookUrl`), and there is no shared token. `owner`: whether the viewer may see the token
+   * history (a single-user instance's PIN always may).
+   */
+  options: { multiTenant: boolean; owner?: boolean },
   providerIds: string[] = Object.keys(config.providerLimits),
   modelsByProvider: Record<string, string[]> = {},
 ): SettingsView {
@@ -971,9 +977,9 @@ export function buildSettingsView(
   const providers = mergeProviderIds(providerIds, Object.keys(config.providerLimits));
   const settings = settingsFromConfig(config, providers);
   return {
-    settings: options.maskWebhook ? withMaskedWebhook(settings) : settings,
-    ...(options.maskWebhook && { webhookMasked: true }),
-    ...(options.sharedToken === false && { sharedToken: false }),
+    settings: options.multiTenant ? withMaskedWebhook(settings) : settings,
+    ...(options.multiTenant && { webhookMasked: true, sharedToken: false }),
+    ...(options.owner === false && { tokenHistory: false }),
     timeZone: config.reset.timeZone,
     providers: providers.map((id) => ({
       id,

@@ -89,7 +89,8 @@ export type ApiErrorCode =
   | "owner_cannot_leave"
   | "cannot_remove_owner"
   | "members_busy"
-  | "token_revoked";
+  | "token_revoked"
+  | "tokens_busy";
 
 export const MIN_API_TOKEN_LENGTH = 16;
 
@@ -290,7 +291,7 @@ export async function requireBearer(request: Request): Promise<Response | Bearer
   const store = indexed ? tenantStore(indexed) : defaultTenantStore();
   // A disabled (or half-deleted) tenant's machines are refused before anything of the tenant is
   // touched: authenticating would write the token's lastUsedAt into the tenant's keys.
-  if (isMultiTenant() && !tenantIsActive(store.tenantId, await loadTenantRecord(store.tenantId))) {
+  if (multi && !tenantIsActive(store.tenantId, await loadTenantRecord(store.tenantId))) {
     return apiError("tenant_disabled", 403);
   }
   const result = await authenticateToken(store, presented, new Date());

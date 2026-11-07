@@ -24,7 +24,7 @@ import { MAX_SUB_LIMIT_MODELS } from "@/lib/sub-limits";
  */
 
 const config = getConfig({});
-const view = buildSettingsView(config, [], { maskWebhook: false }, ["claude", "deepseek"], {
+const view = buildSettingsView(config, [], { multiTenant: false }, ["claude", "deepseek"], {
   claude: ["claude-opus-4-5", "claude-fable-5-1"],
 });
 
@@ -285,7 +285,7 @@ describe("toRequest", () => {
         alerts: { ...config.alerts, webhookUrl: "https://hooks.slack.com/services/T000/B000/XXXXXXXXXXXX4f2a" },
       },
       [],
-      { maskWebhook: true },
+      { multiTenant: true },
       ["claude", "deepseek"],
     );
     const draft = draftFrom(masked);
@@ -328,7 +328,7 @@ describe("toRequest", () => {
   });
 
   it("keeps the stored reset modes through a save", () => {
-    const withModes = buildSettingsView({ ...config, resetModes: { claude: "restart" } }, [], { maskWebhook: false }, [
+    const withModes = buildSettingsView({ ...config, resetModes: { claude: "restart" } }, [], { multiTenant: false }, [
       "claude",
       "deepseek",
     ]);
@@ -374,7 +374,7 @@ describe("per-provider resets", () => {
       resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 5, source: "report" } },
     },
     [],
-    { maskWebhook: false },
+    { multiTenant: false },
     ["claude", "openai"],
     {},
   );
@@ -419,7 +419,7 @@ describe("a report's own reset with its instant", () => {
         resetOverrides: { claude: { weekday: 6, monthDay: 1, hour: 12, minute: 0, source: "report", anchorMs } },
       },
       [],
-      { maskWebhook: false },
+      { multiTenant: false },
       ["claude"],
       {},
     ),

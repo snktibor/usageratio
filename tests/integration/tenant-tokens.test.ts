@@ -141,10 +141,10 @@ describe("tokens per workspace", () => {
       await call(revoke as Handler, "/api/tokens/x", { method: "DELETE", cookie, params: { id: second.id } });
 
       const entries = await trail(cookie);
-      expect(entries.map((entry) => [entry.action, entry.token?.id, entry.by])).toEqual([
-        ["token_revoked", second.id, null],
-        ["token_rotated", first.id, null],
-        ["token_created", first.id, null],
+      expect(entries.map((entry) => [entry.action, entry.token?.id, entry.token?.replacement, entry.by])).toEqual([
+        ["token_revoked", second.id, undefined, null],
+        ["token_rotated", first.id, second.id, null],
+        ["token_created", first.id, undefined, null],
       ]);
       // The trail never holds a secret.
       expect(JSON.stringify(entries)).not.toContain("ur_live_");
@@ -207,6 +207,55 @@ describe("tokens per workspace", () => {
       };
       expect(listed.tokens[0]?.revokedAt).not.toBeNull();
       expect((await listTokens(store))[0]?.createdBy).toBe(member.userId);
+    });
+
+    it("keeps the token history to the owner, and a rotated token with the member who made it", async () => {
+      const owner = await person(1, "alice");
+      const member = await person(2, "bob-dev", owner.tenantId);
+      const created = await call(createTokenRoute as Handler, "/api/tokens", {
+        method: "POST",
+        cookie: member.cookie,
+        tenant: member.tenantId,
+        body: { label: "bob's box", machineId: "bob-box" },
+      });
+      const { id } = (await created.json()) as { id: string };
+      const history = await call(tokenAudit as Handler, "/api/tokens/audit", { cookie: member.cookie });
+      expect(history.status).toBe(403);
+
+      // The owner rotates bob's token: it still counts as bob's, so removing bob with his tokens
+      // reaches the replacement too.
+      const rotated = await call(rotate as Handler, "/api/tokens/x/rotate", {
+        method: "POST",
+        cookie: owner.cookie,
+        tenant: owner.tenantId,
+        params: { id },
+      });
+      expect(rotated.status).toBe(200);
+      const removed = await call(removeMemberRoute as Handler, "/api/workspace/members/x?revokeTokens=1", {
+        method: "DELETE",
+        cookie: owner.cookie,
+        tenant: owner.tenantId,
+        params: { userId: member.userId },
+      });
+      expect(await removed.json()).toEqual({ ok: true, tokensRevoked: 1 });
+      expect((await listTokens(tenantStore(owner.tenantId))).every((token) => token.revokedAt !== null)).toBe(true);
+    });
+
+    it("lets one revoke or rotate run at a time, so a token is never left live after both", async () => {
+      const owner = await person(1, "alice");
+      const store = tenantStore(owner.tenantId);
+      const created = await createToken(store, "laptop", null, new Date());
+      if (!created.ok) throw new Error("unreachable");
+      const { getRedis } = await import("@/lib/redis");
+      await getRedis().set(store.keys.tokensLock, "someone", { ex: 10 });
+      const session = { cookie: owner.cookie, tenant: owner.tenantId, params: { id: created.id } };
+      for (const response of [
+        await call(rotate as Handler, "/api/tokens/x/rotate", { ...session, method: "POST" }),
+        await call(revoke as Handler, "/api/tokens/x", { ...session, method: "DELETE" }),
+      ]) {
+        expect([response.status, ((await response.json()) as { error: string }).error]).toEqual([409, "tokens_busy"]);
+      }
+      expect((await listTokens(store)).map((token) => token.revokedAt)).toEqual([null]);
     });
 
     it("keeps an older token's own id when its workspace issues more", async () => {

@@ -131,7 +131,11 @@ export function AuditDialog({
                 </div>
                 {entry.token && (
                   <p className="mt-1 text-sm text-ink wrap-anywhere">
-                    {entry.token.label} <span className="font-mono text-xs text-ink-3">{entry.token.id}</span>
+                    {entry.token.label}{" "}
+                    <span className="font-mono text-xs text-ink-3">
+                      {entry.token.id}
+                      {entry.token.replacement && ` → ${entry.token.replacement}`}
+                    </span>
                   </p>
                 )}
                 {entry.by && <p className="mt-0.5 text-sm text-ink-2">{t("audit_by", { login: entry.by })}</p>}

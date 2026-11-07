@@ -314,7 +314,9 @@
     "tokens_rotate_button": "Csere",
     "tokens_rotate_aria": "„{label}” cseréje",
     "tokens_rotate_title": "Lecseréled ezt a tokent?",
-    "tokens_rotate_body": "„{label}” azonnal érvénytelen lesz, és egy új token lép a helyére, amely csak egyszer jelenik meg. Írd be az újat a gép kliensbeállításába, különben a gép nem jelent tovább."
+    "tokens_rotate_body": "„{label}” azonnal érvénytelen lesz, és egy új token lép a helyére, amely csak egyszer jelenik meg. Írd be az újat a gép kliensbeállításába, különben a gép nem jelent tovább.",
+    "tokens_rotate_too_many": "Túl sok visszavont token van még megőrizve (a visszavonás után 90 nappal törlődnek). Próbáld később.",
+    "tokens_rotate_lost": "A válasz nem érkezett meg. Nézd meg a listát: ha a token lecserélődött, cseréld újra, hogy új titkot kapj."
   },
   "Alerts": {
     "threshold_text": "A(z) {label} elhasználta a kerete {threshold}%-át (jelenleg {used}%-nál tart); a ciklus itt ér véget: {end}."

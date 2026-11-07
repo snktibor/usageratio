@@ -42,8 +42,13 @@ const ID_CHARS = 8;
 
 export const MIN_LABEL_LENGTH = 1;
 export const MAX_LABEL_LENGTH = 64;
-/** A deployment cap, the same spirit as MAX_GROUPS / MAX_PROVIDERS / MAX_MACHINES. */
+/** Live tokens a workspace may have: a deployment cap, the same spirit as MAX_GROUPS / MAX_PROVIDERS / MAX_MACHINES. */
 export const MAX_TOKENS = 100;
+/**
+ * Entries the tokens hash may hold, revoked ones included (they stay 90 days, see
+ * REVOKED_RETENTION_DAYS): what bounds the hash when tokens are rotated again and again.
+ */
+export const MAX_TOKEN_ENTRIES = 2 * MAX_TOKENS;
 
 /** `lastUsedAt` is refreshed at most this often, to spare Redis a write on every ingest. */
 export const LAST_USED_REFRESH_MS = 60 * 60 * 1000;
@@ -182,8 +187,26 @@ type Transaction = ReturnType<TenantStore["redis"]["multi"]>;
 
 async function queueAudit(tx: Transaction, store: TenantStore, audit: TokenAudit | undefined, token: AuditToken) {
   if (!audit) return;
-  tx.lpush(store.keys.apiTokenAudit, await audit(token));
-  tx.ltrim(store.keys.apiTokenAudit, 0, AUDIT_LIMIT - 1);
+  tx.lpush(store.keys.tokensAudit, await audit(token));
+  tx.ltrim(store.keys.tokensAudit, 0, AUDIT_LIMIT - 1);
+}
+
+const LOCK_SECONDS = 10;
+
+/**
+ * Runs `fn` holding the workspace's token lock: a revocation and a rotation each read a token and
+ * then write it, so two of them at once (a rotation clicked in two tabs, a revocation landing
+ * mid-rotation) could otherwise leave two live replacements, or a live one after a revocation.
+ */
+async function withTokenLock<T>(store: TenantStore, fn: () => Promise<T>): Promise<T | "busy"> {
+  const holder = randomBytes(9).toString("base64url");
+  if ((await store.redis.set(store.keys.tokensLock, holder, { nx: true, ex: LOCK_SECONDS })) !== "OK") return "busy";
+  try {
+    return await fn();
+  } finally {
+    // Only our own lock: one that ran past its expiry may be someone else's by now.
+    if ((await store.redis.get(store.keys.tokensLock)) === holder) await store.redis.del(store.keys.tokensLock);
+  }
 }
 
 function newRecord(
@@ -218,8 +241,9 @@ export async function createToken(
   audit?: TokenAudit,
 ): Promise<CreateTokenResult> {
   const redis = store.redis;
-  const count = await redis.hlen(store.keys.tokens);
-  if (count >= MAX_TOKENS) return { ok: false, reason: "too_many" };
+  const existing = toStringRecord(await redis.hgetall(store.keys.tokens));
+  const live = Object.values(existing).filter((value) => parseStored(value)?.revokedAt === null).length;
+  if (live >= MAX_TOKENS || Object.keys(existing).length >= MAX_TOKEN_ENTRIES) return { ok: false, reason: "too_many" };
 
   const { token, hash, record } = newRecord(label, machineId, scope, now, createdBy);
   const tx = redis.multi();
@@ -230,7 +254,7 @@ export async function createToken(
   return { ok: true, id: record.id, token };
 }
 
-export type RevokeTokenResult = { ok: true } | { ok: false; reason: "not_found" };
+export type RevokeTokenResult = { ok: true } | { ok: false; reason: "not_found" | "busy" };
 
 async function findToken(store: TenantStore, id: string): Promise<{ hash: string; token: MachineToken } | null> {
   const raw = toStringRecord(await store.redis.hgetall(store.keys.tokens));
@@ -251,50 +275,59 @@ export async function revokeToken(
   now: Date,
   audit?: TokenAudit,
 ): Promise<RevokeTokenResult> {
-  const found = await findToken(store, id);
-  if (!found) return { ok: false, reason: "not_found" };
-  const { hash, token } = found;
-  if (token.revokedAt === null) {
-    const tx = store.redis.multi();
-    tx.hset(store.keys.tokens, { [hash]: serialize({ ...token, revokedAt: now.getTime() }) });
-    await queueAudit(tx, store, audit, { id: token.id, label: token.label });
-    await tx.exec();
-  }
-  return { ok: true };
+  const result = await withTokenLock(store, async (): Promise<RevokeTokenResult> => {
+    const found = await findToken(store, id);
+    if (!found) return { ok: false, reason: "not_found" };
+    const { hash, token } = found;
+    if (token.revokedAt === null) {
+      const tx = store.redis.multi();
+      tx.hset(store.keys.tokens, { [hash]: serialize({ ...token, revokedAt: now.getTime() }) });
+      await queueAudit(tx, store, audit, { id: token.id, label: token.label });
+      await tx.exec();
+    }
+    return { ok: true };
+  });
+  return result === "busy" ? { ok: false, reason: "busy" } : result;
 }
 
 export type RotateTokenResult =
   | { ok: true; id: string; token: string }
-  | { ok: false; reason: "not_found" | "revoked" };
+  | { ok: false; reason: "not_found" | "revoked" | "busy" | "too_many" };
 
 /**
  * Replaces a live token with a fresh one in one step: same label, machine and scope, a new secret
  * and id; the old one is revoked in the same transaction, so there is never a moment with both or
- * neither. Not held to MAX_TOKENS: the number of live tokens stays the same.
+ * neither. The replacement keeps the old token's `createdBy`: it stands for the same machine, and
+ * removing that member with their tokens still finds it. Held to MAX_TOKEN_ENTRIES only (the live
+ * count stays the same).
  */
 export async function rotateToken(
   store: TenantStore,
   id: string,
   now: Date,
-  createdBy: string | null,
   audit?: TokenAudit,
 ): Promise<RotateTokenResult> {
-  const found = await findToken(store, id);
-  if (!found) return { ok: false, reason: "not_found" };
-  const { hash: oldHash, token: old } = found;
-  if (old.revokedAt !== null) return { ok: false, reason: "revoked" };
+  const result = await withTokenLock(store, async (): Promise<RotateTokenResult> => {
+    const all = toStringRecord(await store.redis.hgetall(store.keys.tokens));
+    const entry = Object.entries(all).find(([, value]) => parseStored(value)?.id === id);
+    if (!entry) return { ok: false, reason: "not_found" };
+    const [oldHash, oldValue] = entry;
+    const old = parseStored(oldValue)!;
+    if (old.revokedAt !== null) return { ok: false, reason: "revoked" };
+    if (Object.keys(all).length >= MAX_TOKEN_ENTRIES) return { ok: false, reason: "too_many" };
 
-  const { token, hash, record } = newRecord(old.label, old.machineId, old.scope, now, createdBy);
-  const tx = store.redis.multi();
-  tx.hset(store.keys.tokens, {
-    [oldHash]: serialize({ ...old, revokedAt: now.getTime() }),
-    [hash]: serialize(record),
+    const { token, hash, record } = newRecord(old.label, old.machineId, old.scope, now, old.createdBy);
+    const tx = store.redis.multi();
+    tx.hset(store.keys.tokens, {
+      [oldHash]: serialize({ ...old, revokedAt: now.getTime() }),
+      [hash]: serialize(record),
+    });
+    tx.hset(GLOBAL_KEYS.tokenIndex, { [hash]: store.tenantId });
+    await queueAudit(tx, store, audit, { id: old.id, label: old.label, replacement: record.id });
+    await tx.exec();
+    return { ok: true, id: record.id, token };
   });
-  tx.hset(GLOBAL_KEYS.tokenIndex, { [hash]: store.tenantId });
-  // The entry names the token that was rotated: its replacement carries the same label.
-  await queueAudit(tx, store, audit, { id: old.id, label: old.label });
-  await tx.exec();
-  return { ok: true, id: record.id, token };
+  return result === "busy" ? { ok: false, reason: "busy" } : result;
 }
 
 /** Revokes every live token `userId` created (a member removed with their tokens); how many it revoked. */
@@ -304,6 +337,16 @@ export async function revokeTokensCreatedBy(
   now: Date,
   audit?: TokenAudit,
 ): Promise<number> {
+  const result = await withTokenLock(store, () => revokeAllCreatedBy(store, userId, now, audit));
+  // A token change was running at that moment: try once more after it, rather than leave the tokens live.
+  if (result !== "busy") return result;
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const retried = await withTokenLock(store, () => revokeAllCreatedBy(store, userId, now, audit));
+  if (retried === "busy") throw new Error("token lock busy");
+  return retried;
+}
+
+async function revokeAllCreatedBy(store: TenantStore, userId: string, now: Date, audit?: TokenAudit): Promise<number> {
   const raw = toStringRecord(await store.redis.hgetall(store.keys.tokens));
   const changes: Record<string, string> = {};
   const revoked: AuditToken[] = [];

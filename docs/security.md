@@ -271,9 +271,11 @@ be bound to one `machineId`; a bound token reporting for any other machine gets
 `403 machine_mismatch`. Up to `MAX_TOKENS` = 100 tokens per deployment; a revoked token is kept
 (with `revokedAt` set) for 90 days before housekeeping forgets it entirely, so the audit trail and
 "last used" history survive a revoke for a while. Rotating issues the replacement and revokes the
-old token in one transaction. Every create, revoke and rotate is written to the workspace's audit
-trail in the same transaction as the change (in multi-tenant mode with the login of whoever did
-it); the trail holds the token's public id and label, never the secret.
+old token in one transaction; a revocation and a rotation hold a short per-workspace lock, so two
+of them at once cannot leave a live token behind. Every create, revoke and rotate is written to the
+per-machine tokens' audit trail in the same transaction as the change (in multi-tenant mode with
+the login of whoever did it); the trail holds the token's public id and label, never the secret,
+and only the workspace's owner can read it, since it carries other people's network details.
 
 ## The token vault and key rotation
 

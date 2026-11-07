@@ -314,7 +314,9 @@
     "tokens_rotate_button": "Rotate",
     "tokens_rotate_aria": "Rotate “{label}”",
     "tokens_rotate_title": "Rotate this token?",
-    "tokens_rotate_body": "“{label}” stops working now and a new token replaces it, shown once. Put the new one into that machine's client config, or it stops reporting."
+    "tokens_rotate_body": "“{label}” stops working now and a new token replaces it, shown once. Put the new one into that machine's client config, or it stops reporting.",
+    "tokens_rotate_too_many": "Too many revoked tokens are still kept (they are forgotten 90 days after revocation). Try again later.",
+    "tokens_rotate_lost": "The answer did not arrive. Check the list: if the token was rotated, rotate it again to get a new secret."
   },
   "Alerts": {
     "threshold_text": "{label} has used {threshold}% of its budget (currently at {used}%); the cycle ends {end}."

@@ -51,6 +51,8 @@ export const AUDIT_ACTIONS: readonly AuditAction[] = [
 export interface AuditToken {
   id: string;
   label: string;
+  /** A rotation's replacement: the new token's public id. */
+  replacement?: string;
 }
 
 /** The requesting browser, as the request described it. `ip` is the raw address (lib/request-context.ts `clientIp`). */
@@ -145,6 +147,7 @@ export function serializeAuditRecord(record: AuditRecord): string {
     ...(record.ipPrefix !== null && { ipp: record.ipPrefix }),
     s: record.session,
     ...(record.token && { tk: record.token.id, tl: record.token.label }),
+    ...(record.token?.replacement && { tn: record.token.replacement }),
     ...(record.by !== null && { by: record.by }),
   });
 }
@@ -173,7 +176,10 @@ export function parseAuditRecord(raw: string): AuditRecord | null {
     ipHash: optionalText(entry.iph),
     ipPrefix: optionalText(entry.ipp),
     session: optionalText(entry.s),
-    token: typeof entry.tk === "string" ? { id: entry.tk, label: text(entry.tl) } : null,
+    token:
+      typeof entry.tk === "string"
+        ? { id: entry.tk, label: text(entry.tl), ...(typeof entry.tn === "string" && { replacement: entry.tn }) }
+        : null,
     by: optionalText(entry.by),
   };
 }

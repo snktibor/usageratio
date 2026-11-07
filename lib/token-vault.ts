@@ -199,9 +199,18 @@ export async function auditRecord(
   now: Date,
   about: { token?: AuditToken; by?: string | null } = {},
 ): Promise<string> {
+  return serializeAuditRecord({
+    ...(await auditFields(action, now)),
+    token: about.token ?? null,
+    by: about.by ?? null,
+  });
+}
+
+/** The request's part of an audit record (browser, address, session): the same for every entry one request writes. */
+export async function auditFields(action: AuditAction, now: Date): Promise<AuditRecord> {
   const requestHeaders = await currentHeaders();
   const header = (name: string, max: number) => (requestHeaders.get(name) ?? "").slice(0, max);
-  return serializeAuditRecord({
+  return {
     at: now.getTime(),
     action,
     userAgent: header("user-agent", 256),
@@ -209,9 +218,9 @@ export async function auditRecord(
     platform: header("sec-ch-ua-platform", 64),
     session: await sessionTag(),
     ...auditIpFields((await clientIp()).slice(0, 64)),
-    token: about.token ?? null,
-    by: about.by ?? null,
-  });
+    token: null,
+    by: null,
+  };
 }
 
 /** Encrypts and stores `token`, in one transaction with its audit entry. */
@@ -269,9 +278,15 @@ export async function revealApiToken(
   return { state: "stored", token: stored.token };
 }
 
-/** The audit trail, newest first. Entries that do not parse are left out. */
-export async function loadAuditTrail(store: TenantStore): Promise<AuditEntry[]> {
-  const raw = await store.redis.lrange<string>(store.keys.apiTokenAudit, 0, AUDIT_LIMIT - 1);
+/**
+ * An audit trail, newest first: the shared token's (`apiTokenAudit`, the default) or the
+ * per-machine tokens' (`tokensAudit`). Entries that do not parse are left out.
+ */
+export async function loadAuditTrail(
+  store: TenantStore,
+  trail: "apiTokenAudit" | "tokensAudit" = "apiTokenAudit",
+): Promise<AuditEntry[]> {
+  const raw = await store.redis.lrange<string>(store.keys[trail], 0, AUDIT_LIMIT - 1);
   return raw.flatMap((item) => {
     const record = parseAuditRecord(String(item));
     return record ? [toAuditEntry(record)] : [];
