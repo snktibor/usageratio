@@ -147,6 +147,26 @@ function cases(world: World): Record<string, Case[]> {
         expectNotFound: true,
       },
     ],
+    // Multi-tenant mode only as well: 404 here. The roles inside one workspace are
+    // tests/integration/workspace-members.test.ts's.
+    workspace: [{ method: "GET", path: "/api/workspace", auth: "session" }],
+    "workspace/invites": [{ method: "POST", path: "/api/workspace/invites", auth: "session", body: {} }],
+    "workspace/invites/[id]": [
+      { method: "DELETE", path: "/api/workspace/invites/x", auth: "session", params: { id: "iv_AAAAAAAA" } },
+    ],
+    "workspace/members/[userId]": [
+      {
+        method: "DELETE",
+        path: "/api/workspace/members/x?revokeTokens=1",
+        auth: "session",
+        params: { userId: "u_BBBBBBBBBBBBBBBBBBBBBB" },
+      },
+    ],
+    "workspace/leave": [{ method: "POST", path: "/api/workspace/leave", auth: "session" }],
+    "workspace/transfer": [
+      { method: "POST", path: "/api/workspace/transfer", auth: "sudo", body: { userId: "u_BBBBBBBBBBBBBBBBBBBBBB" } },
+    ],
+    "session/tenant": [{ method: "POST", path: "/api/session/tenant", auth: "session", body: { tenantId: B } }],
     "auth/github/start": [
       { method: "POST", path: "/api/auth/github/start", auth: "session", body: { purpose: "login" } },
     ],

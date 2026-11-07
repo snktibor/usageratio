@@ -1,3 +1,4 @@
+import { leaveWorkspace } from "@/lib/members";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { deleteTenant } from "@/lib/tenant-deletion";
@@ -63,7 +64,8 @@ export async function loadAccount(
 export type DeleteAccountResult =
   | { ok: true; workspacesDeleted: number; workspacesLeft: number }
   | { ok: false; reason: "owns_shared_workspace" | "owns_default_workspace"; tenantIds: TenantId[] }
-  | { ok: false; reason: "not_found" };
+  | { ok: false; reason: "not_found" }
+  | { ok: false; reason: "members_busy" };
 
 export async function deleteAccount(userId: string, now: Date): Promise<DeleteAccountResult> {
   const redis = getRedis();
@@ -79,15 +81,23 @@ export async function deleteAccount(userId: string, now: Date): Promise<DeleteAc
   }
   if (shared.length > 0) return { ok: false, reason: "owns_shared_workspace", tenantIds: shared };
 
-  let workspacesDeleted = 0;
+  // The shared workspaces first, each under its members lock: an owner handing a workspace to this
+  // user at the same moment must not make a deleted user its owner. A lock held elsewhere stops
+  // the deletion before anything is deleted; it can simply be tried again.
   let workspacesLeft = 0;
   for (const { tenantId, role } of memberships) {
-    if (role === "owner") {
-      if ((await deleteTenant(tenantId, now)).ok) workspacesDeleted += 1;
-    } else {
-      await redis.hdel(GLOBAL_KEYS.tenantMembers(tenantId), userId);
-      workspacesLeft += 1;
+    if (role === "owner") continue;
+    const left = await leaveWorkspace(tenantId, userId);
+    if (!left.ok && left.reason === "busy") return { ok: false, reason: "members_busy" };
+    // "owner_cannot_leave": handed this user the workspace a moment ago; it is shared, so stop.
+    if (!left.ok && left.reason === "owner_cannot_leave") {
+      return { ok: false, reason: "owns_shared_workspace", tenantIds: [tenantId] };
     }
+    workspacesLeft += 1;
+  }
+  let workspacesDeleted = 0;
+  for (const tenantId of owned) {
+    if ((await deleteTenant(tenantId, now)).ok) workspacesDeleted += 1;
   }
 
   await endAllUserSessions(userId);

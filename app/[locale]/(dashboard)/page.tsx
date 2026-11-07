@@ -4,6 +4,7 @@ import { setRequestLocale } from "next-intl/server";
 import { SignInGate } from "@/components/auth/sign-in-gate";
 import { Dashboard, type PastSummary } from "@/components/dashboard";
 import { StorageProblem } from "@/components/storage-problem";
+import { TenantGuard } from "@/components/tenant-guard";
 import { routing } from "@/i18n/routing";
 import { type AllTimeSummary, allTimeCycles, summarizeAllTime } from "@/lib/all-time";
 import { archiveDueCycles, summarizeProviderCycle } from "@/lib/archive";
@@ -29,6 +30,7 @@ import { PROVIDER_COOKIE } from "@/lib/preferences";
 import { currentSegmentStartMs, earliestStartMs, providerCycle } from "@/lib/provider-cycles";
 import { mergeProviderIds, providerLabel } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
+import { isMultiTenant } from "@/lib/registration";
 import { resetEventsOf } from "@/lib/resets";
 import {
   NEUTRAL_COLOR,
@@ -39,7 +41,7 @@ import {
   visibleProviderIds,
 } from "@/lib/settings";
 import type { TenantStore } from "@/lib/tenant";
-import { currentTenant } from "@/lib/tenant-context";
+import { currentTenant, type TenantContext } from "@/lib/tenant-context";
 import { loadAllTime, loadEvents, loadHistory, loadIndexes, loadOldestReportTime } from "@/lib/usage-store";
 
 // Rendered per request: the page depends on the session cookie and on live data.
@@ -225,11 +227,12 @@ export default async function Page({
 
   const selectedProviderId = (await cookies()).get(PROVIDER_COOKIE)?.value;
   let data: DashboardData | null = null;
+  let tenant: TenantContext | null = null;
   let storageError: unknown = null;
 
   try {
     // Usage data and settings are only ever read after the session check passed.
-    const tenant = await currentTenant();
+    tenant = await currentTenant();
     if (tenant)
       data = await loadDashboard(tenant.store, parseCycleParam((await searchParams).cycle), selectedProviderId);
   } catch (error) {
@@ -240,21 +243,25 @@ export default async function Page({
   if (storageError) {
     return <StorageProblem notConfigured={storageError instanceof StorageNotConfiguredError} />;
   }
-  if (!data) return <SignInGate />;
+  if (!data || !tenant) return <SignInGate />;
 
   return (
-    <Dashboard
-      providers={withSelectedProviderFirst(data.providers, selectedProviderId)}
-      summaries={withSelectedProviderFirst(data.summaries, selectedProviderId)}
-      timeZone={data.timeZone}
-      generatedAt={data.generatedAt}
-      historyByProvider={data.historyByProvider}
-      allTimeByProvider={data.allTimeByProvider}
-      options={data.options}
-      selection={data.selection}
-      exportCycle={data.exportCycle}
-      groupColors={data.groupColors}
-      costEstimate={data.costEstimate}
-    />
+    <>
+      {isMultiTenant() && <TenantGuard tenantId={tenant.store.tenantId} />}
+      <Dashboard
+        providers={withSelectedProviderFirst(data.providers, selectedProviderId)}
+        summaries={withSelectedProviderFirst(data.summaries, selectedProviderId)}
+        timeZone={data.timeZone}
+        generatedAt={data.generatedAt}
+        historyByProvider={data.historyByProvider}
+        allTimeByProvider={data.allTimeByProvider}
+        options={data.options}
+        selection={data.selection}
+        // In a shared workspace only its owner exports (the server checks it too).
+        exportCycle={tenant.role === "owner" ? data.exportCycle : null}
+        groupColors={data.groupColors}
+        costEstimate={data.costEstimate}
+      />
+    </>
   );
 }

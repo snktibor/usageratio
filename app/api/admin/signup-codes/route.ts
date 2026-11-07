@@ -1,6 +1,6 @@
 import { requireAdmin } from "@/lib/admin-guard";
 import { json, requireSameOrigin, withApiHandler } from "@/lib/api";
-import { githubConfig } from "@/lib/github";
+import { publicOrigin } from "@/lib/github";
 import { createSignupCode } from "@/lib/signup-codes";
 
 /**
@@ -18,6 +18,5 @@ export const POST = withApiHandler("api/admin/signup-codes", async ({ request, u
   const admin = await requireAdmin();
   if (admin instanceof Response) return admin;
   const { id, code, entry } = await createSignupCode(admin.userId, new Date());
-  const origin = githubConfig() ? new URL(githubConfig()!.redirectUri).origin : url.origin;
-  return json({ id, url: `${origin}/signup#${code}`, entry }, 201);
+  return json({ id, url: `${publicOrigin(url)}/signup#${code}`, entry }, 201);
 });

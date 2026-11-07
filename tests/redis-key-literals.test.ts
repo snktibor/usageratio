@@ -45,6 +45,8 @@ const RAW_CLIENT_USERS = new Set([
   "lib/user-session.ts",
   "lib/oauth-state.ts",
   "lib/signup-codes.ts",
+  "lib/invites.ts", // workspace invites
+  "lib/members.ts", // memberships and the tenant's members lock
   "lib/tenant-context.ts", // the membership check
   "lib/account.ts",
   "lib/admin.ts",

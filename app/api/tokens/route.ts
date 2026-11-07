@@ -109,7 +109,7 @@ export const POST = withApiHandler("api/tokens", async ({ request }) => {
   const parsed = parseCreateBody(body.value);
   if ("errors" in parsed) return apiError("invalid_payload", 400, { details: parsed.errors });
 
-  const result = await createToken(store, parsed.label, parsed.machineId, new Date(), parsed.scope);
+  const result = await createToken(store, parsed.label, parsed.machineId, new Date(), parsed.scope, tenant.userId);
   if (!result.ok) return apiError("too_many_tokens", 422, { limit: MAX_TOKENS });
   return json({ id: result.id, token: result.token }, 201);
 });

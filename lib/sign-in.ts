@@ -1,7 +1,9 @@
 import { routing } from "@/i18n/routing";
 import { clearCookie, hostCookieName, serializeCookie } from "@/lib/cookies";
 import { authorizeUrl, exchangeCode, fetchGithubUser, githubConfig, pkcePair } from "@/lib/github";
+import { consumeInvite, inviteHash, isInviteCodeShape, peekInvite } from "@/lib/invites";
 import { log } from "@/lib/log";
+import { addMember } from "@/lib/members";
 import { consumeOAuthState, createOAuthState, OAUTH_STATE_TTL_SECONDS, type OAuthPurpose } from "@/lib/oauth-state";
 import { hit, type RateLimitResult } from "@/lib/rate-limit";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
@@ -12,7 +14,14 @@ import { consumeSignupCode, isSignupCodeShape, signupCodeHash, signupCodeIsLive 
 import type { TenantId } from "@/lib/tenant-id";
 import { loadTenantRecord, tenantIsActive } from "@/lib/tenants";
 import { currentUserSession, markSessionAuthenticated, startUserSession } from "@/lib/user-session";
-import { createTenantFor, findOrCreateGithubUser, hasGithubIdentity, userForGithub, userTenants } from "@/lib/users";
+import {
+  createTenantFor,
+  findOrCreateGithubUser,
+  hasGithubIdentity,
+  membershipRole,
+  userForGithub,
+  userTenants,
+} from "@/lib/users";
 
 /**
  * The GitHub sign-in flow, between the two route handlers
@@ -24,7 +33,7 @@ import { createTenantFor, findOrCreateGithubUser, hasGithubIdentity, userForGith
  */
 
 /** Where a sign-in may return to: the pages that show the sign-in screen. Anything else goes home. */
-const RETURN_TO = new Set(["/", "/setup", "/settings", "/account", "/admin"]);
+const RETURN_TO = new Set(["/", "/setup", "/settings", "/account", "/admin", "/workspace"]);
 const OAUTH_COOKIE = "ur_oauth";
 
 export function safeReturnTo(raw: unknown): string {
@@ -58,11 +67,16 @@ export type SignInErrorCode =
   | "github_failed"
   | "registration_closed"
   | "signup_code_invalid"
+  | "invite_invalid"
+  | "invite_wrong_account"
   | "sudo_mismatch";
 
 export type StartResult =
   | { ok: true; url: string; cookie: string }
-  | { ok: false; reason: "misconfigured" | "unauthorized" | "signup_code_invalid" | "registration_closed" };
+  | {
+      ok: false;
+      reason: "misconfigured" | "unauthorized" | "signup_code_invalid" | "invite_invalid" | "registration_closed";
+    };
 
 /** Starts an attempt: the authorize URL to send the browser to, and the nonce cookie that binds the attempt to it. */
 export async function startSignIn(params: {
@@ -70,6 +84,7 @@ export async function startSignIn(params: {
   returnTo: unknown;
   locale: unknown;
   signupCode?: unknown;
+  inviteCode?: unknown;
 }): Promise<StartResult> {
   const config = githubConfig();
   if (!config) {
@@ -83,6 +98,7 @@ export async function startSignIn(params: {
 
   let sid: string | undefined;
   let signup: string | undefined;
+  let invite: string | undefined;
   if (params.purpose === "sudo") {
     const session = await currentUserSession();
     if (!session) return { ok: false, reason: "unauthorized" };
@@ -95,6 +111,12 @@ export async function startSignIn(params: {
     }
     signup = signupCodeHash(code);
   }
+  if (params.purpose === "join") {
+    const code = typeof params.inviteCode === "string" ? params.inviteCode.trim() : "";
+    if (!isInviteCodeShape(code) || !(await peekInvite(inviteHash(code))))
+      return { ok: false, reason: "invite_invalid" };
+    invite = inviteHash(code);
+  }
 
   const { verifier, challenge } = pkcePair();
   const { state, nonce } = await createOAuthState({
@@ -103,6 +125,7 @@ export async function startSignIn(params: {
     returnTo: safeReturnTo(params.returnTo),
     locale: safeLocale(params.locale),
     ...(signup && { signup }),
+    ...(invite && { invite }),
     ...(sid && { sid }),
   });
   const secure = await isHttpsRequest();
@@ -114,7 +137,7 @@ export async function startSignIn(params: {
 }
 
 /** The first of the user's tenants (lib/users.ts `userTenants` order) that is not disabled or being deleted. */
-async function firstActiveTenant(userId: string): Promise<TenantId | null> {
+export async function firstActiveTenant(userId: string): Promise<TenantId | null> {
   for (const { tenantId } of await userTenants(userId)) {
     if (tenantIsActive(tenantId, await loadTenantRecord(tenantId))) return tenantId;
   }
@@ -173,6 +196,8 @@ export async function finishSignIn(
     return { location: landing, cookies };
   }
 
+  if (attempt.purpose === "join") return finishJoin(attempt.invite, github, { locale, landing, cookies }, now);
+
   let newTenant: TenantId | null = null;
   let userId: string;
   const known = await userForGithub(github.id);
@@ -201,5 +226,52 @@ export async function finishSignIn(
   const active = newTenant ?? (await firstActiveTenant(userId));
   cookies.push(await startUserSession(userId, active, now));
   log.info("signin.ok", { userId, purpose: attempt.purpose });
+  return { location: landing, cookies };
+}
+
+/**
+ * The callback of a workspace invite. The invite is looked at first and taken
+ * only once everything else checks out, so an invite bound to another login,
+ * or opened by someone who already belongs, is not used up. Taking it is the
+ * GETDEL: of two callbacks racing for one invite, one gets in.
+ */
+async function finishJoin(
+  hash: string | undefined,
+  github: { id: number; login: string },
+  context: {
+    locale: string;
+    landing: string;
+    cookies: string[];
+  },
+  now: Date,
+): Promise<FinishResult> {
+  const { locale, landing, cookies } = context;
+  // Back to the /join page, which shows why: home would show a signed-in user's dashboard instead.
+  const fail = (code: SignInErrorCode): FinishResult => {
+    log.warn("signin.failed", { reason: code, purpose: "join" });
+    return { location: `/${locale}/join?signin_error=${code}`, cookies };
+  };
+  const target = hash ? await peekInvite(hash) : null;
+  if (!hash || !target || !tenantIsActive(target.tenantId, await loadTenantRecord(target.tenantId))) {
+    return fail("invite_invalid");
+  }
+  if (target.login !== null && target.login !== github.login.toLowerCase()) return fail("invite_wrong_account");
+
+  const known = await userForGithub(github.id);
+  if (known && (await membershipRole(target.tenantId, known))) {
+    // Already in: just open the workspace, and leave the invite for whoever it was meant for.
+    await findOrCreateGithubUser(github, now);
+    cookies.push(await startUserSession(known, target.tenantId, now));
+    log.info("signin.ok", { userId: known, purpose: "join", alreadyMember: true });
+    return { location: landing, cookies };
+  }
+
+  const taken = await consumeInvite(hash);
+  if (!taken || taken.tenantId !== target.tenantId) return fail("invite_invalid");
+  // An invite is enough to create a user, never a workspace: the new user starts in this one.
+  const { userId } = await findOrCreateGithubUser(github, now);
+  await addMember(taken.tenantId, userId, taken.createdBy, now);
+  cookies.push(await startUserSession(userId, taken.tenantId, now));
+  log.info("signin.join", { userId, tenantId: taken.tenantId, inviteId: taken.inviteId });
   return { location: landing, cookies };
 }

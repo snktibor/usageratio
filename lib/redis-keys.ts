@@ -47,7 +47,13 @@
  *                                   individually revoked (see lib/tokens.ts); "scope" is
  *                                   "ingest" (absent in older entries), "read" or "official". The field is the
  *                                   token's own hash, never its plaintext, which is shown once at
- *                                   creation and not stored.
+ *                                   creation and not stored. "createdBy" is the userId who created
+ *                                   it (multi-tenant mode). The record is written only when the
+ *                                   token is created or revoked; "lastUsedAt" inside it is from
+ *                                   before usage:tokens:lastused existed.
+ *   usage:tokens:lastused    HASH   sha256(token) → last authenticated request (ms), refreshed at
+ *                                   most hourly: kept apart from the record, so that refresh can
+ *                                   never write back a copy of a token revoked meanwhile
  *
  *   usage:housekeeping:last  STRING {"at": ms, "report": HousekeepingReport} — the last run of
  *                                   lib/housekeeping.ts (see app/api/cron/housekeeping/route.ts)
@@ -153,7 +159,18 @@
  *                                           for "sign out everywhere"
  *   usage:identity:github:{id}       STRING userId (SET NX: one user per GitHub account, by its
  *                                           numeric id, never by the login, which can be renamed)
- *   usage:tenant:{tenantId}:members  HASH   userId → {"role", "joinedAt"}
+ *   usage:tenant:{tenantId}:members  HASH   userId → {"role", "joinedAt", "invitedBy"?}: one owner per
+ *                                           tenant, any number of members (lib/members.ts)
+ *   usage:tenant:{tenantId}:invites  HASH   inviteId → {"hash", "createdAt", "expiresAt", "createdBy",
+ *                                           "login"?}: the tenant's pending invites, for listing and
+ *                                           revoking (lib/invites.ts); expired ones are pruned by
+ *                                           housekeeping
+ *   usage:tenant:{tenantId}:lock     STRING a random holder id, SET NX EX 10 — held while the members
+ *                                           change (remove, leave, transfer, an account leaving), so
+ *                                           two changes cannot leave a tenant without its owner; only
+ *                                           its holder deletes it
+ *   usage:invite:{sha256(code)}      STRING {"tenantId", "inviteId", "createdBy", "login"?} EX =
+ *                                           expiry: a workspace invite, GETDEL when it is accepted
  *   usage:session2:{sha256(sid)}     STRING {"v": 2, "u": userId, "t": tenantId | null, "c": created
  *                                           ms, "s": last seen ms, "a": last GitHub sign-in ms,
  *                                           "ua": browser/OS label} EX = the session's maximum
@@ -161,7 +178,8 @@
  *                                           session can never be read as one, nor the other way.
  *   usage:oauth:{sha256(state)}      STRING one sign-in attempt's state (lib/oauth-state.ts):
  *                                           {"nonceHash", "verifier", "purpose", "returnTo",
- *                                           "locale", "signup"?, "sid"?} EX 600, GETDEL in the callback
+ *                                           "locale", "signup"?, "invite"?, "sid"?} EX 600, GETDEL in
+ *                                           the callback
  *   usage:signup:{sha256(code)}      STRING {"codeId"} EX = expiry: an instance admin's sign-up
  *                                           code (lib/signup-codes.ts), GETDEL when it is used
  *   usage:signups                    HASH   codeId → {"hash", "createdAt", "expiresAt", "createdBy",
@@ -192,6 +210,7 @@ export interface TenantKeys {
   apiTokenAudit: string;
   housekeepingLast: string;
   tokens: string;
+  tokensLastUsed: string;
   alert: (providerId: string, segmentStartMs: number, threshold: number) => string;
   registry: string;
 }
@@ -219,6 +238,7 @@ export function tenantKeys(tenantId: TenantId): TenantKeys {
     apiTokenAudit: `${p}api-token:audit`,
     housekeepingLast: `${p}housekeeping:last`,
     tokens: `${p}tokens`,
+    tokensLastUsed: `${p}tokens:lastused`,
     alert: (providerId, segmentStartMs, threshold) => `${p}alert:${providerId}:${segmentStartMs}:${threshold}`,
     registry: `${p}keys`,
   };
@@ -242,6 +262,7 @@ export function fixedTenantKeys(keys: TenantKeys): string[] {
     keys.apiTokenAudit,
     keys.housekeepingLast,
     keys.tokens,
+    keys.tokensLastUsed,
     keys.registry,
   ];
 }
@@ -284,6 +305,9 @@ export const GLOBAL_KEYS = {
   },
   tenantRecord: (tenantId: string) => `usage:tenant:${tenantId}`,
   tenantMembers: (tenantId: string) => `usage:tenant:${tenantId}:members`,
+  tenantInvites: (tenantId: string) => `usage:tenant:${tenantId}:invites`,
+  tenantLock: (tenantId: string) => `usage:tenant:${tenantId}:lock`,
+  invite: (hash: string) => `usage:invite:${hash}`,
   user: (userId: string) => `usage:user:${userId}`,
   userIdentities: (userId: string) => `usage:user:${userId}:identities`,
   userTenants: (userId: string) => `usage:user:${userId}:tenants`,

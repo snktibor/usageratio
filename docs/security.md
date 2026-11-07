@@ -102,7 +102,7 @@ With `REGISTRATION=invite` or `open`, the PIN is replaced by GitHub sign-in (`li
   The callback needs both and takes the record with `GETDEL`, so a state works once, in the browser
   that started it (no login CSRF, no replayed callback). The callback URL is fixed
   (`NEXT_PUBLIC_SITE_URL` + `/api/auth/github/callback`); after sign-in the browser only ever
-  returns to `/`, `/setup` or `/settings`. GitHub's access token is used once for `GET /user` and
+  returns to `/`, `/setup`, `/settings`, `/account`, `/admin` or `/workspace`. GitHub's access token is used once for `GET /user` and
   dropped; GitHub's error text is never echoed.
 - **Identity.** A user is found by the GitHub account's numeric id, never by its login (which can
   be renamed and reused). Only the id and the login are stored: no e-mail, no avatar, no token.
@@ -114,6 +114,26 @@ With `REGISTRATION=invite` or `open`, the PIN is replaced by GitHub sign-in (`li
   under its own key prefix (`usage:session2:*`), so a PIN session can never pass for one. Idle and
   absolute expiry are `SESSION_IDLE_DAYS` and `SESSION_MAX_DAYS`. Every request re-reads the
   tenant's members hash: a removed member, or a tenant that is gone, gets nothing at once.
+- **Workspaces with several people.** One owner per workspace; everyone else is a member, trusted
+  with its data (they see everything an owner sees and manage machines and settings), but only the
+  owner invites, revokes invites, removes members, hands the workspace over and exports. The role is
+  re-read from the members hash on every request, in `lib/`, not in the UI.
+- **Invites** are 256-bit single-use codes, stored only as a hash, valid for 7 days, revocable, at
+  most 10 pending per workspace. The link carries the code in the URL fragment (`/join#code`), which
+  browsers never send to a server. An invite may name a GitHub login: then only that account can
+  use it, and another account's attempt leaves it unused. It is taken with `GETDEL` in the
+  callback, so it works once even under a race; it grants `member` only, and can create a user but
+  never a workspace. Someone who already belongs just opens the workspace.
+- **Removal and leaving** take effect on the member's next request. Machine tokens record who created
+  them (`createdBy`), and removing a member offers (ticked by default) to revoke theirs. Removal,
+  leaving and handing over hold a short per-workspace lock, so two of them at once cannot leave a
+  workspace without its owner. Handing over needs sudo.
+- **The stale-tab guard.** The active workspace belongs to the session, so switching it in one tab
+  switches every tab. Every page sends the workspace it was rendered for with each change
+  (`X-Usageratio-Tenant`); the server refuses it with `412 tenant_changed` when that is not the
+  session's any more, or when the header is missing. The header can only make a request fail, never
+  choose a workspace. The switch itself (`POST /api/session/tenant`) answers `404` alike for "not
+  yours" and "does not exist".
 - **Sudo** is a fresh GitHub sign-in on the same session that must return the same account
   (`sudo_mismatch` otherwise), valid for 5 minutes. If the browser is already signed in to GitHub,
   GitHub may not ask for a password again: sudo then proves that the browser holds a live GitHub

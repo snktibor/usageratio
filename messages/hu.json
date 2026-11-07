@@ -709,7 +709,14 @@
     "error_signup_code_invalid": "Ez a regisztrációs link már nem érvényes: felhasználták, visszavonták, vagy lejárt.",
     "error_sudo_mismatch": "Ez egy másik GitHub-fiók volt, mint amelyikkel itt be vagy jelentkezve.",
     "error_rate_limited": "Innen túl sok belépési kísérlet érkezett. Várj néhány percet.",
-    "error_unavailable": "A szerver nem érhető el. Próbáld újra."
+    "error_unavailable": "A szerver nem érhető el. Próbáld újra.",
+    "join_heading": "Csatlakozás egy workspace-hez",
+    "join_description": "Meghívtak egy usageratio workspace-be. Lépj be GitHubbal a csatlakozáshoz: látni fogod a használatot, és kezelheted a gépeket.",
+    "join_button": "Csatlakozás GitHubbal",
+    "join_missing_code": "Ez a meghívó link hiányos. Nyisd meg a teljes linket, amit kaptál.",
+    "no_workspace_account": "A fiókod",
+    "error_invite_invalid": "Ez a meghívó már nem érvényes: felhasználták, visszavonták, vagy lejárt. Kérj újat.",
+    "error_invite_wrong_account": "Ez a meghívó egy másik GitHub-fióknak szól. Lépj be azzal a fiókkal, vagy kérj új meghívót."
   },
   "Account": {
     "heading": "Fiók",
@@ -736,7 +743,9 @@
     "delete_sudo": "A fiók törléséhez újra be kell jelentkezned.",
     "delete_owns_shared": "Egy olyan workspace ownere vagy, amelynek mások is tagjai. Előbb add át valamelyiküknek.",
     "delete_owns_default": "Te vagy a példány eredeti workspace-ének ownere, ez innen nem törölhető.",
-    "delete_failed": "A fiókot nem sikerült törölni. Próbáld újra."
+    "delete_failed": "A fiókot nem sikerült törölni. Próbáld újra.",
+    "open": "Megnyitás",
+    "manage": "Tagok"
   },
   "Admin": {
     "heading": "Példány-admin",
@@ -778,5 +787,50 @@
   },
   "Metadata": {
     "description": "A usageratio az AI kódolóügynökök tokenfogyasztását követi gépek és csoportok szerint, heti vagy havi kerethez viszonyítva."
+  },
+  "TenantGuard": {
+    "changed": "Ez a lap még azt a workspace-et mutatja, amelyről egy másik lapon átváltottál, ezért itt semmi nem lett mentve.",
+    "reload": "Újratöltés"
+  },
+  "Workspace": {
+    "account_link": "Fiók",
+    "you_own": "Te vagy ennek a workspace-nek az ownere.",
+    "you_member": "Tagja vagy ennek a workspace-nek.",
+    "members_heading": "Tagok",
+    "you": "(te)",
+    "role_owner": "owner",
+    "role_member": "tag",
+    "joined": "csatlakozott:",
+    "make_owner": "Legyen ő az owner",
+    "remove": "Eltávolítás",
+    "owner_only_note": "Embereket meghívni vagy eltávolítani csak az owner tud.",
+    "invites_heading": "Meghívók",
+    "invites_description": "Egy meghívó linkkel egy ember csatlakozhat tagként, 7 napon belül. A link csak egyszer látszik. Bárki használhatja, akinél ott van, hacsak nem adsz meg egy GitHub-fiókot.",
+    "invite_login_label": "Csak ennek a GitHub-fióknak (nem kötelező)",
+    "invite_login_placeholder": "octocat",
+    "create_invite": "Meghívó link létrehozása",
+    "new_invite_once": "Másold ki most ezt a linket, és küldd el annak, akit meghívsz: többször nem jelenik meg.",
+    "new_invite_label": "Meghívó link",
+    "invite_for": "@{login} részére",
+    "invite_anyone": "bárkinek, akinél a link van",
+    "invite_expires": "lejár:",
+    "revoke": "Visszavonás",
+    "no_invites": "Nincs függő meghívó.",
+    "leave_heading": "Kilépés a workspace-ből",
+    "leave_description": "Elveszíted a hozzáférést az adataihoz. Az általad létrehozott géptokenek tovább működnek, amíg az owner vissza nem vonja őket.",
+    "leave_button": "Kilépés",
+    "leave_title": "Kilépsz innen: {name}?",
+    "remove_title": "Eltávolítod {login} felhasználót a workspace-ből?",
+    "remove_body": "A következő kérésénél elveszíti a hozzáférést. A fiókja megmarad, és később újra meghívhatod.",
+    "remove_tokens": "Az általa létrehozott géptokenek visszavonása is",
+    "removed": "{login} eltávolítva; {count, plural, =0 {egy token sem lett visszavonva} other {# token visszavonva}}.",
+    "transfer_title": "{login} legyen az owner?",
+    "transfer_body": "Ezután ő hívhat meg és távolíthat el embereket, exportálhatja az adatokat és törölheti a workspace-et. Te tagként maradsz.",
+    "transfer_sudo": "A workspace átadásához friss belépés kell.",
+    "cancel": "Mégse",
+    "error_too_many_invites": "Egyszerre legfeljebb 10 meghívó lehet függőben. Előbb vonj vissza egyet.",
+    "error_invalid_login": "Ez nem GitHub-felhasználónév.",
+    "error_busy": "Épp fut egy másik változtatás a tagokon. Próbáld újra egy pillanat múlva.",
+    "error_failed": "Ez nem sikerült. Próbáld újra."
   }
 }

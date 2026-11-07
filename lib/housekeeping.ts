@@ -3,6 +3,7 @@ import { ALERT_TTL_SECONDS } from "@/lib/alerts";
 import { parseAuditRecord } from "@/lib/api-token";
 import { archiveDueCycles } from "@/lib/archive";
 import { getConfig, RETENTION_DAYS } from "@/lib/config";
+import { pruneExpiredInvites } from "@/lib/invites";
 import { log } from "@/lib/log";
 import { providerOfOfficialField } from "@/lib/official-usage";
 import { currentSegmentStartMs, earliestStartMs, providerCycle } from "@/lib/provider-cycles";
@@ -334,6 +335,9 @@ export async function runScheduledHousekeeping(
       }
       const tenantReport = await runHousekeeping(tenantStore(tenantId), now, { dryRun });
       if (tenantId === DEFAULT_TENANT) report = tenantReport;
+      // The invite keys expire on their own; their listing entries are dropped here.
+      const invitesPruned = await pruneExpiredInvites(tenantId, now, dryRun);
+      if (invitesPruned > 0) log.info("housekeeping.invites_pruned", { tenantId, count: invitesPruned, dryRun });
       if (!dryRun) await markHousekept(tenantId, now.getTime());
       summary.processed += 1;
     } catch (error) {

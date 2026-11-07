@@ -1,4 +1,4 @@
-import { apiError, json, requireTenantSession, withApiHandler } from "@/lib/api";
+import { apiError, json, requireOwner, requireTenantSession, withApiHandler } from "@/lib/api";
 import { currentTime } from "@/lib/clock";
 import { getConfig } from "@/lib/config";
 import { dateInTimeZone } from "@/lib/cycle";
@@ -28,12 +28,15 @@ import { loadEvents, loadHistory, loadIndexes } from "@/lib/usage-store";
  * (the top-level cycle is the earliest provider's; each provider carries its own window)
  *
  * 200 ok (a file download, `Content-Disposition: attachment`) · 400 bad query ·
- * 401 no session · 404 unknown provider · 503 Redis down
+ * 401 no session · 403 owner_only (in a shared workspace only its owner exports) · 404 unknown
+ * provider · 503 Redis down
  */
 
 export const GET = withApiHandler("api/export", async ({ url }) => {
   const tenant = await requireTenantSession();
   if (tenant instanceof Response) return tenant;
+  const notOwner = requireOwner(tenant);
+  if (notOwner) return notOwner;
   const { store } = tenant;
 
   const parsed = parseExportQuery(url.searchParams);

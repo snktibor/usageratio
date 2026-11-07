@@ -15,7 +15,7 @@ import { safeEqual, sha256Hex } from "@/lib/security";
 
 export const OAUTH_STATE_TTL_SECONDS = 600;
 
-export type OAuthPurpose = "login" | "signup" | "sudo";
+export type OAuthPurpose = "login" | "signup" | "join" | "sudo";
 
 export interface OAuthAttempt {
   purpose: OAuthPurpose;
@@ -26,6 +26,8 @@ export interface OAuthAttempt {
   locale: string;
   /** "signup": sha256 of the sign-up code, consumed in the callback. */
   signup?: string;
+  /** "join": sha256 of the workspace invite code, consumed in the callback. */
+  invite?: string;
   /** "sudo": sha256 of the session id that asked, which the callback must still be carrying. */
   sid?: string;
 }

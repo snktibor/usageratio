@@ -35,6 +35,9 @@ export interface CookieJar {
 export interface RequestContext {
   requestId: string;
   route: string;
+  /** The HTTP method and the tenant it names (lib/tenant-header.ts), set by `withApiHandler` for the stale-tab guard. */
+  method?: string;
+  namedTenant?: string | null;
   headers?: Headers;
   cookies?: CookieJar;
   /** Tests: `defer` runs its task at once instead of after the response. */

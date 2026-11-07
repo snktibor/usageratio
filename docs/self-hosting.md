@@ -148,8 +148,15 @@ was.
    own. The admin page shows counts per workspace and can disable one; it never shows a
    workspace's data.
 
-Everyone signed in has an account page (`/account`): their workspaces, the browsers they are signed
-in on, "sign out everywhere", and deleting the account (with a fresh GitHub sign-in). Deleting an
+To share a workspace, its owner opens `/workspace` (the account page's "Members" link) and creates
+an invite link: it lets one person in as a member within 7 days, optionally only a named GitHub
+account. Members see the same data and manage machines and settings; only the owner invites,
+removes people, exports and can hand the workspace over. In `invite` mode a workspace invite is
+enough to sign in for the first time, but it never creates a workspace.
+
+Everyone signed in has an account page (`/account`): their workspaces (and a switch between them),
+the browsers they are signed in on, "sign out everywhere", and deleting the account (with a fresh
+GitHub sign-in). Deleting an
 account deletes every workspace only that user belongs to, with all its data; an owner of a
 workspace that others belong to has to hand it over first.
 

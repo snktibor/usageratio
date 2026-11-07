@@ -4,6 +4,7 @@ import { logout } from "@/app/actions";
 import { GithubSignIn } from "@/components/auth/github-sign-in";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { PinGate } from "@/components/pin-gate";
+import { Link } from "@/i18n/routing";
 import { isMultiTenant } from "@/lib/registration";
 import { currentUserSession } from "@/lib/user-session";
 
@@ -44,7 +45,13 @@ export async function SignInGate({ next = "/" }: { next?: string }) {
   if (await currentUserSession()) {
     return (
       <Frame heading={t("no_workspace_heading")} description={t("no_workspace_description")}>
-        <form action={logout} className="mt-10">
+        <form action={logout} className="mt-10 flex flex-wrap gap-3">
+          <Link
+            href="/account"
+            className="rounded-md bg-ink px-4 py-2.5 text-sm font-medium text-page transition-opacity hover:opacity-90"
+          >
+            {t("no_workspace_account")}
+          </Link>
           <button
             type="submit"
             className="rounded-md border border-rule px-4 py-2.5 text-sm text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
@@ -65,10 +72,20 @@ export async function SignInGate({ next = "/" }: { next?: string }) {
   );
 }
 
-/** The /signup page's frame (app/[locale]/signup/page.tsx). */
-export async function SignupFrame({ children }: { children: React.ReactNode }) {
+/** The frame of the /signup and /join pages (app/[locale]/signup, app/[locale]/join). */
+export async function SignupFrame({
+  kind = "signup",
+  children,
+}: {
+  kind?: "signup" | "join";
+  children: React.ReactNode;
+}) {
   const t = await getTranslations("SignIn");
-  return (
+  return kind === "join" ? (
+    <Frame heading={t("join_heading")} description={t("join_description")}>
+      {children}
+    </Frame>
+  ) : (
     <Frame heading={t("signup_heading")} description={t("signup_description")}>
       {children}
     </Frame>

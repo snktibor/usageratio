@@ -12,7 +12,8 @@ import { sessionCookieName } from "@/lib/user-session";
  *              sessions: [{ tag, label, createdAt, seenAt, current }] } }
  *   DELETE → { "ok": true, "workspacesDeleted", "workspacesLeft" } and the session cookie cleared.
  *            Needs sudo. 409 owns_shared_workspace (with `tenantIds`): hand those over first;
- *            409 owns_default_workspace: the instance's original data is never deleted this way.
+ *            409 owns_default_workspace: the instance's original data is never deleted this way;
+ *            409 members_busy: a shared workspace's members are changing right now, try again.
  *
  * 401 no session · 403 foreign origin / sudo_required · 404 single-user instance · 503 Redis down
  */
@@ -35,6 +36,7 @@ export const DELETE = withApiHandler("api/account", async ({ request }) => {
   const result = await deleteAccount(session.userId, new Date());
   if (!result.ok) {
     if (result.reason === "not_found") return apiError("unauthorized", 401);
+    if (result.reason === "members_busy") return apiError("members_busy", 409);
     return apiError(result.reason, 409, { tenantIds: result.tenantIds });
   }
   const cookie = clearCookie(await sessionCookieName(), await isHttpsRequest());

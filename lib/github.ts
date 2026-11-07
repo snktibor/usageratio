@@ -34,7 +34,7 @@ export interface GithubUser {
  * Managed Users have one, `octocat_acme`; old accounts may have doubled or trailing hyphens).
  * The login is display data only, so the rule only keeps markup and separators out of it.
  */
-const LOGIN_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+export const LOGIN_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** The site's own origin, from NEXT_PUBLIC_SITE_URL: https, or http on a loopback host for local development. */
 function siteOrigin(raw: string | undefined): string | null {
@@ -132,4 +132,13 @@ export async function fetchGithubUser(accessToken: string): Promise<GithubUser |
     log.warn("github.user_unreachable", { err: error });
     return null;
   }
+}
+
+/**
+ * The origin a link this instance hands out (a sign-up or invite link) should name: the configured
+ * site's, the one GitHub sends people back to, or the request's own when there is none.
+ */
+export function publicOrigin(requestUrl: URL): string {
+  const config = githubConfig();
+  return config ? new URL(config.redirectUri).origin : requestUrl.origin;
 }

@@ -67,6 +67,8 @@ export interface MachineToken {
   lastUsedAt: number | null;
   /** Set by DELETE /api/tokens/[id]; null while the token is live. */
   revokedAt: number | null;
+  /** The userId who created it (multi-tenant mode); null on a single-user instance and for older tokens. */
+  createdBy: string | null;
 }
 
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -127,6 +129,7 @@ function parseStored(raw: string): MachineToken | null {
     createdAt: entry.createdAt,
     lastUsedAt: typeof entry.lastUsedAt === "number" ? entry.lastUsedAt : null,
     revokedAt: typeof entry.revokedAt === "number" ? entry.revokedAt : null,
+    createdBy: typeof entry.createdBy === "string" ? entry.createdBy : null,
   };
 }
 
@@ -137,13 +140,26 @@ export function labelProblem(value: string): "empty" | "too_long" | null {
   return null;
 }
 
+/** The later of the record's own `lastUsedAt` (older tokens) and the separate last-used hash's. */
+function lastUsed(token: MachineToken, separate: unknown): number | null {
+  const ms = Number(separate);
+  const fromHash = separate !== null && separate !== undefined && Number.isFinite(ms) ? ms : null;
+  if (fromHash === null) return token.lastUsedAt;
+  return token.lastUsedAt === null ? fromHash : Math.max(token.lastUsedAt, fromHash);
+}
+
 /** Every stored token, newest first. An entry that does not parse is left out rather than crashing the list. */
 export async function listTokens(store: TenantStore): Promise<MachineToken[]> {
-  const raw = toStringRecord(await store.redis.hgetall(store.keys.tokens));
-  return Object.values(raw)
-    .flatMap((value) => {
+  const reads = store.redis.pipeline();
+  reads.hgetall(store.keys.tokens);
+  reads.hgetall(store.keys.tokensLastUsed);
+  const [records, used] = (await reads.exec()) as [unknown, unknown];
+  const raw = toStringRecord(records as Record<string, unknown> | null);
+  const usedAt = toStringRecord(used as Record<string, unknown> | null);
+  return Object.entries(raw)
+    .flatMap(([hash, value]) => {
       const token = parseStored(value);
-      return token ? [token] : [];
+      return token ? [{ ...token, lastUsedAt: lastUsed(token, usedAt[hash]) }] : [];
     })
     .sort((a, b) => b.createdAt - a.createdAt);
 }
@@ -157,6 +173,7 @@ export async function createToken(
   machineId: string | null,
   now: Date,
   scope: TokenScope = "ingest",
+  createdBy: string | null = null,
 ): Promise<CreateTokenResult> {
   const redis = store.redis;
   const count = await redis.hlen(store.keys.tokens);
@@ -172,6 +189,7 @@ export async function createToken(
     createdAt: now.getTime(),
     lastUsedAt: null,
     revokedAt: null,
+    createdBy,
   };
   const hash = hashToken(token);
   const tx = redis.multi();
@@ -196,6 +214,21 @@ export async function revokeToken(store: TenantStore, id: string, now: Date): Pr
     await redis.hset(store.keys.tokens, { [hash]: serialize({ ...token, revokedAt: now.getTime() }) });
   }
   return { ok: true };
+}
+
+/** Revokes every live token `userId` created (a member removed with their tokens); how many it revoked. */
+export async function revokeTokensCreatedBy(store: TenantStore, userId: string, now: Date): Promise<number> {
+  const raw = toStringRecord(await store.redis.hgetall(store.keys.tokens));
+  const changes: Record<string, string> = {};
+  for (const [hash, value] of Object.entries(raw)) {
+    const token = parseStored(value);
+    if (token && token.createdBy === userId && token.revokedAt === null) {
+      changes[hash] = serialize({ ...token, revokedAt: now.getTime() });
+    }
+  }
+  const count = Object.keys(changes).length;
+  if (count > 0) await store.redis.hset(store.keys.tokens, changes);
+  return count;
 }
 
 /** The tenant `bearer` was issued for, from the token index; null for a token the index does not know. */
@@ -223,17 +256,22 @@ export type TokenAuthResult =
 export async function authenticateToken(store: TenantStore, bearer: string, now: Date): Promise<TokenAuthResult> {
   const redis = store.redis;
   const hash = hashToken(bearer);
-  const raw = await redis.hget<string>(store.keys.tokens, hash);
+  const reads = redis.pipeline();
+  reads.hget(store.keys.tokens, hash);
+  reads.hget(store.keys.tokensLastUsed, hash);
+  const [raw, used] = (await reads.exec()) as [unknown, unknown];
   if (raw === null || raw === undefined) return { ok: false, reason: "not_found" };
 
   const token = parseStored(String(raw));
   if (!token) return { ok: false, reason: "not_found" };
   if (token.revokedAt !== null) return { ok: false, reason: "revoked" };
 
-  if (token.lastUsedAt === null || now.getTime() - token.lastUsedAt >= LAST_USED_REFRESH_MS) {
+  const last = lastUsed(token, used);
+  if (last === null || now.getTime() - last >= LAST_USED_REFRESH_MS) {
     const nowMs = now.getTime();
+    // Its own hash, never the record: a revocation landing meanwhile is never written over.
     defer(async () => {
-      await store.redis.hset(store.keys.tokens, { [hash]: serialize({ ...token, lastUsedAt: nowMs }) });
+      await store.redis.hset(store.keys.tokensLastUsed, { [hash]: String(nowMs) });
     });
   }
 
@@ -267,6 +305,7 @@ export async function pruneRevokedTokens(
   if (!dryRun && staleHashes.length > 0) {
     const tx = redis.multi();
     tx.hdel(store.keys.tokens, ...staleHashes);
+    tx.hdel(store.keys.tokensLastUsed, ...staleHashes);
     tx.hdel(GLOBAL_KEYS.tokenIndex, ...staleHashes);
     await tx.exec();
   }
