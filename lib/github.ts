@@ -29,8 +29,12 @@ export interface GithubUser {
   login: string;
 }
 
-/** GitHub's own rule for a login: 1-39 letters, digits and hyphens. */
-const LOGIN_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
+/**
+ * What a GitHub login may look like here: letters, digits, hyphens and underscores (Enterprise
+ * Managed Users have one, `octocat_acme`; old accounts may have doubled or trailing hyphens).
+ * The login is display data only, so the rule only keeps markup and separators out of it.
+ */
+const LOGIN_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** The site's own origin, from NEXT_PUBLIC_SITE_URL: https, or http on a loopback host for local development. */
 function siteOrigin(raw: string | undefined): string | null {

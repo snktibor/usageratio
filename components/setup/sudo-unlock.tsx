@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
 import { currentReturnTo, startGithubSignIn } from "@/components/auth/start-github";
@@ -30,6 +31,18 @@ function useSudoInfo(): { numeric: boolean; github: boolean } {
   return info;
 }
 
+/** The failures a GitHub sudo can come back with (lib/sign-in.ts, components/auth/start-github.ts). */
+const SUDO_ERRORS = [
+  "misconfigured",
+  "state_invalid",
+  "github_denied",
+  "github_failed",
+  "sudo_mismatch",
+  "rate_limited",
+  "unavailable",
+] as const;
+type SudoError = (typeof SUDO_ERRORS)[number];
+
 /**
  * Sudo on a multi-tenant instance: a fresh GitHub sign-in of the same account, which brings the
  * browser back to this page; the action is then tried again.
@@ -38,14 +51,16 @@ function GithubSudo({ prompt }: { prompt?: string }) {
   const tSignIn = useTranslations("SignIn");
   const locale = useLocale();
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const fromCallback = useSearchParams().get("signin_error");
+  const [failure, setFailure] = useState<string | null>(null);
   const labelId = useId();
+  const reported = failure ?? fromCallback;
+  const error = reported && (SUDO_ERRORS as readonly string[]).includes(reported) ? (reported as SudoError) : null;
 
   async function confirmWithGithub() {
     setBusy(true);
-    setFailed(false);
-    await startGithubSignIn({ purpose: "sudo", locale, returnTo: currentReturnTo(locale) });
-    setFailed(true);
+    setFailure(null);
+    setFailure(await startGithubSignIn({ purpose: "sudo", locale, returnTo: currentReturnTo(locale) }));
     setBusy(false);
   }
 
@@ -62,7 +77,7 @@ function GithubSudo({ prompt }: { prompt?: string }) {
       >
         {busy ? tSignIn("opening") : tSignIn("sudo_github_button")}
       </button>
-      <div aria-live="polite">{failed && <StatusLine tone="problem">{tSignIn("error_unavailable")}</StatusLine>}</div>
+      <div aria-live="polite">{error && <StatusLine tone="problem">{tSignIn(`error_${error}`)}</StatusLine>}</div>
     </div>
   );
 }

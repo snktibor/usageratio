@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { GithubUser } from "@/lib/github";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
-import { isTenantId, type TenantId } from "@/lib/tenant-id";
+import { DEFAULT_TENANT, isTenantId, type TenantId } from "@/lib/tenant-id";
 import { serializeTenantRecord } from "@/lib/tenants";
 
 /**
@@ -128,15 +128,22 @@ export async function createTenantFor(userId: string, name: string, now: Date): 
   return tenantId;
 }
 
-/** Makes `userId` the owner of `tenantId` (the default tenant's owner, set by migrate:tenant). Idempotent. */
+/**
+ * Makes `userId` an owner of `tenantId` (the default tenant's owner, set by migrate:tenant), a
+ * member being promoted. Idempotent: an owner stays as they are, joined date and all.
+ */
 export async function addOwner(tenantId: TenantId, userId: string, now: Date): Promise<void> {
+  if ((await membershipRole(tenantId, userId)) === "owner") return;
   const tx = getRedis().multi();
-  tx.hsetnx(GLOBAL_KEYS.tenantMembers(tenantId), userId, JSON.stringify({ role: "owner", joinedAt: now.getTime() }));
-  tx.hsetnx(GLOBAL_KEYS.userTenants(userId), tenantId, "owner");
+  tx.hset(GLOBAL_KEYS.tenantMembers(tenantId), {
+    [userId]: JSON.stringify({ role: "owner", joinedAt: now.getTime() }),
+  });
+  tx.hset(GLOBAL_KEYS.userTenants(userId), { [tenantId]: "owner" });
   await tx.exec();
 }
 
-function roleOf(raw: unknown): Role | null {
+/** The role in one members-hash value; null when it is missing or does not parse. */
+export function parseRole(raw: unknown): Role | null {
   if (typeof raw !== "string") return null;
   try {
     const role = (JSON.parse(raw) as { role?: unknown }).role;
@@ -148,15 +155,24 @@ function roleOf(raw: unknown): Role | null {
 
 /** `userId`'s role in `tenantId`, read from the tenant's own members hash; null when not a member. */
 export async function membershipRole(tenantId: TenantId, userId: string): Promise<Role | null> {
-  return roleOf(await getRedis().hget(GLOBAL_KEYS.tenantMembers(tenantId), userId));
+  return parseRole(await getRedis().hget(GLOBAL_KEYS.tenantMembers(tenantId), userId));
 }
 
-/** The tenants `userId` belongs to, as the user's own index lists them, owned ones first. */
+/**
+ * The tenants `userId` belongs to, as the user's own index lists them: the default tenant first
+ * (on an instance that grew out of a single-user one, that is where the existing data is), then
+ * the owned ones, then the rest. A sign-in lands in the first.
+ */
 export async function userTenants(userId: string): Promise<{ tenantId: TenantId; role: Role }[]> {
   const raw = toStringRecord(await getRedis().hgetall(GLOBAL_KEYS.userTenants(userId)));
   return Object.entries(raw)
     .flatMap(([tenantId, role]) =>
       isTenantId(tenantId) && (role === "owner" || role === "member") ? [{ tenantId, role: role as Role }] : [],
     )
-    .sort((a, b) => (a.role === b.role ? a.tenantId.localeCompare(b.tenantId) : a.role === "owner" ? -1 : 1));
+    .sort((a, b) => rank(a) - rank(b) || a.tenantId.localeCompare(b.tenantId));
+}
+
+function rank(entry: { tenantId: TenantId; role: Role }): number {
+  if (entry.tenantId === DEFAULT_TENANT) return 0;
+  return entry.role === "owner" ? 1 : 2;
 }

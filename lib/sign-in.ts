@@ -3,8 +3,11 @@ import { clearCookie, hostCookieName, serializeCookie } from "@/lib/cookies";
 import { authorizeUrl, exchangeCode, fetchGithubUser, githubConfig, pkcePair } from "@/lib/github";
 import { log } from "@/lib/log";
 import { consumeOAuthState, createOAuthState, OAUTH_STATE_TTL_SECONDS, type OAuthPurpose } from "@/lib/oauth-state";
+import { hit, type RateLimitResult } from "@/lib/rate-limit";
+import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { registrationMode } from "@/lib/registration";
-import { isHttpsRequest } from "@/lib/request-context";
+import { clientIp, isHttpsRequest } from "@/lib/request-context";
+import { sha256Hex } from "@/lib/security";
 import { consumeSignupCode, isSignupCodeShape, signupCodeHash, signupCodeIsLive } from "@/lib/signup-codes";
 import type { TenantId } from "@/lib/tenant-id";
 import { currentUserSession, markSessionAuthenticated, startUserSession } from "@/lib/user-session";
@@ -31,7 +34,23 @@ export function safeLocale(raw: unknown): string {
   return typeof raw === "string" && (routing.locales as readonly string[]).includes(raw) ? raw : routing.defaultLocale;
 }
 
+/** Sign-in requests (start and callback together) per address and window. */
+const ATTEMPTS_PER_ADDRESS = 20;
+/** Without a trusted proxy every request comes from "unknown": one shared, larger budget then. */
+const ATTEMPTS_UNKNOWN_ADDRESS = 300;
+const ATTEMPT_WINDOW_SECONDS = 600;
+
+/** Counts one sign-in request against its address's budget (lib/rate-limit.ts). */
+export async function countSignInAttempt(): Promise<RateLimitResult> {
+  const ip = await clientIp();
+  if (ip === "unknown") {
+    return hit(GLOBAL_KEYS.rateLimit.oauth("unknown"), ATTEMPTS_UNKNOWN_ADDRESS, ATTEMPT_WINDOW_SECONDS);
+  }
+  return hit(GLOBAL_KEYS.rateLimit.oauth(sha256Hex(ip).slice(0, 32)), ATTEMPTS_PER_ADDRESS, ATTEMPT_WINDOW_SECONDS);
+}
+
 export type SignInErrorCode =
+  | "rate_limited"
   | "misconfigured"
   | "state_invalid"
   | "github_denied"
@@ -120,19 +139,25 @@ export async function finishSignIn(
   const attempt = params.state ? await consumeOAuthState(params.state, params.nonce) : null;
   if (!attempt) return fail(routing.defaultLocale, "state_invalid");
   const { locale } = attempt;
+  const landing = `/${locale}${attempt.returnTo === "/" ? "" : attempt.returnTo}`;
+  // A failed sudo goes back to the page that asked (the user is signed in there), the rest home.
+  const failHere = (code: SignInErrorCode): FinishResult => {
+    if (attempt.purpose !== "sudo") return fail(locale, code);
+    log.warn("signin.failed", { reason: code, purpose: "sudo" });
+    return { location: `${landing}?signin_error=${code}`, cookies };
+  };
   const config = githubConfig();
-  if (!config || registrationMode() === "closed") return fail(locale, "misconfigured");
-  if (params.error || !params.code) return fail(locale, "github_denied");
+  if (!config || registrationMode() === "closed") return failHere("misconfigured");
+  if (params.error || !params.code) return failHere("github_denied");
 
   const token = await exchangeCode(config, params.code, attempt.verifier);
   const github = token ? await fetchGithubUser(token) : null;
-  if (!github) return fail(locale, "github_failed");
-  const landing = `/${locale}${attempt.returnTo === "/" ? "" : attempt.returnTo}`;
+  if (!github) return failHere("github_failed");
 
   if (attempt.purpose === "sudo") {
     const session = await currentUserSession();
     if (!session || session.hash !== attempt.sid || !(await hasGithubIdentity(session.userId, github.id))) {
-      return fail(locale, "sudo_mismatch");
+      return failHere("sudo_mismatch");
     }
     await markSessionAuthenticated(session.hash, now);
     log.info("signin.sudo", { userId: session.userId });
@@ -141,7 +166,9 @@ export async function finishSignIn(
 
   let newTenant: TenantId | null = null;
   let userId: string;
-  if (attempt.purpose === "signup") {
+  const known = await userForGithub(github.id);
+  const hasWorkspace = known !== null && (await userTenants(known)).length > 0;
+  if (attempt.purpose === "signup" && !hasWorkspace) {
     // The code is taken first: a code that is gone (used, revoked, expired) creates nothing.
     if (!attempt.signup) return fail(locale, "signup_code_invalid");
     const placeholder = `github:${github.id}`;
@@ -151,7 +178,8 @@ export async function finishSignIn(
     newTenant = await createTenantFor(userId, github.login, now);
     log.info("signin.signup", { userId, tenantId: newTenant, codeId });
   } else {
-    const known = await userForGithub(github.id);
+    // A sign-up link opened by someone who already has a workspace is just a sign-in: the code
+    // stays unused, and nobody gets a second, empty workspace by accident.
     if (!known && registrationMode() !== "open") return fail(locale, "registration_closed");
     const result = await findOrCreateGithubUser(github, now);
     userId = result.userId;

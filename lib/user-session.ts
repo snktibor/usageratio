@@ -109,6 +109,8 @@ export async function startUserSession(userId: string, tenantId: TenantId | null
   const tx = getRedis().multi();
   tx.set(GLOBAL_KEYS.userSession(hash), JSON.stringify(record), { px: maxMs });
   tx.zadd(GLOBAL_KEYS.userSessions(userId), { score: now.getTime(), member: hash });
+  // Sessions past their maximum lifetime are gone from Redis already: forget their names too.
+  tx.zremrangebyscore(GLOBAL_KEYS.userSessions(userId), 0, now.getTime() - maxMs);
   await tx.exec();
   const secure = await isHttpsRequest();
   return serializeCookie(hostCookieName(COOKIE_BASE, secure), id, { maxAge: maxMs / 1000, secure });
@@ -131,9 +133,9 @@ export async function currentUserSession(): Promise<UserSession | null> {
     return null;
   }
   if (now - stored.s > REFRESH_INTERVAL_MS) {
-    const ttl = Math.max(1000, maxMs - (now - stored.c));
+    // Re-read when writing, and change only `s`: a sudo or tenant change made meanwhile stays.
     defer(async () => {
-      await getRedis().set(key, JSON.stringify({ ...stored, s: now }), { px: ttl, xx: true });
+      await updateSession(hash, { s: now });
     });
   }
   return {
@@ -148,7 +150,7 @@ export async function currentUserSession(): Promise<UserSession | null> {
 }
 
 /** Rewrites one field set of a live session, keeping its expiry. */
-async function updateSession(hash: string, change: Partial<Pick<StoredSession, "t" | "a">>): Promise<boolean> {
+async function updateSession(hash: string, change: Partial<Pick<StoredSession, "t" | "a" | "s">>): Promise<boolean> {
   const key = GLOBAL_KEYS.userSession(hash);
   const stored = parse(await getRedis().get(key));
   if (!stored) return false;

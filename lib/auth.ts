@@ -369,6 +369,7 @@ export async function isAuthenticated(): Promise<boolean> {
  * a hash of the session id, never the id itself. Null without a session cookie.
  */
 export async function sessionTag(): Promise<string | null> {
+  if (isMultiTenant()) return (await currentUserSession())?.hash.slice(0, 8) ?? null;
   const sessionId = (await currentCookies()).get(SESSION_COOKIE)?.value;
   return sessionId && SESSION_ID_PATTERN.test(sessionId) ? sha256Hex(sessionId).slice(0, 8) : null;
 }
@@ -379,7 +380,9 @@ export async function endSession(): Promise<void> {
   if (isMultiTenant()) {
     const name = await sessionCookieName();
     await endUserSession();
-    store.delete(name);
+    // Expired with the same attributes it was set with: a browser ignores a `__Host-` cookie
+    // without Secure, so a bare delete would leave it in place.
+    store.set(name, "", { httpOnly: true, secure: await isHttpsRequest(), sameSite: "lax", path: "/", maxAge: 0 });
     log.info("auth.logout", {});
     return;
   }

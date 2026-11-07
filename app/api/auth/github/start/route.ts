@@ -1,10 +1,6 @@
 import { apiError, json, readJsonBody, requireSameOrigin, withApiHandler } from "@/lib/api";
-import { hit } from "@/lib/rate-limit";
-import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { isMultiTenant } from "@/lib/registration";
-import { clientIp } from "@/lib/request-context";
-import { sha256Hex } from "@/lib/security";
-import { startSignIn } from "@/lib/sign-in";
+import { countSignInAttempt, startSignIn } from "@/lib/sign-in";
 
 /**
  * POST /api/auth/github/start — begins a GitHub sign-in (multi-tenant mode only; 404 otherwise).
@@ -19,24 +15,18 @@ import { startSignIn } from "@/lib/sign-in";
  * checked against allow-lists (lib/sign-in.ts); anything else means home.
  *
  * 200 · 400 bad body / signup_code_invalid · 401 sudo without a session · 403 foreign origin /
- * registration_closed · 404 single-user instance · 429 too many attempts from this address ·
+ * registration_closed · 404 single-user instance · 429 too many attempts from this address (20 per
+ * 10 minutes, with the callback; 300 shared when no trusted proxy names the address) ·
  * 500 server_misconfigured (the OAuth App is not set up) · 503 Redis down
  */
 
 const PURPOSES = new Set(["login", "signup", "sudo"]);
-const ATTEMPTS_PER_WINDOW = 20;
-const WINDOW_SECONDS = 600;
-
 export const POST = withApiHandler("api/auth/github/start", async ({ request }) => {
   if (!isMultiTenant()) return apiError("not_found", 404);
   const foreign = requireSameOrigin(request);
   if (foreign) return foreign;
 
-  const limit = await hit(
-    GLOBAL_KEYS.rateLimit.oauth(sha256Hex(await clientIp()).slice(0, 32)),
-    ATTEMPTS_PER_WINDOW,
-    WINDOW_SECONDS,
-  );
+  const limit = await countSignInAttempt();
   if (!limit.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: limit.retryAfterSeconds });
 
   const body = await readJsonBody(request, { maxBytes: 2048 });

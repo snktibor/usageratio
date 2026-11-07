@@ -5,7 +5,7 @@ import { isMultiTenant } from "@/lib/registration";
 import { defaultTenantStore, type TenantStore, tenantStore } from "@/lib/tenant";
 import { parseTenantRecord } from "@/lib/tenants";
 import { currentUserSession } from "@/lib/user-session";
-import type { Role } from "@/lib/users";
+import { parseRole, type Role } from "@/lib/users";
 
 /**
  * Who is asking, and for which tenant: what a page or a route handler gets
@@ -26,16 +26,6 @@ export interface TenantContext {
   userId: string | null;
 }
 
-function roleOf(raw: unknown): Role | null {
-  if (typeof raw !== "string") return null;
-  try {
-    const role = (JSON.parse(raw) as { role?: unknown }).role;
-    return role === "owner" || role === "member" ? role : null;
-  } catch {
-    return null;
-  }
-}
-
 /** The signed-in browser's tenant; null without a live session or membership. Throws when the store cannot be asked. */
 export async function currentTenant(): Promise<TenantContext | null> {
   if (!isMultiTenant()) {
@@ -48,7 +38,7 @@ export async function currentTenant(): Promise<TenantContext | null> {
   reads.hget(GLOBAL_KEYS.tenantMembers(session.tenantId), session.userId);
   reads.get(GLOBAL_KEYS.tenantRecord(session.tenantId));
   const [member, record] = await reads.exec();
-  const role = roleOf(member);
+  const role = parseRole(member);
   if (!role || !parseTenantRecord(record)) return null;
   return { store: tenantStore(session.tenantId), role, userId: session.userId };
 }

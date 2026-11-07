@@ -551,12 +551,15 @@ Multi-tenant mode only (`REGISTRATION=invite|open`); both answer `404` on a sing
   `/setup`, `/settings` (anything else means `/`); `code` is a sign-up code (`purpose: "signup"`);
   `"sudo"` needs a session. `400 invalid_payload` / `signup_code_invalid` · `401` sudo without a
   session · `403 forbidden_origin` / `registration_closed` · `429 rate_limited` (20 per 10 minutes
-  per address, shared with the callback) · `500 server_misconfigured` (no OAuth App configured).
+  per address, shared with the callback; 300 shared by every request when no trusted proxy names
+  the address) · `500 server_misconfigured` (no OAuth App configured).
 - **`GET /api/auth/github/callback?code&state`** — where GitHub sends the browser back. Always
   `303` to a page of this site: the requested one on success (with the session cookie,
   `__Host-ur_session`), or `/{locale}?signin_error=<code>`: `state_invalid` (expired, used, or started in
   another browser), `github_denied`, `github_failed`, `registration_closed`, `signup_code_invalid`,
-  `sudo_mismatch` (a different GitHub account than the signed-in one), `misconfigured`.
+  `sudo_mismatch` (a different GitHub account than the signed-in one), `misconfigured`,
+  `rate_limited`. A failed sudo goes back to the page that asked, with the same `?signin_error=`,
+  where the unlock prompt shows it.
 
 ## Housekeeping
 

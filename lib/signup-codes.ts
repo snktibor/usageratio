@@ -98,7 +98,9 @@ export async function listSignupCodes(): Promise<SignupCodeEntry[]> {
 export async function revokeSignupCode(id: string): Promise<boolean> {
   const listed = await getRedis().hget<string>(GLOBAL_KEYS.signupCodes, id);
   if (!listed) return false;
-  const { hash } = JSON.parse(String(listed)) as { hash?: string };
+  const { hash, usedAt } = JSON.parse(String(listed)) as { hash?: string; usedAt?: number };
+  // A used code is spent already; its entry stays as the record of who used it.
+  if (typeof usedAt === "number") return false;
   const tx = getRedis().multi();
   if (typeof hash === "string") tx.del(GLOBAL_KEYS.signupCode(hash));
   tx.hdel(GLOBAL_KEYS.signupCodes, id);

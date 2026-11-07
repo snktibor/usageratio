@@ -55,10 +55,12 @@ describe("talking to GitHub", () => {
   it("takes only a well-formed account", async () => {
     answer({ id: 42, login: "octo-cat" });
     expect(await fetchGithubUser("t")).toEqual({ id: 42, login: "octo-cat" });
+    answer({ id: 43, login: "jdoe_acme" }); // an Enterprise Managed User
+    expect(await fetchGithubUser("t")).toEqual({ id: 43, login: "jdoe_acme" });
     for (const bad of [
       { id: "42", login: "x" },
       { id: -1, login: "x" },
-      { id: 1, login: "-bad" },
+      { id: 1, login: "<b>" },
       { id: 1, login: "a b" },
     ]) {
       answer(bad);
@@ -105,6 +107,9 @@ describe("sign-up codes", () => {
     expect(await consumeSignupCode(signupCodeHash(code), "github:1", NOW)).toBe(id);
     expect(await consumeSignupCode(signupCodeHash(code), "github:2", NOW)).toBeNull();
     expect((await listSignupCodes())[0]).toMatchObject({ id, usedBy: "github:1", usedAt: NOW.getTime() });
+    // A used code is spent: revoking it changes nothing, and the record of its use stays.
+    expect(await revokeSignupCode(id)).toBe(false);
+    expect((await listSignupCodes()).map((entry) => entry.id)).toContain(id);
 
     const other = await createSignupCode("admin", NOW);
     expect(await revokeSignupCode(other.id)).toBe(true);
@@ -153,5 +158,38 @@ describe("GETDEL on the memory store", () => {
     await getRedis().set("k", "v");
     expect(await getRedis().getdel("k")).toBe("v");
     expect(await getRedis().getdel("k")).toBeNull();
+  });
+});
+
+describe("signing out in multi-tenant mode", () => {
+  useRedis();
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("expires the __Host- cookie with Secure, so the browser actually drops it, and tags the audit by session", async () => {
+    vi.stubEnv("REGISTRATION", "open");
+    vi.stubEnv("COOKIE_SECURE", "1");
+    const cookie = await withRequest(() => startUserSession("u_AAAAAAAAAAAAAAAAAAAAAA", null, new Date()));
+    const id = cookie.split(";")[0]!.split("=")[1]!;
+    const jar = fakeCookieJar({ "__Host-ur_session": id });
+    const { endSession, sessionTag } = await import("@/lib/auth");
+    expect(await withRequest(() => sessionTag(), { cookies: jar })).toMatch(/^[0-9a-f]{8}$/);
+    await withRequest(() => endSession(), { cookies: jar });
+    expect(jar.sets.at(-1)).toMatchObject({
+      name: "__Host-ur_session",
+      value: "",
+      options: { secure: true, maxAge: 0 },
+    });
+    expect(
+      await withRequest(() => currentUserSession(), { cookies: fakeCookieJar({ "__Host-ur_session": id }) }),
+    ).toBeNull();
+  });
+
+  it("forgets sessions past their maximum lifetime in the user's list", async () => {
+    const userId = "u_CCCCCCCCCCCCCCCCCCCCCC";
+    await getRedis().zadd(GLOBAL_KEYS.userSessions(userId), { score: Date.now() - 40 * 86_400_000, member: "old" });
+    await withRequest(() => startUserSession(userId, null, new Date()));
+    const members = (await getRedis().zrange(GLOBAL_KEYS.userSessions(userId), 0, -1)) as string[];
+    expect(members).toHaveLength(1);
+    expect(members).not.toContain("old");
   });
 });

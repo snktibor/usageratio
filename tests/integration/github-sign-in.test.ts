@@ -228,6 +228,39 @@ describe("GitHub sign-in", () => {
     expect(after.response.status).toBe(400);
   });
 
+  it("signs a user who has a workspace in through a sign-up link, without spending the code", async () => {
+    const first = await createSignupCode("admin", new Date());
+    await signIn("alice", { purpose: "signup", code: first.code });
+    const aliceId = (await userForGithub(ACCOUNTS.alice!.id))!;
+    const spare = await createSignupCode("admin", new Date());
+    const again = await signIn("alice", { purpose: "signup", code: spare.code });
+    expect(again.session).not.toBeNull();
+    expect(await userTenants(aliceId)).toHaveLength(1);
+    expect((await startAttempt({ purpose: "signup", code: spare.code })).response.status).toBe(200);
+  });
+
+  it("lands the default tenant's owner in the existing data, even with a workspace of their own", async () => {
+    vi.stubEnv("REGISTRATION", "open");
+    await signIn("alice"); // creates alice's own workspace first
+    const { migrateToTenants } = await import("@/lib/migrate-tenant");
+    await migrateToTenants({ apply: true, now: new Date(), ownerGithubId: ACCOUNTS.alice!.id });
+    expect(
+      (await migrateToTenants({ apply: false, now: new Date(), ownerGithubId: ACCOUNTS.alice!.id })).plan.addOwner,
+    ).toBe(false);
+    await report(DEFAULT_TENANT, "maintainer-mac");
+    const signedIn = await signIn("alice");
+    expect(await machinesSeenBy(signedIn.session!)).toEqual(["maintainer-mac"]);
+  });
+
+  it("sends a rate-limited callback to a page, not a JSON error", async () => {
+    vi.stubEnv("REGISTRATION", "open");
+    // No trusted proxy here, so every request shares the "unknown" budget: use it up.
+    await getRedis().set(GLOBAL_KEYS.rateLimit.oauth("unknown"), 300, { ex: 600 });
+    const limited = await finish({ account: "alice", state: "x".repeat(43) });
+    expect(limited.response.status).toBe(303);
+    expect(limited.location).toBe("/en?signin_error=rate_limited");
+  });
+
   it("works a state once, in the browser that started it", async () => {
     const codeA = await createSignupCode("admin", new Date());
     const attempt = await startAttempt({ purpose: "signup", code: codeA.code });
@@ -278,7 +311,8 @@ describe("GitHub sign-in", () => {
     const asBob = await startAttempt({ purpose: "sudo", returnTo: "/settings" }, alice.session!);
     expect(asBob.response.status).toBe(200);
     const mismatch = await finish({ account: "bob", state: asBob.state, nonce: asBob.nonce, session: alice.session! });
-    expect(mismatch.location).toBe("/en?signin_error=sudo_mismatch");
+    // Back to the page that asked, where the prompt shows why.
+    expect(mismatch.location).toBe("/en/settings?signin_error=sudo_mismatch");
     expect(mismatch.session).toBeNull();
 
     const asAlice = await startAttempt({ purpose: "sudo", returnTo: "/settings" }, alice.session!);
