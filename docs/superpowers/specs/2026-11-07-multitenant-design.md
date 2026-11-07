@@ -1,6 +1,6 @@
 # Multi-tenant workspaces, GitHub sign-in, and registration: design
 
-Date: 2026-11-07 · Status: draft, awaiting review · Covers roadmap phases F2–F5, plus workspace
+Date: 2026-11-07 · Status: accepted 2026-11-07 (every open question answered as recommended) · Covers roadmap phases F2–F5, plus workspace
 membership and invites brought forward from F10
 
 ## Goal
@@ -50,10 +50,10 @@ No billing, paid tiers or monetisation: the hosted instance is a free portfolio 
 - Upstash over REST only; the demo stays on the in-memory store, read-only.
 - UI text only through `messages/*.json`, in `en`, `hu` and `de`.
 
-**One proposed amendment**, flagged as open question 1: the `default` tenant keeps the existing
+**One amendment**, accepted as decision 1 below: the `default` tenant keeps the existing
 `usage:…` key names instead of moving to `t:default:usage:…`. That is what makes "no migration
 for self-hosters" literally true, and it means the hosted instance's data never has to be copied.
-Every other tenant uses `t:{tenantId}:usage:…` as decided. The rest of this document assumes the
+Every other tenant uses `t:{tenantId}:usage:…` as decided. The rest of this document is written for the
 amendment; the section [Alternative: physically moving the default tenant](#alternative-physically-moving-the-default-tenant)
 describes what changes without it.
 
@@ -162,7 +162,7 @@ not do is take the workspace over, lock the owner out, or keep access after remo
 
 | Attack | Countermeasure |
 |---|---|
-| A stranger uses a leaked workspace invite | Single use (`GETDEL`), 7-day expiry, revocable from the members page; optionally bound to a GitHub login (open question 5); grants `member` only, never `owner`; the new member shows up on the members page right away. |
+| A stranger uses a leaked workspace invite | Single use (`GETDEL`), 7-day expiry, revocable from the members page; optionally bound to a GitHub login (decision 5); grants `member` only, never `owner`; the new member shows up on the members page right away. |
 | The invite leaks through logs or Referer | The code travels in the URL fragment (`/join#code`), which browsers never send to a server; the page posts it in a body. Only `sha256(code)` is stored. |
 | A leaked sign-up code | Single use, 14-day expiry, revocable by the admin; it only creates an empty workspace. |
 
@@ -458,8 +458,8 @@ two parallel callbacks; the loser reads the winner's user id.
 | Manage machines, groups, providers, resets, official percentages | ✓ | ✓ |
 | Change settings, including replacing the webhook URL | ✓ | ✓ |
 | Read the webhook URL in full | – | – (masked for everyone) |
-| Create and revoke machine tokens | ✓ | ✓ (open question 4) |
-| Export the workspace | ✓ | – (open question 2) |
+| Create and revoke machine tokens | ✓ | ✓ (decision 4) |
+| Export the workspace | ✓ | – (decision 2) |
 | Invite, list and revoke invites, remove members | ✓ | – |
 | Transfer ownership | ✓ | – |
 | Rename the workspace | ✓ | – |
@@ -518,7 +518,7 @@ or field names the deleted tenant or user.
 A minimal `/admin` page, visible only to `ADMIN_GITHUB_IDS`:
 
 - Counts: users, tenants (active, disabled), sessions are not counted.
-- Per tenant: id, created, status, owner's GitHub login (open question 6), member count, machine
+- Per tenant: id, created, status, owner's GitHub login (decision 6), member count, machine
   count, provider count, token count, last report time, registry size. No names of machines or
   groups, no usage figures, no settings.
 - Disable or re-enable a tenant (data kept; its sessions see "workspace disabled", its tokens get
@@ -587,13 +587,13 @@ on anyway).
 
 ### Alternative: physically moving the default tenant
 
-If open question 1 is answered "no", `default` gets the prefix `t:default:usage:` like any other
-tenant. Then: `migrate:tenant --apply` copies every key (fixed list + SCAN) with `DUMP`/`RESTORE`
-semantics (Upstash REST: read and rewrite per type), verifies counts per key, and a separate
-`--delete-legacy` removes the old keys. Closed mode would then need the same migration on every
+Not chosen (decision 1); kept for the record. Had `default` got the prefix `t:default:usage:` like
+any other tenant, `migrate:tenant --apply` would have copied every key (fixed list + SCAN) with `DUMP`/`RESTORE`
+semantics (Upstash REST: read and rewrite per type), verified counts per key, and a separate
+`--delete-legacy` would have removed the old keys. Closed mode would then have needed the same migration on every
 self-hosted instance, or a permanent fallback that reads the old names when the new ones are
-missing; both contradict "no migration for self-hosters", which is why the amendment is
-recommended.
+missing; both contradict "no migration for self-hosters", which is why the amendment was
+chosen.
 
 ## Moving the maintainer's machines
 
@@ -697,21 +697,19 @@ memberships, sessions (with a browser/OS label, no IP). No e-mail, no avatar, no
 After each phase: `/security-review`, then `/code-review high`, findings fixed and recorded in
 `ROADMAP.local.md`.
 
-## Open questions
+## Decisions on the open questions (accepted 2026-11-07)
 
-1. **`default` keeps today's key names** (the amendment above), instead of moving to
-   `t:default:usage:…`? Recommended: yes.
-2. **Export:** owner only, or members too? Recommended: owner only for now.
-3. **Webhook URL:** masked for everyone in multi mode, replaceable but not readable by any role?
-   Recommended: yes (the owner sets it once; reading it back is never needed).
-4. **Machine tokens:** may members create and revoke them? Recommended: yes, since managing machines
-   is a member's job, with `createdBy` and the revoke-on-removal option.
-5. **Invite binding to a GitHub login:** optional (recommended), mandatory, or not offered?
-6. **Admin view:** may it show the owner's GitHub login per tenant? Recommended: yes; it is account
-   data, not workspace data, and without it the admin cannot tell which tenant to disable.
-7. **Account deletion while owning a shared workspace:** block until ownership is transferred
-   (recommended), or delete the workspace for everyone?
-8. **Expiries:** workspace invite 7 days, sign-up code 14 days?
-9. **Quota numbers** in the table above: acceptable as F6's starting point?
-10. **Setup package in multi mode** embeds a fresh machine token (POST): acceptable, given that the
-    ZIP then contains a secret?
+1. **The `default` tenant keeps today's key names** (`usage:…`); every other tenant uses
+   `t:{tenantId}:usage:…`.
+2. **Export is owner-only** for now.
+3. **The webhook URL is masked for every role** in multi mode: it can be replaced, never read back.
+4. **Members may create and revoke machine tokens**; tokens record `createdBy`, and removing a
+   member offers (checked by default) to revoke the tokens they created.
+5. **An invite may optionally be bound to a GitHub login.**
+6. **The admin view shows each tenant owner's GitHub login.**
+7. **Account deletion is blocked** while the user owns a workspace that has other members;
+   ownership has to be transferred first.
+8. **Expiries:** workspace invite 7 days, sign-up code 14 days.
+9. **The quota table above** is F6's starting point.
+10. **The multi-mode setup package embeds a fresh machine-bound token** and is downloaded with a
+    POST; its README warns that it contains a secret.
