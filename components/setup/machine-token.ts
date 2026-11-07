@@ -1,41 +1,33 @@
-import { CopyError } from "@/components/clipboard";
+import { postForToken } from "@/components/clipboard";
+import { setupTokenLabel } from "@/lib/setup";
 
 /**
  * Multi-tenant mode: the setup page's way to a token, since there is no shared one. Each machine
  * gets its own ingest token, bound to it (POST /api/tokens, which needs sudo and goes on the audit
- * trail). One per machine and page visit: copying the one-off command twice, or the token and then
- * the command, reuses the token issued the first time instead of minting another.
+ * trail). One per machine and visit: copying the one-off command twice, downloading the package
+ * and then copying the command, or a double click, all get the token issued the first time; the
+ * request itself is what is kept, so overlapping calls share it. A failed request is forgotten.
  */
 
-const MAX_LABEL_LENGTH = 64;
-const issued = new Map<string, string>();
+const issued = new Map<string, Promise<string>>();
 
-export async function issueMachineToken(machineId: string): Promise<string> {
-  const cached = issued.get(machineId);
-  if (cached) return cached;
-  let response: Response;
-  try {
-    response = await fetch("/api/tokens", {
-      method: "POST",
+export function issueMachineToken(machineId: string): Promise<string> {
+  const pending = issued.get(machineId);
+  if (pending) return pending;
+  const request = postForToken(
+    "/api/tokens",
+    {
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ label: `${machineId} (setup)`.slice(0, MAX_LABEL_LENGTH), machineId, scope: "ingest" }),
-      cache: "no-store",
-    });
-  } catch {
-    throw new CopyError("no_response");
-  }
-  const payload = (await response.json().catch(() => null)) as { token?: unknown; error?: unknown } | null;
-  if (response.ok && typeof payload?.token === "string") {
-    issued.set(machineId, payload.token);
-    return payload.token;
-  }
-  if (response.status === 401) throw new CopyError("session_expired");
-  if (response.status === 403 && payload?.error === "sudo_required") throw new CopyError("sudo_required");
-  if (response.status === 422) throw new CopyError("too_many_tokens");
-  throw new CopyError("storage_unavailable");
+      body: JSON.stringify({ label: setupTokenLabel(machineId), machineId, scope: "ingest" }),
+    },
+    { 422: "too_many_tokens" },
+  );
+  issued.set(machineId, request);
+  request.catch(() => issued.delete(machineId));
+  return request;
 }
 
-/** Tests: forgets the tokens issued so far. */
+/** A new visit of the setup page starts afresh: a token revoked meanwhile is never handed out again. */
 export function forgetIssuedTokens(): void {
   issued.clear();
 }

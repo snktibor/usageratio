@@ -377,6 +377,19 @@ export async function indexToken(store: TenantStore, bearer: string): Promise<vo
   await store.redis.hsetnx(GLOBAL_KEYS.tokenIndex, hashToken(bearer), store.tenantId);
 }
 
+/**
+ * The live record of a plaintext token in this tenant, read only (no last-used refresh): what a
+ * page that holds a token may ask about it, such as the setup package checking that the token it
+ * is given is this workspace's, for this machine. Null for a token that is not this tenant's, or
+ * is revoked.
+ */
+export async function liveTokenRecord(store: TenantStore, plaintext: string): Promise<MachineToken | null> {
+  if ((await tokenTenant(plaintext)) !== store.tenantId) return null;
+  const raw = await store.redis.hget<string>(store.keys.tokens, hashToken(plaintext));
+  const token = raw === null || raw === undefined ? null : parseStored(String(raw));
+  return token && token.revokedAt === null ? token : null;
+}
+
 export type TokenAuthResult =
   | { ok: true; tokenId: string; machineId: string | null; scope: TokenScope }
   | { ok: false; reason: "not_found" | "revoked" };

@@ -4,6 +4,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
 import { ArrowLeftIcon } from "@/components/icons";
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { forgetIssuedTokens } from "@/components/setup/machine-token";
 import { ManualRoute } from "@/components/setup/manual-route";
 import { OneShotRoute } from "@/components/setup/one-shot-route";
 import { PackageSettings } from "@/components/setup/package-settings";
@@ -78,6 +79,9 @@ export function SetupView({
     tabs: useId(),
     notes: useId(),
   };
+
+  // Every visit issues machine tokens afresh (machine-token.ts): the cache outlives client-side navigation.
+  useEffect(() => forgetIssuedTokens(), []);
 
   // Restores the client's last group/machine/tab choice, and its last os when the URL didn't ask for one explicitly.
   // Runs before the effect below rewrites the address, so it still sees the address the page was opened with.

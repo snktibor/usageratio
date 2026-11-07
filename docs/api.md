@@ -459,13 +459,13 @@ Returns the Setup page's ZIP: `200 application/zip` with `Content-Disposition: a
 session · `400` bad parameters · `404` multi-tenant mode · `503` Redis down. Contains no secret — see
 [clients.md](clients.md#installing-from-the-setup-page). Single-user instances only.
 
-**`POST /api/setup`** (multi-tenant mode only; session + sudo, same-origin) `{ "os", "mode", "group",
-"machine", "locale"? }` → the same ZIP, with a secret inside: a fresh `ingest` token bound to
-`machine` (label `"<machine> (setup)"`, on the token audit trail) in the package's config
-(`API_TOKEN` / `apiToken`), so the installer asks for nothing; the README says the package is a
-secret. `400` bad parameters or no `machine` · `401` no session · `403` foreign origin /
-`sudo_required` · `404` single-user instance · `412 tenant_changed` · `422 too_many_tokens` ·
-`503` Redis down.
+**`POST /api/setup`** (multi-tenant mode only; session, same-origin) `{ "os", "mode", "group",
+"machine", "token", "locale"? }` → the same ZIP, with a secret inside: `token` in the package's
+config (`API_TOKEN` / `apiToken`), so the installer asks for nothing; the README says the package
+is a secret. The page issues that token first through `POST /api/tokens` (sudo, the audit trail,
+one per machine and visit); only the workspace's own live `ingest` token bound to `machine` is
+taken. `400` bad parameters, no `machine`, or `invalid_token` · `401` no session · `403` foreign
+origin · `404` single-user instance · `412 tenant_changed` · `503` Redis down.
 
 ## The stored API token
 

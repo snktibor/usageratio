@@ -276,8 +276,9 @@ of them at once cannot leave a live token behind. Every create, revoke and rotat
 per-machine tokens' audit trail in the same transaction as the change (in multi-tenant mode with
 the login of whoever did it); the trail holds the token's public id and label, never the secret,
 and only the workspace's owner can read it, since it carries other people's network details. In
-multi-tenant mode the Setup page's package (`POST /api/setup`, sudo first) carries a fresh
-token bound to the named machine in its config, so the ZIP itself is a secret: its README says so,
+multi-tenant mode the Setup page's package (`POST /api/setup`) carries the machine's own token
+in its config: the page issues it first (sudo, the audit trail), and the server only takes the
+workspace's live ingest token bound to that machine, so the ZIP itself is a secret: its README says so,
 and a leaked one is revoked like any other token.
 
 ## The token vault and key rotation

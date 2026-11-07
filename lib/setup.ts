@@ -244,6 +244,11 @@ export function packageFiles(os: SetupOs, mode: SetupMode): PackageFile[] {
   return os === "windows" ? windowsFiles(mode) : unixFiles(os, mode);
 }
 
+/** The label of a token the setup page issues for a machine (at most 64 characters, lib/tokens.ts). */
+export function setupTokenLabel(machineId: string): string {
+  return `${machineId} (setup)`.slice(0, 64);
+}
+
 /** The ZIP's name without extension; also the folder it unpacks into. */
 export function packageName(os: SetupOs, mode: SetupMode): string {
   return `usageratio-${os}-${mode}`;

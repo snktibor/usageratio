@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CopyError, type CopyErrorCode } from "@/components/clipboard";
 import { CommandBlock } from "@/components/code-block";
 import { KeyIcon } from "@/components/icons";
@@ -14,7 +14,7 @@ type State =
   | { phase: "idle" }
   | { phase: "busy" }
   | { phase: "sudo" }
-  | { phase: "issued"; token: string }
+  | { phase: "issued"; token: string; machineId: string }
   | { phase: "problem"; code: Exclude<CopyErrorCode, "sudo_required"> };
 
 /**
@@ -26,11 +26,18 @@ export function MachineTokenNote({ machineId }: { machineId: string | null }) {
   const t = useTranslations("Setup");
   const [state, setState] = useState<State>({ phase: "idle" });
 
+  // A renamed machine needs its own token: the one shown is bound to the old name.
+  useEffect(() => {
+    setState((current) =>
+      current.phase === "issued" && current.machineId !== machineId ? { phase: "idle" } : current,
+    );
+  }, [machineId]);
+
   async function issue() {
     if (!machineId) return;
     setState({ phase: "busy" });
     try {
-      setState({ phase: "issued", token: await issueMachineToken(machineId) });
+      setState({ phase: "issued", token: await issueMachineToken(machineId), machineId });
     } catch (error) {
       const code = error instanceof CopyError ? error.code : "generic";
       if (code === "sudo_required") setState({ phase: "sudo" });
@@ -41,7 +48,7 @@ export function MachineTokenNote({ machineId }: { machineId: string | null }) {
   return (
     <div className="space-y-3">
       <p>{t("machine_token_note")}</p>
-      {state.phase === "issued" ? (
+      {state.phase === "issued" && state.machineId === machineId ? (
         <>
           <CommandBlock command={state.token} label={t("machine_token_label")} />
           <p className="text-sm text-ink-3">{t("machine_token_once")}</p>

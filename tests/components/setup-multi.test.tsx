@@ -52,14 +52,22 @@ describe("the setup page in multi-tenant mode", () => {
     const createObjectURL = vi.fn().mockReturnValue("blob:package");
     vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-    fetchMock.mockResolvedValue(new Response(new Blob(["zip"]), { status: 200 }));
+    fetchMock.mockImplementation(async (url: string) =>
+      url === "/api/tokens"
+        ? answer(201, { id: "tk_AAAAAAAA", token: "ur_live_studio-token" })
+        : new Response(new Blob(["zip"]), { status: 200 }),
+    );
     renderZip();
     expect(screen.getByText(/Nothing to type/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Download package" }));
     await waitFor(() => expect(click).toHaveBeenCalled());
-    const [url, init] = fetchMock.mock.calls[0]!;
+    const [url, init] = fetchMock.mock.calls[1]!;
     expect(url).toBe("/api/setup");
-    expect(JSON.parse(init.body)).toEqual(REQUEST);
+    expect(JSON.parse(init.body)).toEqual({ ...REQUEST, token: "ur_live_studio-token" });
+    // A second download reuses the machine's token.
+    fireEvent.click(screen.getByRole("button", { name: "Download package" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(fetchMock.mock.calls.filter(([called]) => called === "/api/tokens")).toHaveLength(1);
     click.mockRestore();
   });
 
@@ -72,6 +80,16 @@ describe("the setup page in multi-tenant mode", () => {
     renderZip();
     fireEvent.click(screen.getByRole("button", { name: "Download package" }));
     expect(await screen.findByRole("button", { name: "Confirm with GitHub" })).toBeTruthy();
+  });
+
+  it("forgets a token shown for a machine that was renamed since", async () => {
+    fetchMock.mockResolvedValue(answer(201, { id: "tk_AAAAAAAA", token: "ur_live_studio-token" }));
+    const { rerender } = renderWithIntl(<MachineTokenNote machineId="studio" />);
+    fireEvent.click(screen.getByRole("button", { name: "Create this machine's token" }));
+    expect(await screen.findByText("ur_live_studio-token")).toBeTruthy();
+    rerender(<MachineTokenNote machineId="laptop" />);
+    expect(screen.queryByText("ur_live_studio-token")).toBeNull();
+    expect(screen.getByRole("button", { name: "Create this machine's token" })).toBeTruthy();
   });
 
   it("issues the machine's own token for the installer's prompt, once per machine", async () => {

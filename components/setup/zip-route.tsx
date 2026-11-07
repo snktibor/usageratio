@@ -2,8 +2,10 @@
 
 import { useTranslations } from "next-intl";
 import { type ReactNode, useState } from "react";
+import { CopyError, type CopyErrorCode } from "@/components/clipboard";
 import { CommandBlock } from "@/components/code-block";
 import { DownloadIcon } from "@/components/icons";
+import { issueMachineToken } from "@/components/setup/machine-token";
 import { panelId, tabId } from "@/components/setup/route-tabs";
 import { richCode, Step, TokenNote } from "@/components/setup/steps";
 import { SudoUnlock } from "@/components/setup/sudo-unlock";
@@ -20,34 +22,39 @@ export interface PackageRequest {
   locale: string;
 }
 
-type DownloadState = "idle" | "busy" | "sudo" | "too_many" | "failed";
+type DownloadState = "idle" | "busy" | "sudo" | { problem: Exclude<CopyErrorCode, "sudo_required"> };
 
-/** Posts for the package and saves the answer as a file, the way a link to it would. */
+/**
+ * Gets the machine's token (issued once per machine and visit, machine-token.ts), posts for the
+ * package that carries it, and saves the answer as a file, the way a link to it would.
+ */
 async function downloadPackage(request: PackageRequest, fileName: string): Promise<DownloadState> {
-  let response: Response;
   try {
-    response = await fetch("/api/setup", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(request),
-    });
-  } catch {
-    return "failed";
+    const token = await issueMachineToken(request.machine);
+    let response: Response;
+    try {
+      response = await fetch("/api/setup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...request, token }),
+      });
+    } catch {
+      return { problem: "no_response" };
+    }
+    if (!response.ok) return { problem: response.status === 401 ? "session_expired" : "generic" };
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${fileName}.zip`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    return "idle";
+  } catch (error) {
+    const code = error instanceof CopyError ? error.code : "generic";
+    return code === "sudo_required" ? "sudo" : { problem: code };
   }
-  if (!response.ok) {
-    const error = ((await response.json().catch(() => null)) as { error?: string } | null)?.error;
-    if (error === "sudo_required") return "sudo";
-    return error === "too_many_tokens" ? "too_many" : "failed";
-  }
-  const url = URL.createObjectURL(await response.blob());
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${fileName}.zip`;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  return "idle";
 }
 
 /**
@@ -141,8 +148,11 @@ export function ZipRoute({
         )}
         <div aria-live="polite" className="mt-3 max-w-2xl space-y-3">
           {download === "sudo" && <SudoUnlock onUnlocked={postForPackage} />}
-          {download === "too_many" && <StatusLine tone="problem">{t("copy_problem_too_many_tokens")}</StatusLine>}
-          {download === "failed" && <StatusLine tone="problem">{t("package_download_failed")}</StatusLine>}
+          {typeof download === "object" && (
+            <StatusLine tone="problem">
+              {download.problem === "generic" ? t("package_download_failed") : t(`copy_problem_${download.problem}`)}
+            </StatusLine>
+          )}
         </div>
 
         {/* biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics once list-style is none */}
