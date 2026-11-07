@@ -122,6 +122,30 @@ this host's port 3000 (or 443, behind HTTPS) from wherever they run.
 See [clients.md](clients.md) for the installer's flags, exit codes, and the package-free command-line
 install.
 
+## More than one user (GitHub sign-in)
+
+By default the dashboard has one user and a PIN. `REGISTRATION=invite` or `open` turns it into a
+multi-user instance: people sign in with GitHub, and each gets a workspace of their own. Nothing
+changes until you set it, and setting it back to `closed` brings the PIN back with the data as it
+was.
+
+1. **Create a GitHub OAuth App** (GitHub → Settings → Developer settings → OAuth Apps → New OAuth
+   App). Homepage URL: your `NEXT_PUBLIC_SITE_URL`. Authorization callback URL:
+   `NEXT_PUBLIC_SITE_URL` + `/api/auth/github/callback`, for example
+   `https://usage.example.com/api/auth/github/callback`. Leave device flow off, and turn wildcard
+   callback matching off if the app offers it. For local development, a second app with
+   `http://127.0.0.1:3000/api/auth/github/callback`.
+2. **Generate a client secret** in the app and set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and
+   `NEXT_PUBLIC_SITE_URL`.
+3. **Back up the store, then run the tenant migration** with your own GitHub account as the owner of
+   the existing data: `npm run migrate:tenant -- --owner-github-id=<id>` prints the plan, add
+   `--apply` to run it. Your numeric id is the `id` field of `https://api.github.com/users/<login>`.
+   See [data-model.md](data-model.md#the-tenant-migration).
+4. **Set `REGISTRATION=invite`** and redeploy. Sign in with GitHub: you land in your existing data.
+
+GitHub's access token is used once to read the account's id and login, and then dropped. Neither the
+token nor any e-mail address is stored.
+
 ## Housekeeping (the daily cron)
 
 On Vercel, `vercel.json`'s `crons` entry calls `GET /api/cron/housekeeping` once a day; self-hosted,

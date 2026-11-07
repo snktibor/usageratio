@@ -1,28 +1,85 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
+import { currentReturnTo, startGithubSignIn } from "@/components/auth/start-github";
 import { CopyError, type CopyErrorCode, copyText } from "@/components/clipboard";
 import { StatusLine } from "@/components/status-line";
 
 type UnlockState = { phase: "idle" } | { phase: "busy" } | { phase: "error"; message: string };
 
-/** GET /api/auth/sudo: whether the configured PIN is digits only, for the numeric keypad. */
-function useNumericHint(): boolean {
-  const [numeric, setNumeric] = useState(false);
+/**
+ * GET /api/auth/sudo: how sudo is confirmed here ("pin", or "github" on a multi-tenant
+ * instance), and whether the configured PIN is digits only, for the numeric keypad.
+ */
+function useSudoInfo(): { numeric: boolean; github: boolean } {
+  const [info, setInfo] = useState({ numeric: false, github: false });
   useEffect(() => {
     let cancelled = false;
     fetch("/api/auth/sudo", { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
-      .then((payload: { numeric?: unknown } | null) => {
-        if (!cancelled && typeof payload?.numeric === "boolean") setNumeric(payload.numeric);
+      .then((payload: { numeric?: unknown; mode?: unknown } | null) => {
+        if (cancelled || !payload) return;
+        setInfo({ numeric: payload.numeric === true, github: payload.mode === "github" });
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, []);
-  return numeric;
+  return info;
+}
+
+/** The failures a GitHub sudo can come back with (lib/sign-in.ts, components/auth/start-github.ts). */
+const SUDO_ERRORS = [
+  "misconfigured",
+  "state_invalid",
+  "github_denied",
+  "github_failed",
+  "sudo_mismatch",
+  "rate_limited",
+  "unavailable",
+] as const;
+type SudoError = (typeof SUDO_ERRORS)[number];
+
+/**
+ * Sudo on a multi-tenant instance: a fresh GitHub sign-in of the same account, which brings the
+ * browser back to this page; the action is then tried again.
+ */
+function GithubSudo({ prompt }: { prompt?: string }) {
+  const tSignIn = useTranslations("SignIn");
+  const locale = useLocale();
+  const [busy, setBusy] = useState(false);
+  const fromCallback = useSearchParams().get("signin_error");
+  const [failure, setFailure] = useState<string | null>(null);
+  const labelId = useId();
+  const reported = failure ?? fromCallback;
+  const error = reported && (SUDO_ERRORS as readonly string[]).includes(reported) ? (reported as SudoError) : null;
+
+  async function confirmWithGithub() {
+    setBusy(true);
+    setFailure(null);
+    setFailure(await startGithubSignIn({ purpose: "sudo", locale, returnTo: currentReturnTo(locale) }));
+    setBusy(false);
+  }
+
+  return (
+    <div role="group" aria-labelledby={labelId} className="space-y-2.5 rounded-md border border-rule bg-raised p-3.5">
+      <p id={labelId} className="text-sm text-ink-2">
+        {prompt ? `${prompt} ${tSignIn("sudo_github_prompt")}` : tSignIn("sudo_github_prompt")}
+      </p>
+      <button
+        type="button"
+        onClick={confirmWithGithub}
+        disabled={busy}
+        className="rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-page transition-opacity hover:opacity-90 disabled:opacity-60"
+      >
+        {busy ? tSignIn("opening") : tSignIn("sudo_github_button")}
+      </button>
+      <div aria-live="polite">{error && <StatusLine tone="problem">{tSignIn(`error_${error}`)}</StatusLine>}</div>
+    </div>
+  );
 }
 
 /** The PIN was not accepted; the message is already the one to show. */
@@ -62,7 +119,7 @@ export function SudoUnlock({
 }) {
   const t = useTranslations("Setup");
   const tAuth = useTranslations("Auth");
-  const numeric = useNumericHint();
+  const { numeric, github } = useSudoInfo();
   const [pin, setPin] = useState("");
   const [reveal, setReveal] = useState(false);
   const [state, setState] = useState<UnlockState>({ phase: "idle" });
@@ -128,6 +185,8 @@ export function SudoUnlock({
       },
     );
   }
+
+  if (github) return <GithubSudo prompt={prompt} />;
 
   return (
     <div role="group" aria-labelledby={labelId} className="space-y-2.5 rounded-md border border-rule bg-raised p-3.5">

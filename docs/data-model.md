@@ -48,6 +48,12 @@ local development and tests.
 | `usage:tenant:{tenantId}` | STRING | JSON `{"v": 1, "name", "createdAt", "status": "active"}` — a tenant's own record (`lib/tenants.ts`) | Forever | `npm run migrate:tenant` (the default tenant's) |
 | `usage:tenants` | ZSET | `tenantId → createdMs`, every tenant besides `default`, which always exists | Forever | Tenant creation (none yet: a single-tenant instance has only `default`) |
 | `usage:tenants:housekept` | ZSET | `tenantId → last housekeeping run (ms)` | Forever | The cron run, after each tenant's housekeeping |
+| `usage:user:{userId}` (+ `:identities` SET, `:tenants` HASH, `:sessions` ZSET) | STRING | JSON `{"v": 1, "login", "createdAt", "lastLoginAt"}`; the identities (`github:{id}`), the user's tenants (`tenantId → role`) and sessions (`sha256(sid) → created ms`) | Until the account is deleted (F7) | Multi-tenant sign-in (`lib/users.ts`) |
+| `usage:identity:github:{id}` | STRING | `userId` — by the GitHub account's numeric id, never its login | With the user | The first sign-in of that account (`SET NX`) |
+| `usage:tenant:{tenantId}:members` | HASH | `userId → JSON {"role": "owner"\|"member", "joinedAt"}` — read on every request of a multi-tenant session | With the tenant | Workspace creation; `npm run migrate:tenant --owner-github-id` (the default tenant's owner) |
+| `usage:session2:{sha256(sid)}` | STRING | JSON `{"v": 2, "u": userId, "t": tenantId \| null, "c", "s", "a": last GitHub sign-in, "ua": browser label}` | `SESSION_IDLE_DAYS` idle, `SESSION_MAX_DAYS` at most (the key's TTL) | Multi-tenant sign-in (`lib/user-session.ts`) |
+| `usage:oauth:{sha256(state)}` | STRING | JSON: one sign-in attempt (PKCE verifier, purpose, return page, the nonce's hash) | 10 minutes; taken with `GETDEL` by the callback | `POST /api/auth/github/start` |
+| `usage:signup:{sha256(code)}`, `usage:signups` | STRING, HASH | a live sign-up code; the list of codes (`codeId → {hash, createdAt, expiresAt, createdBy, usedAt?, usedBy?}`) | 14 days (the code); the list until revoked | An instance admin (`lib/signup-codes.ts`) |
 | `usage:tokenindex` | HASH | `sha256(token) → tenantId`: which tenant a per-machine token belongs to; the token's record stays in that tenant's `usage:tokens` | A field is dropped with its token (housekeeping, 90 days after revocation) | `POST /api/tokens` (same transaction as the token); `npm run migrate:tenant`; the first use of a token issued before the index existed |
 
 Every hash above (`providers`, `groups`, `machines`, `official`) is a separate top-level key rather

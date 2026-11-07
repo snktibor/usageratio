@@ -222,6 +222,18 @@ Set once at deploy time. Every variable here is also listed, with a short commen
 | `SESSION_MAX_DAYS` | 30 | Hard ceiling from login, regardless of activity. |
 | `DASHBOARD_PIN_AUTOSUBMIT` | off | `1` submits a numeric PIN on its last digit (reveals the PIN's length to an onlooker — opt-in only). |
 
+### Optional: more than one user (GitHub sign-in)
+
+Leave these unset for the single-user dashboard. See
+[self-hosting.md](self-hosting.md#more-than-one-user-github-sign-in) for setting up the GitHub
+OAuth App.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `REGISTRATION` | `closed` | `closed`: one user, the PIN, as above. `invite`: GitHub sign-in, and a new workspace needs an instance admin's sign-up code. `open`: anyone with a GitHub account gets a workspace. Any other value counts as `closed`. Demo mode is always `closed`. |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | unset | The GitHub OAuth App's client id and secret. Without them, sign-in refuses to start (`server_misconfigured`). |
+| `NEXT_PUBLIC_SITE_URL` | unset | Required in `invite`/`open` mode: the callback URL is this origin plus `/api/auth/github/callback`, never the request's Host header. `https://`, or `http://` on `localhost`/`127.0.0.1`. |
+
 ### Optional overrides of `lib/config.ts` (initial values only)
 
 | Variable | Default | Meaning |

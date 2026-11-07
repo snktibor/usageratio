@@ -1,8 +1,8 @@
 import { cookies } from "next/headers";
 import { hasLocale } from "next-intl";
 import { setRequestLocale } from "next-intl/server";
+import { SignInGate } from "@/components/auth/sign-in-gate";
 import { Dashboard, type PastSummary } from "@/components/dashboard";
-import { PinGate } from "@/components/pin-gate";
 import { StorageProblem } from "@/components/storage-problem";
 import { routing } from "@/i18n/routing";
 import { type AllTimeSummary, allTimeCycles, summarizeAllTime } from "@/lib/all-time";
@@ -240,7 +240,7 @@ export default async function Page({
   if (storageError) {
     return <StorageProblem notConfigured={storageError instanceof StorageNotConfiguredError} />;
   }
-  if (!data) return <PinGate />;
+  if (!data) return <SignInGate />;
 
   return (
     <Dashboard

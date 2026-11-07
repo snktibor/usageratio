@@ -107,7 +107,7 @@ describe("sudo mode: /api/auth/sudo + /api/api-token/reveal", () => {
       cookies: jar,
     });
     expect(ok.status).toBe(200);
-    expect(await ok.json()).toEqual({ numeric: true });
+    expect(await ok.json()).toEqual({ mode: "pin", numeric: true });
 
     const anon = await withRequest(() => sudoGet(new Request("http://localhost/api/auth/sudo", { headers: ORIGIN })));
     expect(anon.status).toBe(401);

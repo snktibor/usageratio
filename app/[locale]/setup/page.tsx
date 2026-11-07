@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { hasLocale } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
-import { PinGate } from "@/components/pin-gate";
+import { SignInGate } from "@/components/auth/sign-in-gate";
 import { type SetupGroup, SetupView } from "@/components/setup/setup-view";
 import { StorageProblem } from "@/components/storage-problem";
 import { routing } from "@/i18n/routing";
@@ -61,7 +61,7 @@ export default async function SetupPage({
   if (storageError) {
     return <StorageProblem notConfigured={storageError instanceof StorageNotConfiguredError} />;
   }
-  if (!groups) return <PinGate next="/setup" />;
+  if (!groups) return <SignInGate next="/setup" />;
 
   const [query, requestHeaders, sources] = await Promise.all([searchParams, headers(), loadClientSources()]);
   return (
