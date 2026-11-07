@@ -59,6 +59,9 @@
  *                                   key the tenant owns without a SCAN, which deleting a tenant
  *                                   relies on. A name whose key has since expired or emptied may
  *                                   linger; it is harmless, and any later write registers it again.
+ *                                   Housekeeping only drops the names of alert guards whose segment
+ *                                   is past their 70-day expiry: those can never be written again,
+ *                                   so dropping them cannot race a write (lib/housekeeping.ts).
  *
  *   usage:alert:{providerId}:{segmentStartMs}:{threshold}
  *                             STRING "1", SET NX EX 70d — the guard that makes a threshold
@@ -124,6 +127,20 @@
  *   usage:rl:*                                  STRING fixed-window rate-limit counters
  *                                               (lib/rate-limit.ts), named in `GLOBAL_KEYS.rateLimit`
  *   usage:demo:seededAt, usage:demo:seeding     STRING demo mode's seed stamp and lock (lib/demo/seed.ts)
+ *
+ *   usage:tenant:{tenantId}      STRING {"v": 1, "name", "createdAt": ms, "status": "active"} — a tenant's
+ *                                       own record (lib/tenants.ts). No tenant data key is named
+ *                                       `tenant…`, so `usage:tenant:default` never meets the default
+ *                                       tenant's `usage:` keys.
+ *   usage:tenants                ZSET   tenantId → created ms: every tenant besides `default`, which
+ *                                       always exists (lib/tenants.ts `listTenantIds`)
+ *   usage:tenants:housekept      ZSET   tenantId → last housekeeping run ms: the cron run takes the
+ *                                       tenants oldest first, so one it did not reach is first next time
+ *   usage:tokenindex             HASH   sha256(token) → tenantId: which tenant a per-machine token
+ *                                       belongs to (lib/tokens.ts `tokenTenant`). The token's record
+ *                                       stays in that tenant's `tokens` hash; a token missing here is
+ *                                       looked for in the default tenant (tokens issued before the
+ *                                       index existed) and indexed on first use.
  */
 import { assertTenantId, DEFAULT_TENANT, type TenantId } from "@/lib/tenant-id";
 
@@ -199,6 +216,19 @@ export function dynamicTenantKeyPatterns(keys: TenantKeys): string[] {
   return [`${p}events:*`, `${p}history:*`, `${p}alltime:*`, `${p}alert:*`];
 }
 
+/**
+ * The segment start in an alert guard's name, when `name` is one of `keys`' alert guards (see
+ * `tenantKeys(…).alert`); null for any other key. Housekeeping uses it to forget expired guards.
+ */
+export function alertGuardSegmentMs(keys: TenantKeys, name: string): number | null {
+  const prefix = `${keys.prefix}alert:`;
+  if (!name.startsWith(prefix)) return null;
+  const parts = name.slice(prefix.length).split(":");
+  if (parts.length < 3) return null;
+  const segmentMs = Number(parts[parts.length - 2]);
+  return Number.isSafeInteger(segmentMs) ? segmentMs : null;
+}
+
 /** Keys shared by every tenant (see "Global keys" above). */
 export const GLOBAL_KEYS = {
   pinSession: (hash: string) => `usage:session:${hash}`,
@@ -215,6 +245,10 @@ export const GLOBAL_KEYS = {
     official: (tokenId: string) => `usage:rl:official:${tokenId}`,
     alertsTest: "usage:rl:alerts-test",
   },
+  tenantRecord: (tenantId: string) => `usage:tenant:${tenantId}`,
+  tenants: "usage:tenants",
+  tenantsHousekept: "usage:tenants:housekept",
+  tokenIndex: "usage:tokenindex",
   demoSeededAt: "usage:demo:seededAt",
   demoSeeding: "usage:demo:seeding",
   demoPattern: "usage:demo:*",

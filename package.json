@@ -57,6 +57,7 @@
     "brand": "node scripts/brand/render.mjs",
     "seed": "node --env-file-if-exists=.env.local --import tsx scripts/seed.ts",
     "migrate:legacy": "node --env-file-if-exists=.env.local --import tsx scripts/migrate-legacy.ts",
+    "migrate:tenant": "node --env-file-if-exists=.env.local --import tsx scripts/migrate-tenant.ts",
     "redis:up": "docker compose -f docker-compose.dev.yml up -d",
     "redis:down": "docker compose -f docker-compose.dev.yml down",
     "e2e": "playwright test",

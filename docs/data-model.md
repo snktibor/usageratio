@@ -36,7 +36,7 @@ local development and tests.
 | `usage:housekeeping:last` | STRING | JSON `{"at": ms, "report": HousekeepingReport}` | Forever (overwritten each run) | `runHousekeeping` (non-dry-run) |
 | `usage:alert:{providerId}:{segmentStartMs}:{threshold}` | STRING | `"1"`, `SET NX` | 70 days TTL | `lib/alerts.ts` `evaluateAlerts` — the guard that makes a threshold fire once per provider per segment of a cycle (the cycle's start while it has no keep reset) |
 | `usage:history:{providerId}` | ZSET | score = cycle start (epoch ms); member = JSON `CycleSummary` (see [History](#history-archived-cycles)) | Newest 24 entries per provider (`HISTORY_RETENTION`), trimmed on write | The first dashboard render after a cycle ends, or the daily housekeeping run's `history` step — whichever comes first (`archiveCycle` via `archiveDueCycles`); also `npm run seed`'s pre-archived entries |
-| `usage:keys` | SET | the name of every dynamic key the tenant has written (`events:*`, `history:*`, `alltime:*`, `alert:*`) | A name may outlive its key (an expired alert guard, an events set that pruned itself to nothing); harmless, and re-added by the next write | The same transaction as the write that creates the key. With the fixed keys (`fixedTenantKeys`) it lists every key of a tenant without a `SCAN` |
+| `usage:keys` | SET | the name of every dynamic key the tenant has written (`events:*`, `history:*`, `alltime:*`, `alert:*`) | A name may outlive its key (an events set that pruned itself to nothing); harmless, and re-added by the next write. Housekeeping drops only the names of alert guards whose segment is past their 70-day expiry, which can never be written again | The same transaction as the write that creates the key. With the fixed keys (`fixedTenantKeys`) it lists every key of a tenant without a `SCAN` |
 | `usage:alltime:{providerId}` | HASH | field = cycle start (epoch ms); value = JSON `CycleSummary` without `models`/`subLimits` (see [All-time totals](#all-time-totals)) | Never trimmed: one small entry per cycle | `archiveCycle`, together with the history entry (`HSETNX`, also for every summary still in the history); rewritten by `PUT /api/official-usage/archived`, deleted with the history entry when a restart is moved or deleted |
 | `usage:session:{sha256(sessionId:pin)}` | STRING | JSON `{"c": createdAtMs, "s": lastSeenMs}` (a bare `"1"` for a legacy pre-rolling session) | Ends after `SESSION_IDLE_DAYS` (default 7) without use, and `SESSION_MAX_DAYS` (default 30) after creation at the latest; the key's TTL is the remaining maximum lifetime | Login (`attemptLogin`); `s` refreshed at most hourly by `isAuthenticated` |
 | `usage:session:{...}:sudo` | STRING | `"1"` | 5 minutes | `POST /api/auth/sudo` |
@@ -45,6 +45,10 @@ local development and tests.
 | `usage:auth:global` | STRING | attempt counter | 1 hour | Login attempts from browsers with no known-device cookie |
 | `usage:rl:*` (`ingest`, `ingest:global`, `cycle`, `unauth`, `alerts-test`) | STRING | fixed-window counter (`lib/rate-limit.ts`) | matches the limit's own window | The endpoint being rate-limited |
 | `usage:demo:seededAt`, `usage:demo:seeding` | STRING | timestamp / lock | `usage:demo:seeding` expires after 60s | Demo mode's self-seeding (`ensureDemoData`) |
+| `usage:tenant:{tenantId}` | STRING | JSON `{"v": 1, "name", "createdAt", "status": "active"}` — a tenant's own record (`lib/tenants.ts`) | Forever | `npm run migrate:tenant` (the default tenant's) |
+| `usage:tenants` | ZSET | `tenantId → createdMs`, every tenant besides `default`, which always exists | Forever | Tenant creation (none yet: a single-tenant instance has only `default`) |
+| `usage:tenants:housekept` | ZSET | `tenantId → last housekeeping run (ms)` | Forever | The cron run, after each tenant's housekeeping |
+| `usage:tokenindex` | HASH | `sha256(token) → tenantId`: which tenant a per-machine token belongs to; the token's record stays in that tenant's `usage:tokens` | A field is dropped with its token (housekeeping, 90 days after revocation) | `POST /api/tokens` (same transaction as the token); `npm run migrate:tenant`; the first use of a token issued before the index existed |
 
 Every hash above (`providers`, `groups`, `machines`, `official`) is a separate top-level key rather
 than nested inside `usage:settings` for one reason: **atomic, lock-free registration**. Clients all
@@ -194,6 +198,22 @@ before the ledger existed loses nothing. On read (`lib/all-time.ts`), a cycle pr
 from the history. A group counts under the id it reported with in each cycle: a machine moved or a
 group renamed later keeps its past usage where it was, and a group that no longer exists is marked
 as such.
+
+## The tenant migration
+
+Before an instance runs with more than one tenant, add what the multi-tenant code reads beside the
+default tenant's keys. Nothing is moved, renamed or deleted: the default tenant keeps its `usage:`
+keys. Take a backup of the store first.
+
+```bash
+npm run migrate:tenant               # dry run: prints the plan, writes nothing
+npm run migrate:tenant -- --apply    # adds it
+```
+
+It adds the default tenant's record (`usage:tenant:default`), a `usage:tokenindex` entry for every
+token in `usage:tokens` (never changing an entry already there), and the names of the default
+tenant's existing dynamic keys to its registry `usage:keys` (a one-off `SCAN`). A second run finds
+nothing to add (`lib/migrate-tenant.ts`). A single-tenant instance does not need it.
 
 ## The legacy migration
 

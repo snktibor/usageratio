@@ -28,6 +28,7 @@ const STORE_MAKERS = new Set([
   "lib/housekeeping.ts", // the cron run over every tenant
   "lib/instrumentation-node.ts", // the demo seed at start-up
   "scripts/seed.ts", // npm run seed
+  "lib/migrate-tenant.ts", // npm run migrate:tenant
 ]);
 
 /** Who may reach the raw client: global keys only, or the store's own plumbing. */
@@ -36,6 +37,8 @@ const RAW_CLIENT_USERS = new Set([
   "lib/tenant.ts",
   "lib/auth.ts",
   "lib/rate-limit.ts",
+  "lib/tenants.ts",
+  "lib/tokens.ts", // the global token index
   "lib/migrate-legacy.ts",
   "lib/demo/seed.ts",
   "app/api/health/route.ts",

@@ -6,7 +6,7 @@ import type { CycleSummary } from "@/lib/history";
 import { ingestReport } from "@/lib/ingest";
 import { deleteMachine, moveMachine, renameOrMergeGroup } from "@/lib/manage-store";
 import { getMemoryStoreForTests } from "@/lib/redis";
-import { fixedTenantKeys, tenantKeys } from "@/lib/redis-keys";
+import { fixedTenantKeys, GLOBAL_KEYS, tenantKeys } from "@/lib/redis-keys";
 import { type TenantStore, tenantStore } from "@/lib/tenant";
 import { assertTenantId, DEFAULT_TENANT, isTenantId, type TenantId } from "@/lib/tenant-id";
 import { createToken, listTokens } from "@/lib/tokens";
@@ -194,11 +194,14 @@ describe("a tenant's keys", () => {
 
     const keys = memory.keys();
     expect(keys.length).toBeGreaterThan(5);
-    expect(keys.filter((key) => !key.startsWith(store.keys.prefix))).toEqual([]);
+    // The one global key a tenant's writes touch: the token index, naming only this tenant.
+    expect(keys.filter((key) => !key.startsWith(store.keys.prefix))).toEqual([GLOBAL_KEYS.tokenIndex]);
+    expect(Object.values(memory.dump()[GLOBAL_KEYS.tokenIndex]?.value as Record<string, string>)).toEqual([OTHER]);
 
     const registry = new Set(memory.dump()[store.keys.registry]?.value as string[]);
     const fixed = new Set(fixedTenantKeys(store.keys));
-    expect(keys.filter((key) => !fixed.has(key) && !registry.has(key))).toEqual([]);
+    const ownKeys = keys.filter((key) => key.startsWith(store.keys.prefix));
+    expect(ownKeys.filter((key) => !fixed.has(key) && !registry.has(key))).toEqual([]);
     // Spot checks: the dynamic keys of each writer are registered.
     expect(registry).toContain(store.keys.events("claude", "b-group"));
     expect(registry).toContain(store.keys.events("claude", "b-team"));
@@ -213,15 +216,25 @@ describe("a tenant's keys", () => {
     const a = tenantStore(DEFAULT_TENANT);
     const b = tenantStore(OTHER);
     await exerciseEverything(a, "a");
-    const before = JSON.stringify(memory.dump());
+    const withoutIndex = (dump: ReturnType<typeof memory.dump>) =>
+      Object.fromEntries(Object.entries(dump).filter(([key]) => key !== GLOBAL_KEYS.tokenIndex));
+    const before = JSON.stringify(withoutIndex(memory.dump()));
+    const indexBefore = memory.dump()[GLOBAL_KEYS.tokenIndex]?.value as Record<string, string>;
 
     await exerciseEverything(b, "b");
     expect(await deleteMachine(b, "claude", "a-mac")).toEqual({ ok: false, reason: "not_found" });
 
     // A's keys are byte for byte what they were before B wrote anything.
     const after = memory.dump();
-    const aOnly = Object.fromEntries(Object.entries(after).filter(([key]) => !key.startsWith(b.keys.prefix)));
+    const aOnly = Object.fromEntries(
+      Object.entries(withoutIndex(after)).filter(([key]) => !key.startsWith(b.keys.prefix)),
+    );
     expect(JSON.stringify(aOnly)).toBe(before);
+    // In the shared token index, A's entries are untouched and B's name B.
+    const indexAfter = after[GLOBAL_KEYS.tokenIndex]?.value as Record<string, string>;
+    for (const [hash, tenantId] of Object.entries(indexBefore)) expect(indexAfter[hash]).toBe(tenantId);
+    const added = Object.keys(indexAfter).filter((hash) => !(hash in indexBefore));
+    expect(added.map((hash) => indexAfter[hash])).toEqual([OTHER]);
 
     // Neither sees the other's machines, groups, events, history or tokens.
     for (const [store, own, foreign] of [
