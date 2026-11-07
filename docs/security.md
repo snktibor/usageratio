@@ -258,7 +258,13 @@ manual `POST /api/housekeeping` (settings panel, sudo-gated unless `?dryRun=1`) 
   once it is older than `RETENTION_DAYS` (70 days, while its raw reports exist), and a reverted
   reset's detection switch once its cycle is over;
 - `usage:tokens` entries revoked more than 90 days ago (`REVOKED_RETENTION_DAYS`);
-- `usage:api-token:audit` entries older than `AUDIT_RETENTION_DAYS`.
+- `usage:api-token:audit` entries older than `AUDIT_RETENTION_DAYS`;
+- the key registry's (`usage:keys`) names of alert guards whose segment started more than a month plus their 70-day expiry ago (certainly gone, and never written again).
+
+The cron route does this for every tenant (`runScheduledHousekeeping`): the one housekept longest
+ago first, until a 240-second budget is spent, so a tenant it does not reach is first the next day.
+A tenant whose run throws is logged (`housekeeping.tenant_failed`) and skipped; the others still
+run. The manual route only ever runs for the signed-in tenant.
 
 Its one writing step archives the cycle that just ended into `usage:history:*` (see
 [data-model.md § History](data-model.md#history-archived-cycles)). It never touches the raw event

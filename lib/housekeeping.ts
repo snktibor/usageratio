@@ -1,13 +1,17 @@
 import type { TimeWindow } from "@/lib/aggregate";
+import { ALERT_TTL_SECONDS } from "@/lib/alerts";
 import { parseAuditRecord } from "@/lib/api-token";
 import { archiveDueCycles } from "@/lib/archive";
 import { getConfig, RETENTION_DAYS } from "@/lib/config";
 import { log } from "@/lib/log";
 import { providerOfOfficialField } from "@/lib/official-usage";
 import { currentSegmentStartMs, earliestStartMs, providerCycle } from "@/lib/provider-cycles";
+import { alertGuardSegmentMs } from "@/lib/redis-keys";
 import { pruneResets, resetEventsOf, resetsOf } from "@/lib/resets";
 import { parseStoredSettings, resolveConfig, settingsFromConfig } from "@/lib/settings";
-import { defaultTenantStore, type TenantStore } from "@/lib/tenant";
+import { type TenantStore, tenantStore } from "@/lib/tenant";
+import { DEFAULT_TENANT } from "@/lib/tenant-id";
+import { markHousekept, tenantsByHousekeepingAge } from "@/lib/tenants";
 import { pruneRevokedTokens } from "@/lib/tokens";
 import { loadEvents, loadIndexes, loadResets, saveResets } from "@/lib/usage-store";
 
@@ -32,6 +36,8 @@ import { loadEvents, loadIndexes, loadResets, saveResets } from "@/lib/usage-sto
 
 const DAY_MS = 86_400_000;
 const DEFAULT_AUDIT_RETENTION_DAYS = 365;
+/** The longest a cycle (and so a segment of one) can last: a 31-day month, plus a day of slack for DST and late reports. */
+const MAX_SEGMENT_DAYS = 32;
 
 export interface HousekeepingStepReport {
   removed: number;
@@ -49,6 +55,8 @@ export interface HousekeepingReport {
   audit: { removed: number };
   /** Providers whose just-ended cycle this run archived (with `dryRun`: would archive). */
   history: { archived: number; ids: string[] };
+  /** Names dropped from the tenant's key registry: alert guards past their expiry. */
+  registry: { removed: number };
   dryRun: boolean;
 }
 
@@ -195,6 +203,19 @@ export async function runHousekeeping(
   // Step 7: per-machine tokens (lib/tokens.ts) revoked long enough ago to forget entirely.
   const tokensPruned = await pruneRevokedTokens(store, now, { dryRun });
 
+  // Step 8: the key registry's alert guards that are certainly gone. A guard is set while its
+  // segment runs (a segment lies within one cycle, at most a month) and expires ALERT_TTL_SECONDS
+  // later, so one whose segment started more than a month plus that TTL ago has expired, and can
+  // never be written again (alerts only guard the current segment): dropping its name cannot race
+  // a write. Other names stay: a key that emptied is registered again when it is next written, and
+  // a name without its key costs nothing.
+  const registryNames = ((await redis.smembers(store.keys.registry)) as unknown[]).map(String);
+  const guardCutoffMs = now.getTime() - ALERT_TTL_SECONDS * 1000 - MAX_SEGMENT_DAYS * DAY_MS;
+  const expiredGuards = registryNames.filter((name) => {
+    const segmentMs = alertGuardSegmentMs(store.keys, name);
+    return segmentMs !== null && segmentMs < guardCutoffMs;
+  });
+
   if (!dryRun) {
     if (machineFields.length > 0) await redis.hdel(store.keys.machines, ...machineFields);
     if (staleProviders.length > 0)
@@ -211,6 +232,7 @@ export async function runHousekeeping(
       if (auditKeep === 0) await redis.del(store.keys.apiTokenAudit);
       else await redis.ltrim(store.keys.apiTokenAudit, 0, auditKeep - 1);
     }
+    if (expiredGuards.length > 0) await redis.srem(store.keys.registry, ...(expiredGuards as [string, ...string[]]));
   }
 
   const report: HousekeepingReport = {
@@ -222,6 +244,7 @@ export async function runHousekeeping(
     tokens: tokensPruned,
     audit: { removed: auditRemoved },
     history: { archived: archived.length, ids: archived },
+    registry: { removed: expiredGuards.length },
     dryRun,
   };
 
@@ -236,6 +259,8 @@ export async function runHousekeeping(
     if (removed > 0) log.info(`housekeeping.${step}_pruned`, { removed, ids, dryRun });
   }
   if (auditRemoved > 0) log.info("housekeeping.audit_pruned", { removed: auditRemoved, dryRun });
+  if (expiredGuards.length > 0)
+    log.info("housekeeping.registry_pruned", { removed: expiredGuards.length, ids: expiredGuards, dryRun });
   if (archived.length > 0)
     log.info("housekeeping.history_archived", { archived: archived.length, ids: archived, dryRun });
   log.info("housekeeping.run", {
@@ -248,6 +273,7 @@ export async function runHousekeeping(
     tokens: report.tokens.removed,
     audit: report.audit.removed,
     archived: report.history.archived,
+    registry: report.registry.removed,
   });
 
   if (!dryRun) await redis.set(store.keys.housekeepingLast, JSON.stringify({ at: now.getTime(), report }));
@@ -255,10 +281,60 @@ export async function runHousekeeping(
   return report;
 }
 
+/** What one cron run did across the tenants (`runScheduledHousekeeping`). */
+export interface TenantsHousekeepingSummary {
+  /** Tenants whose housekeeping ran to the end. */
+  processed: number;
+  /** Tenants whose housekeeping threw: logged and skipped, the others still ran. */
+  failed: number;
+  /** Tenants left for the next run because the time budget ran out. */
+  pending: number;
+}
+
+/** How long one cron run may keep starting tenants: well inside Vercel's 300-second function limit. */
+export const HOUSEKEEPING_BUDGET_MS = 240_000;
+
 /**
  * The daily cron run (app/api/cron/housekeeping/route.ts): every tenant's
- * housekeeping. A single-tenant instance has exactly one, `default`.
+ * housekeeping, the one housekept longest ago first, until the time budget is
+ * spent. A tenant not reached is first in line the next day; one that throws
+ * is logged, skipped and stamped like the others (so it cannot starve them by
+ * going first every day). A dry run stamps nothing. The budget is only checked
+ * before a tenant starts: the route's maxDuration (300 s) leaves room for the
+ * one that is running when it runs out.
+ *
+ * `report` is the default tenant's report (the whole story on a single-tenant
+ * instance); null when this run did not reach it.
  */
-export async function runScheduledHousekeeping(now: Date, options: { dryRun: boolean }): Promise<HousekeepingReport> {
-  return runHousekeeping(defaultTenantStore(), now, options);
+export async function runScheduledHousekeeping(
+  now: Date,
+  options: { dryRun: boolean; budgetMs?: number; elapsedMs?: () => number },
+): Promise<{ report: HousekeepingReport | null; tenants: TenantsHousekeepingSummary }> {
+  const { dryRun, budgetMs = HOUSEKEEPING_BUDGET_MS } = options;
+  const started = performance.now();
+  const elapsedMs = options.elapsedMs ?? (() => performance.now() - started);
+
+  const order = await tenantsByHousekeepingAge();
+  const summary: TenantsHousekeepingSummary = { processed: 0, failed: 0, pending: 0 };
+  let report: HousekeepingReport | null = null;
+  for (const [index, tenantId] of order.entries()) {
+    if (elapsedMs() >= budgetMs) {
+      summary.pending = order.length - index;
+      log.warn("housekeeping.budget_spent", { pending: summary.pending, budgetMs });
+      break;
+    }
+    try {
+      const tenantReport = await runHousekeeping(tenantStore(tenantId), now, { dryRun });
+      if (tenantId === DEFAULT_TENANT) report = tenantReport;
+      if (!dryRun) await markHousekept(tenantId, now.getTime());
+      summary.processed += 1;
+    } catch (error) {
+      summary.failed += 1;
+      log.error("housekeeping.tenant_failed", { tenantId, err: error });
+      // Stamped all the same, so a tenant that keeps failing goes to the back of the line instead
+      // of taking the budget first every day.
+      if (!dryRun) await markHousekept(tenantId, now.getTime()).catch(() => undefined);
+    }
+  }
+  return { report, tenants: summary };
 }

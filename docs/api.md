@@ -541,13 +541,15 @@ never again. See [clients.md](clients.md#per-machine-tokens-vs-the-master-token)
 ## Housekeeping
 
 - **`GET /api/cron/housekeeping`** — auth: **cron secret**. `?dryRun=1` reports without deleting
-  anything. `200 { "report": HousekeepingReport }` · `401` missing/wrong bearer ·
+  anything. `200 { "report": HousekeepingReport | null, "tenants": { "processed", "failed", "pending" } }`
+  (every tenant is housekept, the one done longest ago first, within a time budget; `report` is the
+  default tenant's, null when that run failed or was not reached) · `401` missing/wrong bearer ·
   `403 demo_read_only` in demo mode (checked before the secret, so a demo deployment refuses this even
   with a valid `CRON_SECRET`) · `500 server_misconfigured` (`CRON_SECRET` unset or under 16 characters
   — refuses to run rather than accept every request).
 - **`POST /api/housekeeping`** — the settings panel's manual trigger. Auth: **session** for a dry run
   (`?dryRun=1`), **session + sudo** for a real run (it deletes index entries). Same response shape and
-  report as the cron endpoint. See [data-model.md](data-model.md) for exactly what's pruned.
+  report as the cron endpoint, for the signed-in tenant only (`tenants` is not part of it). See [data-model.md](data-model.md) for exactly what's pruned.
 
 ## Export
 

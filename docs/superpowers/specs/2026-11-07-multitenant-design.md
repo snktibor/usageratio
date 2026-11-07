@@ -283,8 +283,12 @@ P keys                             SET     NEW: registry of the tenant's dynamic
 `alltime:*`, `alert:*`) also does `SADD P keys <name>` inside the same transaction. So the
 tenant's keys are always `TENANT_FIXED_KEYS ∪ SMEMBERS(P keys)`. A name whose key has since
 expired or emptied (an alert guard after 70 days, an event set that self-pruned to nothing) stays
-in the registry harmlessly; housekeeping removes names whose key no longer exists (safe, because
-any later write registers it again). The `default` tenant's registry is backfilled once by
+in the registry harmlessly. Housekeeping drops only the names of alert guards whose segment started more
+than a month (the longest cycle) plus their 70-day expiry ago: those are gone and can never be
+written again. (Dropping "every name whose key no longer
+exists" was the first idea, but it races a write that recreates the key between the check and the
+removal, and a key written only once, like a cycle's history, would then fall out of the registry
+for good.) The `default` tenant's registry is backfilled once by
 `migrate:tenant`, which may SCAN because it is a one-off script.
 
 A completeness test runs a full scenario (reports, archive, alerts, resets, tokens) on the memory
@@ -311,7 +315,7 @@ usage:tenant:{tenantId}             STRING  {"v":1, "name", "createdAt", "create
                                              "active" | "disabled" | "deleting", "statusAt"}
 usage:tenant:{tenantId}:members     HASH    userId → {"role", "joinedAt", "invitedBy"}
 usage:tenant:{tenantId}:invites     HASH    inviteId → {"hash", "createdAt", "expiresAt", "createdBy", "login"?}
-usage:tenants                       ZSET    tenantId → created ms (every tenant: admin counts, housekeeping)
+usage:tenants                       ZSET    tenantId → created ms (every tenant but `default`: admin counts, housekeeping)
 usage:tenants:housekept             ZSET    tenantId → last housekeeping ms (oldest first)
 
 usage:invite:{sha256(code)}         STRING  {"tenantId", "inviteId", "login"?}  EX = expiry; GETDEL on use
@@ -571,11 +575,11 @@ gets its own suite with a fake GitHub (below).
 Modelled on `migrate:legacy`: dry-run by default, `--apply` to write, idempotent, prints what it
 would do or did.
 
-1. Create the `default` tenant's record (`name: "Default"`) and its `usage:tenants` entries, if
-   missing.
-2. With `--owner-github-id=<numeric id>`: create the user, the identity and the owner membership,
-   if missing (an existing identity is reused). The login is filled in at that account's first
-   sign-in.
+1. Create the `default` tenant's record (`name: "Default"`), if missing. The `default` tenant is
+   never in `usage:tenants`: it always exists, so the code adds it to every tenant list itself.
+2. With `--owner-github-id=<numeric id>` (added in F4, together with users): create the user, the
+   identity and the owner membership, if missing (an existing identity is reused). The login is
+   filled in at that account's first sign-in.
 3. Index every token in `usage:tokens` in `usage:tokenindex` (`HSETNX`, pointing at `default`).
 4. Backfill `usage:keys` with a one-off SCAN of `usage:events:*`, `usage:history:*`,
    `usage:alltime:*`, `usage:alert:*`.

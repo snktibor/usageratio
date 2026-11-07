@@ -11,13 +11,14 @@ import {
   clientIp,
   currentRequest,
   currentRequestId,
+  defer,
   requestIdFrom,
   runWithRequest,
 } from "@/lib/request-context";
 import { safeEqual, sha256Hex } from "@/lib/security";
-import { defaultTenantStore, type TenantStore } from "@/lib/tenant";
+import { defaultTenantStore, type TenantStore, tenantStore } from "@/lib/tenant";
 import { currentTenant, type TenantContext } from "@/lib/tenant-context";
-import { authenticateToken, type TokenScope } from "@/lib/tokens";
+import { authenticateToken, indexToken, type TokenScope, tokenTenant } from "@/lib/tokens";
 
 /**
  * What every route handler shares: the JSON error envelope, the body reader
@@ -199,12 +200,18 @@ export async function requireBearer(request: Request): Promise<Response | Bearer
   const bearer = /^Bearer\s+(\S+)\s*$/i.exec(request.headers.get("authorization") ?? "");
   const presented = bearer?.[1];
   if (!presented) return apiError("unauthorized", 401, { scheme: "bearer" });
-  // A single-tenant instance: the master token and every per-machine token belong to the default tenant.
-  const store = defaultTenantStore();
-  if (safeEqual(presented, expected)) return { tokenId: "master", machineId: null, scope: "ingest", store };
+  // The shared master token belongs to the default tenant, the only one a single-tenant instance has.
+  if (safeEqual(presented, expected)) {
+    return { tokenId: "master", machineId: null, scope: "ingest", store: defaultTenantStore() };
+  }
 
+  // A per-machine token's tenant is the one the token index names; a token issued before the
+  // index existed is not there, and can only be the default tenant's.
+  const indexed = await tokenTenant(presented);
+  const store = indexed ? tenantStore(indexed) : defaultTenantStore();
   const result = await authenticateToken(store, presented, new Date());
   if (!result.ok) return apiError("unauthorized", 401, { scheme: "bearer" });
+  if (!indexed) defer(() => indexToken(store, presented));
   return { tokenId: result.tokenId, machineId: result.machineId, scope: result.scope, store };
 }
 

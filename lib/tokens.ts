@@ -1,8 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { toStringRecord } from "@/lib/redis";
+import { getRedis, toStringRecord } from "@/lib/redis";
+import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { defer } from "@/lib/request-context";
 import { sha256Hex } from "@/lib/security";
 import type { TenantStore } from "@/lib/tenant";
+import { isTenantId, type TenantId } from "@/lib/tenant-id";
 
 /**
  * Per-machine API tokens: an alternative to the one shared `USAGE_API_TOKEN`
@@ -10,6 +12,12 @@ import type { TenantStore } from "@/lib/tenant";
  * (lib/redis-keys.ts): field = `sha256Hex(token)`, value = this module's JSON.
  * The plaintext is generated once, returned to the caller of `createToken`,
  * and never stored — only its hash is kept, the same way a password would be.
+ *
+ * Which tenant a token belongs to is the global `usage:tokenindex` hash
+ * (`tokenTenant`), written in the same transaction as the token itself; the
+ * request guard (lib/api.ts `requireBearer`) then reads the record in that
+ * tenant's own hash. A token from before the index existed is not in it: the
+ * guard looks for it in the default tenant and indexes it (`indexToken`).
  *
  * Looking a bearer token up is `HGET usage:tokens sha256(token)`: a hash-table
  * lookup keyed by the hash of a 256-bit random secret, not a string compare
@@ -165,7 +173,11 @@ export async function createToken(
     lastUsedAt: null,
     revokedAt: null,
   };
-  await redis.hset(store.keys.tokens, { [hashToken(token)]: serialize(record) });
+  const hash = hashToken(token);
+  const tx = redis.multi();
+  tx.hset(store.keys.tokens, { [hash]: serialize(record) });
+  tx.hset(GLOBAL_KEYS.tokenIndex, { [hash]: store.tenantId });
+  await tx.exec();
   return { ok: true, id, token };
 }
 
@@ -184,6 +196,18 @@ export async function revokeToken(store: TenantStore, id: string, now: Date): Pr
     await redis.hset(store.keys.tokens, { [hash]: serialize({ ...token, revokedAt: now.getTime() }) });
   }
   return { ok: true };
+}
+
+/** The tenant `bearer` was issued for, from the token index; null for a token the index does not know. */
+export async function tokenTenant(bearer: string): Promise<TenantId | null> {
+  const raw = await getRedis().hget<string>(GLOBAL_KEYS.tokenIndex, hashToken(bearer));
+  const tenantId = raw === null || raw === undefined ? null : String(raw);
+  return tenantId !== null && isTenantId(tenantId) ? tenantId : null;
+}
+
+/** Records in the token index that `bearer` belongs to `store`'s tenant (a token issued before the index existed). */
+export async function indexToken(store: TenantStore, bearer: string): Promise<void> {
+  await store.redis.hsetnx(GLOBAL_KEYS.tokenIndex, hashToken(bearer), store.tenantId);
 }
 
 export type TokenAuthResult =
@@ -240,6 +264,11 @@ export async function pruneRevokedTokens(
       staleIds.push(token.id);
     }
   }
-  if (!dryRun && staleHashes.length > 0) await redis.hdel(store.keys.tokens, ...staleHashes);
+  if (!dryRun && staleHashes.length > 0) {
+    const tx = redis.multi();
+    tx.hdel(store.keys.tokens, ...staleHashes);
+    tx.hdel(GLOBAL_KEYS.tokenIndex, ...staleHashes);
+    await tx.exec();
+  }
   return { removed: staleHashes.length, ids: staleIds };
 }

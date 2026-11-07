@@ -231,6 +231,7 @@ describe("runHousekeeping", () => {
       tokens: { removed: 0, ids: [] },
       audit: { removed: 0 },
       history: { archived: 0, ids: [] },
+      registry: { removed: 0 },
       dryRun: false,
     });
   });

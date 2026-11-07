@@ -41,7 +41,7 @@ import { sendWebhook, type WebhookResult } from "@/lib/webhook";
  * is caught and logged rather than left to bubble up.
  */
 
-const ALERT_TTL_SECONDS = 70 * 86_400;
+export const ALERT_TTL_SECONDS = 70 * 86_400;
 
 export interface AlertCycle {
   startMs: number;

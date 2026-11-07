@@ -32,7 +32,7 @@ aggregates and charts it live.
 `npm ci` once, then: `npm run dev` (real store) / `npm run dev:demo` (no Docker, synthetic data) ·
 `npm run seed -- --reset` · `npm run check` (Biome + `tsc --noEmit` + Vitest) · `npm run coverage` ·
 `npm run build && npm run e2e` (Playwright) · `npm run lint` / `npm run format` · `npm run redis:up`
-/ `redis:down` · `npm run migrate:legacy` · `npm run docker:build`. See
+/ `redis:down` · `npm run migrate:legacy` · `npm run migrate:tenant` · `npm run docker:build`. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the full walkthrough, including what each check needs
 (`bash`/`curl` for the installer integration test, `pwsh` for the clients' Pester suite).
 
