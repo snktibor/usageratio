@@ -126,7 +126,27 @@ function cases(world: World): Record<string, Case[]> {
       { method: "GET", path: "/api/auth/sudo", auth: "session" },
       { method: "POST", path: "/api/auth/sudo", auth: "session", body: { pin: PIN } },
     ],
-    // Multi-tenant mode only: on this single-user instance both answer 404 and touch nothing.
+    // Multi-tenant mode only: on this single-user instance these answer 404 and touch nothing.
+    account: [
+      { method: "GET", path: "/api/account", auth: "session" },
+      { method: "DELETE", path: "/api/account", auth: "sudo" },
+    ],
+    "account/sessions": [{ method: "DELETE", path: "/api/account/sessions", auth: "session" }],
+    admin: [{ method: "GET", path: "/api/admin", auth: "session" }],
+    "admin/signup-codes": [{ method: "POST", path: "/api/admin/signup-codes", auth: "session" }],
+    "admin/signup-codes/[id]": [
+      { method: "DELETE", path: "/api/admin/signup-codes/x", auth: "session", params: { id: "sc_AAAAAAAA" } },
+    ],
+    "admin/tenants/[id]": [
+      {
+        method: "PATCH",
+        path: "/api/admin/tenants/x",
+        auth: "session",
+        params: { id: B },
+        body: { status: "disabled" },
+        expectNotFound: true,
+      },
+    ],
     "auth/github/start": [
       { method: "POST", path: "/api/auth/github/start", auth: "session", body: { purpose: "login" } },
     ],

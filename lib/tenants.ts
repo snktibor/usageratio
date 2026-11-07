@@ -14,8 +14,17 @@ export interface TenantRecord {
   /** The workspace's display name: shown to its members only, never used as a key. */
   name: string;
   createdAt: number;
-  status: "active";
+  /**
+   * "disabled": switched off by an instance admin (data kept, nobody gets in); "deleting": its
+   * deletion has started (lib/tenant-deletion.ts) and may be finished by a later run.
+   */
+  status: TenantStatus;
+  /** When the status last changed; absent while it never has. */
+  statusAt?: number;
 }
+
+export type TenantStatus = "active" | "disabled" | "deleting";
+const STATUSES: readonly TenantStatus[] = ["active", "disabled", "deleting"];
 
 export function serializeTenantRecord(record: TenantRecord): string {
   return JSON.stringify(record);
@@ -27,7 +36,14 @@ export function parseTenantRecord(raw: unknown): TenantRecord | null {
   try {
     const value = JSON.parse(raw) as Partial<TenantRecord>;
     if (value?.v !== 1 || typeof value.name !== "string" || typeof value.createdAt !== "number") return null;
-    return { v: 1, name: value.name, createdAt: value.createdAt, status: "active" };
+    const status = STATUSES.includes(value.status as TenantStatus) ? (value.status as TenantStatus) : "active";
+    return {
+      v: 1,
+      name: value.name,
+      createdAt: value.createdAt,
+      status,
+      ...(typeof value.statusAt === "number" && { statusAt: value.statusAt }),
+    };
   } catch {
     return null;
   }
@@ -69,4 +85,28 @@ export async function tenantsByHousekeepingAge(): Promise<TenantId[]> {
 /** Stamps `tenantId`'s housekeeping as done at `atMs`. */
 export async function markHousekept(tenantId: TenantId, atMs: number): Promise<void> {
   await getRedis().zadd(GLOBAL_KEYS.tenantsHousekept, { score: atMs, member: tenantId });
+}
+
+export async function loadTenantRecord(tenantId: TenantId): Promise<TenantRecord | null> {
+  return parseTenantRecord(await getRedis().get(GLOBAL_KEYS.tenantRecord(tenantId)));
+}
+
+/**
+ * Whether the tenant may be used: its record says "active". The default tenant needs no record
+ * (a single-user instance never writes one), so for it only a record that says otherwise counts.
+ */
+export function tenantIsActive(tenantId: TenantId, record: TenantRecord | null): boolean {
+  if (record === null) return tenantId === DEFAULT_TENANT;
+  return record.status === "active";
+}
+
+/** Sets a tenant's status; false when it has no record (nothing to switch). */
+export async function setTenantStatus(tenantId: TenantId, status: TenantStatus, now: Date): Promise<boolean> {
+  const record = await loadTenantRecord(tenantId);
+  if (!record) return false;
+  await getRedis().set(
+    GLOBAL_KEYS.tenantRecord(tenantId),
+    serializeTenantRecord({ ...record, status, statusAt: now.getTime() }),
+  );
+  return true;
 }

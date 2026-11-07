@@ -3,7 +3,7 @@ import { getRedis } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { isMultiTenant } from "@/lib/registration";
 import { defaultTenantStore, type TenantStore, tenantStore } from "@/lib/tenant";
-import { parseTenantRecord } from "@/lib/tenants";
+import { parseTenantRecord, tenantIsActive } from "@/lib/tenants";
 import { currentUserSession } from "@/lib/user-session";
 import { parseRole, type Role } from "@/lib/users";
 
@@ -39,6 +39,8 @@ export async function currentTenant(): Promise<TenantContext | null> {
   reads.get(GLOBAL_KEYS.tenantRecord(session.tenantId));
   const [member, record] = await reads.exec();
   const role = parseRole(member);
-  if (!role || !parseTenantRecord(record)) return null;
+  // A tenant needs its record, active: a disabled or half-deleted one lets nobody in.
+  const tenantRecord = parseTenantRecord(record);
+  if (!role || !tenantRecord || !tenantIsActive(session.tenantId, tenantRecord)) return null;
   return { store: tenantStore(session.tenantId), role, userId: session.userId };
 }

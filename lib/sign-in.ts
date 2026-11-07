@@ -23,7 +23,7 @@ import { createTenantFor, findOrCreateGithubUser, hasGithubIdentity, userForGith
  */
 
 /** Where a sign-in may return to: the pages that show the sign-in screen. Anything else goes home. */
-const RETURN_TO = new Set(["/", "/setup", "/settings"]);
+const RETURN_TO = new Set(["/", "/setup", "/settings", "/account", "/admin"]);
 const OAUTH_COOKIE = "ur_oauth";
 
 export function safeReturnTo(raw: unknown): string {

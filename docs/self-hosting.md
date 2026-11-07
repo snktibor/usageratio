@@ -141,7 +141,17 @@ was.
    the existing data: `npm run migrate:tenant -- --owner-github-id=<id>` prints the plan, add
    `--apply` to run it. Your numeric id is the `id` field of `https://api.github.com/users/<login>`.
    See [data-model.md](data-model.md#the-tenant-migration).
-4. **Set `REGISTRATION=invite`** and redeploy. Sign in with GitHub: you land in your existing data.
+4. **Set `REGISTRATION=invite`** and `ADMIN_GITHUB_IDS` (your numeric id), and redeploy. Sign in
+   with GitHub: you land in your existing data.
+5. **Invite people:** `/admin` → "Create a sign-up link". Each link works once, for 14 days, and
+   is shown only once. Whoever opens it signs in with GitHub and gets an empty workspace of their
+   own. The admin page shows counts per workspace and can disable one; it never shows a
+   workspace's data.
+
+Everyone signed in has an account page (`/account`): their workspaces, the browsers they are signed
+in on, "sign out everywhere", and deleting the account (with a fresh GitHub sign-in). Deleting an
+account deletes every workspace only that user belongs to, with all its data; an owner of a
+workspace that others belong to has to hand it over first.
 
 GitHub's access token is used once to read the account's id and login, and then dropped. Neither the
 token nor any e-mail address is stored.

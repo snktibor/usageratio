@@ -29,6 +29,8 @@ const STORE_MAKERS = new Set([
   "lib/instrumentation-node.ts", // the demo seed at start-up
   "scripts/seed.ts", // npm run seed
   "lib/migrate-tenant.ts", // npm run migrate:tenant
+  "lib/admin.ts", // the instance admin's counts, tenant by tenant
+  "lib/tenant-deletion.ts",
 ]);
 
 /** Who may reach the raw client: global keys only, or the store's own plumbing. */
@@ -44,6 +46,9 @@ const RAW_CLIENT_USERS = new Set([
   "lib/oauth-state.ts",
   "lib/signup-codes.ts",
   "lib/tenant-context.ts", // the membership check
+  "lib/account.ts",
+  "lib/admin.ts",
+  "lib/tenant-deletion.ts",
   "lib/migrate-legacy.ts",
   "lib/demo/seed.ts",
   "app/api/health/route.ts",

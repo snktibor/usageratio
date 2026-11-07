@@ -6,6 +6,7 @@ import { log } from "@/lib/log";
 import { hit } from "@/lib/rate-limit";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
+import { isMultiTenant } from "@/lib/registration";
 import {
   type CookieJar,
   clientIp,
@@ -18,7 +19,9 @@ import {
 import { safeEqual, sha256Hex } from "@/lib/security";
 import { defaultTenantStore, type TenantStore, tenantStore } from "@/lib/tenant";
 import { currentTenant, type TenantContext } from "@/lib/tenant-context";
+import { loadTenantRecord, tenantIsActive } from "@/lib/tenants";
 import { authenticateToken, indexToken, type TokenScope, tokenTenant } from "@/lib/tokens";
+import { currentUserSession, type UserSession } from "@/lib/user-session";
 
 /**
  * What every route handler shares: the JSON error envelope, the body reader
@@ -74,7 +77,10 @@ export type ApiErrorCode =
   | "provider_has_events"
   | "webhook_failed"
   | "registration_closed"
-  | "signup_code_invalid";
+  | "signup_code_invalid"
+  | "tenant_disabled"
+  | "owns_shared_workspace"
+  | "owns_default_workspace";
 
 export const MIN_API_TOKEN_LENGTH = 16;
 
@@ -167,6 +173,16 @@ export async function requireTenantSession(): Promise<Response | TenantContext> 
   return (await currentTenant()) ?? apiError("unauthorized", 401);
 }
 
+/**
+ * The signed-in user's session (multi-tenant mode), whether or not they are looking at a
+ * workspace: the account pages need the user, not a tenant. 404 on a single-user instance,
+ * which has no users; 401 without a session.
+ */
+export async function requireUserSession(): Promise<Response | UserSession> {
+  if (!isMultiTenant()) return apiError("not_found", 404);
+  return (await currentUserSession()) ?? apiError("unauthorized", 401);
+}
+
 /** 403 for a request a foreign origin sent (lib/http.ts). */
 export function requireSameOrigin(request: Request): Response | null {
   return isForeignOrigin(request) ? apiError("forbidden_origin", 403) : null;
@@ -213,6 +229,10 @@ export async function requireBearer(request: Request): Promise<Response | Bearer
   const store = indexed ? tenantStore(indexed) : defaultTenantStore();
   const result = await authenticateToken(store, presented, new Date());
   if (!result.ok) return apiError("unauthorized", 401, { scheme: "bearer" });
+  // A disabled (or half-deleted) tenant's machines are refused, with a code that says so.
+  if (isMultiTenant() && !tenantIsActive(store.tenantId, await loadTenantRecord(store.tenantId))) {
+    return apiError("tenant_disabled", 403);
+  }
   if (!indexed) defer(() => indexToken(store, presented));
   return { tokenId: result.tokenId, machineId: result.machineId, scope: result.scope, store };
 }
