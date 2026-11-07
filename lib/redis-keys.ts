@@ -129,8 +129,12 @@
  *                                               (lib/rate-limit.ts), named in `GLOBAL_KEYS.rateLimit`
  *   usage:demo:seededAt, usage:demo:seeding     STRING demo mode's seed stamp and lock (lib/demo/seed.ts)
  *
- *   usage:tenant:{tenantId}      STRING {"v": 1, "name", "createdAt": ms, "status": "active"} — a tenant's
- *                                       own record (lib/tenants.ts). No tenant data key is named
+ *   usage:tenant:{tenantId}      STRING {"v": 1, "name", "createdAt": ms, "status": "active" | "disabled" |
+ *                                       "deleting", "statusAt"?: ms} — a tenant's own record
+ *                                       (lib/tenants.ts). "disabled": an instance admin switched it off
+ *                                       (data kept, nobody gets in); "deleting": lib/tenant-deletion.ts
+ *                                       has started and housekeeping finishes it. A status the code
+ *                                       does not know reads as "disabled". No tenant data key is named
  *                                       `tenant…`, so `usage:tenant:default` never meets the default
  *                                       tenant's `usage:` keys.
  *   usage:tenants                ZSET   tenantId → created ms: every tenant besides `default`, which

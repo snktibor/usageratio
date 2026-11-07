@@ -1,6 +1,6 @@
 import { getRedis, toStringRecord } from "@/lib/redis";
 import { fixedTenantKeys, GLOBAL_KEYS } from "@/lib/redis-keys";
-import { tenantStore } from "@/lib/tenant";
+import { type TenantStore, tenantStore } from "@/lib/tenant";
 import { DEFAULT_TENANT, type TenantId } from "@/lib/tenant-id";
 import { loadTenantRecord, setTenantStatus } from "@/lib/tenants";
 
@@ -31,15 +31,7 @@ export async function deleteTenant(tenantId: TenantId, now: Date): Promise<Delet
     await redis.hdel(GLOBAL_KEYS.tokenIndex, ...(tokenHashes.slice(i, i + BATCH) as [string, ...string[]]));
   }
 
-  // Every key of the tenant: the registry is read before it is deleted with the rest.
-  const registered = ((await redis.smembers(store.keys.registry)) as unknown[]).map(String);
-  const keys = [
-    ...new Set([...registered.filter((key) => key.startsWith(store.keys.prefix)), ...fixedTenantKeys(store.keys)]),
-  ];
-  let keysDeleted = 0;
-  for (let i = 0; i < keys.length; i += BATCH) {
-    keysDeleted += Number(await redis.del(...(keys.slice(i, i + BATCH) as [string, ...string[]])));
-  }
+  const firstPass = await deleteOwnKeys(store);
 
   // The members' side of each membership, then the tenant's own.
   const members = Object.keys(toStringRecord(await redis.hgetall(GLOBAL_KEYS.tenantMembers(tenantId))));
@@ -50,5 +42,24 @@ export async function deleteTenant(tenantId: TenantId, now: Date): Promise<Delet
   tx.zrem(GLOBAL_KEYS.tenantsHousekept, tenantId);
   tx.del(GLOBAL_KEYS.tenantRecord(tenantId));
   await tx.exec();
-  return { ok: true, keysDeleted };
+
+  // A second pass: a request that was already past its checks when the deletion began (a report
+  // being stored, a token's lastUsedAt) may have written one of the tenant's keys since. Nothing
+  // can now: without its record, no session or token gets into the tenant.
+  const secondPass = await deleteOwnKeys(store);
+  return { ok: true, keysDeleted: firstPass + secondPass };
+}
+
+/** Deletes every key the tenant owns: its fixed keys and every name in its registry (read first). */
+async function deleteOwnKeys(store: TenantStore): Promise<number> {
+  const redis = getRedis();
+  const registered = ((await redis.smembers(store.keys.registry)) as unknown[]).map(String);
+  const keys = [
+    ...new Set([...registered.filter((key) => key.startsWith(store.keys.prefix)), ...fixedTenantKeys(store.keys)]),
+  ];
+  let deleted = 0;
+  for (let i = 0; i < keys.length; i += BATCH) {
+    deleted += Number(await redis.del(...(keys.slice(i, i + BATCH) as [string, ...string[]])));
+  }
+  return deleted;
 }

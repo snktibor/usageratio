@@ -239,6 +239,7 @@ export function createMemoryRequester(options: { now?: () => number } = {}): {
       data.set(key, { type: "string", value, expiresAt: keepTtl ? (existing?.expiresAt ?? null) : expiresAt });
       return get ? previous : "OK";
     },
+    MGET: (args) => args.map((key) => typed(asString(key), "string")?.value ?? null),
     GETDEL: (args) => {
       const key = asString(args[0]);
       const entry = typed(key, "string");

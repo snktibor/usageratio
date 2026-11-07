@@ -1,7 +1,7 @@
 import { requireAdmin } from "@/lib/admin-guard";
 import { apiError, json, readJsonBody, requireSameOrigin, withApiHandler } from "@/lib/api";
 import { DEFAULT_TENANT, isTenantId } from "@/lib/tenant-id";
-import { loadTenantRecord, setTenantStatus } from "@/lib/tenants";
+import { setTenantStatus } from "@/lib/tenants";
 
 /**
  * PATCH /api/admin/tenants/[id] { "status": "active" | "disabled" } — disables a tenant (its
@@ -26,10 +26,8 @@ export async function PATCH(request: Request, context: { params: Promise<Params>
     if (!body.ok) return body.response;
     const status = (body.value as { status?: unknown } | null)?.status;
     if (status !== "active" && status !== "disabled") return apiError("invalid_payload", 400);
-    // A tenant being deleted stays that way: its deletion is finished, never undone.
-    const record = await loadTenantRecord(id);
-    if (!record || record.status === "deleting") return apiError("not_found", 404);
-    await setTenantStatus(id, status, new Date());
+    // No record, or one being deleted (its deletion is finished, never undone): nothing to switch.
+    if (!(await setTenantStatus(id, status, new Date()))) return apiError("not_found", 404);
     return json({ ok: true, status }, 200);
   })(request);
 }

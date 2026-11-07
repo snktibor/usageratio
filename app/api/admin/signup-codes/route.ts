@@ -7,7 +7,7 @@ import { createSignupCode } from "@/lib/signup-codes";
  * POST /api/admin/signup-codes — issues a sign-up code (lib/signup-codes.ts). The link carries the
  * code in its fragment, `/signup#code`, and is shown once: only the code's hash is kept.
  *
- *   → 201 { "id", "url": "https://…/signup#…" }
+ *   → 201 { "id", "url": "https://…/signup#…", "entry": SignupCodeEntry }
  *
  * 403 foreign origin · 404 not an admin
  */
@@ -17,7 +17,7 @@ export const POST = withApiHandler("api/admin/signup-codes", async ({ request, u
   if (foreign) return foreign;
   const admin = await requireAdmin();
   if (admin instanceof Response) return admin;
-  const { id, code } = await createSignupCode(admin.userId, new Date());
+  const { id, code, entry } = await createSignupCode(admin.userId, new Date());
   const origin = githubConfig() ? new URL(githubConfig()!.redirectUri).origin : url.origin;
-  return json({ id, url: `${origin}/signup#${code}` }, 201);
+  return json({ id, url: `${origin}/signup#${code}`, entry }, 201);
 });

@@ -192,7 +192,20 @@ describe("AdminView", () => {
 
   it("shows a new sign-up link once, and revokes one", async () => {
     fetchMock
-      .mockResolvedValueOnce(answer(201, { id: "sc_AAAAAAAA", url: "https://app.example/signup#code" }))
+      .mockResolvedValueOnce(
+        answer(201, {
+          id: "sc_AAAAAAAA",
+          url: "https://app.example/signup#code",
+          entry: {
+            id: "sc_AAAAAAAA",
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 86_400_000,
+            createdBy: "u",
+            usedAt: null,
+            usedBy: null,
+          },
+        }),
+      )
       .mockResolvedValueOnce(answer(200, { ok: true }));
     renderWithIntl(<AdminView overview={OVERVIEW} codes={[]} />);
     expect(screen.getByText("No sign-up links yet.")).toBeTruthy();

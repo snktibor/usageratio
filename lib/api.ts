@@ -227,12 +227,13 @@ export async function requireBearer(request: Request): Promise<Response | Bearer
   // index existed is not there, and can only be the default tenant's.
   const indexed = await tokenTenant(presented);
   const store = indexed ? tenantStore(indexed) : defaultTenantStore();
-  const result = await authenticateToken(store, presented, new Date());
-  if (!result.ok) return apiError("unauthorized", 401, { scheme: "bearer" });
-  // A disabled (or half-deleted) tenant's machines are refused, with a code that says so.
+  // A disabled (or half-deleted) tenant's machines are refused before anything of the tenant is
+  // touched: authenticating would write the token's lastUsedAt into the tenant's keys.
   if (isMultiTenant() && !tenantIsActive(store.tenantId, await loadTenantRecord(store.tenantId))) {
     return apiError("tenant_disabled", 403);
   }
+  const result = await authenticateToken(store, presented, new Date());
+  if (!result.ok) return apiError("unauthorized", 401, { scheme: "bearer" });
   if (!indexed) defer(() => indexToken(store, presented));
   return { tokenId: result.tokenId, machineId: result.machineId, scope: result.scope, store };
 }

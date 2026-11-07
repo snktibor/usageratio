@@ -71,38 +71,41 @@ function latestReport(machines: Record<string, string>): number | null {
 
 export async function adminOverview(): Promise<AdminOverview> {
   const redis = getRedis();
-  const rows: AdminTenantRow[] = [];
-  for (const tenantId of await listTenantIds()) {
-    const store = tenantStore(tenantId);
-    const [record, membersRaw, machinesRaw, providers, tokens, keys] = await Promise.all([
-      loadTenantRecord(tenantId),
-      redis.hgetall(GLOBAL_KEYS.tenantMembers(tenantId)),
-      redis.hgetall(store.keys.machines),
-      redis.hlen(store.keys.providers),
-      redis.hlen(store.keys.tokens),
-      redis.scard(store.keys.registry),
-    ]);
-    const members = toStringRecord(membersRaw);
-    const owners: string[] = [];
-    for (const [userId, value] of Object.entries(members)) {
-      if (parseRole(value) === "owner") owners.push((await loadUser(userId))?.login || userId);
-    }
-    const machines = toStringRecord(machinesRaw);
-    rows.push({
-      tenantId,
-      createdAt: record?.createdAt ?? null,
-      status: record?.status ?? "active",
-      owners: owners.sort(),
-      members: Object.keys(members).length,
-      machines: new Set(Object.keys(machines).map((field) => field.slice(field.indexOf(":") + 1))).size,
-      providers: Number(providers),
-      tokens: Number(tokens),
-      lastReportAt: latestReport(machines),
-      keys: Number(keys),
-    });
-  }
+  const memberIds = new Set<string>();
+  const rows = await Promise.all(
+    (await listTenantIds()).map(async (tenantId): Promise<AdminTenantRow> => {
+      const store = tenantStore(tenantId);
+      const [record, membersRaw, machinesRaw, providers, tokens, keys] = await Promise.all([
+        loadTenantRecord(tenantId),
+        redis.hgetall(GLOBAL_KEYS.tenantMembers(tenantId)),
+        redis.hgetall(store.keys.machines),
+        redis.hlen(store.keys.providers),
+        redis.hlen(store.keys.tokens),
+        redis.scard(store.keys.registry),
+      ]);
+      const members = toStringRecord(membersRaw);
+      for (const userId of Object.keys(members)) memberIds.add(userId);
+      const ownerIds = Object.entries(members)
+        .filter(([, value]) => parseRole(value) === "owner")
+        .map(([userId]) => userId);
+      const owners = await Promise.all(ownerIds.map(async (userId) => (await loadUser(userId))?.login || userId));
+      const machines = toStringRecord(machinesRaw);
+      return {
+        tenantId,
+        createdAt: record?.createdAt ?? null,
+        status: record?.status ?? "active",
+        owners: owners.sort(),
+        members: Object.keys(members).length,
+        machines: new Set(Object.keys(machines).map((field) => field.slice(field.indexOf(":") + 1))).size,
+        providers: Number(providers),
+        tokens: Number(tokens),
+        lastReportAt: latestReport(machines),
+        keys: Number(keys),
+      };
+    }),
+  );
   return {
-    usersWithWorkspace: await countUsers(),
+    usersWithWorkspace: memberIds.size,
     tenants: {
       total: rows.length,
       active: rows.filter((row) => row.status === "active").length,
@@ -110,15 +113,4 @@ export async function adminOverview(): Promise<AdminOverview> {
     },
     rows,
   };
-}
-
-/** How many distinct users the tenants' members hashes name. */
-async function countUsers(): Promise<number> {
-  const seen = new Set<string>();
-  for (const tenantId of await listTenantIds()) {
-    for (const userId of Object.keys(toStringRecord(await getRedis().hgetall(GLOBAL_KEYS.tenantMembers(tenantId))))) {
-      seen.add(userId);
-    }
-  }
-  return seen.size;
 }

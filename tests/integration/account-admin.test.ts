@@ -238,3 +238,68 @@ describe("the account and the instance admin", () => {
     ).toBe(404);
   });
 });
+
+describe("tenant status, against races and stale states", () => {
+  useRedis();
+  beforeEach(() => {
+    vi.stubEnv("REGISTRATION", "invite");
+    vi.stubEnv("USAGE_API_TOKEN", "0123456789abcdef0123");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("refuses a disabled tenant's token before writing anything of the tenant", async () => {
+    const alice = await person(1, "alice");
+    const token = await createToken(tenantStore(alice.tenantId), "menu bar", null, new Date(), "read");
+    if (!token.ok) throw new Error("unreachable");
+    const { setTenantStatus } = await import("@/lib/tenants");
+    await setTenantStatus(alice.tenantId, "disabled", new Date());
+    const before = await getRedis().hgetall(tenantStore(alice.tenantId).keys.tokens);
+    const response = await withRequest(() => getStatus(request("/api/status", { bearer: token.token })));
+    expect(response.status).toBe(403);
+    expect(await getRedis().hgetall(tenantStore(alice.tenantId).keys.tokens)).toEqual(before);
+  });
+
+  it("never undoes a deletion, never brings a deleted record back, and reads an unknown status as disabled", async () => {
+    const { loadTenantRecord, parseTenantRecord, setTenantStatus } = await import("@/lib/tenants");
+    const alice = await person(1, "alice");
+    expect(await setTenantStatus(alice.tenantId, "deleting", new Date())).toBe(true);
+    expect(await setTenantStatus(alice.tenantId, "active", new Date())).toBe(false);
+    expect((await loadTenantRecord(alice.tenantId))?.status).toBe("deleting");
+
+    await getRedis().del(GLOBAL_KEYS.tenantRecord(alice.tenantId));
+    expect(await setTenantStatus(alice.tenantId, "active", new Date())).toBe(false);
+    expect(await getRedis().exists(GLOBAL_KEYS.tenantRecord(alice.tenantId))).toBe(0);
+
+    expect(parseTenantRecord(JSON.stringify({ v: 1, name: "x", createdAt: 1, status: "suspended" }))?.status).toBe(
+      "disabled",
+    );
+    expect(parseTenantRecord(JSON.stringify({ v: 1, name: "x", createdAt: 1 }))?.status).toBe("active");
+  });
+
+  it("has housekeeping finish a deletion that was cut short, without writing to the tenant", async () => {
+    const { setTenantStatus } = await import("@/lib/tenants");
+    const { runScheduledHousekeeping } = await import("@/lib/housekeeping");
+    const alice = await person(1, "alice");
+    await report(alice.tenantId, "alice-laptop");
+    await setTenantStatus(alice.tenantId, "deleting", new Date());
+    await runScheduledHousekeeping(new Date(), { dryRun: false });
+    const memory = getMemoryStoreForTests();
+    if (memory) {
+      expect(memory.keys().filter((key) => key.includes(alice.tenantId))).toEqual([]);
+    }
+  });
+
+  it("lists only the sessions that still work on the account page", async () => {
+    vi.stubEnv("SESSION_IDLE_DAYS", "1");
+    const alice = await person(1, "alice");
+    const { sha256Hex } = await import("@/lib/security");
+    const stale = await withRequest(() => startUserSession(alice.userId, alice.tenantId, new Date()));
+    const key = GLOBAL_KEYS.userSession(sha256Hex(stale.split(";")[0]!.split("=")[1]!));
+    const record = JSON.parse(String(await getRedis().get(key)));
+    await getRedis().set(key, JSON.stringify({ ...record, s: Date.now() - 3 * 86_400_000 }), { keepTtl: true });
+    const body = (await (await getAccount(request("/api/account", { cookie: alice.cookie }))).json()) as {
+      account: { sessions: unknown[] };
+    };
+    expect(body.account.sessions).toHaveLength(1);
+  });
+});

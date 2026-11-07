@@ -1,22 +1,14 @@
 "use client";
 
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { StatusLine } from "@/components/status-line";
 import { FIELD, PRIMARY_BUTTON, QUIET_BUTTON } from "@/components/ui/classes";
+import { When } from "@/components/ui/when";
 import { Link } from "@/i18n/routing";
 import type { AdminOverview } from "@/lib/admin";
 import type { SignupCodeEntry } from "@/lib/signup-codes";
-
-function When({ ms }: { ms: number | null }) {
-  const locale = useLocale();
-  if (!ms) return <span>—</span>;
-  return (
-    <time dateTime={new Date(ms).toISOString()} suppressHydrationWarning>
-      {new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(ms)}
-    </time>
-  );
-}
+import { DEFAULT_TENANT } from "@/lib/tenant-id";
 
 /**
  * The instance admin's page: counts per tenant (never a tenant's data), disabling a tenant, and
@@ -43,14 +35,11 @@ export function AdminView({ overview, codes }: { overview: AdminOverview; codes:
   async function createCode() {
     setProblem(null);
     const response = await fetch("/api/admin/signup-codes", { method: "POST" }).catch(() => null);
-    const body = (await response?.json().catch(() => null)) as { id?: string; url?: string } | null;
-    if (!response?.ok || !body?.url || !body.id) return setProblem(t("action_failed"));
+    const body = (await response?.json().catch(() => null)) as { url?: string; entry?: SignupCodeEntry } | null;
+    if (!response?.ok || !body?.url || !body.entry) return setProblem(t("action_failed"));
     setNewLink(body.url);
-    const now = Date.now();
-    setCodeList((current) => [
-      { id: body.id!, createdAt: now, expiresAt: now + 14 * 86_400_000, createdBy: "", usedAt: null, usedBy: null },
-      ...current,
-    ]);
+    const { entry } = body;
+    setCodeList((current) => [entry, ...current]);
   }
 
   async function revoke(id: string) {
@@ -111,7 +100,7 @@ export function AdminView({ overview, codes }: { overview: AdminOverview; codes:
                   <When ms={row.lastReportAt} />
                 </td>
                 <td className="py-2">
-                  {row.tenantId === "default" ? (
+                  {row.tenantId === DEFAULT_TENANT ? (
                     t("status_active")
                   ) : row.status === "deleting" ? (
                     t("status_deleting")

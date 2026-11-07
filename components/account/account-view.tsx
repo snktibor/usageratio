@@ -6,18 +6,9 @@ import { SudoUnlock } from "@/components/setup/sudo-unlock";
 import { StatusLine } from "@/components/status-line";
 import { PRIMARY_BUTTON, QUIET_BUTTON } from "@/components/ui/classes";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { When } from "@/components/ui/when";
 import { Link } from "@/i18n/routing";
 import type { AccountView as Account } from "@/lib/account";
-
-function When({ ms }: { ms: number }) {
-  const locale = useLocale();
-  if (!ms) return <span>—</span>;
-  return (
-    <time dateTime={new Date(ms).toISOString()} suppressHydrationWarning>
-      {new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(ms)}
-    </time>
-  );
-}
 
 type DeleteState =
   | { phase: "idle" }

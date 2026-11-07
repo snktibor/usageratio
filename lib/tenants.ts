@@ -36,7 +36,14 @@ export function parseTenantRecord(raw: unknown): TenantRecord | null {
   try {
     const value = JSON.parse(raw) as Partial<TenantRecord>;
     if (value?.v !== 1 || typeof value.name !== "string" || typeof value.createdAt !== "number") return null;
-    const status = STATUSES.includes(value.status as TenantStatus) ? (value.status as TenantStatus) : "active";
+    // A record from before statuses existed has none, and is active; a status this code does not
+    // know is read as "disabled": an unknown state never lets anyone in.
+    const status =
+      value.status === undefined
+        ? "active"
+        : STATUSES.includes(value.status as TenantStatus)
+          ? (value.status as TenantStatus)
+          : "disabled";
     return {
       v: 1,
       name: value.name,
@@ -100,13 +107,19 @@ export function tenantIsActive(tenantId: TenantId, record: TenantRecord | null):
   return record.status === "active";
 }
 
-/** Sets a tenant's status; false when it has no record (nothing to switch). */
+/**
+ * Sets a tenant's status; false when it has no record (nothing to switch). Written with XX: a
+ * record that a deletion removed meanwhile is never brought back. A deletion that started is
+ * never undone either: a "deleting" record only ever stays "deleting".
+ */
 export async function setTenantStatus(tenantId: TenantId, status: TenantStatus, now: Date): Promise<boolean> {
   const record = await loadTenantRecord(tenantId);
   if (!record) return false;
-  await getRedis().set(
+  if (record.status === "deleting" && status !== "deleting") return false;
+  const result = await getRedis().set(
     GLOBAL_KEYS.tenantRecord(tenantId),
     serializeTenantRecord({ ...record, status, statusAt: now.getTime() }),
+    { xx: true },
   );
-  return true;
+  return result === "OK";
 }

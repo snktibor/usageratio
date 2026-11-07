@@ -197,3 +197,30 @@ export async function endAllUserSessions(userId: string): Promise<number> {
   await tx.exec();
   return hashes.length;
 }
+
+/** One of a user's sessions as the account page lists it. */
+export interface SessionSummary {
+  hash: string;
+  label: string;
+  createdAt: number;
+  seenAt: number;
+}
+
+/**
+ * The user's sessions that still work: the same idle and absolute limits as `currentUserSession`
+ * (a key outlives its idle limit, since its TTL is the maximum lifetime). One MGET for all.
+ */
+export async function listLiveSessions(userId: string, now = Date.now()): Promise<SessionSummary[]> {
+  const hashes = ((await getRedis().zrange(GLOBAL_KEYS.userSessions(userId), 0, -1)) as unknown[]).map(String);
+  if (hashes.length === 0) return [];
+  const raws = (await getRedis().mget(...hashes.map((hash) => GLOBAL_KEYS.userSession(hash)))) as unknown[];
+  const idleMs = days("SESSION_IDLE_DAYS", DEFAULT_IDLE_DAYS);
+  const maxMs = days("SESSION_MAX_DAYS", DEFAULT_MAX_DAYS);
+  return hashes
+    .flatMap((hash, index) => {
+      const stored = parse(raws[index]);
+      if (!stored || stored.u !== userId || now - stored.s > idleMs || now - stored.c > maxMs) return [];
+      return [{ hash, label: stored.ua, createdAt: stored.c, seenAt: stored.s }];
+    })
+    .sort((a, b) => b.seenAt - a.seenAt);
+}

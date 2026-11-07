@@ -3,7 +3,7 @@ import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { deleteTenant } from "@/lib/tenant-deletion";
 import { DEFAULT_TENANT, type TenantId } from "@/lib/tenant-id";
 import { loadTenantRecord } from "@/lib/tenants";
-import { endAllUserSessions } from "@/lib/user-session";
+import { endAllUserSessions, listLiveSessions } from "@/lib/user-session";
 import { loadUser, type Role, userTenants } from "@/lib/users";
 
 /**
@@ -50,25 +50,13 @@ export async function loadAccount(
     })),
   );
 
-  const hashes = ((await redis.zrange(GLOBAL_KEYS.userSessions(userId), 0, -1)) as unknown[]).map(String);
-  const sessions: AccountSession[] = [];
-  for (const hash of hashes) {
-    const raw = await redis.get<string>(GLOBAL_KEYS.userSession(hash));
-    if (raw === null || raw === undefined) continue; // expired: Redis already let it go
-    try {
-      const record = JSON.parse(String(raw)) as { c?: number; s?: number; ua?: string };
-      sessions.push({
-        tag: hash.slice(0, 8),
-        label: typeof record.ua === "string" ? record.ua : "",
-        createdAt: Number(record.c) || 0,
-        seenAt: Number(record.s) || 0,
-        current: hash === current.sessionHash,
-      });
-    } catch {
-      // An unreadable record is not a session anyone can use: leave it out.
-    }
-  }
-  sessions.sort((a, b) => b.seenAt - a.seenAt);
+  const sessions: AccountSession[] = (await listLiveSessions(userId)).map((session) => ({
+    tag: session.hash.slice(0, 8),
+    label: session.label,
+    createdAt: session.createdAt,
+    seenAt: session.seenAt,
+    current: session.hash === current.sessionHash,
+  }));
   return { login: user.login, createdAt: user.createdAt, workspaces, sessions };
 }
 
