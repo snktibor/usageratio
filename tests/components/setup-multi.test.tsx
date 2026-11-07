@@ -60,15 +60,38 @@ describe("the setup page in multi-tenant mode", () => {
     renderZip();
     expect(screen.getByText(/Nothing to type/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Download package" }));
-    await waitFor(() => expect(click).toHaveBeenCalled());
+    // Two requests and a blob in a row: more than waitFor's default second on a busy CI runner.
+    await waitFor(() => expect(click).toHaveBeenCalled(), { timeout: 5000 });
     const [url, init] = fetchMock.mock.calls[1]!;
     expect(url).toBe("/api/setup");
     expect(JSON.parse(init.body)).toEqual({ ...REQUEST, token: "ur_live_studio-token" });
     // A second download reuses the machine's token.
     fireEvent.click(screen.getByRole("button", { name: "Download package" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3), { timeout: 5000 });
     expect(fetchMock.mock.calls.filter(([called]) => called === "/api/tokens")).toHaveLength(1);
     click.mockRestore();
+  });
+
+  it("says why a download failed: an expired session, a lost answer, too many tokens", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      url === "/api/tokens" ? answer(201, { id: "tk_A", token: "ur_live_t" }) : answer(401, { error: "unauthorized" }),
+    );
+    renderZip();
+    fireEvent.click(screen.getByRole("button", { name: "Download package" }));
+    expect((await screen.findByText(/session expired/i, {}, { timeout: 5000 })).textContent).toBeTruthy();
+
+    forgetIssuedTokens();
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/tokens") return answer(201, { id: "tk_A", token: "ur_live_t" });
+      throw new TypeError("fetch failed");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Download package" }));
+    expect(await screen.findByText(/did not respond/i, {}, { timeout: 5000 })).toBeTruthy();
+
+    forgetIssuedTokens();
+    fetchMock.mockResolvedValue(answer(422, { error: "too_many_tokens" }));
+    fireEvent.click(screen.getByRole("button", { name: "Download package" }));
+    expect(await screen.findByText(/as many tokens as it may/i, {}, { timeout: 5000 })).toBeTruthy();
   });
 
   it("asks for a fresh GitHub sign-in when the server wants one", async () => {
