@@ -259,7 +259,7 @@ manual `POST /api/housekeeping` (settings panel, sudo-gated unless `?dryRun=1`) 
   reset's detection switch once its cycle is over;
 - `usage:tokens` entries revoked more than 90 days ago (`REVOKED_RETENTION_DAYS`);
 - `usage:api-token:audit` entries older than `AUDIT_RETENTION_DAYS`;
-- the key registry's (`usage:keys`) names of alert guards whose segment is past their 70-day expiry.
+- the key registry's (`usage:keys`) names of alert guards whose segment started more than a month plus their 70-day expiry ago (certainly gone, and never written again).
 
 The cron route does this for every tenant (`runScheduledHousekeeping`): the one housekept longest
 ago first, until a 240-second budget is spent, so a tenant it does not reach is first the next day.

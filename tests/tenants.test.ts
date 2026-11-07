@@ -82,17 +82,21 @@ describe("runScheduledHousekeeping", () => {
     expect(tenants).toEqual({ processed: 1, failed: 1, pending: 0 });
     expect(report).toBeNull();
     expect(Number(await getRedis().zscore(GLOBAL_KEYS.tenantsHousekept, B))).toBe(NOW.getTime());
-    expect(await getRedis().zscore(GLOBAL_KEYS.tenantsHousekept, DEFAULT_TENANT)).toBeNull();
+    // Stamped all the same: a tenant that keeps failing goes to the back of the line, not the front.
+    expect(Number(await getRedis().zscore(GLOBAL_KEYS.tenantsHousekept, DEFAULT_TENANT))).toBe(NOW.getTime());
   });
 
   it("forgets expired alert guards in the key registry, and only those", async () => {
     const store = tenantStore(B);
     await indexTenants(B);
-    const old = NOW.getTime() - 80 * 86_400_000;
+    const old = NOW.getTime() - 110 * 86_400_000;
+    // Set late in a month-long segment, a guard from 80 days ago may still be alive: it stays.
+    const lateInSegment = NOW.getTime() - 80 * 86_400_000;
     const recent = NOW.getTime() - 10 * 86_400_000;
     await getRedis().sadd(
       store.keys.registry,
       store.keys.alert("claude", old, 80),
+      store.keys.alert("claude", lateInSegment, 80),
       store.keys.alert("claude", recent, 80),
       store.keys.events("claude", "Work"),
       store.keys.history("claude"),
@@ -101,6 +105,7 @@ describe("runScheduledHousekeeping", () => {
     expect(tenants.processed).toBe(2);
     expect(((await getRedis().smembers(store.keys.registry)) as string[]).sort()).toEqual(
       [
+        store.keys.alert("claude", lateInSegment, 80),
         store.keys.alert("claude", recent, 80),
         store.keys.events("claude", "Work"),
         store.keys.history("claude"),

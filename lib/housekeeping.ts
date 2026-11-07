@@ -36,6 +36,8 @@ import { loadEvents, loadIndexes, loadResets, saveResets } from "@/lib/usage-sto
 
 const DAY_MS = 86_400_000;
 const DEFAULT_AUDIT_RETENTION_DAYS = 365;
+/** The longest a cycle (and so a segment of one) can last: a 31-day month, plus a day of slack for DST and late reports. */
+const MAX_SEGMENT_DAYS = 32;
 
 export interface HousekeepingStepReport {
   removed: number;
@@ -201,12 +203,14 @@ export async function runHousekeeping(
   // Step 7: per-machine tokens (lib/tokens.ts) revoked long enough ago to forget entirely.
   const tokensPruned = await pruneRevokedTokens(store, now, { dryRun });
 
-  // Step 8: the key registry's alert guards whose segment is older than their expiry. Such a guard
-  // is gone and can never be written again (alerts only guard the current segment), so dropping its
-  // name cannot race a write. Other names stay: a key that emptied is registered again when it is
-  // next written, and a name without its key costs nothing.
+  // Step 8: the key registry's alert guards that are certainly gone. A guard is set while its
+  // segment runs (a segment lies within one cycle, at most a month) and expires ALERT_TTL_SECONDS
+  // later, so one whose segment started more than a month plus that TTL ago has expired, and can
+  // never be written again (alerts only guard the current segment): dropping its name cannot race
+  // a write. Other names stay: a key that emptied is registered again when it is next written, and
+  // a name without its key costs nothing.
   const registryNames = ((await redis.smembers(store.keys.registry)) as unknown[]).map(String);
-  const guardCutoffMs = now.getTime() - ALERT_TTL_SECONDS * 1000 - DAY_MS;
+  const guardCutoffMs = now.getTime() - ALERT_TTL_SECONDS * 1000 - MAX_SEGMENT_DAYS * DAY_MS;
   const expiredGuards = registryNames.filter((name) => {
     const segmentMs = alertGuardSegmentMs(store.keys, name);
     return segmentMs !== null && segmentMs < guardCutoffMs;
@@ -255,6 +259,8 @@ export async function runHousekeeping(
     if (removed > 0) log.info(`housekeeping.${step}_pruned`, { removed, ids, dryRun });
   }
   if (auditRemoved > 0) log.info("housekeeping.audit_pruned", { removed: auditRemoved, dryRun });
+  if (expiredGuards.length > 0)
+    log.info("housekeeping.registry_pruned", { removed: expiredGuards.length, ids: expiredGuards, dryRun });
   if (archived.length > 0)
     log.info("housekeeping.history_archived", { archived: archived.length, ids: archived, dryRun });
   log.info("housekeeping.run", {
@@ -267,6 +273,7 @@ export async function runHousekeeping(
     tokens: report.tokens.removed,
     audit: report.audit.removed,
     archived: report.history.archived,
+    registry: report.registry.removed,
   });
 
   if (!dryRun) await redis.set(store.keys.housekeepingLast, JSON.stringify({ at: now.getTime(), report }));
@@ -291,7 +298,10 @@ export const HOUSEKEEPING_BUDGET_MS = 240_000;
  * The daily cron run (app/api/cron/housekeeping/route.ts): every tenant's
  * housekeeping, the one housekept longest ago first, until the time budget is
  * spent. A tenant not reached is first in line the next day; one that throws
- * is logged and skipped. A dry run stamps nothing.
+ * is logged, skipped and stamped like the others (so it cannot starve them by
+ * going first every day). A dry run stamps nothing. The budget is only checked
+ * before a tenant starts: the route's maxDuration (300 s) leaves room for the
+ * one that is running when it runs out.
  *
  * `report` is the default tenant's report (the whole story on a single-tenant
  * instance); null when this run did not reach it.
@@ -321,6 +331,9 @@ export async function runScheduledHousekeeping(
     } catch (error) {
       summary.failed += 1;
       log.error("housekeeping.tenant_failed", { tenantId, err: error });
+      // Stamped all the same, so a tenant that keeps failing goes to the back of the line instead
+      // of taking the budget first every day.
+      if (!dryRun) await markHousekept(tenantId, now.getTime()).catch(() => undefined);
     }
   }
   return { report, tenants: summary };

@@ -33,11 +33,14 @@ export function parseTenantRecord(raw: unknown): TenantRecord | null {
   }
 }
 
-/** A flat `[member, score, member, score, …]` ZRANGE WITHSCORES reply, as members with numeric scores. */
+/** A flat `[member, score, member, score, …]` ZRANGE WITHSCORES reply, as members with numeric scores (an unreadable score is dropped). */
 function pairs(raw: unknown): { member: string; score: number }[] {
   const flat = Array.isArray(raw) ? raw : [];
   const result: { member: string; score: number }[] = [];
-  for (let i = 0; i + 1 < flat.length; i += 2) result.push({ member: String(flat[i]), score: Number(flat[i + 1]) });
+  for (let i = 0; i + 1 < flat.length; i += 2) {
+    const score = Number(flat[i + 1]);
+    if (Number.isFinite(score)) result.push({ member: String(flat[i]), score });
+  }
   return result;
 }
 

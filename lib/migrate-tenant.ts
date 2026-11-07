@@ -1,3 +1,4 @@
+import { scanAll } from "@/lib/redis";
 import { dynamicTenantKeyPatterns, GLOBAL_KEYS } from "@/lib/redis-keys";
 import { defaultTenantStore, type TenantStore } from "@/lib/tenant";
 import { parseTenantRecord, serializeTenantRecord } from "@/lib/tenants";
@@ -29,17 +30,6 @@ export interface TenantMigrationPlan {
   keysToRegister: string[];
 }
 
-async function scanKeys(store: TenantStore, pattern: string): Promise<string[]> {
-  const keys: string[] = [];
-  let cursor = "0";
-  do {
-    const page = (await store.redis.scan(cursor, { match: pattern, count: 500 })) as [string | number, string[]];
-    cursor = String(page[0]);
-    keys.push(...page[1].map(String));
-  } while (cursor !== "0");
-  return keys;
-}
-
 export async function planTenantMigration(store: TenantStore = defaultTenantStore()): Promise<TenantMigrationPlan> {
   const redis = store.redis;
   const [record, tokenFields, indexFields, registered] = await Promise.all([
@@ -51,7 +41,7 @@ export async function planTenantMigration(store: TenantStore = defaultTenantStor
   const indexed = new Set((indexFields as unknown[]).map(String));
   const inRegistry = new Set((registered as unknown[]).map(String));
   const dynamic = (
-    await Promise.all(dynamicTenantKeyPatterns(store.keys).map((pattern) => scanKeys(store, pattern)))
+    await Promise.all(dynamicTenantKeyPatterns(store.keys).map((pattern) => scanAll(store.redis, pattern)))
   ).flat();
   return {
     createTenantRecord: parseTenantRecord(record) === null,

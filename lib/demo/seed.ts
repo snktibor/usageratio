@@ -3,7 +3,7 @@ import { buildDemoDataset, DEMO_PROVIDERS, type DemoDataset } from "@/lib/demo/d
 import { isDemoMode } from "@/lib/demo/mode";
 import { ingestReport } from "@/lib/ingest";
 import { log } from "@/lib/log";
-import { getRedis } from "@/lib/redis";
+import { getRedis, scanAll } from "@/lib/redis";
 import { dynamicTenantKeyPatterns, GLOBAL_KEYS } from "@/lib/redis-keys";
 import type { TenantStore } from "@/lib/tenant";
 import { archiveCycle, registerProviders, saveOfficialUsage, saveResets, saveSettings } from "@/lib/usage-store";
@@ -53,22 +53,9 @@ export interface SeedSummary {
   history: number;
 }
 
-async function scanKeys(pattern: string): Promise<string[]> {
-  const redis = getRedis();
-  const keys: string[] = [];
-  let cursor = "0";
-  do {
-    // With automatic deserialization off the cursor comes back as a string; a number is accepted too.
-    const page = (await redis.scan(cursor, { match: pattern, count: 200 })) as [string | number, string[]];
-    cursor = String(page[0]);
-    keys.push(...page[1]);
-  } while (cursor !== "0");
-  return keys;
-}
-
 /** Deletes the usage data (settings, indexes, events, official figures); returns how many keys went. */
 export async function wipeUsageData(store: TenantStore): Promise<number> {
-  const patterned = await Promise.all(dataKeyPatterns(store).map(scanKeys));
+  const patterned = await Promise.all(dataKeyPatterns(store).map((pattern) => scanAll(store.redis, pattern)));
   const keys = [...new Set([...dataKeys(store), ...patterned.flat()])];
   if (keys.length === 0) return 0;
   return Number(await store.redis.del(...keys));

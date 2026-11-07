@@ -283,8 +283,9 @@ P keys                             SET     NEW: registry of the tenant's dynamic
 `alltime:*`, `alert:*`) also does `SADD P keys <name>` inside the same transaction. So the
 tenant's keys are always `TENANT_FIXED_KEYS ∪ SMEMBERS(P keys)`. A name whose key has since
 expired or emptied (an alert guard after 70 days, an event set that self-pruned to nothing) stays
-in the registry harmlessly. Housekeeping drops only the names of alert guards whose segment is past
-their 70-day expiry: those can never be written again. (Dropping "every name whose key no longer
+in the registry harmlessly. Housekeeping drops only the names of alert guards whose segment started more
+than a month (the longest cycle) plus their 70-day expiry ago: those are gone and can never be
+written again. (Dropping "every name whose key no longer
 exists" was the first idea, but it races a write that recreates the key between the check and the
 removal, and a key written only once, like a cycle's history, would then fall out of the registry
 for good.) The `default` tenant's registry is backfilled once by

@@ -107,3 +107,16 @@ export function toStringRecord(raw: unknown): Record<string, string> {
   }
   return record;
 }
+
+/** Every key matching `pattern`, by walking SCAN's cursor: for one-off scripts only (the demo seed's wipe, migrations). */
+export async function scanAll(redis: Redis, pattern: string): Promise<string[]> {
+  const keys: string[] = [];
+  let cursor = "0";
+  do {
+    // With automatic deserialization off the cursor comes back as a string; a number is accepted too.
+    const page = (await redis.scan(cursor, { match: pattern, count: 200 })) as [string | number, unknown[]];
+    cursor = String(page[0]);
+    keys.push(...page[1].map(String));
+  } while (cursor !== "0");
+  return keys;
+}

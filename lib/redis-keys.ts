@@ -60,8 +60,9 @@
  *                                   relies on. A name whose key has since expired or emptied may
  *                                   linger; it is harmless, and any later write registers it again.
  *                                   Housekeeping only drops the names of alert guards whose segment
- *                                   is past their 70-day expiry: those can never be written again,
- *                                   so dropping them cannot race a write (lib/housekeeping.ts).
+ *                                   started more than a month plus their 70-day expiry ago: those are
+ *                                   gone and can never be written again, so dropping them cannot race
+ *                                   a write (lib/housekeeping.ts).
  *
  *   usage:alert:{providerId}:{segmentStartMs}:{threshold}
  *                             STRING "1", SET NX EX 70d — the guard that makes a threshold
@@ -193,7 +194,12 @@ export function tenantKeys(tenantId: TenantId): TenantKeys {
   };
 }
 
-/** Every key of a tenant that has a fixed name; the dynamic ones are in its registry (`keys.registry`). */
+/**
+ * Every key of a tenant that has a fixed name; the dynamic ones are in its registry (`keys.registry`).
+ * A tenant also has entries in global keys: its tokens' fields in `usage:tokenindex` (the fields of
+ * its own `tokens` hash) and its member in `usage:tenants` / `usage:tenants:housekept`. Deleting a
+ * tenant must clear those too.
+ */
 export function fixedTenantKeys(keys: TenantKeys): string[] {
   return [
     keys.settings,

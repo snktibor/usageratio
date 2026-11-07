@@ -27,6 +27,8 @@ import { safeEqual } from "@/lib/security";
 const MIN_CRON_SECRET_LENGTH = 16;
 
 export const dynamic = "force-dynamic";
+/** Seconds: lib/housekeeping.ts stops starting tenants at 240, leaving a running one this much room. */
+export const maxDuration = 300;
 
 export const GET = withApiHandler("api/cron/housekeeping", async ({ request, url }) => {
   const readOnly = demoReadOnly();
