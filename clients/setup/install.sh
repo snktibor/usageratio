@@ -16,7 +16,9 @@
 # (chmod 600) with the API token asked for here, and a first report is sent.
 # Running it again updates the scripts and keeps the machine id already in use.
 #
-# The token prompt is skipped when USAGERATIO_API_TOKEN is set.
+# The token prompt is skipped when USAGERATIO_API_TOKEN is set, or when the
+# package's config carries the machine's own token (a multi-user instance's
+# package does).
 # Exit codes: 0 installed · 1 installation failed · 2 incomplete package
 
 # Started with sh or zsh: continue in bash, which the rest is written for.
@@ -98,8 +100,11 @@ fi
 API_URL=""
 MACHINE_ID=""
 GROUP_ID=""
+API_TOKEN=""
 # shellcheck disable=SC1091
 . "$SOURCE_DIR/config" || fail "$SOURCE_DIR/config could not be read." 2
+PACKAGE_TOKEN="$(printf '%s' "$API_TOKEN" | tr -d '[:space:]')"
+API_TOKEN=""
 
 [ -n "$GROUP_ID" ] || fail "GROUP_ID is empty in $SOURCE_DIR/config." 2
 case "$API_URL" in
@@ -182,14 +187,19 @@ verify_token() {
 }
 
 TOKEN="$(printf '%s' "${USAGERATIO_API_TOKEN:-}" | tr -d '[:space:]')"
+TOKEN_SOURCE="USAGERATIO_API_TOKEN"
+if [ -z "$TOKEN" ] && [ -n "$PACKAGE_TOKEN" ]; then
+  TOKEN="$PACKAGE_TOKEN"
+  TOKEN_SOURCE="the token in this package (revoked, or the package is old? Download a new one)"
+fi
 if [ -n "$TOKEN" ]; then
   status=0
   verify_token "$TOKEN" || status=$?
-  [ "$status" -ne 1 ] || fail "The server rejected USAGERATIO_API_TOKEN (HTTP 401)."
+  [ "$status" -ne 1 ] || fail "The server rejected $TOKEN_SOURCE (HTTP 401)."
   [ "$status" -eq 0 ] || warn "The token could not be checked ($VERIFY_DETAIL); the first report will tell."
 else
   [ -t 0 ] || fail "There is no terminal to ask for the API token: run install.sh in $TERMINAL_NAME, or set USAGERATIO_API_TOKEN."
-  say "The API token is the server's USAGE_API_TOKEN, the same on every machine. Typing is hidden."
+  say "The API token is the server's USAGE_API_TOKEN, or this machine's own token from Settings → Tokens. Typing is hidden."
   attempt=0
   while :; do
     attempt=$((attempt + 1))

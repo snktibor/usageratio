@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import { CommandBlock, FileBlock } from "@/components/code-block";
+import { MachineTokenNote } from "@/components/setup/machine-token-note";
 import { panelId, tabId } from "@/components/setup/route-tabs";
 import { richCode, Step, TokenNote } from "@/components/setup/steps";
 import type { ApiTokenStatus } from "@/lib/api-token";
@@ -28,6 +29,7 @@ export function ManualRoute({
   sources,
   settings,
   tokenStatus,
+  multiTenant = false,
 }: {
   tabsId: string;
   hidden: boolean;
@@ -38,6 +40,8 @@ export function ManualRoute({
   /** Null while the group or machine field is invalid. */
   settings: MachineSettings | null;
   tokenStatus: ApiTokenStatus;
+  /** Multi-tenant mode: no shared token; the installer is given this machine's own. */
+  multiTenant?: boolean;
 }) {
   const t = useTranslations("Setup");
   const headingId = panelId(tabsId, "manual");
@@ -91,7 +95,11 @@ export function ManualRoute({
           <Step number={3}>
             <p>{t("run_installer_same_folder")}</p>
             <CommandBlock command={installerCommand(os)} label={t("installer_command")} />
-            <TokenNote os={os} mode={mode} tokenStatus={tokenStatus} />
+            {multiTenant ? (
+              <MachineTokenNote machineId={settings?.machineId || null} />
+            ) : (
+              <TokenNote os={os} mode={mode} tokenStatus={tokenStatus} />
+            )}
           </Step>
         </ol>
       </section>

@@ -1,15 +1,60 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { CommandBlock } from "@/components/code-block";
 import { DownloadIcon } from "@/components/icons";
 import { panelId, tabId } from "@/components/setup/route-tabs";
 import { richCode, Step, TokenNote } from "@/components/setup/steps";
+import { SudoUnlock } from "@/components/setup/sudo-unlock";
+import { StatusLine } from "@/components/status-line";
 import type { ApiTokenStatus } from "@/lib/api-token";
 import { type SetupMode, type SetupOs, zipInstallCommand } from "@/lib/setup";
 
-/** The "download the ZIP" route: the package button, then the terminal or double-click steps. */
+/** What the multi-tenant package download posts (app/api/setup POST). */
+export interface PackageRequest {
+  os: SetupOs;
+  mode: SetupMode;
+  group: string;
+  machine: string;
+  locale: string;
+}
+
+type DownloadState = "idle" | "busy" | "sudo" | "too_many" | "failed";
+
+/** Posts for the package and saves the answer as a file, the way a link to it would. */
+async function downloadPackage(request: PackageRequest, fileName: string): Promise<DownloadState> {
+  let response: Response;
+  try {
+    response = await fetch("/api/setup", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+    });
+  } catch {
+    return "failed";
+  }
+  if (!response.ok) {
+    const error = ((await response.json().catch(() => null)) as { error?: string } | null)?.error;
+    if (error === "sudo_required") return "sudo";
+    return error === "too_many_tokens" ? "too_many" : "failed";
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${fileName}.zip`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return "idle";
+}
+
+/**
+ * The "download the ZIP" route: the package button, then the terminal or double-click steps. In
+ * multi-tenant mode the package is posted for (`packageRequest`), with a fresh token for the
+ * machine inside, so the installer asks for nothing.
+ */
 export function ZipRoute({
   tabsId,
   hidden,
@@ -18,6 +63,8 @@ export function ZipRoute({
   name,
   zipHref,
   tokenStatus,
+  packageRequest = null,
+  multiTenant = false,
 }: {
   tabsId: string;
   hidden: boolean;
@@ -27,8 +74,18 @@ export function ZipRoute({
   /** Null while the group or machine field is invalid. */
   zipHref: string | null;
   tokenStatus: ApiTokenStatus;
+  /** Multi-tenant mode: what to post for the package; null while a field is invalid. */
+  packageRequest?: PackageRequest | null;
+  multiTenant?: boolean;
 }) {
   const t = useTranslations("Setup");
+  const [download, setDownload] = useState<DownloadState>("idle");
+
+  async function postForPackage() {
+    if (!packageRequest) return;
+    setDownload("busy");
+    setDownload(await downloadPackage(packageRequest, name));
+  }
   const headingId = panelId(tabsId, "zip");
   const unix = os !== "windows";
 
@@ -46,10 +103,20 @@ export function ZipRoute({
         <h2 id={headingId} className="text-2xl font-semibold tracking-tight">
           {t("download_zip")}
         </h2>
-        <p className="mt-2 max-w-2xl text-ink-2">{t("zip_desc")}</p>
+        <p className="mt-2 max-w-2xl text-ink-2">{multiTenant ? t("zip_desc_multi") : t("zip_desc")}</p>
 
         <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2">
-          {zipHref ? (
+          {multiTenant ? (
+            <button
+              type="button"
+              onClick={postForPackage}
+              disabled={!packageRequest || download === "busy"}
+              className="inline-flex items-center gap-2.5 rounded-md bg-ink px-5 py-2.5 font-medium text-page transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              <DownloadIcon />
+              {t("download_package")}
+            </button>
+          ) : zipHref ? (
             <a
               href={zipHref}
               className="inline-flex items-center gap-2.5 rounded-md bg-ink px-5 py-2.5 font-medium text-page transition-opacity hover:opacity-90"
@@ -69,7 +136,14 @@ export function ZipRoute({
           )}
           <span className="font-mono text-sm text-ink-3 wrap-anywhere">{name}.zip</span>
         </div>
-        {!zipHref && <p className="mt-3 text-sm text-ink-3">{t("fix_group_machine")}</p>}
+        {(multiTenant ? !packageRequest : !zipHref) && (
+          <p className="mt-3 text-sm text-ink-3">{t("fix_group_machine")}</p>
+        )}
+        <div aria-live="polite" className="mt-3 max-w-2xl space-y-3">
+          {download === "sudo" && <SudoUnlock onUnlocked={postForPackage} />}
+          {download === "too_many" && <StatusLine tone="problem">{t("copy_problem_too_many_tokens")}</StatusLine>}
+          {download === "failed" && <StatusLine tone="problem">{t("package_download_failed")}</StatusLine>}
+        </div>
 
         {/* biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics once list-style is none */}
         <ol role="list" className="mt-8 max-w-2xl space-y-6">
@@ -106,7 +180,11 @@ export function ZipRoute({
             </>
           )}
           <Step number={3}>
-            <TokenNote os={os} mode={mode} tokenStatus={tokenStatus} />
+            {multiTenant ? (
+              <p>{t("zip_token_included")}</p>
+            ) : (
+              <TokenNote os={os} mode={mode} tokenStatus={tokenStatus} />
+            )}
           </Step>
         </ol>
       </section>

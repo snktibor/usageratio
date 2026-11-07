@@ -293,7 +293,16 @@ function cases(world: World): Record<string, Case[]> {
       { method: "GET", path: "/api/settings", auth: "session" },
       { method: "PUT", path: "/api/settings", auth: "session", body: settingsUpdate },
     ],
-    setup: [{ method: "GET", path: "/api/setup?os=macos&mode=auto&group=Personal&machine=a-host", auth: "session" }],
+    setup: [
+      { method: "GET", path: "/api/setup?os=macos&mode=auto&group=Personal&machine=a-host", auth: "session" },
+      // Multi-tenant mode: a package with a fresh token for A's machine (404 on a single-user instance).
+      {
+        method: "POST",
+        path: "/api/setup",
+        auth: "sudo",
+        body: { os: "linux", mode: "auto", group: "Personal", machine: "a-host", locale: "en" },
+      },
+    ],
     status: [{ method: "GET", path: "/api/status", auth: "read" }],
     "tokens/[id]": [
       { method: "DELETE", path: "/api/tokens/x", auth: "sudo", params: { id: world.bTokens.id }, expectNotFound: true },

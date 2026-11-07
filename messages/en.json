@@ -690,7 +690,22 @@
     "file_not_installed": "not installed, runs once",
     "file_content_aria": "{name} contents",
     "token_placeholder": "‹token: the Copy button fills this in›",
-    "packed_note": "‹{name}, packed: {lines} lines of base64›"
+    "packed_note": "‹{name}, packed: {lines} lines of base64›",
+    "readme_secret_warning": "This package holds a secret: the API token of this machine, in {file}. Do not share the package, and delete it once the client is installed. If it leaks, revoke the token in Settings → Tokens.",
+    "readme_step_token_included": "2. Nothing to type: the package already holds this machine's own token.",
+    "machine_problem_missing": "Name the machine: its token is bound to it.",
+    "copy_issues_token": "The copy creates this machine's own token (bound to it, listed under Settings → Tokens), once per visit.",
+    "zip_token_included": "Nothing to type: the package holds a new token of this machine's own, so the installer asks for none. The package is a secret now: delete it once the client is installed.",
+    "machine_token_note": "When the installer asks for the API token, give it this machine's own: create it here (it is bound to the machine and listed under Settings → Tokens).",
+    "machine_token_button": "Create this machine's token",
+    "machine_token_label": "This machine's token",
+    "machine_token_once": "Copy it now: it is not shown again.",
+    "package_download_failed": "The package could not be made. Try again in a moment.",
+    "copy_problem_too_many_tokens": "This workspace has as many tokens as it may. Revoke one under Settings → Tokens first.",
+    "machine_label_required": "Machine ID",
+    "machine_hint_required": "This machine's token is bound to this name; use the name it already reports under, if it does.",
+    "zip_desc_multi": "Ready package with installer, with the settings above, and a new token of this machine's own inside: the installer asks for nothing.",
+    "token_desc_multi": "Every machine reports with a token of its own, bound to it: the ZIP carries it, and the other two routes create it for you. All of them are listed, and can be revoked, under Settings → Tokens. On a configured machine it is in <Code>{mac}</Code> (macOS and Linux) or <Code><BreakablePath></BreakablePath></Code> (Windows)."
   },
   "Auth": {
     "pin_malformed": "The PIN or passphrase must be 5 to 64 characters.",

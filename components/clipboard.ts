@@ -9,6 +9,7 @@ export type CopyErrorCode =
   | "storage_unavailable"
   | "insecure_context"
   | "permission_denied"
+  | "too_many_tokens"
   | "generic";
 
 /** A copy that failed for a reason worth telling apart. */

@@ -88,6 +88,7 @@ export default async function SetupPage({
         sources={sources}
         oneShot={oneShotBlobs(sources)}
         tokenStatus={tokenStatus}
+        multiTenant={isMultiTenant()}
       />
     </>
   );
