@@ -3,7 +3,7 @@ import { getRedis, toStringRecord } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import type { TenantStore } from "@/lib/tenant";
 import type { TenantId } from "@/lib/tenant-id";
-import { revokeTokensCreatedBy } from "@/lib/tokens";
+import { revokeTokensCreatedBy, type TokenAudit } from "@/lib/tokens";
 import { isUserId, parseRole, parseUser, type Role } from "@/lib/users";
 
 /**
@@ -130,7 +130,7 @@ export type RemoveMemberResult =
 export async function removeMember(
   store: TenantStore,
   userId: string,
-  options: { revokeTokens: boolean },
+  options: { revokeTokens: boolean; audit?: TokenAudit },
   now: Date,
 ): Promise<RemoveMemberResult> {
   const { tenantId } = store;
@@ -139,7 +139,7 @@ export async function removeMember(
     if (!current) return { ok: false, reason: "not_found" };
     if (current.role === "owner") return { ok: false, reason: "is_owner" };
     await dropMembership(tenantId, userId);
-    const tokensRevoked = options.revokeTokens ? await revokeTokensCreatedBy(store, userId, now) : 0;
+    const tokensRevoked = options.revokeTokens ? await revokeTokensCreatedBy(store, userId, now, options.audit) : 0;
     return { ok: true, tokensRevoked };
   });
   return result === "busy" ? { ok: false, reason: "busy" } : result;

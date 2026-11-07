@@ -137,13 +137,18 @@ was.
    `http://127.0.0.1:3000/api/auth/github/callback`.
 2. **Generate a client secret** in the app and set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and
    `NEXT_PUBLIC_SITE_URL`.
-3. **Back up the store, then run the tenant migration** with your own GitHub account as the owner of
+3. **Move every machine to a per-machine token first.** Multi-tenant mode ignores the shared
+   `USAGE_API_TOKEN`: a client still using it stops reporting at the switch. In Settings → Tokens,
+   create a token per machine (bound to it) and put it into that machine's client config. Every use
+   of the shared token is logged as `api.master_token_used`; once those lines stop (a few days of
+   hourly reports), nothing relies on it any more.
+4. **Back up the store, then run the tenant migration** with your own GitHub account as the owner of
    the existing data: `npm run migrate:tenant -- --owner-github-id=<id>` prints the plan, add
    `--apply` to run it. Your numeric id is the `id` field of `https://api.github.com/users/<login>`.
    See [data-model.md](data-model.md#the-tenant-migration).
-4. **Set `REGISTRATION=invite`** and `ADMIN_GITHUB_IDS` (your numeric id), and redeploy. Sign in
+5. **Set `REGISTRATION=invite`** and `ADMIN_GITHUB_IDS` (your numeric id), and redeploy. Sign in
    with GitHub: you land in your existing data.
-5. **Invite people:** `/admin` → "Create a sign-up link". Each link works once, for 14 days, and
+6. **Invite people:** `/admin` → "Create a sign-up link". Each link works once, for 14 days, and
    is shown only once. Whoever opens it signs in with GitHub and gets an empty workspace of their
    own. The admin page shows counts per workspace and can disable one; it never shows a
    workspace's data.

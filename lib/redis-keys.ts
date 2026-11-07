@@ -38,8 +38,10 @@
  *
  *   usage:api-token          STRING {"v":1,"kid","iv","ct","tag","updatedAt"}: AES-256-GCM, key
  *                                   TOKEN_ENCRYPTION_KEY (see lib/secret-box.ts, lib/token-vault.ts)
- *   usage:api-token:audit    LIST   newest first, at most AUDIT_LIMIT entries:
- *                                   {"at","a","ua","ch","pf","s", "ip"|"iph"+"ipp"} (see lib/api-token.ts)
+ *   usage:api-token:audit    LIST   newest first, at most AUDIT_LIMIT entries: the workspace's audit
+ *                                   trail, the shared token's and the per-machine tokens' alike:
+ *                                   {"at","a","ua","ch","pf","s", "ip"|"iph"+"ipp", "tk"?+"tl"?, "by"?}
+ *                                   (see lib/api-token.ts)
  *
  *   usage:tokens             HASH   sha256(token) → {"id","label","machineId","scope","createdAt",
  *                                   "lastUsedAt","revokedAt"}: per-machine API tokens, an

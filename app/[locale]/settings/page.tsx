@@ -50,7 +50,7 @@ async function loadSettingsView(store: TenantStore): Promise<SettingsView> {
   return buildSettingsView(
     config,
     groups,
-    { maskWebhook: isMultiTenant() },
+    { maskWebhook: isMultiTenant(), sharedToken: !isMultiTenant() },
     providerIds,
     Object.fromEntries(
       Object.entries(eventsByProvider).map(([providerId, events]) => [providerId, modelKeysIn(events)]),

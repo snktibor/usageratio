@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { AUDIT_LIMIT, type AuditToken } from "@/lib/api-token";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { defer } from "@/lib/request-context";
@@ -26,8 +27,12 @@ import { isTenantId, type TenantId } from "@/lib/tenant-id";
  * `safeEqual` (lib/security.ts) for exactly that reason.
  */
 
-/** The prefix on every issued token: helps secret scanners flag a leaked one. */
-export const TOKEN_PREFIX = "ur_";
+/**
+ * The prefix on every newly issued token: a leaked one is easy to grep for, and secret scanners can
+ * flag it. Tokens issued before it existed start with a bare `ur_` and keep working: a token is
+ * looked up by its hash, never by its prefix.
+ */
+export const TOKEN_PREFIX = "ur_live_";
 /** The prefix on every token's public id (never secret, safe to show and log). */
 export const ID_PREFIX = "tk_";
 /** Random bytes making up the plaintext token, before base64url-encoding. */
@@ -90,7 +95,7 @@ function randomBase32(chars: number): string {
   return output;
 }
 
-/** A fresh plaintext token: `ur_` + 32 random bytes, base64url. 256 bits of entropy. */
+/** A fresh plaintext token: `ur_live_` + 32 random bytes, base64url. 256 bits of entropy. */
 export function generatePlainToken(): string {
   return `${TOKEN_PREFIX}${randomBytes(TOKEN_BYTES).toString("base64url")}`;
 }
@@ -166,23 +171,31 @@ export async function listTokens(store: TenantStore): Promise<MachineToken[]> {
 
 export type CreateTokenResult = { ok: true; id: string; token: string } | { ok: false; reason: "too_many" };
 
-/** Issues a fresh token and stores its hash; the plaintext is returned once and never stored. */
-export async function createToken(
-  store: TenantStore,
+/**
+ * The audit entry for a change to one token (lib/token-vault.ts `auditRecord`, bound to the
+ * request and its action), written in the same transaction as the change: a change that is not
+ * on the trail does not happen.
+ */
+export type TokenAudit = (token: AuditToken) => Promise<string>;
+
+type Transaction = ReturnType<TenantStore["redis"]["multi"]>;
+
+async function queueAudit(tx: Transaction, store: TenantStore, audit: TokenAudit | undefined, token: AuditToken) {
+  if (!audit) return;
+  tx.lpush(store.keys.apiTokenAudit, await audit(token));
+  tx.ltrim(store.keys.apiTokenAudit, 0, AUDIT_LIMIT - 1);
+}
+
+function newRecord(
   label: string,
   machineId: string | null,
+  scope: TokenScope,
   now: Date,
-  scope: TokenScope = "ingest",
-  createdBy: string | null = null,
-): Promise<CreateTokenResult> {
-  const redis = store.redis;
-  const count = await redis.hlen(store.keys.tokens);
-  if (count >= MAX_TOKENS) return { ok: false, reason: "too_many" };
-
+  createdBy: string | null,
+): { token: string; hash: string; record: MachineToken } {
   const token = generatePlainToken();
-  const id = generateTokenId();
   const record: MachineToken = {
-    id,
+    id: generateTokenId(),
     label,
     machineId: scope === "read" ? null : machineId,
     scope,
@@ -191,44 +204,122 @@ export async function createToken(
     revokedAt: null,
     createdBy,
   };
-  const hash = hashToken(token);
+  return { token, hash: hashToken(token), record };
+}
+
+/** Issues a fresh token and stores its hash; the plaintext is returned once and never stored. */
+export async function createToken(
+  store: TenantStore,
+  label: string,
+  machineId: string | null,
+  now: Date,
+  scope: TokenScope = "ingest",
+  createdBy: string | null = null,
+  audit?: TokenAudit,
+): Promise<CreateTokenResult> {
+  const redis = store.redis;
+  const count = await redis.hlen(store.keys.tokens);
+  if (count >= MAX_TOKENS) return { ok: false, reason: "too_many" };
+
+  const { token, hash, record } = newRecord(label, machineId, scope, now, createdBy);
   const tx = redis.multi();
   tx.hset(store.keys.tokens, { [hash]: serialize(record) });
   tx.hset(GLOBAL_KEYS.tokenIndex, { [hash]: store.tenantId });
+  await queueAudit(tx, store, audit, { id: record.id, label });
   await tx.exec();
-  return { ok: true, id, token };
+  return { ok: true, id: record.id, token };
 }
 
 export type RevokeTokenResult = { ok: true } | { ok: false; reason: "not_found" };
 
-/** Sets `revokedAt` on the token with this public id; idempotent — revoking an already-revoked token still answers ok. */
-export async function revokeToken(store: TenantStore, id: string, now: Date): Promise<RevokeTokenResult> {
-  const redis = store.redis;
-  const raw = toStringRecord(await redis.hgetall(store.keys.tokens));
-  const entry = Object.entries(raw).find(([, value]) => parseStored(value)?.id === id);
-  if (!entry) return { ok: false, reason: "not_found" };
+async function findToken(store: TenantStore, id: string): Promise<{ hash: string; token: MachineToken } | null> {
+  const raw = toStringRecord(await store.redis.hgetall(store.keys.tokens));
+  for (const [hash, value] of Object.entries(raw)) {
+    const token = parseStored(value);
+    if (token?.id === id) return { hash, token };
+  }
+  return null;
+}
 
-  const [hash, value] = entry;
-  const token = parseStored(value)!;
+/**
+ * Sets `revokedAt` on the token with this public id; idempotent — revoking an already-revoked
+ * token still answers ok, and is not audited again.
+ */
+export async function revokeToken(
+  store: TenantStore,
+  id: string,
+  now: Date,
+  audit?: TokenAudit,
+): Promise<RevokeTokenResult> {
+  const found = await findToken(store, id);
+  if (!found) return { ok: false, reason: "not_found" };
+  const { hash, token } = found;
   if (token.revokedAt === null) {
-    await redis.hset(store.keys.tokens, { [hash]: serialize({ ...token, revokedAt: now.getTime() }) });
+    const tx = store.redis.multi();
+    tx.hset(store.keys.tokens, { [hash]: serialize({ ...token, revokedAt: now.getTime() }) });
+    await queueAudit(tx, store, audit, { id: token.id, label: token.label });
+    await tx.exec();
   }
   return { ok: true };
 }
 
+export type RotateTokenResult =
+  | { ok: true; id: string; token: string }
+  | { ok: false; reason: "not_found" | "revoked" };
+
+/**
+ * Replaces a live token with a fresh one in one step: same label, machine and scope, a new secret
+ * and id; the old one is revoked in the same transaction, so there is never a moment with both or
+ * neither. Not held to MAX_TOKENS: the number of live tokens stays the same.
+ */
+export async function rotateToken(
+  store: TenantStore,
+  id: string,
+  now: Date,
+  createdBy: string | null,
+  audit?: TokenAudit,
+): Promise<RotateTokenResult> {
+  const found = await findToken(store, id);
+  if (!found) return { ok: false, reason: "not_found" };
+  const { hash: oldHash, token: old } = found;
+  if (old.revokedAt !== null) return { ok: false, reason: "revoked" };
+
+  const { token, hash, record } = newRecord(old.label, old.machineId, old.scope, now, createdBy);
+  const tx = store.redis.multi();
+  tx.hset(store.keys.tokens, {
+    [oldHash]: serialize({ ...old, revokedAt: now.getTime() }),
+    [hash]: serialize(record),
+  });
+  tx.hset(GLOBAL_KEYS.tokenIndex, { [hash]: store.tenantId });
+  // The entry names the token that was rotated: its replacement carries the same label.
+  await queueAudit(tx, store, audit, { id: old.id, label: old.label });
+  await tx.exec();
+  return { ok: true, id: record.id, token };
+}
+
 /** Revokes every live token `userId` created (a member removed with their tokens); how many it revoked. */
-export async function revokeTokensCreatedBy(store: TenantStore, userId: string, now: Date): Promise<number> {
+export async function revokeTokensCreatedBy(
+  store: TenantStore,
+  userId: string,
+  now: Date,
+  audit?: TokenAudit,
+): Promise<number> {
   const raw = toStringRecord(await store.redis.hgetall(store.keys.tokens));
   const changes: Record<string, string> = {};
+  const revoked: AuditToken[] = [];
   for (const [hash, value] of Object.entries(raw)) {
     const token = parseStored(value);
     if (token && token.createdBy === userId && token.revokedAt === null) {
       changes[hash] = serialize({ ...token, revokedAt: now.getTime() });
+      revoked.push({ id: token.id, label: token.label });
     }
   }
-  const count = Object.keys(changes).length;
-  if (count > 0) await store.redis.hset(store.keys.tokens, changes);
-  return count;
+  if (revoked.length === 0) return 0;
+  const tx = store.redis.multi();
+  tx.hset(store.keys.tokens, changes);
+  for (const token of revoked) await queueAudit(tx, store, audit, token);
+  await tx.exec();
+  return revoked.length;
 }
 
 /** The tenant `bearer` was issued for, from the token index; null for a token the index does not know. */

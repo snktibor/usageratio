@@ -28,8 +28,20 @@ type AuditLoad =
   | { phase: "failed"; expired: boolean }
   | { phase: "ready"; entries: AuditEntry[]; currentSession: string | null };
 
-/** Who saved or fetched the token, newest first, in a scrolling list. Mounted only while it is open. */
-function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => void }) {
+/**
+ * An audit trail, newest first, in a scrolling list. Mounted only while it is open. `trail`:
+ * "api-token" is the shared token's (who saved or fetched it, closed mode); "tokens" is the
+ * workspace's per-machine tokens' (created, revoked, rotated), in every mode.
+ */
+export function AuditDialog({
+  timeZone,
+  onClose,
+  trail = "api-token",
+}: {
+  timeZone: string;
+  onClose: () => void;
+  trail?: "api-token" | "tokens";
+}) {
   const locale = useLocale();
   const t = useTranslations("Settings");
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -39,7 +51,7 @@ function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => v
   useEffect(() => {
     if (dialogRef.current && !dialogRef.current.open) dialogRef.current.showModal();
     let cancelled = false;
-    fetch("/api/api-token/audit", { cache: "no-store" })
+    fetch(trail === "tokens" ? "/api/tokens/audit" : "/api/api-token/audit", { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw response.status;
         const payload = (await response.json()) as { entries: AuditEntry[]; currentSession: string | null };
@@ -51,7 +63,7 @@ function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => v
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [trail]);
 
   return (
     <dialog
@@ -64,7 +76,7 @@ function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => v
     >
       <header className="flex items-center justify-between gap-4 px-6 pt-5">
         <h2 id={titleId} className="text-lg font-medium">
-          {t("audit_dialog_title")}
+          {trail === "tokens" ? t("tokens_audit_title") : t("audit_dialog_title")}
         </h2>
         <button
           type="button"
@@ -76,7 +88,9 @@ function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => v
         </button>
       </header>
       <p className="px-6 pt-1.5 text-sm leading-relaxed text-ink-3">
-        {t("audit_dialog_description", { limit: AUDIT_LIMIT, timeZone })}
+        {trail === "tokens"
+          ? t("tokens_audit_description", { limit: AUDIT_LIMIT, timeZone })
+          : t("audit_dialog_description", { limit: AUDIT_LIMIT, timeZone })}
       </p>
 
       <div
@@ -115,6 +129,12 @@ function AuditDialog({ timeZone, onClose }: { timeZone: string; onClose: () => v
                     {t(`audit_action_${entry.action}`)}
                   </span>
                 </div>
+                {entry.token && (
+                  <p className="mt-1 text-sm text-ink wrap-anywhere">
+                    {entry.token.label} <span className="font-mono text-xs text-ink-3">{entry.token.id}</span>
+                  </p>
+                )}
+                {entry.by && <p className="mt-0.5 text-sm text-ink-2">{t("audit_by", { login: entry.by })}</p>}
                 <p className="mt-1 text-sm text-ink-2">
                   {entry.browser ?? (entry.userAgent ? t("audit_unknown_browser") : t("audit_unknown_client"))}
                   {entry.os && ` · ${entry.os}`}

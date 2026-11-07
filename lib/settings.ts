@@ -139,6 +139,8 @@ export interface SettingsView {
    * `maskWebhookUrl`), for display only; a save keeps the stored URL with `keepWebhook: true`.
    */
   webhookMasked?: boolean;
+  /** False in multi-tenant mode: there is no shared API token, so no vault section (per-machine tokens only). */
+  sharedToken?: boolean;
   timeZone: string;
   /** `models`: this cycle's model ids of the provider (without their dates), for picking a sub-limit's. */
   providers: { id: string; label: string; models: string[] }[];
@@ -961,7 +963,7 @@ export function buildSettingsView(
   config: AppConfig,
   groups: KnownGroup[],
   /** Multi-tenant mode: the webhook URL never reaches a browser (lib/webhook.ts `maskWebhookUrl`). Every caller decides. */
-  options: { maskWebhook: boolean },
+  options: { maskWebhook: boolean; sharedToken?: boolean },
   providerIds: string[] = Object.keys(config.providerLimits),
   modelsByProvider: Record<string, string[]> = {},
 ): SettingsView {
@@ -971,6 +973,7 @@ export function buildSettingsView(
   return {
     settings: options.maskWebhook ? withMaskedWebhook(settings) : settings,
     ...(options.maskWebhook && { webhookMasked: true }),
+    ...(options.sharedToken === false && { sharedToken: false }),
     timeZone: config.reset.timeZone,
     providers: providers.map((id) => ({
       id,

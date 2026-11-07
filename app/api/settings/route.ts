@@ -62,7 +62,17 @@ export const GET = withApiHandler("api/settings", async () => {
   );
   const config = resolveConfig(getConfig(), indexes.settings, providerIds);
   const groups = await loadGroupActivity(store, indexes.groups, providerIds);
-  return json({ ...buildSettingsView(config, groups, { maskWebhook: isMultiTenant() }, providerIds) }, 200);
+  return json(
+    {
+      ...buildSettingsView(
+        config,
+        groups,
+        { maskWebhook: isMultiTenant(), sharedToken: !isMultiTenant() },
+        providerIds,
+      ),
+    },
+    200,
+  );
 });
 
 export const PUT = withApiHandler("api/settings", async ({ request }) => {

@@ -1,4 +1,4 @@
-import { apiError, json, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
+import { apiError, json, requireSameOrigin, requireSingleUser, requireTenantSession, withApiHandler } from "@/lib/api";
 import { hasSudo } from "@/lib/auth";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { encryptionKey, revealApiToken } from "@/lib/token-vault";
@@ -12,11 +12,13 @@ import { encryptionKey, revealApiToken } from "@/lib/token-vault";
  *
  *   → { "token": "…" }
  *
- * 200 ok · 401 no session · 403 foreign origin, demo mode, or no sudo grant ·
- * 404 nothing stored · 409 stored but cannot be decrypted ·
+ * 200 ok · 401 no session · 403 foreign origin, demo mode, or no sudo grant · 404 multi-tenant
+ * mode (per-machine tokens only) · 404 nothing stored · 409 stored but cannot be decrypted ·
  * 500 TOKEN_ENCRYPTION_KEY missing · 503 Redis down
  */
 export const POST = withApiHandler("api/api-token/reveal", async ({ request }) => {
+  const multi = requireSingleUser();
+  if (multi) return multi;
   const origin = requireSameOrigin(request);
   if (origin) return origin;
   const readOnly = demoReadOnly();

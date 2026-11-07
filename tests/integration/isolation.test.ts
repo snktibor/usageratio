@@ -8,10 +8,14 @@ import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { sha256Hex } from "@/lib/security";
 import { type TenantStore, tenantStore } from "@/lib/tenant";
 import { DEFAULT_TENANT, type TenantId } from "@/lib/tenant-id";
+import { serializeTenantRecord } from "@/lib/tenants";
 import { createToken, type TokenScope } from "@/lib/tokens";
 import { archiveCycle, saveOfficialUsage } from "@/lib/usage-store";
+import { startUserSession } from "@/lib/user-session";
+import { addOwner, findOrCreateGithubUser } from "@/lib/users";
 import en from "@/messages/en.json";
 import { useRedis } from "../helpers/redis-fixture";
+import { withRequest } from "../helpers/request";
 import { seedSession } from "../helpers/session";
 
 /**
@@ -22,6 +26,12 @@ import { seedSession } from "../helpers/session";
  * they were. Calls that name B's machines, groups or tokens find nothing.
  * Then B's own tokens are used the other way round: they reach B's data only,
  * and leave A's untouched.
+ *
+ * It runs twice: on a single-user instance (A is the default tenant, with its
+ * PIN session and its master token), and in multi-tenant mode (A is a
+ * workspace of its own, with a GitHub session; the master token must get
+ * nowhere there). In multi-tenant mode every call starts from a fresh world,
+ * since the account and workspace routes then really act on A.
  *
  * A route that is added under app/api without a row in CASES fails the test.
  */
@@ -36,7 +46,12 @@ const PIN = "12345";
 const MASTER = "0123456789abcdef0123456789abcdef";
 const CRON = "cron-secret-0123456789";
 const ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("hex");
+const A = "AAAAAAAAAAAAAAAAAAAAAA" as TenantId;
 const B = "BBBBBBBBBBBBBBBBBBBBBB" as TenantId;
+/** B's owner and one of B's pending invites: the workspace routes try to reach them from A. */
+const B_USER = "u_BBBBBBBBBBBBBBBBBBBBBB";
+const B_INVITE = "iv_AAAAAAAA";
+type Mode = "closed" | "multi";
 const MARKER = "bsecret";
 /**
  * What only B has: its machines, its token labels, its webhook. (Some calls below write B's group
@@ -66,6 +81,7 @@ interface Case {
 }
 
 interface World {
+  mode: Mode;
   a: TenantStore;
   b: TenantStore;
   cookie: string;
@@ -152,21 +168,30 @@ function cases(world: World): Record<string, Case[]> {
     workspace: [{ method: "GET", path: "/api/workspace", auth: "session" }],
     "workspace/invites": [{ method: "POST", path: "/api/workspace/invites", auth: "session", body: {} }],
     "workspace/invites/[id]": [
-      { method: "DELETE", path: "/api/workspace/invites/x", auth: "session", params: { id: "iv_AAAAAAAA" } },
+      {
+        method: "DELETE",
+        path: "/api/workspace/invites/x",
+        auth: "session",
+        params: { id: B_INVITE },
+        expectNotFound: true,
+      },
     ],
     "workspace/members/[userId]": [
       {
         method: "DELETE",
         path: "/api/workspace/members/x?revokeTokens=1",
         auth: "session",
-        params: { userId: "u_BBBBBBBBBBBBBBBBBBBBBB" },
+        params: { userId: B_USER },
+        expectNotFound: true,
       },
     ],
     "workspace/leave": [{ method: "POST", path: "/api/workspace/leave", auth: "session" }],
     "workspace/transfer": [
-      { method: "POST", path: "/api/workspace/transfer", auth: "sudo", body: { userId: "u_BBBBBBBBBBBBBBBBBBBBBB" } },
+      { method: "POST", path: "/api/workspace/transfer", auth: "sudo", body: { userId: B_USER }, expectNotFound: true },
     ],
-    "session/tenant": [{ method: "POST", path: "/api/session/tenant", auth: "session", body: { tenantId: B } }],
+    "session/tenant": [
+      { method: "POST", path: "/api/session/tenant", auth: "session", body: { tenantId: B }, expectNotFound: true },
+    ],
     "auth/github/start": [
       { method: "POST", path: "/api/auth/github/start", auth: "session", body: { purpose: "login" } },
     ],
@@ -273,6 +298,16 @@ function cases(world: World): Record<string, Case[]> {
     "tokens/[id]": [
       { method: "DELETE", path: "/api/tokens/x", auth: "sudo", params: { id: world.bTokens.id }, expectNotFound: true },
     ],
+    "tokens/[id]/rotate": [
+      {
+        method: "POST",
+        path: "/api/tokens/x/rotate",
+        auth: "sudo",
+        params: { id: world.bTokens.id },
+        expectNotFound: true,
+      },
+    ],
+    "tokens/audit": [{ method: "GET", path: "/api/tokens/audit", auth: "session" }],
     tokens: [
       { method: "GET", path: "/api/tokens", auth: "session" },
       { method: "POST", path: "/api/tokens", auth: "sudo", body: { label: "new", machineId: "a-host" } },
@@ -332,10 +367,12 @@ async function seedTenant(store: TenantStore, prefix: string): Promise<Record<To
   return tokens;
 }
 
-/** Everything of B's in the store: its own keys, and its entries in the shared token index. */
+/** Everything of a tenant's in the store: its own keys, its record, members and invites, and its token index entries. */
 function snapshotOf(store: TenantStore): string {
   const dump = getMemoryStoreForTests()!.dump();
-  const own = Object.entries(dump).filter(([key]) => key.startsWith(store.keys.prefix));
+  const own = Object.entries(dump).filter(
+    ([key]) => key.startsWith(store.keys.prefix) || key.startsWith(GLOBAL_KEYS.tenantRecord(store.tenantId)),
+  );
   const index = Object.entries((dump[GLOBAL_KEYS.tokenIndex]?.value ?? {}) as Record<string, string>).filter(
     ([, tenantId]) => tenantId === store.tenantId,
   );
@@ -364,7 +401,11 @@ async function call(world: World, route: string, testCase: Case, token?: string)
 
   const headers: Record<string, string> = { origin: "http://localhost", host: "localhost" };
   if (testCase.body !== undefined) headers["content-type"] = "application/json";
-  if (testCase.auth === "session" || testCase.auth === "sudo") headers.cookie = world.cookie;
+  if (testCase.auth === "session" || testCase.auth === "sudo") {
+    headers.cookie = world.cookie;
+    // Multi-tenant mode: the page's own workspace, as every page sends it (the stale-tab guard).
+    headers["x-usageratio-tenant"] = world.a.tenantId;
+  }
   const bearer =
     token ??
     {
@@ -387,29 +428,65 @@ async function call(world: World, route: string, testCase: Case, token?: string)
   return handler(request, { params: Promise.resolve(testCase.params ?? {}) });
 }
 
-describe("tenant isolation, route by route", () => {
-  const redis = useRedis();
-  let world: World;
+/** A and B, seeded alike; B is also a workspace with an owner and a pending invite. */
+async function buildWorld(mode: Mode): Promise<World> {
+  const a = tenantStore(mode === "multi" ? A : DEFAULT_TENANT);
+  const b = tenantStore(B);
+  const aTokens = await seedTenant(a, "a");
+  const bTokens = await seedTenant(b, MARKER);
+  await getRedis().set(
+    b.keys.settings,
+    JSON.stringify({ v: 1, alerts: { webhookUrl: `https://hooks.example.com/${MARKER}` } }),
+  );
+  const record = (name: string) => serializeTenantRecord({ v: 1, name, createdAt: 1, status: "active" });
+  await getRedis().set(GLOBAL_KEYS.tenantRecord(B), record("b"));
+  await getRedis().hset(GLOBAL_KEYS.tenantMembers(B), { [B_USER]: JSON.stringify({ role: "owner", joinedAt: 1 }) });
+  await getRedis().hset(GLOBAL_KEYS.tenantInvites(B), {
+    [B_INVITE]: JSON.stringify({
+      hash: "0".repeat(64),
+      createdAt: 1,
+      expiresAt: Date.now() + 86_400_000,
+      createdBy: B_USER,
+    }),
+  });
 
-  beforeEach(async () => {
-    vi.stubEnv("DASHBOARD_PIN", PIN);
-    vi.stubEnv("USAGE_API_TOKEN", MASTER);
-    vi.stubEnv("CRON_SECRET", CRON);
-    vi.stubEnv("TOKEN_ENCRYPTION_KEY", ENCRYPTION_KEY);
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
-    const a = tenantStore(DEFAULT_TENANT);
-    const b = tenantStore(B);
-    const aTokens = await seedTenant(a, "a");
-    const bTokens = await seedTenant(b, MARKER);
-    await getRedis().set(
-      b.keys.settings,
-      JSON.stringify({ v: 1, alerts: { webhookUrl: `https://hooks.example.com/${MARKER}` } }),
-    );
+  if (mode === "closed") {
     const cookie = await seedSession(PIN);
     await getRedis().set(`${GLOBAL_KEYS.pinSession(sha256Hex(`${cookie.split("=")[1]}:${PIN}`))}:sudo`, "1", {
       ex: 300,
     });
-    world = { a, b, cookie, aTokens, bTokens };
+    return { mode, a, b, cookie, aTokens, bTokens };
+  }
+  const at = now();
+  const { userId } = await findOrCreateGithubUser({ id: 1001, login: "alice" }, at);
+  await getRedis().set(GLOBAL_KEYS.tenantRecord(A), record("a"));
+  await addOwner(A, userId, at);
+  // A fresh session is a fresh GitHub sign-in: sudo for the next five minutes.
+  const header = await withRequest(() => startUserSession(userId, A, at));
+  return { mode, a, b, cookie: header.split(";")[0]!, aTokens, bTokens };
+}
+
+describe.each<Mode>(["closed", "multi"])("tenant isolation, route by route (%s mode)", (mode) => {
+  const redis = useRedis();
+  let world: World;
+
+  function stubEnvironment() {
+    vi.stubEnv("DASHBOARD_PIN", PIN);
+    vi.stubEnv("USAGE_API_TOKEN", MASTER);
+    vi.stubEnv("CRON_SECRET", CRON);
+    vi.stubEnv("TOKEN_ENCRYPTION_KEY", ENCRYPTION_KEY);
+    if (mode === "multi") {
+      vi.stubEnv("REGISTRATION", "invite");
+      vi.stubEnv("GITHUB_CLIENT_ID", "Iv1.client");
+      vi.stubEnv("GITHUB_CLIENT_SECRET", "client-secret-value");
+      vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://app.example.test");
+    }
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
+  }
+
+  beforeEach(async () => {
+    stubEnvironment();
+    world = await buildWorld(mode);
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -426,6 +503,10 @@ describe("tenant isolation, route by route", () => {
     const failures: string[] = [];
     for (const [route, list] of Object.entries(cases(world))) {
       for (const testCase of list) {
+        if (mode === "multi") {
+          redis.store.clear();
+          world = await buildWorld(mode);
+        }
         const label = `${testCase.method} ${route} ${JSON.stringify(testCase.params ?? {})} (${testCase.auth})`;
         const before = snapshotOf(world.b);
         const response = await call(world, route, testCase);
@@ -445,8 +526,7 @@ describe("tenant isolation, route by route", () => {
 
   it("gives B's own tokens B's data only, and leaves A's untouched", async () => {
     if (!redis.store) return;
-    const aBefore = defaultSnapshot();
-
+    const aBefore = mode === "closed" ? defaultSnapshot() : snapshotOf(world.a);
     const status = await call(
       world,
       "status",
@@ -491,9 +571,30 @@ describe("tenant isolation, route by route", () => {
     );
     expect(reported.status).toBeLessThan(300);
 
-    expect(defaultSnapshot()).toBe(aBefore);
+    expect(mode === "closed" ? defaultSnapshot() : snapshotOf(world.a)).toBe(aBefore);
     // B's report landed in B.
     expect(await getRedis().hexists(world.b.keys.machines, `claude:${MARKER}-host`)).toBe(1);
     expect(await getRedis().hexists(world.a.keys.machines, `claude:${MARKER}-host`)).toBe(0);
+  });
+
+  it("lets A's own session and tokens reach A's data, so the matrix above is not a wall of 401s", async () => {
+    const machines = await call(world, "machines", { method: "GET", path: "/api/machines", auth: "session" });
+    expect(machines.status).toBe(200);
+    expect(await machines.text()).toContain("a-host");
+    const created = await call(world, "tokens", {
+      method: "POST",
+      path: "/api/tokens",
+      auth: "sudo",
+      body: { label: "new", machineId: "a-host" },
+    });
+    expect(created.status).toBe(201);
+    expect(((await created.json()) as { token: string }).token.startsWith("ur_live_")).toBe(true);
+    const status = await call(world, "status", { method: "GET", path: "/api/status", auth: "read" });
+    expect(status.status).toBe(200);
+  });
+
+  it("lets the shared master token in only on a single-user instance", async () => {
+    const response = await call(world, "usage", { method: "GET", path: "/api/usage", auth: "master" });
+    expect(response.status).toBe(mode === "closed" ? 200 : 401);
   });
 });

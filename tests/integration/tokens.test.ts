@@ -214,7 +214,7 @@ describe("POST /api/tokens", () => {
     expect(response.status).toBe(201);
     const body = (await response.json()) as { id: string; token: string };
     expect(body.id).toMatch(/^tk_[A-Z2-7]{8}$/);
-    expect(body.token).toMatch(/^ur_[A-Za-z0-9_-]{43}$/);
+    expect(body.token).toMatch(/^ur_live_[A-Za-z0-9_-]{43}$/);
 
     expect(await getRedis().hexists(KEYS.tokens, sha256Hex(body.token))).toBe(1);
   });

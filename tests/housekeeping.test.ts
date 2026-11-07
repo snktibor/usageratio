@@ -83,6 +83,8 @@ describe("runHousekeeping", () => {
         ipHash: "abc",
         ipPrefix: null,
         session: null,
+        token: null,
+        by: null,
       });
     await redis.lpush("usage:api-token:audit", record(NOW.getTime()));
     const ancient = Array.from({ length: 3 }, (_, index) => record(NOW.getTime() - (400 + index) * DAY_MS));
@@ -211,6 +213,8 @@ describe("runHousekeeping", () => {
         ipHash: null,
         ipPrefix: null,
         session: null,
+        token: null,
+        by: null,
       });
     await redis.lpush("usage:api-token:audit", record(NOW.getTime()));
     await redis.rpush("usage:api-token:audit", record(NOW.getTime() - 20 * DAY_MS));

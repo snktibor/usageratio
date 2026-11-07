@@ -127,8 +127,10 @@ issuing a separate token per machine. Per-machine tokens are a **separate mechan
 dashboard's settings panel (**Settings → Tokens**, `POST /api/tokens`; see
 [configuration.md](configuration.md)): create one there (with an optional label and an optional bound
 machine id), then paste it into a client's config file (`API_TOKEN=`/`apiToken`) in place of the master
-token. `POST /api/usage` accepts either — the master token is checked first (constant-time comparison),
-then per-machine tokens by a hash lookup. A token bound to a specific machine id rejects reports from any
+token. On a single-user instance `POST /api/usage` accepts either — the master token is checked
+first (constant-time comparison, and every use is logged as `api.master_token_used`), then
+per-machine tokens by a hash lookup. In multi-tenant mode only per-machine tokens work: the token
+decides the workspace. New tokens start with `ur_live_`; older ones with a bare `ur_` keep working. A token bound to a specific machine id rejects reports from any
 other id (`403 machine_mismatch`). Revoking a per-machine token from the settings panel makes that
 client's next report fail with a generic `401` — nothing on the client side distinguishes "revoked" from
 "wrong token," so check the settings panel's token list if a machine suddenly stops reporting.

@@ -3,7 +3,8 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useId, useState } from "react";
 import { CommandBlock } from "@/components/code-block";
-import { KeyIcon, PlusIcon, XIcon } from "@/components/icons";
+import { HistoryIcon, KeyIcon, PlusIcon, XIcon } from "@/components/icons";
+import { AuditDialog } from "@/components/settings/sections/token-section";
 import { SudoUnlock } from "@/components/setup/sudo-unlock";
 import { StatusLine } from "@/components/status-line";
 import { FIELD, QUIET_BUTTON } from "@/components/ui/classes";
@@ -37,7 +38,8 @@ type Scope = "ingest" | "read" | "official";
 type Load = { phase: "loading" } | { phase: "failed" } | { phase: "ready"; tokens: MachineTokenView[] };
 type SudoRetry =
   | { kind: "create"; label: string; machineId: string | null; scope: Scope }
-  | { kind: "revoke"; token: MachineTokenView };
+  | { kind: "revoke"; token: MachineTokenView }
+  | { kind: "rotate"; token: MachineTokenView };
 
 async function errorCode(response: Response): Promise<string | null> {
   const payload = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -47,7 +49,8 @@ async function errorCode(response: Response): Promise<string | null> {
 /**
  * The settings panel's per-machine tokens section: lists every issued token
  * (label, bound machine, created/last-used, revoked badge), a form to mint a
- * new one, and a revoke button per row. The freshly minted plaintext is shown
+ * new one, and a rotate and a revoke button per row, plus the tokens' audit
+ * trail (who created, revoked or rotated which one). The freshly minted plaintext is shown
  * once, right here, and never fetched again. Fetches its own data
  * (GET /api/tokens), independently of the panel's draft, the same way
  * MachinesSection and TokenSection own their status.
@@ -57,9 +60,12 @@ export function TokensSection({
   timeZone,
   knownMachines,
   onManaged,
+  sharedToken = true,
 }: {
   titleId: string;
   timeZone: string;
+  /** False in multi-tenant mode, where there is no shared token to compare these with. */
+  sharedToken?: boolean;
   /** The machines that have reported, to bind a new token to (from the Machines section's list). */
   knownMachines: string[];
   onManaged: () => void;
@@ -75,6 +81,8 @@ export function TokensSection({
   const [createProblem, setCreateProblem] = useState<string | null>(null);
   const [justCreated, setJustCreated] = useState<{ id: string; token: string } | null>(null);
   const [pendingRevoke, setPendingRevoke] = useState<MachineTokenView | null>(null);
+  const [pendingRotate, setPendingRotate] = useState<MachineTokenView | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [sudoRetry, setSudoRetry] = useState<SudoRetry | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -170,14 +178,36 @@ export function TokensSection({
     setProblem(t("tokens_action_failed"));
   }
 
+  async function performRotate(token: MachineTokenView) {
+    const response = await fetch(`/api/tokens/${encodeURIComponent(token.id)}/rotate`, { method: "POST" });
+    if (response.ok) {
+      setJustCreated((await response.json()) as { id: string; token: string });
+      reload();
+      onManaged();
+      return;
+    }
+    const error = await errorCode(response);
+    if (error === "sudo_required") {
+      setSudoRetry({ kind: "rotate", token });
+      return;
+    }
+    setProblem(t("tokens_action_failed"));
+  }
+
   return (
     <section aria-labelledby={`${titleId}-tokens`} className="space-y-4">
       <h3 id={`${titleId}-tokens`} className="font-medium">
         {t("tokens_heading")}
       </h3>
       <p className="text-sm text-ink-3">
-        {t.rich("tokens_explanation", { code: (chunks) => <code className="text-ink-2">{chunks}</code> })}
+        {sharedToken
+          ? t.rich("tokens_explanation", { code: (chunks) => <code className="text-ink-2">{chunks}</code> })
+          : t("tokens_explanation_multi")}
       </p>
+      <button type="button" onClick={() => setHistoryOpen(true)} className={`flex items-center gap-2 ${QUIET_BUTTON}`}>
+        <HistoryIcon />
+        {t("tokens_audit_button")}
+      </button>
 
       {load.phase === "loading" ? (
         <p className="text-sm text-ink-3">{t("loading_status")}</p>
@@ -205,14 +235,24 @@ export function TokensSection({
                     {t("tokens_revoked_badge")}
                   </span>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => setPendingRevoke(token)}
-                    aria-label={t("tokens_revoke_aria", { label: token.label })}
-                    className="rounded-md p-2 text-ink-3 transition-colors hover:text-ink"
-                  >
-                    <XIcon />
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setPendingRotate(token)}
+                      aria-label={t("tokens_rotate_aria", { label: token.label })}
+                      className="rounded-md px-2 py-1 text-sm text-ink-3 transition-colors hover:text-ink"
+                    >
+                      {t("tokens_rotate_button")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingRevoke(token)}
+                      aria-label={t("tokens_revoke_aria", { label: token.label })}
+                      className="rounded-md p-2 text-ink-3 transition-colors hover:text-ink"
+                    >
+                      <XIcon />
+                    </button>
+                  </>
                 )}
               </div>
               <p className="mt-1 text-sm text-ink-3">
@@ -322,6 +362,7 @@ export function TokensSection({
               const retry = sudoRetry;
               setSudoRetry(null);
               if (retry.kind === "create") void performCreate(retry.label, retry.machineId, retry.scope);
+              else if (retry.kind === "rotate") void performRotate(retry.token);
               else void performRevoke(retry.token);
             }}
           />
@@ -332,6 +373,25 @@ export function TokensSection({
           <StatusLine tone="good">{toast}</StatusLine>
         </Toast>
       )}
+
+      {pendingRotate && (
+        <ConfirmDialog
+          title={t("tokens_rotate_title")}
+          body={t("tokens_rotate_body", { label: pendingRotate.label })}
+          cancelLabel={t("cancel")}
+          confirmLabel={(secondsLeft) =>
+            secondsLeft > 0 ? t("confirm_yes_countdown", { seconds: secondsLeft }) : t("confirm_yes")
+          }
+          countdownSeconds={CONFIRM_DELAY_SECONDS}
+          onCancel={() => setPendingRotate(null)}
+          onConfirm={() => {
+            const token = pendingRotate;
+            setPendingRotate(null);
+            void performRotate(token);
+          }}
+        />
+      )}
+      {historyOpen && <AuditDialog trail="tokens" timeZone={timeZone} onClose={() => setHistoryOpen(false)} />}
 
       {pendingRevoke && (
         <ConfirmDialog

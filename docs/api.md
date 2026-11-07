@@ -16,7 +16,7 @@ All source: `app/api/**/route.ts`, shared helpers in `lib/api.ts`.
 - [`POST`/`PUT`/`DELETE /api/resets`](#postputdelete-apiresets)
 - [`GET /api/setup`](#get-apisetup)
 - [`GET`/`PUT /api/api-token`, `POST /api/api-token/reveal`, `GET /api/api-token/audit`](#the-stored-api-token)
-- [`GET`/`POST /api/tokens`, `DELETE /api/tokens/[id]`](#per-machine-tokens)
+- [`GET`/`POST /api/tokens`, `DELETE /api/tokens/[id]`, `POST /api/tokens/[id]/rotate`, `GET /api/tokens/audit`](#per-machine-tokens)
 - [`GET /api/machines`, `PATCH`/`DELETE /api/machines/[provider]/[machine]`, `POST /api/machines/prune`](#machines)
 - [`PATCH`/`DELETE /api/groups/[group]`](#groups)
 - [`DELETE /api/providers/[provider]`](#providers)
@@ -461,8 +461,9 @@ session · `400` bad parameters · `503` Redis down. Contains no secret — see
 
 ## The stored API token
 
-Behind the dashboard's session, like `/api/settings`. See [security.md](security.md) for the
-encryption/rotation mechanics.
+Single-user instances only: in multi-tenant mode there is no shared token, and every route below
+answers `404`. Behind the dashboard's session, like `/api/settings`. See
+[security.md](security.md) for the encryption/rotation mechanics.
 
 - **`GET /api/api-token`** → `{ "status": { "state": "no_key"|"empty"|"unreadable"|"stored", "updatedAt", "matchesServer", "keyId", "needsReseal" } }`. `200` · `401` no session · `503` Redis down.
 - **`PUT /api/api-token`** (session + same-origin) `{ "token": "…" }` — 16–512 printable ASCII
@@ -480,7 +481,10 @@ encryption/rotation mechanics.
 Behind the session; creating and revoking also need sudo, since the plaintext is shown once and
 never again. See [clients.md](clients.md#per-machine-tokens-vs-the-master-token).
 
-- **`GET /api/tokens`** → `{ "tokens": [{id, label, machineId, scope, createdAt, lastUsedAt, revokedAt}] }`
+New tokens are `ur_live_` followed by 32 random bytes, base64url; tokens issued earlier start with
+a bare `ur_` and keep working. Every create, revoke and rotate goes on the workspace's audit trail.
+
+- **`GET /api/tokens`** → `{ "tokens": [{id, label, machineId, scope, createdAt, lastUsedAt, revokedAt, createdBy}] }`
   (never the token or its hash). `401` no session · `503` Redis down.
 - **`POST /api/tokens`** (session + sudo, same-origin) `{ "label": "…", "machineId"?: "…", "scope"?:
   "ingest" | "read" | "official" }` → `201 { "id", "token" }`. `scope` defaults to `"ingest"`; a `"read"` token (the
@@ -494,6 +498,14 @@ never again. See [clients.md](clients.md#per-machine-tokens-vs-the-master-token)
 - **`DELETE /api/tokens/[id]`** (session + sudo, same-origin) → `200 { "ok": true }`, idempotent.
   `401` no session · `403` foreign origin, demo mode, or no sudo grant · `404` no such token · `503`
   Redis down.
+- **`POST /api/tokens/[id]/rotate`** (session + sudo, same-origin) → `200 { "id", "token" }`: a fresh
+  token with the same label, machine and scope; the old one is revoked in the same step. `404` no
+  such token · `409 token_revoked` · otherwise as `DELETE`.
+- **`GET /api/tokens/audit`** (session) → `{ "entries": [{ "at", "action": "token_created" |
+  "token_revoked" | "token_rotated" | …, "browser", "os", "userAgent", "ip", "session", "token": {
+  "id", "label" } | null, "by": login | null }], "currentSession" }`: the workspace's audit trail,
+  newest first (on a single-user instance it also holds the shared token's own `created`, `updated`
+  and `revealed` entries). `by` is the GitHub login in multi-tenant mode.
 
 ## Machines
 

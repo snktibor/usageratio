@@ -1,6 +1,7 @@
 import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { hasSudo } from "@/lib/auth";
 import { demoReadOnly } from "@/lib/demo/mode";
+import { tokenAudit } from "@/lib/token-audit";
 import {
   createToken,
   labelProblem,
@@ -109,7 +110,16 @@ export const POST = withApiHandler("api/tokens", async ({ request }) => {
   const parsed = parseCreateBody(body.value);
   if ("errors" in parsed) return apiError("invalid_payload", 400, { details: parsed.errors });
 
-  const result = await createToken(store, parsed.label, parsed.machineId, new Date(), parsed.scope, tenant.userId);
+  const now = new Date();
+  const result = await createToken(
+    store,
+    parsed.label,
+    parsed.machineId,
+    now,
+    parsed.scope,
+    tenant.userId,
+    tokenAudit("token_created", tenant, now),
+  );
   if (!result.ok) return apiError("too_many_tokens", 422, { limit: MAX_TOKENS });
   return json({ id: result.id, token: result.token }, 201);
 });

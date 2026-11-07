@@ -4,6 +4,7 @@ import {
   type AuditAction,
   type AuditEntry,
   type AuditRecord,
+  type AuditToken,
   networkPrefix,
   parseAuditRecord,
   serializeAuditRecord,
@@ -188,7 +189,16 @@ function auditIpFields(ip: string): Pick<AuditRecord, "ip" | "ipHash" | "ipPrefi
   return { ip: null, ipHash: sha256Hex(`${auditSalt()}${ip}`).slice(0, 12), ipPrefix: networkPrefix(ip) };
 }
 
-async function auditRecord(action: AuditAction, now: Date): Promise<string> {
+/**
+ * One audit entry for the request being served, serialized: who (browser, address, session, and
+ * in multi-tenant mode `by`, a login) did `action`, and to which per-machine token if any. The
+ * per-machine tokens (lib/tokens.ts) write theirs in the same transaction as the change itself.
+ */
+export async function auditRecord(
+  action: AuditAction,
+  now: Date,
+  about: { token?: AuditToken; by?: string | null } = {},
+): Promise<string> {
   const requestHeaders = await currentHeaders();
   const header = (name: string, max: number) => (requestHeaders.get(name) ?? "").slice(0, max);
   return serializeAuditRecord({
@@ -199,6 +209,8 @@ async function auditRecord(action: AuditAction, now: Date): Promise<string> {
     platform: header("sec-ch-ua-platform", 64),
     session: await sessionTag(),
     ...auditIpFields((await clientIp()).slice(0, 64)),
+    token: about.token ?? null,
+    by: about.by ?? null,
   });
 }
 
