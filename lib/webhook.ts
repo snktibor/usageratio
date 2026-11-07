@@ -110,8 +110,10 @@ export async function sendWebhook(
 /**
  * The webhook URL as a multi-tenant workspace shows it to everyone, its owner
  * included (the design's decision 3): it can be replaced, never read back,
- * since a member who could read it could post into the owner's Slack. Only
- * the origin and the last four characters stay: `https://hooks.slack.com/…••••4f2a`.
+ * since a member who could read it could post into the owner's Slack. The
+ * mask is for display only: the settings form keeps the stored URL by saying
+ * so (`keepWebhook`), never by sending the mask back. Only the origin stays,
+ * and the last four characters of a long path: `https://hooks.slack.com/…••••4f2a`.
  */
 export const WEBHOOK_MASK_DOTS = "••••";
 
@@ -122,32 +124,20 @@ export function maskWebhookUrl(url: string): string {
   } catch {
     return WEBHOOK_MASK_DOTS;
   }
-  // A short path would give away too much of itself: then nothing of it shows.
-  const tail = url.length - origin.length >= 16 ? url.slice(-4) : "";
+  // A short path or token would give away too much of itself: then nothing of it shows.
+  const tail = url.length - origin.length >= 32 ? url.slice(-4) : "";
   return `${origin}/…${WEBHOOK_MASK_DOTS}${tail}`;
 }
 
-/** Whether a value is (or was edited from) a masked URL: it can never be saved as one. */
+/** Whether a value carries any of the mask's characters: a mask, or one edited by hand. Never a URL to save. */
 export function isMaskedWebhookUrl(value: string): boolean {
-  return value.includes(WEBHOOK_MASK_DOTS);
-}
-
-/**
- * A webhook URL from a client that only ever saw the stored one masked: the
- * stored URL's own mask, sent back unchanged, stands for it; any other value
- * with the mask's dots in it is refused (an edited mask, or one of a URL that
- * has changed since); anything else is the client's own new URL.
- */
-export function unmaskWebhookUrl(value: string, stored: string | null): { ok: true; url: string } | { ok: false } {
-  if (!isMaskedWebhookUrl(value)) return { ok: true, url: value };
-  if (stored !== null && value === maskWebhookUrl(stored)) return { ok: true, url: stored };
-  return { ok: false };
+  return value.includes("•") || value.includes("…");
 }
 
 /**
  * Whether the settings panel's webhook field (trimmed, not empty) cannot be saved: not an allowed
- * URL, or an edited mask. The stored URL's own mask (`storedMask`), unchanged, is fine: it keeps
- * the stored URL.
+ * URL, or anything made from a mask. The stored URL's own mask (`storedMask`), untouched, is fine:
+ * the form then asks to keep the stored URL.
  */
 export function webhookFieldProblem(value: string, storedMask: string | null): boolean {
   if (storedMask !== null && value === storedMask) return false;

@@ -80,6 +80,11 @@ function settingsBody(webhookUrl: string | null) {
   };
 }
 
+function keepBody() {
+  const body = settingsBody(null);
+  return { ...body, alerts: { ...body.alerts, keepWebhook: true } };
+}
+
 async function shownUrl(as: Person): Promise<{ url: string | null; masked: boolean | undefined; raw: string }> {
   const response = await getSettings(request("/api/settings", as));
   const raw = await response.text();
@@ -99,7 +104,7 @@ describe("the alert webhook URL in a multi-tenant workspace", () => {
     vi.unstubAllGlobals();
   });
 
-  it("is never read back, by the owner or a member, and the mask sent back keeps it", async () => {
+  it("is never read back, by the owner or a member, and a save that asks keeps it", async () => {
     const owner = await person(1, "alice");
     const member = await person(2, "bob", owner.tenantId);
     const saved = await putSettings(request("/api/settings", owner, { method: "PUT", body: settingsBody(SECRET_URL) }));
@@ -112,48 +117,53 @@ describe("the alert webhook URL in a multi-tenant workspace", () => {
       expect(shown.raw).not.toContain("secretpart");
     }
 
-    // The member saves the whole form, the mask untouched: the URL stays.
-    expect(
-      (await putSettings(request("/api/settings", member, { method: "PUT", body: settingsBody(MASK) }))).status,
-    ).toBe(200);
+    // The member saves the whole form, the webhook untouched: the URL stays.
+    const keep = await putSettings(request("/api/settings", member, { method: "PUT", body: keepBody() }));
+    expect(keep.status).toBe(200);
     expect(await stored(owner.tenantId)).toBe(SECRET_URL);
 
-    // An edited mask is no URL; a new URL replaces the old one; null turns alerts off.
-    const edited = await putSettings(
-      request("/api/settings", member, { method: "PUT", body: settingsBody("https://hooks.slack.com/…••••4f2b") }),
-    );
-    expect(edited.status).toBe(400);
+    // Nothing made from the mask is ever saved, whatever was deleted from it; the URL stays.
+    for (const edited of [MASK, "https://hooks.slack.com/…••••4f2b", "https://hooks.slack.com/…•••4f2a"]) {
+      const response = await putSettings(
+        request("/api/settings", member, { method: "PUT", body: settingsBody(edited) }),
+      );
+      expect([edited, response.status]).toEqual([edited, 400]);
+    }
     expect(await stored(owner.tenantId)).toBe(SECRET_URL);
+
+    // A new URL replaces the old one; "keep" then keeps the new one, whatever the page last saw.
     await putSettings(
-      request("/api/settings", member, { method: "PUT", body: settingsBody("https://new.example/hook") }),
+      request("/api/settings", owner, { method: "PUT", body: settingsBody("https://new.example/hook") }),
     );
     expect(await stored(owner.tenantId)).toBe("https://new.example/hook");
-    // The old mask now names nothing.
-    expect(
-      (await putSettings(request("/api/settings", owner, { method: "PUT", body: settingsBody(MASK) }))).status,
-    ).toBe(400);
+    expect((await putSettings(request("/api/settings", member, { method: "PUT", body: keepBody() }))).status).toBe(200);
+    expect(await stored(owner.tenantId)).toBe("https://new.example/hook");
+    // And with alerts turned off meanwhile, "keep" keeps them off rather than failing the save.
+    await putSettings(request("/api/settings", owner, { method: "PUT", body: settingsBody(null) }));
+    expect((await putSettings(request("/api/settings", member, { method: "PUT", body: keepBody() }))).status).toBe(200);
+    expect(await stored(owner.tenantId)).toBeNull();
   });
 
-  it("sends the test message to the stored URL when the page sends its mask", async () => {
+  it("sends the test message to the stored URL when the page asks for it", async () => {
     const owner = await person(1, "alice");
     await putSettings(request("/api/settings", owner, { method: "PUT", body: settingsBody(SECRET_URL) }));
     const fetchMock = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const sent = await testAlert(
-      request("/api/alerts/test", owner, { method: "POST", body: { webhookUrl: MASK, format: "slack", locale: "en" } }),
+      request("/api/alerts/test", owner, {
+        method: "POST",
+        body: { keepWebhook: true, format: "slack", locale: "en" },
+      }),
     );
     expect(sent.status).toBe(200);
     expect(String(fetchMock.mock.calls[0]![0])).toBe(SECRET_URL);
 
     await getRedis().del(GLOBAL_KEYS.rateLimit.alertsTest);
-    const edited = await testAlert(
-      request("/api/alerts/test", owner, {
-        method: "POST",
-        body: { webhookUrl: "https://hooks.slack.com/…••••0000", format: "slack", locale: "en" },
-      }),
+    const masked = await testAlert(
+      request("/api/alerts/test", owner, { method: "POST", body: { webhookUrl: MASK, format: "slack", locale: "en" } }),
     );
-    expect(edited.status).toBe(400);
+    expect(masked.status).toBe(400);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

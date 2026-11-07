@@ -14,14 +14,7 @@ import {
   withOwnReset,
 } from "@/components/settings/draft";
 import { getConfig } from "@/lib/config";
-import {
-  buildSettingsView,
-  MAX_ALERT_THRESHOLDS,
-  MAX_GROUPS,
-  MAX_LIMIT,
-  maskSettingsView,
-  parseSettingsUpdate,
-} from "@/lib/settings";
+import { buildSettingsView, MAX_ALERT_THRESHOLDS, MAX_GROUPS, MAX_LIMIT, parseSettingsUpdate } from "@/lib/settings";
 import { MAX_SUB_LIMIT_MODELS } from "@/lib/sub-limits";
 
 /**
@@ -31,7 +24,7 @@ import { MAX_SUB_LIMIT_MODELS } from "@/lib/sub-limits";
  */
 
 const config = getConfig({});
-const view = buildSettingsView(config, [], ["claude", "deepseek"], {
+const view = buildSettingsView(config, [], { maskWebhook: false }, ["claude", "deepseek"], {
   claude: ["claude-opus-4-5", "claude-fable-5-1"],
 });
 
@@ -285,21 +278,34 @@ describe("toRequest", () => {
     expect(toRequest(withBadWebhook)).toEqual({ problem: { code: "invalid_alert_webhook" } });
   });
 
-  it("keeps a masked webhook left as it is, and refuses an edited mask", () => {
-    const masked = maskSettingsView(
-      buildSettingsView(
-        { ...config, alerts: { ...config.alerts, webhookUrl: "https://hooks.slack.com/services/T0/B0/abcdef4f2a" } },
-        [],
-        ["claude", "deepseek"],
-      ),
+  it("asks to keep a masked webhook left as it is, and refuses anything made from the mask", () => {
+    const masked = buildSettingsView(
+      {
+        ...config,
+        alerts: { ...config.alerts, webhookUrl: "https://hooks.slack.com/services/T000/B000/XXXXXXXXXXXX4f2a" },
+      },
+      [],
+      { maskWebhook: true },
+      ["claude", "deepseek"],
     );
     const draft = draftFrom(masked);
     expect(draft.alerts.webhookUrl).toBe("https://hooks.slack.com/…••••4f2a");
     const kept = toRequest(draft);
     if (!("request" in kept)) throw new Error(`expected a request, got ${JSON.stringify(kept)}`);
-    expect(kept.request.alerts.webhookUrl).toBe("https://hooks.slack.com/…••••4f2a");
-    const edited = { ...draft, alerts: { ...draft.alerts, webhookUrl: "https://hooks.slack.com/…••••4f2b" } };
-    expect(toRequest(edited)).toEqual({ problem: { code: "invalid_alert_webhook" } });
+    expect(kept.request.alerts).toMatchObject({ webhookUrl: null, keepWebhook: true });
+    for (const edit of [
+      "https://hooks.slack.com/…••••4f2b",
+      "https://hooks.slack.com/…•••4f2a",
+      "https://hooks.slack.com/…4f2a",
+    ]) {
+      const edited = { ...draft, alerts: { ...draft.alerts, webhookUrl: edit } };
+      expect([edit, toRequest(edited)]).toEqual([edit, { problem: { code: "invalid_alert_webhook" } }]);
+    }
+    // Cleared: alerts off, nothing kept.
+    const cleared = toRequest({ ...draft, alerts: { ...draft.alerts, webhookUrl: "" } });
+    if (!("request" in cleared)) throw new Error("expected a request");
+    expect(cleared.request.alerts.webhookUrl).toBeNull();
+    expect(cleared.request.alerts.keepWebhook).toBeUndefined();
   });
 
   it("requires at least one threshold", () => {
@@ -322,7 +328,10 @@ describe("toRequest", () => {
   });
 
   it("keeps the stored reset modes through a save", () => {
-    const withModes = buildSettingsView({ ...config, resetModes: { claude: "restart" } }, [], ["claude", "deepseek"]);
+    const withModes = buildSettingsView({ ...config, resetModes: { claude: "restart" } }, [], { maskWebhook: false }, [
+      "claude",
+      "deepseek",
+    ]);
     const result = toRequest(draftFrom(withModes));
     if (!("request" in result)) throw new Error(result.problem.code);
     expect(result.request.resetModes).toEqual({ claude: "restart" });
@@ -365,6 +374,7 @@ describe("per-provider resets", () => {
       resetOverrides: { claude: { weekday: 4, monthDay: 1, hour: 9, minute: 5, source: "report" } },
     },
     [],
+    { maskWebhook: false },
     ["claude", "openai"],
     {},
   );
@@ -409,6 +419,7 @@ describe("a report's own reset with its instant", () => {
         resetOverrides: { claude: { weekday: 6, monthDay: 1, hour: 12, minute: 0, source: "report", anchorMs } },
       },
       [],
+      { maskWebhook: false },
       ["claude"],
       {},
     ),

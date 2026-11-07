@@ -47,6 +47,7 @@ export function AlertsSection({
 
   const trimmedUrl = alerts.webhookUrl.trim();
   const urlProblem = trimmedUrl !== "" && webhookFieldProblem(trimmedUrl, alerts.storedMask);
+  const keepsStored = alerts.storedMask !== null && trimmedUrl === alerts.storedMask;
   const thresholdsFull = alerts.thresholds.length >= MAX_ALERT_THRESHOLDS;
 
   function addThreshold() {
@@ -73,7 +74,12 @@ export function AlertsSection({
       const response = await fetch("/api/alerts/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ webhookUrl: trimmedUrl, format: alerts.format, locale: alerts.locale }),
+        // The stored URL is only ever here masked: the server tests the stored one when asked to keep it.
+        body: JSON.stringify({
+          ...(keepsStored ? { keepWebhook: true } : { webhookUrl: trimmedUrl }),
+          format: alerts.format,
+          locale: alerts.locale,
+        }),
       });
       if (response.ok) {
         setTestNotice(t("alerts_test_sent"));
@@ -113,7 +119,7 @@ export function AlertsSection({
           className={`mt-1.5 block w-full min-w-0 ${FIELD}`}
         />
       </label>
-      {alerts.storedMask !== null && !urlProblem && <p className="text-sm text-ink-3">{t("alerts_webhook_masked")}</p>}
+      {keepsStored && <p className="text-sm text-ink-3">{t("alerts_webhook_masked")}</p>}
       {urlProblem && <StatusLine tone="problem">{t("alerts_webhook_invalid")}</StatusLine>}
 
       <fieldset>

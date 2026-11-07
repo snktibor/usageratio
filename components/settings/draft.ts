@@ -139,6 +139,8 @@ export interface SettingsRequest {
   subLimits: Record<string, SubLimit[]>;
   alerts: {
     webhookUrl: string | null;
+    /** Multi-tenant mode: keep the stored URL, which this page only has masked (`webhookUrl` is then null). */
+    keepWebhook?: true;
     thresholds: number[];
     perProvider: boolean;
     format: AlertsFormat;
@@ -448,8 +450,10 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
 
   // An empty field turns alerts off; a non-empty one must pass the same allow-list the server enforces.
   const trimmedWebhook = draft.alerts.webhookUrl.trim();
-  const webhookUrl = trimmedWebhook === "" ? null : trimmedWebhook;
-  if (webhookUrl !== null && webhookFieldProblem(webhookUrl, draft.alerts.storedMask)) {
+  // Multi-tenant mode: the stored URL's mask, untouched, keeps the stored URL; the mask itself is never sent.
+  const keepWebhook = draft.alerts.storedMask !== null && trimmedWebhook === draft.alerts.storedMask;
+  const webhookUrl = trimmedWebhook === "" || keepWebhook ? null : trimmedWebhook;
+  if (webhookUrl !== null && webhookFieldProblem(webhookUrl, null)) {
     return { problem: { code: "invalid_alert_webhook" } };
   }
   // A value left in the "add" field was meant to be added: do not lose it silently.
@@ -487,6 +491,7 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
       subLimits,
       alerts: {
         webhookUrl,
+        ...(keepWebhook && { keepWebhook: true as const }),
         thresholds: [...thresholds].sort((a, b) => a - b),
         perProvider: draft.alerts.perProvider,
         format: draft.alerts.format,

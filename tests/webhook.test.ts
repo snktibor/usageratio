@@ -4,7 +4,6 @@ import {
   MAX_WEBHOOK_URL_LENGTH,
   maskWebhookUrl,
   sendWebhook,
-  unmaskWebhookUrl,
   webhookFieldProblem,
 } from "@/lib/webhook";
 import { version } from "@/package.json";
@@ -159,25 +158,19 @@ describe("sendWebhook", () => {
 describe("the masked webhook URL (multi-tenant mode)", () => {
   const stored = "https://hooks.slack.com/services/T000/B000/XXXXXXXX4f2a";
 
-  it("shows only the origin and the last four characters, and nothing of a short path", () => {
+  it("shows only the origin, and the last four characters of a long path only", () => {
     expect(maskWebhookUrl(stored)).toBe("https://hooks.slack.com/…••••4f2a");
-    expect(maskWebhookUrl("https://example.com/hook")).toBe("https://example.com/…••••");
     expect(maskWebhookUrl(stored)).not.toContain("services");
+    // A short path or token shows nothing of itself.
+    expect(maskWebhookUrl("https://example.com/hooks/notify?k=a1b2")).toBe("https://example.com/…••••");
   });
 
-  it("stands for the stored URL only when sent back unchanged", () => {
-    expect(unmaskWebhookUrl(maskWebhookUrl(stored), stored)).toEqual({ ok: true, url: stored });
-    expect(unmaskWebhookUrl("https://hooks.slack.com/…••••4f2b", stored)).toEqual({ ok: false });
-    // The URL changed meanwhile, or alerts were turned off: an old mask is not a URL.
-    expect(unmaskWebhookUrl(maskWebhookUrl(stored), "https://hooks.slack.com/services/new/one")).toEqual({ ok: false });
-    expect(unmaskWebhookUrl(maskWebhookUrl(stored), null)).toEqual({ ok: false });
-    expect(unmaskWebhookUrl("https://new.example/hook", stored)).toEqual({ ok: true, url: "https://new.example/hook" });
-  });
-
-  it("never lets the form save an edited mask, which would otherwise pass as a URL", () => {
+  it("never lets the form save anything made from a mask, though it would pass as a URL", () => {
     const mask = maskWebhookUrl(stored);
-    expect(isAllowedWebhookUrl(`${mask}x`)).toBe(true);
-    expect(webhookFieldProblem(`${mask}x`, mask)).toBe(true);
+    for (const edited of [`${mask}x`, "https://hooks.slack.com/…•••4f2a", "https://hooks.slack.com/…4f2a"]) {
+      expect(isAllowedWebhookUrl(edited)).toBe(true);
+      expect(webhookFieldProblem(edited, mask)).toBe(true);
+    }
     expect(webhookFieldProblem(mask, mask)).toBe(false);
     expect(webhookFieldProblem(mask, null)).toBe(true);
     expect(webhookFieldProblem("https://new.example/hook", mask)).toBe(false);

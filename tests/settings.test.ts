@@ -749,6 +749,7 @@ describe("buildSettingsView", () => {
         { groupId: "Personal", color: null, firstSeenAt: 200, hasReports: true },
         { groupId: "Work", color: "#ff00aa", firstSeenAt: 100, hasReports: false },
       ],
+      { maskWebhook: false },
       ["claude", "deepseek"],
       { claude: ["claude-fable-5-1"], openai: ["gpt-5"] },
     );
@@ -773,11 +774,11 @@ describe("buildSettingsView", () => {
       firstSeenAt: i,
       hasReports: false,
     }));
-    expect(buildSettingsView(config, groups).groups[8]?.color).toBe(NEUTRAL_COLOR);
+    expect(buildSettingsView(config, groups, { maskWebhook: false }).groups[8]?.color).toBe(NEUTRAL_COLOR);
   });
 
   it("stays renderable with no provider known yet: a fresh install with only heartbeats so far", () => {
-    const view = buildSettingsView(config, [], []);
+    const view = buildSettingsView(config, [], { maskWebhook: false }, []);
     expect(view.providers).toEqual([]);
     expect(view.settings.limits).toEqual({});
     expect(view.groups).toEqual([]);

@@ -7,8 +7,8 @@ import { demoReadOnly } from "@/lib/demo/mode";
 import { hit } from "@/lib/rate-limit";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { isMultiTenant } from "@/lib/registration";
-import { ALERT_FORMATS, restoreMaskedWebhook, storedWebhookUrl } from "@/lib/settings";
-import { loadIndexes } from "@/lib/usage-store";
+import { ALERT_FORMATS, resolveWebhookField, storedWebhookUrl } from "@/lib/settings";
+import { loadRawSettings } from "@/lib/usage-store";
 import { isAllowedWebhookUrl, MAX_WEBHOOK_URL_LENGTH } from "@/lib/webhook";
 
 /**
@@ -20,8 +20,9 @@ import { isAllowedWebhookUrl, MAX_WEBHOOK_URL_LENGTH } from "@/lib/webhook";
  *
  *   POST { "webhookUrl": "https://hooks.example.com/x", "format": "slack", "locale": "en" }
  *
- * Multi-tenant mode: the page only has the stored URL masked; that mask, sent unchanged, tests the
- * stored URL, and an edited mask is a 400.
+ * Multi-tenant mode: the page only has the stored URL masked; `{ "keepWebhook": true, "format",
+ * "locale" }` tests the stored URL (400 when alerts are off), and a `webhookUrl` with the mask's
+ * characters in it is a 400.
  *
  * 200 { "ok": true, "status": 200 } · 400 bad JSON/payload · 401 no session ·
  * 403 foreign origin · 413 body too large · 415 not JSON ·
@@ -84,16 +85,14 @@ export const POST = withApiHandler("api/alerts/test", async ({ request }) => {
   const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES });
   if (!body.ok) return body.response;
 
-  // Multi-tenant mode: the page only knows the stored URL masked, and sends that mask to test it.
+  // Multi-tenant mode: the page only has the stored URL masked, and asks to test that one.
   let value = body.value;
   if (isMultiTenant()) {
-    const restored = restoreMaskedWebhook(
-      { alerts: value },
-      storedWebhookUrl((await loadIndexes(tenant.store)).settings, getConfig()),
+    const resolved = await resolveWebhookField(value, async () =>
+      storedWebhookUrl(await loadRawSettings(tenant.store), getConfig()),
     );
-    if (!restored.ok)
-      return apiError("invalid_payload", 400, { details: ["webhookUrl is masked: enter the full URL again"] });
-    value = (restored.body as { alerts: unknown }).alerts;
+    if (!resolved.ok) return apiError("invalid_payload", 400, { details: ["webhookUrl cannot be a masked URL"] });
+    value = resolved.fields;
   }
 
   const parsed = parseTestAlertRequest(value);

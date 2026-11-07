@@ -22,7 +22,7 @@ import {
   type SubLimitMode,
 } from "@/lib/sub-limits";
 import { parseId } from "@/lib/validation";
-import { isAllowedWebhookUrl, MAX_WEBHOOK_URL_LENGTH, maskWebhookUrl, unmaskWebhookUrl } from "@/lib/webhook";
+import { isAllowedWebhookUrl, isMaskedWebhookUrl, MAX_WEBHOOK_URL_LENGTH, maskWebhookUrl } from "@/lib/webhook";
 
 /**
  * Everything the settings panel edits: the budget, the providers shown and
@@ -136,7 +136,7 @@ export interface SettingsView {
   settings: UsageSettings;
   /**
    * Multi-tenant mode: `settings.alerts.webhookUrl` is the stored URL's mask (lib/webhook.ts
-   * `maskWebhookUrl`), and sending that mask back keeps the stored URL.
+   * `maskWebhookUrl`), for display only; a save keeps the stored URL with `keepWebhook: true`.
    */
   webhookMasked?: boolean;
   timeZone: string;
@@ -960,13 +960,17 @@ export function suggestGroupColor(usedColors: string[], random: () => number = M
 export function buildSettingsView(
   config: AppConfig,
   groups: KnownGroup[],
+  /** Multi-tenant mode: the webhook URL never reaches a browser (lib/webhook.ts `maskWebhookUrl`). Every caller decides. */
+  options: { maskWebhook: boolean },
   providerIds: string[] = Object.keys(config.providerLimits),
   modelsByProvider: Record<string, string[]> = {},
 ): SettingsView {
   const colors = resolveGroupColors(groups);
   const providers = mergeProviderIds(providerIds, Object.keys(config.providerLimits));
+  const settings = settingsFromConfig(config, providers);
   return {
-    settings: settingsFromConfig(config, providers),
+    settings: options.maskWebhook ? withMaskedWebhook(settings) : settings,
+    ...(options.maskWebhook && { webhookMasked: true }),
     timeZone: config.reset.timeZone,
     providers: providers.map((id) => ({
       id,
@@ -989,29 +993,26 @@ export function withMaskedWebhook(settings: UsageSettings): UsageSettings {
     : { ...settings, alerts: { ...settings.alerts, webhookUrl: maskWebhookUrl(webhookUrl) } };
 }
 
-/** The settings view a multi-tenant workspace's members get: the webhook URL masked. */
-export function maskSettingsView(view: SettingsView): SettingsView {
-  return { ...view, settings: withMaskedWebhook(view.settings), webhookMasked: true };
-}
-
 /** The webhook URL stored in a settings document; null when alerts are off. */
 export function storedWebhookUrl(rawSettings: string | null, config: AppConfig): string | null {
   return resolveConfig(config, rawSettings, storedProviderIds(rawSettings)).alerts.webhookUrl;
 }
 
 /**
- * A PUT body whose `alerts.webhookUrl` may be the stored URL's mask (lib/webhook.ts
- * `unmaskWebhookUrl`): the mask becomes the stored URL again; an edited mask fails. Anything else
- * passes through untouched, for `parseSettingsUpdate` to check.
+ * The webhook URL a request means, in multi-tenant mode, where the page only ever had the stored
+ * one masked. `{ keepWebhook: true }` means the URL stored now, whatever it is (null: alerts are
+ * off), read only then (`loadStored`); a value with the mask's characters in it is refused; any
+ * other value is the request's own, for the usual checks. `fields` is the object holding
+ * `webhookUrl` (the PUT body's `alerts`, or the test request itself).
  */
-export function restoreMaskedWebhook(
-  body: unknown,
-  stored: string | null,
-): { ok: true; body: unknown } | { ok: false } {
-  const alerts = asRecord(asRecord(body)?.alerts);
-  if (!alerts || typeof alerts.webhookUrl !== "string") return { ok: true, body };
-  const restored = unmaskWebhookUrl(alerts.webhookUrl, stored);
-  if (!restored.ok) return { ok: false };
-  const record = body as Record<string, unknown>;
-  return { ok: true, body: { ...record, alerts: { ...alerts, webhookUrl: restored.url } } };
+export async function resolveWebhookField(
+  fields: unknown,
+  loadStored: () => Promise<string | null>,
+): Promise<{ ok: true; fields: unknown } | { ok: false }> {
+  const record = asRecord(fields);
+  if (!record) return { ok: true, fields };
+  const { keepWebhook, ...rest } = record;
+  if (keepWebhook === true) return { ok: true, fields: { ...rest, webhookUrl: await loadStored() } };
+  if (typeof rest.webhookUrl === "string" && isMaskedWebhookUrl(rest.webhookUrl)) return { ok: false };
+  return { ok: true, fields: rest };
 }
