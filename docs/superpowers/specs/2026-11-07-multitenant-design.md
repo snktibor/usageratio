@@ -237,8 +237,8 @@ export interface TenantContext {
 **The stale-tab guard.** The active tenant belongs to the session, so switching it in one tab
 switches every tab. A settings form still open in another tab would then save into the new
 tenant. Every page renders its tenant id into the client; every mutating fetch sends it as
-`X-Usageratio-Tenant`, and the server answers 409 `tenant_changed` when it differs from the
-session's active tenant. It is a guard only: a missing or wrong value can make a request fail,
+`X-Usageratio-Tenant`, and the server answers 412 `tenant_changed` when it differs from the
+session's active tenant (412, not 409: the existing clients already read 409 as other conflicts). It is a guard only: a missing or wrong value can make a request fail,
 never choose a tenant. Closed mode skips it.
 
 ### Key layout

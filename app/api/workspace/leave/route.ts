@@ -10,7 +10,7 @@ import { currentUserSession, setSessionTenant } from "@/lib/user-session";
  *   → 200 { "ok": true, "tenantId": next | null }
  *
  * 401 no session · 403 foreign origin · 404 single-user instance · 409 owner_cannot_leave (hand
- * the workspace over first) / members_busy / tenant_changed · 503 Redis down
+ * the workspace over first) / members_busy · 412 tenant_changed · 503 Redis down
  */
 
 export const POST = withApiHandler("api/workspace/leave", async ({ request }) => {

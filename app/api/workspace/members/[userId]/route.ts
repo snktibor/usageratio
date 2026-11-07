@@ -19,7 +19,7 @@ import { isUserId } from "@/lib/users";
  *
  * 401 no session · 403 foreign origin / owner_only · 404 single-user instance, or not a member ·
  * 409 cannot_remove_owner (hand the workspace over instead) / members_busy (another change is
- * running; try again) / tenant_changed · 503 Redis down
+ * running; try again) · 412 tenant_changed · 503 Redis down
  */
 
 type Params = { userId: string };

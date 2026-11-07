@@ -40,7 +40,8 @@ export function newTenantId(): TenantId {
   return randomBytes(16).toString("base64url") as TenantId;
 }
 
-function parseUser(raw: unknown): UserRecord | null {
+/** One stored user record; null when it is missing or does not parse. */
+export function parseUser(raw: unknown): UserRecord | null {
   if (typeof raw !== "string") return null;
   try {
     const value = JSON.parse(raw) as Partial<UserRecord>;

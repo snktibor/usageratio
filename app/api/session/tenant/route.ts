@@ -7,7 +7,7 @@ import { membershipRole } from "@/lib/users";
 /**
  * POST /api/session/tenant — switches this browser's session to another of the user's workspaces
  * (multi-tenant mode). Every open tab follows; a form still open for the old workspace is then
- * refused with 409 tenant_changed rather than saved into the new one.
+ * refused with 412 tenant_changed rather than saved into the new one.
  *
  *   { "tenantId": "…" }  → 200 { "ok": true }
  *

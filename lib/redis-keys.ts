@@ -47,7 +47,13 @@
  *                                   individually revoked (see lib/tokens.ts); "scope" is
  *                                   "ingest" (absent in older entries), "read" or "official". The field is the
  *                                   token's own hash, never its plaintext, which is shown once at
- *                                   creation and not stored.
+ *                                   creation and not stored. "createdBy" is the userId who created
+ *                                   it (multi-tenant mode). The record is written only when the
+ *                                   token is created or revoked; "lastUsedAt" inside it is from
+ *                                   before usage:tokens:lastused existed.
+ *   usage:tokens:lastused    HASH   sha256(token) → last authenticated request (ms), refreshed at
+ *                                   most hourly: kept apart from the record, so that refresh can
+ *                                   never write back a copy of a token revoked meanwhile
  *
  *   usage:housekeeping:last  STRING {"at": ms, "report": HousekeepingReport} — the last run of
  *                                   lib/housekeeping.ts (see app/api/cron/housekeeping/route.ts)
@@ -159,11 +165,12 @@
  *                                           "login"?}: the tenant's pending invites, for listing and
  *                                           revoking (lib/invites.ts); expired ones are pruned by
  *                                           housekeeping
- *   usage:tenant:{tenantId}:lock     STRING "1" EX 10 — held while the members change (remove, leave,
- *                                           transfer), so two changes cannot leave a tenant without
- *                                           its owner
- *   usage:invite:{sha256(code)}      STRING {"tenantId", "inviteId", "login"?} EX = expiry: a workspace
- *                                           invite, GETDEL when it is accepted
+ *   usage:tenant:{tenantId}:lock     STRING a random holder id, SET NX EX 10 — held while the members
+ *                                           change (remove, leave, transfer, an account leaving), so
+ *                                           two changes cannot leave a tenant without its owner; only
+ *                                           its holder deletes it
+ *   usage:invite:{sha256(code)}      STRING {"tenantId", "inviteId", "createdBy", "login"?} EX =
+ *                                           expiry: a workspace invite, GETDEL when it is accepted
  *   usage:session2:{sha256(sid)}     STRING {"v": 2, "u": userId, "t": tenantId | null, "c": created
  *                                           ms, "s": last seen ms, "a": last GitHub sign-in ms,
  *                                           "ua": browser/OS label} EX = the session's maximum
@@ -203,6 +210,7 @@ export interface TenantKeys {
   apiTokenAudit: string;
   housekeepingLast: string;
   tokens: string;
+  tokensLastUsed: string;
   alert: (providerId: string, segmentStartMs: number, threshold: number) => string;
   registry: string;
 }
@@ -230,6 +238,7 @@ export function tenantKeys(tenantId: TenantId): TenantKeys {
     apiTokenAudit: `${p}api-token:audit`,
     housekeepingLast: `${p}housekeeping:last`,
     tokens: `${p}tokens`,
+    tokensLastUsed: `${p}tokens:lastused`,
     alert: (providerId, segmentStartMs, threshold) => `${p}alert:${providerId}:${segmentStartMs}:${threshold}`,
     registry: `${p}keys`,
   };
@@ -253,6 +262,7 @@ export function fixedTenantKeys(keys: TenantKeys): string[] {
     keys.apiTokenAudit,
     keys.housekeepingLast,
     keys.tokens,
+    keys.tokensLastUsed,
     keys.registry,
   ];
 }

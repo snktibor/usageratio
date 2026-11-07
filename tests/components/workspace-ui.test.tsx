@@ -132,6 +132,17 @@ describe("the /join page", () => {
   });
 });
 
+describe("a failed join", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("comes back without the fragment, and says why rather than that the link is incomplete", async () => {
+    vi.stubGlobal("location", { ...window.location, hash: "", search: "?signin_error=invite_wrong_account" });
+    renderWithIntl(<SignupRedeem purpose="join" />);
+    expect((await screen.findByRole("alert")).textContent).toContain("different GitHub account");
+    expect(screen.queryByText(/link is incomplete/)).toBeNull();
+  });
+});
+
 describe("TenantGuard", () => {
   it("names the workspace on the page's own changes only, and says so when it changed", async () => {
     const fetchMock = vi.fn().mockResolvedValue(answer(200, {}));
@@ -150,7 +161,7 @@ describe("TenantGuard", () => {
     expect(headerOf(fetchMock.mock.calls[2]!)).toBeNull();
 
     expect(screen.queryByRole("alert")).toBeNull();
-    fetchMock.mockResolvedValueOnce(answer(409, { error: "tenant_changed" }));
+    fetchMock.mockResolvedValueOnce(answer(412, { error: "tenant_changed" }));
     await act(async () => {
       await window.fetch("/api/tokens", { method: "POST" });
     });

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DELETE as deleteAccountRoute } from "@/app/api/account/route";
 import { GET as getExport } from "@/app/api/export/route";
 import { GET as getMachines } from "@/app/api/machines/route";
 import { POST as switchTenant } from "@/app/api/session/tenant/route";
@@ -11,7 +12,7 @@ import { GET as getWorkspace } from "@/app/api/workspace/route";
 import { POST as transfer } from "@/app/api/workspace/transfer/route";
 import { ingestReport } from "@/lib/ingest";
 import { listInvites, pruneExpiredInvites } from "@/lib/invites";
-import type { Member } from "@/lib/members";
+import { addMember, type Member } from "@/lib/members";
 import { getMemoryStoreForTests, getRedis } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { sha256Hex } from "@/lib/security";
@@ -332,7 +333,7 @@ describe("workspace members and invites", () => {
     expect((await create(alice.tenantId)).status).toBe(201);
     for (const tenant of [null, carol.tenantId, "garbage"]) {
       const response = await create(tenant);
-      expect([tenant, response.status, await errorOf(response)]).toEqual([tenant, 409, "tenant_changed"]);
+      expect([tenant, response.status, await errorOf(response)]).toEqual([tenant, 412, "tenant_changed"]);
     }
 
     // Switching in one tab: every tab now reads carol's workspace, and the old tab's form is refused.
@@ -343,7 +344,7 @@ describe("workspace members and invites", () => {
       body: { tenantId: carol.tenantId },
     });
     expect(await machinesSeenBy(alice)).toEqual(["carol-box"]);
-    expect((await create(alice.tenantId)).status).toBe(409);
+    expect((await create(alice.tenantId)).status).toBe(412);
   });
 
   it("removes a member, with or without the tokens they created, and never the owner", async () => {
@@ -430,6 +431,37 @@ describe("workspace members and invites", () => {
     // The roles follow at once: alice is a member now, and may leave.
     expect((await handOver(bob.userId)).status).toBe(403);
     expect((await call(leave as Handler, "/api/workspace/leave", { method: "POST", as: alice })).status).toBe(200);
+  });
+
+  it("lets an account leave its shared workspaces only under their members lock", async () => {
+    const alice = await owner("alice");
+    const bob = asPerson(await join("bob", (await invite(alice)).code));
+    await setSudo(bob, true);
+    const remove = () => call(deleteAccountRoute as Handler, "/api/account", { method: "DELETE", as: bob });
+
+    // An owner handing the workspace to bob right now holds the lock: nothing is deleted yet.
+    await getRedis().set(GLOBAL_KEYS.tenantLock(alice.tenantId), "someone", { ex: 10 });
+    const busy = await remove();
+    expect([busy.status, await errorOf(busy)]).toEqual([409, "members_busy"]);
+    expect(await userForGithub(ACCOUNTS.bob!.id)).toBe(bob.userId);
+    await getRedis().del(GLOBAL_KEYS.tenantLock(alice.tenantId));
+
+    expect(await (await remove()).json()).toEqual({ ok: true, workspacesDeleted: 0, workspacesLeft: 1 });
+    expect(await members(alice)).toEqual([{ login: "alice", role: "owner" }]);
+  });
+
+  it("repairs the user's own list when accepting stopped between its two writes", async () => {
+    const alice = await owner("alice");
+    const bob = "u_BBBBBBBBBBBBBBBBBBBBBB";
+    await getRedis().hset(GLOBAL_KEYS.tenantMembers(alice.tenantId), {
+      [bob]: JSON.stringify({ role: "member", joinedAt: 1, invitedBy: alice.userId }),
+    });
+    expect(await userTenants(bob)).toEqual([]);
+    expect(await addMember(alice.tenantId, bob, alice.userId, new Date())).toBe("already");
+    expect(await userTenants(bob)).toEqual([{ tenantId: alice.tenantId, role: "member" }]);
+    // And an owner following an invite into their own workspace stays the owner in both places.
+    await addMember(alice.tenantId, alice.userId, alice.userId, new Date());
+    expect(await userTenants(alice.userId)).toEqual([{ tenantId: alice.tenantId, role: "owner" }]);
   });
 
   it("answers 404 on a single-user instance", async () => {

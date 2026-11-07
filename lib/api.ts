@@ -180,7 +180,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  * cannot be asked.
  *
  * In multi-tenant mode a request that changes something must also name the
- * tenant its page was rendered for (lib/tenant-header.ts): 409 tenant_changed
+ * tenant its page was rendered for (lib/tenant-header.ts): 412 tenant_changed
  * when that is not the session's tenant any more (switched in another tab),
  * or when it names none. The header never chooses the tenant.
  */
@@ -189,7 +189,7 @@ export async function requireTenantSession(): Promise<Response | TenantContext> 
   if (!tenant) return apiError("unauthorized", 401);
   const request = currentRequest();
   if (isMultiTenant() && !SAFE_METHODS.has(request?.method ?? "GET")) {
-    if (request?.namedTenant !== tenant.store.tenantId) return apiError("tenant_changed", 409);
+    if (request?.namedTenant !== tenant.store.tenantId) return apiError("tenant_changed", 412);
   }
   return tenant;
 }

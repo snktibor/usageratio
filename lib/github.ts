@@ -133,3 +133,12 @@ export async function fetchGithubUser(accessToken: string): Promise<GithubUser |
     return null;
   }
 }
+
+/**
+ * The origin a link this instance hands out (a sign-up or invite link) should name: the configured
+ * site's, the one GitHub sends people back to, or the request's own when there is none.
+ */
+export function publicOrigin(requestUrl: URL): string {
+  const config = githubConfig();
+  return config ? new URL(config.redirectUri).origin : requestUrl.origin;
+}

@@ -130,7 +130,7 @@ With `REGISTRATION=invite` or `open`, the PIN is replaced by GitHub sign-in (`li
   workspace without its owner. Handing over needs sudo.
 - **The stale-tab guard.** The active workspace belongs to the session, so switching it in one tab
   switches every tab. Every page sends the workspace it was rendered for with each change
-  (`X-Usageratio-Tenant`); the server refuses it with `409 tenant_changed` when that is not the
+  (`X-Usageratio-Tenant`); the server refuses it with `412 tenant_changed` when that is not the
   session's any more, or when the header is missing. The header can only make a request fail, never
   choose a workspace. The switch itself (`POST /api/session/tenant`) answers `404` alike for "not
   yours" and "does not exist".

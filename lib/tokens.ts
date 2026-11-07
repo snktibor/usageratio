@@ -140,13 +140,26 @@ export function labelProblem(value: string): "empty" | "too_long" | null {
   return null;
 }
 
+/** The later of the record's own `lastUsedAt` (older tokens) and the separate last-used hash's. */
+function lastUsed(token: MachineToken, separate: unknown): number | null {
+  const ms = Number(separate);
+  const fromHash = separate !== null && separate !== undefined && Number.isFinite(ms) ? ms : null;
+  if (fromHash === null) return token.lastUsedAt;
+  return token.lastUsedAt === null ? fromHash : Math.max(token.lastUsedAt, fromHash);
+}
+
 /** Every stored token, newest first. An entry that does not parse is left out rather than crashing the list. */
 export async function listTokens(store: TenantStore): Promise<MachineToken[]> {
-  const raw = toStringRecord(await store.redis.hgetall(store.keys.tokens));
-  return Object.values(raw)
-    .flatMap((value) => {
+  const reads = store.redis.pipeline();
+  reads.hgetall(store.keys.tokens);
+  reads.hgetall(store.keys.tokensLastUsed);
+  const [records, used] = (await reads.exec()) as [unknown, unknown];
+  const raw = toStringRecord(records as Record<string, unknown> | null);
+  const usedAt = toStringRecord(used as Record<string, unknown> | null);
+  return Object.entries(raw)
+    .flatMap(([hash, value]) => {
       const token = parseStored(value);
-      return token ? [token] : [];
+      return token ? [{ ...token, lastUsedAt: lastUsed(token, usedAt[hash]) }] : [];
     })
     .sort((a, b) => b.createdAt - a.createdAt);
 }
@@ -243,22 +256,22 @@ export type TokenAuthResult =
 export async function authenticateToken(store: TenantStore, bearer: string, now: Date): Promise<TokenAuthResult> {
   const redis = store.redis;
   const hash = hashToken(bearer);
-  const raw = await redis.hget<string>(store.keys.tokens, hash);
+  const reads = redis.pipeline();
+  reads.hget(store.keys.tokens, hash);
+  reads.hget(store.keys.tokensLastUsed, hash);
+  const [raw, used] = (await reads.exec()) as [unknown, unknown];
   if (raw === null || raw === undefined) return { ok: false, reason: "not_found" };
 
   const token = parseStored(String(raw));
   if (!token) return { ok: false, reason: "not_found" };
   if (token.revokedAt !== null) return { ok: false, reason: "revoked" };
 
-  if (token.lastUsedAt === null || now.getTime() - token.lastUsedAt >= LAST_USED_REFRESH_MS) {
+  const last = lastUsed(token, used);
+  if (last === null || now.getTime() - last >= LAST_USED_REFRESH_MS) {
     const nowMs = now.getTime();
+    // Its own hash, never the record: a revocation landing meanwhile is never written over.
     defer(async () => {
-      // Re-read first: the token may have been revoked since it was read above, and writing the
-      // old copy back would bring it to life again.
-      const latest = await store.redis.hget<string>(store.keys.tokens, hash);
-      const current = latest === null || latest === undefined ? null : parseStored(String(latest));
-      if (!current || current.revokedAt !== null) return;
-      await store.redis.hset(store.keys.tokens, { [hash]: serialize({ ...current, lastUsedAt: nowMs }) });
+      await store.redis.hset(store.keys.tokensLastUsed, { [hash]: String(nowMs) });
     });
   }
 
@@ -292,6 +305,7 @@ export async function pruneRevokedTokens(
   if (!dryRun && staleHashes.length > 0) {
     const tx = redis.multi();
     tx.hdel(store.keys.tokens, ...staleHashes);
+    tx.hdel(store.keys.tokensLastUsed, ...staleHashes);
     tx.hdel(GLOBAL_KEYS.tokenIndex, ...staleHashes);
     await tx.exec();
   }

@@ -586,7 +586,7 @@ without a workspace.
 Multi-tenant mode only (`404` on a single-user instance). Auth: a signed-in session with a
 workspace; the workspace is always the session's own. Every route that changes something also needs
 the stale-tab header `X-Usageratio-Tenant: <tenantId>` naming that workspace, and answers
-`409 tenant_changed` when it is missing or names another one (the workspace was switched in another
+`412 tenant_changed` when it is missing or names another one (the workspace was switched in another
 tab). This holds for every session-authenticated change in multi-tenant mode, not only these routes;
 the app's pages send it themselves. A member gets `403 owner_only` from the owner's routes.
 

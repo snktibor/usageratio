@@ -4,14 +4,16 @@ import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import type { TenantStore } from "@/lib/tenant";
 import type { TenantId } from "@/lib/tenant-id";
 import { revokeTokensCreatedBy } from "@/lib/tokens";
-import { isUserId, type Role } from "@/lib/users";
+import { isUserId, parseRole, parseUser, type Role } from "@/lib/users";
 
 /**
  * A workspace's people (multi-tenant mode): who belongs to it, and the changes
  * an owner or a member can make to that. A workspace has exactly one owner;
  * everyone else is a member. Each membership is written twice, in the
- * tenant's members hash (the one every request checks) and in the user's own
- * tenants hash (for their list of workspaces), always in one transaction.
+ * tenant's members hash (the one every request checks, and the one that
+ * decides) and in the user's own tenants hash (for their list of
+ * workspaces), in one transaction where the change allows it; an accepted
+ * invite writes the second after the first, and repairs it on a retry.
  *
  * Removing a member, leaving and handing ownership over each read the members
  * first and then write, so they hold the tenant's lock while they do: two of
@@ -35,12 +37,12 @@ interface MembershipValue {
 }
 
 function parseMembership(raw: unknown): MembershipValue | null {
-  if (typeof raw !== "string") return null;
+  const role = parseRole(raw);
+  if (!role) return null;
   try {
-    const value = JSON.parse(raw) as Record<string, unknown>;
-    if (value.role !== "owner" && value.role !== "member") return null;
+    const value = JSON.parse(String(raw)) as Record<string, unknown>;
     return {
-      role: value.role,
+      role,
       joinedAt: Number(value.joinedAt) || 0,
       ...(typeof value.invitedBy === "string" && { invitedBy: value.invitedBy }),
     };
@@ -61,22 +63,12 @@ export async function listMembers(tenantId: TenantId): Promise<Member[]> {
   return entries
     .map(({ userId, membership }, index) => ({
       userId,
-      login: loginOf(users[index]),
+      login: parseUser(users[index])?.login ?? "",
       role: membership.role,
       joinedAt: membership.joinedAt,
       invitedBy: membership.invitedBy ?? null,
     }))
     .sort((a, b) => (a.role === b.role ? a.joinedAt - b.joinedAt : a.role === "owner" ? -1 : 1));
-}
-
-function loginOf(raw: unknown): string {
-  if (raw === null || raw === undefined) return "";
-  try {
-    const value = (typeof raw === "string" ? JSON.parse(raw) : raw) as { login?: unknown };
-    return typeof value.login === "string" ? value.login : "";
-  } catch {
-    return "";
-  }
 }
 
 /**
@@ -92,9 +84,11 @@ export async function addMember(
 ): Promise<"added" | "already"> {
   const value: MembershipValue = { role: "member", joinedAt: now.getTime(), invitedBy };
   const added = Number(await getRedis().hsetnx(GLOBAL_KEYS.tenantMembers(tenantId), userId, JSON.stringify(value)));
-  if (added !== 1) return "already";
-  await getRedis().hset(GLOBAL_KEYS.userTenants(userId), { [tenantId]: "member" });
-  return "added";
+  // The user's own index mirrors whatever role the members hash holds now: written for a new
+  // member, and repaired for one whose first attempt stopped between the two writes.
+  const role = added === 1 ? "member" : (await membership(tenantId, userId))?.role;
+  if (role) await getRedis().hset(GLOBAL_KEYS.userTenants(userId), { [tenantId]: role });
+  return added === 1 ? "added" : "already";
 }
 
 const LOCK_SECONDS = 10;

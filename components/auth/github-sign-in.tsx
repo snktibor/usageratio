@@ -20,9 +20,9 @@ const ERRORS = [
   "rate_limited",
   "unavailable",
 ] as const;
-type SignInError = (typeof ERRORS)[number];
+export type SignInError = (typeof ERRORS)[number];
 
-function isSignInError(value: string | null): value is SignInError {
+export function isSignInError(value: string | null): value is SignInError {
   return value !== null && (ERRORS as readonly string[]).includes(value);
 }
 

@@ -8,7 +8,7 @@ import { TENANT_HEADER } from "@/lib/tenant-header";
 /**
  * The browser half of the stale-tab guard (lib/tenant-header.ts): every
  * request this page sends to the app's own API that changes something names
- * the workspace the page was rendered for. When the server answers 409
+ * the workspace the page was rendered for. When the server answers 412
  * tenant_changed (the workspace was switched in another tab), a banner says
  * so instead of the change landing anywhere.
  *
@@ -39,7 +39,7 @@ function install(): void {
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
     headers.set(TENANT_HEADER, current);
     const response = await original(input, { ...init, headers });
-    if (response.status === 409) {
+    if (response.status === 412) {
       const error = (
         (await response
           .clone()

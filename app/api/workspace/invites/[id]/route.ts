@@ -12,7 +12,7 @@ import { isInviteId, revokeInvite } from "@/lib/invites";
 /**
  * DELETE /api/workspace/invites/[id] — the owner revokes a pending invite of the current workspace.
  * 200 · 401 no session · 403 foreign origin / owner_only · 404 single-user instance, or no such
- * invite in this workspace · 409 tenant_changed · 503 Redis down
+ * invite in this workspace · 412 tenant_changed · 503 Redis down
  */
 
 type Params = { id: string };
