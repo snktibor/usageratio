@@ -83,6 +83,8 @@ describe("runHousekeeping", () => {
         ipHash: "abc",
         ipPrefix: null,
         session: null,
+        token: null,
+        by: null,
       });
     await redis.lpush("usage:api-token:audit", record(NOW.getTime()));
     const ancient = Array.from({ length: 3 }, (_, index) => record(NOW.getTime() - (400 + index) * DAY_MS));
@@ -211,6 +213,8 @@ describe("runHousekeeping", () => {
         ipHash: null,
         ipPrefix: null,
         session: null,
+        token: null,
+        by: null,
       });
     await redis.lpush("usage:api-token:audit", record(NOW.getTime()));
     await redis.rpush("usage:api-token:audit", record(NOW.getTime() - 20 * DAY_MS));
@@ -218,6 +222,29 @@ describe("runHousekeeping", () => {
     const report = await runHousekeeping(tenant, NOW, { dryRun: false });
     expect(report.audit.removed).toBe(1);
     expect(await redis.llen("usage:api-token:audit")).toBe(1);
+  });
+
+  it("prunes the per-machine tokens' trail too, from the tail, all old entries included", async () => {
+    vi.stubEnv("AUDIT_RETENTION_DAYS", "10");
+    const redis = getRedis();
+    const record = (at: number) =>
+      serializeAuditRecord({
+        at,
+        action: "token_created" as const,
+        userAgent: "",
+        brands: "",
+        platform: "",
+        ip: null,
+        ipHash: null,
+        ipPrefix: null,
+        session: null,
+        token: { id: "tk_AAAAAAAA", label: "x" },
+        by: null,
+      });
+    await redis.rpush("usage:tokens:audit", record(NOW.getTime() - 20 * DAY_MS), record(NOW.getTime() - 30 * DAY_MS));
+    const report = await runHousekeeping(tenant, NOW, { dryRun: false });
+    expect(report.audit.removed).toBe(2);
+    expect(await redis.exists("usage:tokens:audit")).toBe(0);
   });
 
   it("does nothing on a bare store", async () => {

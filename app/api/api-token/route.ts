@@ -1,4 +1,12 @@
-import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
+import {
+  apiError,
+  json,
+  readJsonBody,
+  requireSameOrigin,
+  requireSingleUser,
+  requireTenantSession,
+  withApiHandler,
+} from "@/lib/api";
 import { isValidApiToken } from "@/lib/api-token";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { encryptionKey, loadApiTokenStatus, saveApiToken } from "@/lib/token-vault";
@@ -17,13 +25,15 @@ import { encryptionKey, loadApiTokenStatus, saveApiToken } from "@/lib/token-vau
  *                             "created" or "updated" goes on the audit trail.
  *        → { "ok": true, "action": "created" | "updated", "status": { … } }
  *
- * 200 ok · 400 bad JSON/token · 401 no session · 403 foreign origin · 413 body too large ·
- * 415 not JSON · 500 TOKEN_ENCRYPTION_KEY missing · 503 Redis down
+ * 200 ok · 400 bad JSON/token · 401 no session · 403 foreign origin · 404 multi-tenant mode
+ * (per-machine tokens only) · 413 body too large · 415 not JSON · 500 TOKEN_ENCRYPTION_KEY missing · 503 Redis down
  */
 
 const MAX_BODY_BYTES = 2_048;
 
 export const GET = withApiHandler("api/api-token", async () => {
+  const multi = requireSingleUser();
+  if (multi) return multi;
   const tenant = await requireTenantSession();
   if (tenant instanceof Response) return tenant;
   const { store } = tenant;
@@ -31,6 +41,8 @@ export const GET = withApiHandler("api/api-token", async () => {
 });
 
 export const PUT = withApiHandler("api/api-token", async ({ request }) => {
+  const multi = requireSingleUser();
+  if (multi) return multi;
   const foreign = requireSameOrigin(request);
   if (foreign) return foreign;
   const readOnly = demoReadOnly();

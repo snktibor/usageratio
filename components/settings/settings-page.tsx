@@ -255,17 +255,22 @@ export function SettingsPage({ view }: { view: SettingsView }) {
             </SettingsGroup>
 
             <SettingsGroup sectionKey="tokens" title={t("section_tokens")}>
-              <TokenSection
-                headingId={`${titleId}-token`}
-                value={draft.apiToken}
-                onChange={(apiToken) => actions.patch({ apiToken })}
-                timeZone={view.timeZone}
-              />
+              {/* Multi-tenant mode has no shared token: each machine has its own, below. */}
+              {view.sharedToken !== false && (
+                <TokenSection
+                  headingId={`${titleId}-token`}
+                  value={draft.apiToken}
+                  onChange={(apiToken) => actions.patch({ apiToken })}
+                  timeZone={view.timeZone}
+                />
+              )}
               <TokensSection
                 titleId={titleId}
                 timeZone={view.timeZone}
                 knownMachines={machineIds}
                 onManaged={actions.refresh}
+                sharedToken={view.sharedToken !== false}
+                tokenHistory={view.tokenHistory !== false}
               />
             </SettingsGroup>
 

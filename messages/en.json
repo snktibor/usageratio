@@ -302,7 +302,21 @@
     "reset_mode_label": "{label}: after a reset",
     "reset_mode_keep": "the {period, select, monthly {monthly} other {weekly}} reset stays",
     "reset_mode_restart": "the reset becomes the new {period, select, monthly {monthly} other {weekly}} reset",
-    "reset_set_by_reset": "Set by a recorded reset"
+    "reset_set_by_reset": "Set by a recorded reset",
+    "audit_action_token_created": "Token created",
+    "audit_action_token_revoked": "Token revoked",
+    "audit_action_token_rotated": "Token rotated",
+    "audit_by": "by @{login}",
+    "tokens_explanation_multi": "Each machine reports with a token of its own: each can be revoked on its own, without touching the other machines. Bound to a machine, it only works for that machine's reports. A “Read only” token can look up the usage, never report it. A “Menu bar app” token is the macOS menu bar app's one key: it reads, reports this machine's usage (bind it to the machine), and uploads the providers’ own percentages.",
+    "tokens_audit_button": "Token history",
+    "tokens_audit_title": "Token history",
+    "tokens_audit_description": "Who created, revoked or rotated a token, newest first (the last {limit} entries; times in {timeZone}).",
+    "tokens_rotate_button": "Rotate",
+    "tokens_rotate_aria": "Rotate “{label}”",
+    "tokens_rotate_title": "Rotate this token?",
+    "tokens_rotate_body": "“{label}” stops working now and a new token replaces it, shown once. Put the new one into that machine's client config, or it stops reporting.",
+    "tokens_rotate_too_many": "Too many revoked tokens are still kept (they are forgotten 90 days after revocation). Try again later.",
+    "tokens_rotate_lost": "The answer did not arrive. Check the list: if the token was rotated, rotate it again to get a new secret."
   },
   "Alerts": {
     "threshold_text": "{label} has used {threshold}% of its budget (currently at {used}%); the cycle ends {end}."

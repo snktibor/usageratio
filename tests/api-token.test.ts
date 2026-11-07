@@ -199,6 +199,8 @@ describe("an audit record", () => {
     ipHash: "3fa9c1a2b91c",
     ipPrefix: "203.0.113.0/24",
     session: "1a2b3c4d",
+    token: null,
+    by: null,
   };
 
   it("survives a round trip through Redis", () => {
@@ -221,6 +223,8 @@ describe("an audit record", () => {
       userAgent: UA.safariMac,
       ip: "203.0.113.0/24 · 3fa9c1a2b91c",
       session: "1a2b3c4d",
+      token: null,
+      by: null,
     });
   });
 
@@ -245,6 +249,8 @@ describe("an audit record", () => {
       ipHash: null,
       ipPrefix: null,
       session: null,
+      token: null,
+      by: null,
     });
   });
 });

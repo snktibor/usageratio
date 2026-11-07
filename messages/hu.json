@@ -302,7 +302,21 @@
     "reset_mode_label": "{label}: reset után",
     "reset_mode_keep": "a {period, select, monthly {havi} other {heti}} reset marad",
     "reset_mode_restart": "a reset lesz az új {period, select, monthly {havi} other {heti}} reset",
-    "reset_set_by_reset": "Egy rögzített reset állította be"
+    "reset_set_by_reset": "Egy rögzített reset állította be",
+    "audit_action_token_created": "Token létrehozva",
+    "audit_action_token_revoked": "Token visszavonva",
+    "audit_action_token_rotated": "Token cserélve",
+    "audit_by": "@{login} által",
+    "tokens_explanation_multi": "Minden gép a saját tokenjével jelent: bármelyik külön visszavonható, a többi gép érintése nélkül. Géphez kötve csak annak a gépnek a jelentéseihez jó. Egy „Csak olvasás” token lekérdezheti a használatot, de nem jelenthet. A „Menüsáv app” token a macOS menüsáv app egyetlen kulcsa: olvas, jelenti a gép használatát (kösd a géphez), és feltölti a szolgáltatók saját százalékait.",
+    "tokens_audit_button": "Token-napló",
+    "tokens_audit_title": "Token-napló",
+    "tokens_audit_description": "Ki hozott létre, vont vissza vagy cserélt tokent, a legújabb elöl (az utolsó {limit} bejegyzés; az időpontok {timeZone} szerint).",
+    "tokens_rotate_button": "Csere",
+    "tokens_rotate_aria": "„{label}” cseréje",
+    "tokens_rotate_title": "Lecseréled ezt a tokent?",
+    "tokens_rotate_body": "„{label}” azonnal érvénytelen lesz, és egy új token lép a helyére, amely csak egyszer jelenik meg. Írd be az újat a gép kliensbeállításába, különben a gép nem jelent tovább.",
+    "tokens_rotate_too_many": "Túl sok visszavont token van még megőrizve (a visszavonás után 90 nappal törlődnek). Próbáld később.",
+    "tokens_rotate_lost": "A válasz nem érkezett meg. Nézd meg a listát: ha a token lecserélődött, cseréld újra, hogy új titkot kapj."
   },
   "Alerts": {
     "threshold_text": "A(z) {label} elhasználta a kerete {threshold}%-át (jelenleg {used}%-nál tart); a ciklus itt ér véget: {end}."

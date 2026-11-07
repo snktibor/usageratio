@@ -18,6 +18,7 @@ import { buildSettingsView, resolveConfig, type SettingsView, storedProviderIds 
 import type { TenantStore } from "@/lib/tenant";
 import { currentTenant } from "@/lib/tenant-context";
 import { loadEvents, loadIndexes } from "@/lib/usage-store";
+import type { Role } from "@/lib/users";
 
 // Rendered per request: the page depends on the session cookie and on the stored settings.
 export const dynamic = "force-dynamic";
@@ -34,7 +35,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
  * settings, the known groups, and the models seen since the previous cycle
  * began (for picking a sub-limit's).
  */
-async function loadSettingsView(store: TenantStore): Promise<SettingsView> {
+async function loadSettingsView(store: TenantStore, role: Role): Promise<SettingsView> {
   const now = currentTime();
   // Demo mode only: reseeds the synthetic data once it has gone stale.
   await ensureDemoData(store, now);
@@ -50,7 +51,7 @@ async function loadSettingsView(store: TenantStore): Promise<SettingsView> {
   return buildSettingsView(
     config,
     groups,
-    { maskWebhook: isMultiTenant() },
+    { multiTenant: isMultiTenant(), owner: role === "owner" },
     providerIds,
     Object.fromEntries(
       Object.entries(eventsByProvider).map(([providerId, events]) => [providerId, modelKeysIn(events)]),
@@ -71,7 +72,7 @@ export default async function Page({ params }: { params: Promise<{ locale: strin
     const tenant = await currentTenant();
     if (tenant) {
       tenantId = tenant.store.tenantId;
-      view = await loadSettingsView(tenant.store);
+      view = await loadSettingsView(tenant.store, tenant.role);
     }
   } catch (error) {
     storageError = error;

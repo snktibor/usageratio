@@ -1,19 +1,21 @@
 import { apiError, json, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { hasSudo } from "@/lib/auth";
 import { demoReadOnly } from "@/lib/demo/mode";
+import { tokenAudit } from "@/lib/token-audit";
 import { revokeToken } from "@/lib/tokens";
 
 /**
  * DELETE /api/tokens/[id] — revokes one per-machine API token (lib/tokens.ts):
  * sets `revokedAt`, never deletes the entry outright (lib/housekeeping.ts
  * forgets it 90 days later). Behind the dashboard's session and a fresh sudo
- * grant, like the other destructive "manage" actions.
+ * grant, like the other destructive "manage" actions. The revocation goes on
+ * the workspace's audit trail (GET /api/tokens/audit).
  *
  *   → { "ok": true }
  *
  * 200 ok (idempotent: revoking an already-revoked token still answers ok) ·
  * 401 no session · 403 foreign origin, demo mode, or no sudo grant ·
- * 404 no token with this id · 503 Redis down
+ * 404 no token with this id · 409 tokens_busy (a rotation is running; try again) · 503 Redis down
  */
 
 type Params = { id: string };
@@ -30,8 +32,9 @@ export async function DELETE(request: Request, context: { params: Promise<Params
     const { store } = tenant;
     if (!(await hasSudo())) return apiError("sudo_required", 403);
 
-    const result = await revokeToken(store, id, new Date());
-    if (!result.ok) return apiError("not_found", 404);
+    const now = new Date();
+    const result = await revokeToken(store, id, now, tokenAudit("token_revoked", tenant, now));
+    if (!result.ok) return result.reason === "busy" ? apiError("tokens_busy", 409) : apiError("not_found", 404);
     return json({ ok: true }, 200);
   })(request);
 }

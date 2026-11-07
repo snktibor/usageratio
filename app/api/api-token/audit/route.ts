@@ -1,4 +1,4 @@
-import { json, requireTenantSession, withApiHandler } from "@/lib/api";
+import { json, requireSingleUser, requireTenantSession, withApiHandler } from "@/lib/api";
 import { sessionTag } from "@/lib/auth";
 import { loadAuditTrail } from "@/lib/token-vault";
 
@@ -11,9 +11,11 @@ import { loadAuditTrail } from "@/lib/token-vault";
  *                     "ip": "…", "session": "1a2b3c4d" }],
  *       "currentSession": "1a2b3c4d" }
  *
- * 200 ok · 401 no session · 503 Redis down
+ * 200 ok · 401 no session · 404 multi-tenant mode (per-machine tokens only) · 503 Redis down
  */
 export const GET = withApiHandler("api/api-token/audit", async () => {
+  const multi = requireSingleUser();
+  if (multi) return multi;
   const tenant = await requireTenantSession();
   if (tenant instanceof Response) return tenant;
   const { store } = tenant;

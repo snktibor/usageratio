@@ -57,7 +57,11 @@ export default async function SetupPage({
     const tenant = await currentTenant();
     if (tenant) {
       tenantId = tenant.store.tenantId;
-      [groups, tokenStatus] = await Promise.all([loadGroups(tenant.store), loadApiTokenStatus(tenant.store)]);
+      // Multi-tenant mode has no shared token to offer (the vault answers 404 there).
+      [groups, tokenStatus] = await Promise.all([
+        loadGroups(tenant.store),
+        isMultiTenant() ? Promise.resolve<ApiTokenStatus>({ state: "empty" }) : loadApiTokenStatus(tenant.store),
+      ]);
     }
   } catch (error) {
     storageError = error;

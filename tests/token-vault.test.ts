@@ -149,6 +149,8 @@ describe("the token vault", () => {
           userAgent: CHROME_UA,
           ip: `${ipPrefix} · ${ipHash}`,
           session: sha256Hex(SESSION_ID).slice(0, 8),
+          token: null,
+          by: null,
         },
       ]);
 
@@ -235,6 +237,8 @@ describe("the token vault", () => {
           ipHash: null,
           ipPrefix: null,
           session: null,
+          token: null,
+          by: null,
         }),
       );
       // Newest first: the list already has the "created" entry at the head.

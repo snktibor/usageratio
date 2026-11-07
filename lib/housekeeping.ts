@@ -188,19 +188,20 @@ export async function runHousekeeping(
     resetPrunes.push({ providerId, cycle: window, previousStartMs });
   }
 
-  // Step 6: audit entries past their retention window. The list is newest first, so the first
-  // (from the head) that is too old marks where the still-current entries end.
-  const auditRaw = await redis.lrange<string>(store.keys.apiTokenAudit, 0, -1);
+  // Step 6: audit entries past their retention window, in both trails (the shared token's and the
+  // per-machine tokens'). A list is newest first, so the first entry (from the head) that is too
+  // old marks where the still-current ones end: that many are cut from the tail.
   const auditCutoffMs = now.getTime() - auditRetentionDays() * DAY_MS;
-  let auditKeep = auditRaw.length;
-  for (let index = 0; index < auditRaw.length; index += 1) {
-    const record = parseAuditRecord(String(auditRaw[index]));
-    if (record && record.at < auditCutoffMs) {
-      auditKeep = index;
-      break;
-    }
+  const auditPrunes: { key: string; removed: number }[] = [];
+  for (const key of [store.keys.apiTokenAudit, store.keys.tokensAudit]) {
+    const raw = await redis.lrange<string>(key, 0, -1);
+    const firstOld = raw.findIndex((item) => {
+      const record = parseAuditRecord(String(item));
+      return record !== null && record.at < auditCutoffMs;
+    });
+    if (firstOld >= 0) auditPrunes.push({ key, removed: raw.length - firstOld });
   }
-  const auditRemoved = auditRaw.length - auditKeep;
+  const auditRemoved = auditPrunes.reduce((sum, prune) => sum + prune.removed, 0);
 
   // Step 7: per-machine tokens (lib/tokens.ts) revoked long enough ago to forget entirely.
   const tokensPruned = await pruneRevokedTokens(store, now, { dryRun });
@@ -230,10 +231,8 @@ export async function runHousekeeping(
         await saveResets(store, providerId, pruneResets(resetsOf(fresh, providerId), cycle, previousStartMs, cutoffMs));
       }
     }
-    if (auditRemoved > 0) {
-      if (auditKeep === 0) await redis.del(store.keys.apiTokenAudit);
-      else await redis.ltrim(store.keys.apiTokenAudit, 0, auditKeep - 1);
-    }
+    // Cut from the tail, by count: an entry pushed to the head since the read above stays.
+    for (const { key, removed } of auditPrunes) await redis.ltrim(key, 0, -(removed + 1));
     if (expiredGuards.length > 0) await redis.srem(store.keys.registry, ...(expiredGuards as [string, ...string[]]));
   }
 

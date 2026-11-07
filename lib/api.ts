@@ -88,7 +88,9 @@ export type ApiErrorCode =
   | "owner_only"
   | "owner_cannot_leave"
   | "cannot_remove_owner"
-  | "members_busy";
+  | "members_busy"
+  | "token_revoked"
+  | "tokens_busy";
 
 export const MIN_API_TOKEN_LENGTH = 16;
 
@@ -199,6 +201,15 @@ export function requireOwner(tenant: TenantContext): Response | null {
   return tenant.role === "owner" ? null : apiError("owner_only", 403);
 }
 
+/**
+ * 404 in multi-tenant mode, for what only a single-user instance has: the shared API token's
+ * vault (lib/token-vault.ts), its reveal and its audit popup. A workspace's machines use their own
+ * per-machine tokens there.
+ */
+export function requireSingleUser(): Response | null {
+  return isMultiTenant() ? apiError("not_found", 404) : null;
+}
+
 /** 404 on a single-user instance, for the routes that only exist in multi-tenant mode. */
 export function requireMultiTenant(): Response | null {
   return isMultiTenant() ? null : apiError("not_found", 404);
@@ -220,7 +231,7 @@ export function requireSameOrigin(request: Request): Response | null {
 }
 
 export interface BearerAuth {
-  /** "master" for the shared USAGE_API_TOKEN, else a per-machine token's own id (lib/tokens.ts). */
+  /** "master" for the shared USAGE_API_TOKEN (closed mode only), else a per-machine token's own id (lib/tokens.ts). */
   tokenId: string;
   /** The token's bound machine (lib/tokens.ts `createToken`); null for the master token or an unbound one. */
   machineId: string | null;
@@ -230,27 +241,47 @@ export interface BearerAuth {
   store: TenantStore;
 }
 
+let masterTokenWarned = false;
+
+/** Multi-tenant mode with USAGE_API_TOKEN still set: said once per process, since it no longer lets anything in. */
+function warnMasterTokenIgnored(): void {
+  if (masterTokenWarned) return;
+  masterTokenWarned = true;
+  log.warn("api.master_token_ignored", {
+    rule: "multi-tenant mode accepts per-machine tokens only; USAGE_API_TOKEN is ignored",
+  });
+}
+
 /**
- * The clients' bearer token check. A missing/short USAGE_API_TOKEN is a
- * deployment mistake, answered with 500 rather than letting anything in.
- * Tried in order: the shared master token first (`safeEqual`, constant-time —
- * it is typed by a human, so a timing attack is worth defending against),
- * then the per-machine tokens issued from the settings panel (lib/tokens.ts):
- * a HGET keyed by the token's own sha256, not a comparison, so there is
- * nothing for a timing attack to learn there either. Async since a
- * non-master token needs a Redis round trip.
+ * The clients' bearer token check.
+ *
+ * On a single-user instance (closed mode) the shared master token
+ * (USAGE_API_TOKEN) is tried first: `safeEqual`, constant-time, since it is
+ * typed by a human. A missing or short one is a deployment mistake, answered
+ * with 500 rather than letting anything in. Every use is logged
+ * (`api.master_token_used`), so the maintainer can see when no machine relies
+ * on it any more before switching to multi-tenant mode.
+ *
+ * In multi-tenant mode the master token does not exist: it belongs to no
+ * workspace, so it is ignored (a set one is logged once as a warning) and
+ * only per-machine tokens are accepted. Those are a HGET keyed by the token's
+ * own sha256, not a comparison, so there is nothing for a timing attack to
+ * learn either.
  */
 export async function requireBearer(request: Request): Promise<Response | BearerAuth> {
+  const multi = isMultiTenant();
   const expected = process.env.USAGE_API_TOKEN?.trim();
-  if (!expected || expected.length < MIN_API_TOKEN_LENGTH) {
+  if (!multi && (!expected || expected.length < MIN_API_TOKEN_LENGTH)) {
     log.error("api.token_misconfigured", { minLength: MIN_API_TOKEN_LENGTH });
     return apiError("server_misconfigured", 500);
   }
+  if (multi && expected) warnMasterTokenIgnored();
   const bearer = /^Bearer\s+(\S+)\s*$/i.exec(request.headers.get("authorization") ?? "");
   const presented = bearer?.[1];
   if (!presented) return apiError("unauthorized", 401, { scheme: "bearer" });
   // The shared master token belongs to the default tenant, the only one a single-tenant instance has.
-  if (safeEqual(presented, expected)) {
+  if (!multi && expected && safeEqual(presented, expected)) {
+    log.info("api.master_token_used", { route: currentRequest()?.route ?? null });
     return { tokenId: "master", machineId: null, scope: "ingest", store: defaultTenantStore() };
   }
 
@@ -260,7 +291,7 @@ export async function requireBearer(request: Request): Promise<Response | Bearer
   const store = indexed ? tenantStore(indexed) : defaultTenantStore();
   // A disabled (or half-deleted) tenant's machines are refused before anything of the tenant is
   // touched: authenticating would write the token's lastUsedAt into the tenant's keys.
-  if (isMultiTenant() && !tenantIsActive(store.tenantId, await loadTenantRecord(store.tenantId))) {
+  if (multi && !tenantIsActive(store.tenantId, await loadTenantRecord(store.tenantId))) {
     return apiError("tenant_disabled", 403);
   }
   const result = await authenticateToken(store, presented, new Date());

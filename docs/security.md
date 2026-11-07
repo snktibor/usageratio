@@ -255,9 +255,13 @@ directly) or every per-IP limit above can be spoofed or trivially bypassed.
 
 ## Per-machine tokens
 
-An alternative to the shared `USAGE_API_TOKEN` that can be issued and revoked per machine, from
-the settings panel (sudo required to create or revoke). A token is `ur_` followed by 256 random
-bits, base64url-encoded; its public id (shown in the UI, never secret) is `tk_` followed by 8
+An alternative to the shared `USAGE_API_TOKEN` that can be issued, rotated and revoked per machine,
+from the settings panel (sudo required for each). In multi-tenant mode they are the only tokens:
+the shared `USAGE_API_TOKEN` belongs to no workspace, so it is ignored there (a set one is logged
+once as `api.master_token_ignored`), and the vault below answers `404`. On a single-user instance
+every use of the shared token is logged as `api.master_token_used`, so it can be retired once
+nothing relies on it. A token is `ur_live_` followed by 256 random bits, base64url-encoded (tokens
+issued before the prefix existed start with a bare `ur_` and keep working); its public id (shown in the UI, never secret) is `tk_` followed by 8
 base32 characters. Only `sha256(token)` is stored, as a field of the `usage:tokens` hash — the
 plaintext is shown once, at creation, and never persisted. Authenticating a bearer token is
 therefore a hash-table lookup (`HGET usage:tokens sha256(token)`), not a byte-by-byte compare, so
@@ -266,11 +270,16 @@ which is human-typed and checked with `safeEqual` for exactly that reason. A tok
 be bound to one `machineId`; a bound token reporting for any other machine gets
 `403 machine_mismatch`. Up to `MAX_TOKENS` = 100 tokens per deployment; a revoked token is kept
 (with `revokedAt` set) for 90 days before housekeeping forgets it entirely, so the audit trail and
-"last used" history survive a revoke for a while.
+"last used" history survive a revoke for a while. Rotating issues the replacement and revokes the
+old token in one transaction; a revocation and a rotation hold a short per-workspace lock, so two
+of them at once cannot leave a live token behind. Every create, revoke and rotate is written to the
+per-machine tokens' audit trail in the same transaction as the change (in multi-tenant mode with
+the login of whoever did it); the trail holds the token's public id and label, never the secret,
+and only the workspace's owner can read it, since it carries other people's network details.
 
 ## The token vault and key rotation
 
-The settings panel's *Copy token* button needs a copy of `USAGE_API_TOKEN` the server can hand
+Single-user instances only. The settings panel's *Copy token* button needs a copy of `USAGE_API_TOKEN` the server can hand
 back to a signed-in browser (the env var itself is never read back by the browser). That copy is
 sealed with **AES-256-GCM** (`lib/secret-box.ts`): a fresh 96-bit IV per value, a 128-bit auth tag,
 and a fixed context string (`"usageratio/usage-api-token/v1"`) bound in as additional

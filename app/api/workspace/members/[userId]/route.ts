@@ -8,6 +8,7 @@ import {
   withApiHandler,
 } from "@/lib/api";
 import { removeMember } from "@/lib/members";
+import { tokenAudit } from "@/lib/token-audit";
 import { isUserId } from "@/lib/users";
 
 /**
@@ -37,11 +38,12 @@ export async function DELETE(request: Request, context: { params: Promise<Params
     if (notOwner) return notOwner;
     if (!isUserId(userId)) return apiError("not_found", 404);
 
+    const now = new Date();
     const result = await removeMember(
       tenant.store,
       userId,
-      { revokeTokens: url.searchParams.get("revokeTokens") === "1" },
-      new Date(),
+      { revokeTokens: url.searchParams.get("revokeTokens") === "1", audit: tokenAudit("token_revoked", tenant, now) },
+      now,
     );
     if (!result.ok) {
       if (result.reason === "not_found") return apiError("not_found", 404);

@@ -38,7 +38,8 @@
  *
  *   usage:api-token          STRING {"v":1,"kid","iv","ct","tag","updatedAt"}: AES-256-GCM, key
  *                                   TOKEN_ENCRYPTION_KEY (see lib/secret-box.ts, lib/token-vault.ts)
- *   usage:api-token:audit    LIST   newest first, at most AUDIT_LIMIT entries:
+ *   usage:api-token:audit    LIST   newest first, at most AUDIT_LIMIT entries: the shared token's
+ *                                   audit trail (single-user instances):
  *                                   {"at","a","ua","ch","pf","s", "ip"|"iph"+"ipp"} (see lib/api-token.ts)
  *
  *   usage:tokens             HASH   sha256(token) → {"id","label","machineId","scope","createdAt",
@@ -51,6 +52,13 @@
  *                                   it (multi-tenant mode). The record is written only when the
  *                                   token is created or revoked; "lastUsedAt" inside it is from
  *                                   before usage:tokens:lastused existed.
+ *   usage:tokens:audit       LIST   newest first, at most AUDIT_LIMIT entries: the per-machine
+ *                                   tokens' audit trail (created, revoked, rotated), the same record
+ *                                   shape plus "tk"+"tl" (the token's id and label), "tn"? (a
+ *                                   rotation's replacement id) and "by"? (the login, multi-tenant
+ *                                   mode); written in the same transaction as the change
+ *   usage:tokens:lock        STRING a random holder id, SET NX EX 10 — held while a token is
+ *                                   revoked or rotated, so two of them cannot interleave
  *   usage:tokens:lastused    HASH   sha256(token) → last authenticated request (ms), refreshed at
  *                                   most hourly: kept apart from the record, so that refresh can
  *                                   never write back a copy of a token revoked meanwhile
@@ -211,6 +219,8 @@ export interface TenantKeys {
   housekeepingLast: string;
   tokens: string;
   tokensLastUsed: string;
+  tokensAudit: string;
+  tokensLock: string;
   alert: (providerId: string, segmentStartMs: number, threshold: number) => string;
   registry: string;
 }
@@ -239,6 +249,8 @@ export function tenantKeys(tenantId: TenantId): TenantKeys {
     housekeepingLast: `${p}housekeeping:last`,
     tokens: `${p}tokens`,
     tokensLastUsed: `${p}tokens:lastused`,
+    tokensAudit: `${p}tokens:audit`,
+    tokensLock: `${p}tokens:lock`,
     alert: (providerId, segmentStartMs, threshold) => `${p}alert:${providerId}:${segmentStartMs}:${threshold}`,
     registry: `${p}keys`,
   };
@@ -263,6 +275,8 @@ export function fixedTenantKeys(keys: TenantKeys): string[] {
     keys.housekeepingLast,
     keys.tokens,
     keys.tokensLastUsed,
+    keys.tokensAudit,
+    keys.tokensLock,
     keys.registry,
   ];
 }

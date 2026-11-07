@@ -203,7 +203,7 @@ Set once at deploy time. Every variable here is also listed, with a short commen
 
 | Variable | Meaning |
 | --- | --- |
-| `USAGE_API_TOKEN` | The Bearer token clients send. At least 16 characters — generate with `openssl rand -hex 32`. |
+| `USAGE_API_TOKEN` | The Bearer token clients send. At least 16 characters — generate with `openssl rand -hex 32`. Single-user instances only: in multi-tenant mode (`REGISTRATION=invite` or `open`) it is ignored, and every machine uses a per-machine token of its workspace. |
 | `DASHBOARD_PIN` | The dashboard PIN or passphrase: 5–64 characters. Digits only gives a numeric keypad; on a public URL, prefer a passphrase of 12+ characters. Changing it logs every browser out. |
 | `KV_REST_API_URL` / `KV_REST_API_TOKEN` | Upstash Redis over its REST API. Injected automatically once the Upstash integration is connected on Vercel — set by hand only for self-hosting. `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` are accepted as well, but `KV_REST_API_*` wins if both are set (`lib/redis.ts`). |
 

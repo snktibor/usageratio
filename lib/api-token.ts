@@ -32,9 +32,28 @@ export type ApiTokenStatus =
       needsReseal: boolean;
     };
 
-export type AuditAction = "created" | "updated" | "revealed";
+/**
+ * The shared token's own actions (closed mode), and the per-machine tokens' (both modes): the
+ * workspace's one audit trail.
+ */
+export type AuditAction = "created" | "updated" | "revealed" | "token_created" | "token_revoked" | "token_rotated";
 
-export const AUDIT_ACTIONS: readonly AuditAction[] = ["created", "updated", "revealed"];
+export const AUDIT_ACTIONS: readonly AuditAction[] = [
+  "created",
+  "updated",
+  "revealed",
+  "token_created",
+  "token_revoked",
+  "token_rotated",
+];
+
+/** The per-machine token an entry is about (`token_*` actions): its public id and its label, never the secret. */
+export interface AuditToken {
+  id: string;
+  label: string;
+  /** A rotation's replacement: the new token's public id. */
+  replacement?: string;
+}
 
 /** The requesting browser, as the request described it. `ip` is the raw address (lib/request-context.ts `clientIp`). */
 export interface AuditClient {
@@ -69,6 +88,9 @@ export interface AuditRecord {
   ipHash: string | null;
   ipPrefix: string | null;
   session: string | null;
+  token: AuditToken | null;
+  /** Multi-tenant mode: the GitHub login of the user who did it (display only); null on a single-user instance. */
+  by: string | null;
 }
 
 /** One entry as the audit popup gets it. */
@@ -83,6 +105,8 @@ export interface AuditEntry {
   /** One display string: "203.0.113.0/24 · 3fa9c1a2b91c", the raw address (AUDIT_RAW_IP=1 or a legacy record), or "unknown". */
   ip: string;
   session: string | null;
+  token: AuditToken | null;
+  by: string | null;
 }
 
 /** Printable ASCII without spaces: anything else could not travel in an `Authorization: Bearer` header. */
@@ -122,6 +146,9 @@ export function serializeAuditRecord(record: AuditRecord): string {
     ...(record.ipHash !== null && { iph: record.ipHash }),
     ...(record.ipPrefix !== null && { ipp: record.ipPrefix }),
     s: record.session,
+    ...(record.token && { tk: record.token.id, tl: record.token.label }),
+    ...(record.token?.replacement && { tn: record.token.replacement }),
+    ...(record.by !== null && { by: record.by }),
   });
 }
 
@@ -149,6 +176,11 @@ export function parseAuditRecord(raw: string): AuditRecord | null {
     ipHash: optionalText(entry.iph),
     ipPrefix: optionalText(entry.ipp),
     session: optionalText(entry.s),
+    token:
+      typeof entry.tk === "string"
+        ? { id: entry.tk, label: text(entry.tl), ...(typeof entry.tn === "string" && { replacement: entry.tn }) }
+        : null,
+    by: optionalText(entry.by),
   };
 }
 
@@ -169,6 +201,8 @@ export function toAuditEntry(record: AuditRecord): AuditEntry {
     userAgent: record.userAgent,
     ip: displayIp(record),
     session: record.session,
+    token: record.token,
+    by: record.by,
   };
 }
 
