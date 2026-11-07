@@ -6,13 +6,13 @@ import { getConfig } from "@/lib/config";
 import { getCycle } from "@/lib/cycle";
 import { ingestReport } from "@/lib/ingest";
 import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { restartOverride } from "@/lib/resets";
 import { serializeSettings, settingsFromConfig, type UsageSettings } from "@/lib/settings";
 import type { StatusPayload } from "@/lib/status";
 import { createToken } from "@/lib/tokens";
 import { saveResets } from "@/lib/usage-store";
 import { useRedis } from "../helpers/redis-fixture";
+import { KEYS, tenant } from "../helpers/tenant";
 
 /**
  * GET /api/status: the menu bar app's view of the current cycle
@@ -243,7 +243,7 @@ describe("GET /api/status", () => {
   });
 
   it("serves a read token, which POST /api/usage refuses with 403 read_only_token", async () => {
-    const created = await createToken("Menu bar", null, new Date(), "read");
+    const created = await createToken(tenant, "Menu bar", null, new Date(), "read");
     if (!created.ok) throw new Error("token not created");
     const headers = { authorization: `Bearer ${created.token}` };
 
@@ -254,7 +254,7 @@ describe("GET /api/status", () => {
   });
 
   it("serves an official token too, which may also report (the menu bar app's one token)", async () => {
-    const created = await createToken("Menu bar", null, new Date(), "official");
+    const created = await createToken(tenant, "Menu bar", null, new Date(), "official");
     if (!created.ok) throw new Error("token not created");
     const headers = { authorization: `Bearer ${created.token}` };
 
@@ -275,11 +275,12 @@ describe("GET /api/status after a keep reset", () => {
     vi.setSystemTime(NOW);
     await seedSettings({ useTokenLimits: false, resetOverrides: {} });
     const stored = await ingestReport(
+      tenant,
       { machineId: "mac", groupId: "Personal", providers: { claude: 5000 }, timestamp: NOW.toISOString() },
       NOW,
     );
     if (!stored.ok) throw new Error(JSON.stringify(stored));
-    await saveResets("claude", {
+    await saveResets(tenant, "claude", {
       v: 1,
       events: [
         {
@@ -324,6 +325,7 @@ describe("GET /api/status after a keep reset", () => {
     // Running totals (snapshot mode): 3000 an hour before the reset, 5000 now, so 2000 since the reset.
     const before = new Date(R - 3_600_000);
     const stored = await ingestReport(
+      tenant,
       { machineId: "mac", groupId: "Personal", providers: { claude: 3000 }, timestamp: before.toISOString() },
       before,
     );
@@ -353,6 +355,7 @@ describe("GET /api/status after a restart", () => {
   const ingest = async (tokens: number, at: string) => {
     const now = new Date(at);
     const stored = await ingestReport(
+      tenant,
       { machineId: "mac", groupId: "Personal", providers: { openai: tokens }, timestamp: now.toISOString() },
       now,
     );
@@ -374,7 +377,7 @@ describe("GET /api/status after a restart", () => {
     expect(withoutRestart.cycle.start).toBe(new Date(R).toISOString());
     expect(withoutRestart.tokens).toBe(1000);
 
-    await saveResets("openai", {
+    await saveResets(tenant, "openai", {
       v: 1,
       events: [
         {

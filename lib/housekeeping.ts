@@ -5,10 +5,9 @@ import { getConfig, RETENTION_DAYS } from "@/lib/config";
 import { log } from "@/lib/log";
 import { providerOfOfficialField } from "@/lib/official-usage";
 import { currentSegmentStartMs, earliestStartMs, providerCycle } from "@/lib/provider-cycles";
-import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { pruneResets, resetEventsOf, resetsOf } from "@/lib/resets";
 import { parseStoredSettings, resolveConfig, settingsFromConfig } from "@/lib/settings";
+import { defaultTenantStore, type TenantStore } from "@/lib/tenant";
 import { pruneRevokedTokens } from "@/lib/tokens";
 import { loadEvents, loadIndexes, loadResets, saveResets } from "@/lib/usage-store";
 
@@ -25,7 +24,7 @@ import { loadEvents, loadIndexes, loadResets, saveResets } from "@/lib/usage-sto
  * into the cycle history (lib/archive.ts), so the history does not depend on
  * someone opening the dashboard during the following cycle.
  *
- * Every step reads the same snapshot (one `loadIndexes()` call, or its own
+ * Every step reads the same snapshot (one `loadIndexes(store)` call, or its own
  * read for `usage:tokens`), so a run is idempotent: nothing left behind by one
  * run is missed by a `dryRun` preview, and a second run right after finds
  * nothing left to remove.
@@ -69,9 +68,13 @@ function officialCycleStartMs(raw: string): number | null {
   }
 }
 
-export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }): Promise<HousekeepingReport> {
-  const redis = getRedis();
-  const indexes = await loadIndexes();
+export async function runHousekeeping(
+  store: TenantStore,
+  now: Date,
+  { dryRun }: { dryRun: boolean },
+): Promise<HousekeepingReport> {
+  const redis = store.redis;
+  const indexes = await loadIndexes(store);
   const providerIds = indexes.providers.map((provider) => provider.providerId);
   const cutoffMs = now.getTime() - RETENTION_DAYS * DAY_MS;
 
@@ -89,7 +92,7 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     const checks: string[] = [];
     for (const providerId of providerIds) {
       for (const group of indexes.groups) {
-        const key = KEYS.events(providerId, group.groupId);
+        const key = store.keys.events(providerId, group.groupId);
         pipeline.exists(key);
         checks.push(key);
       }
@@ -100,9 +103,9 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     });
   }
   const providerHasEvents = (providerId: string): boolean =>
-    indexes.groups.some((group) => existence.get(KEYS.events(providerId, group.groupId)) === true);
+    indexes.groups.some((group) => existence.get(store.keys.events(providerId, group.groupId)) === true);
   const groupHasEvents = (groupId: string): boolean =>
-    providerIds.some((providerId) => existence.get(KEYS.events(providerId, groupId)) === true);
+    providerIds.some((providerId) => existence.get(store.keys.events(providerId, groupId)) === true);
 
   // Providers the settings document still names, even with nothing stored yet.
   const defaults = settingsFromConfig(getConfig(), []);
@@ -130,12 +133,13 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
   // It runs before step 5 deletes that cycle's official-usage entries, and reads the same snapshot.
   const config = resolveConfig(getConfig(), indexes.settings, providerIds);
   const { eventsByProvider } = await loadEvents(
+    store,
     providerIds,
     indexes.groups,
     earliestStartMs(now, config, providerIds, "previous"),
     indexes.resets,
   );
-  const archived = await archiveDueCycles({
+  const archived = await archiveDueCycles(store, {
     providerIds,
     config,
     now,
@@ -176,7 +180,7 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
 
   // Step 6: audit entries past their retention window. The list is newest first, so the first
   // (from the head) that is too old marks where the still-current entries end.
-  const auditRaw = await redis.lrange<string>(KEYS.apiTokenAudit, 0, -1);
+  const auditRaw = await redis.lrange<string>(store.keys.apiTokenAudit, 0, -1);
   const auditCutoffMs = now.getTime() - auditRetentionDays() * DAY_MS;
   let auditKeep = auditRaw.length;
   for (let index = 0; index < auditRaw.length; index += 1) {
@@ -189,23 +193,23 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
   const auditRemoved = auditRaw.length - auditKeep;
 
   // Step 7: per-machine tokens (lib/tokens.ts) revoked long enough ago to forget entirely.
-  const tokensPruned = await pruneRevokedTokens(now, { dryRun });
+  const tokensPruned = await pruneRevokedTokens(store, now, { dryRun });
 
   if (!dryRun) {
-    if (machineFields.length > 0) await redis.hdel(KEYS.machines, ...machineFields);
+    if (machineFields.length > 0) await redis.hdel(store.keys.machines, ...machineFields);
     if (staleProviders.length > 0)
-      await redis.hdel(KEYS.providers, ...staleProviders.map((provider) => provider.providerId));
-    if (staleGroups.length > 0) await redis.hdel(KEYS.groups, ...staleGroups.map((group) => group.groupId));
-    if (staleOfficialFields.length > 0) await redis.hdel(KEYS.officialUsage, ...staleOfficialFields);
+      await redis.hdel(store.keys.providers, ...staleProviders.map((provider) => provider.providerId));
+    if (staleGroups.length > 0) await redis.hdel(store.keys.groups, ...staleGroups.map((group) => group.groupId));
+    if (staleOfficialFields.length > 0) await redis.hdel(store.keys.officialUsage, ...staleOfficialFields);
     if (resetPrunes.length > 0) {
-      const fresh = await loadResets();
+      const fresh = await loadResets(store);
       for (const { providerId, cycle, previousStartMs } of resetPrunes) {
-        await saveResets(providerId, pruneResets(resetsOf(fresh, providerId), cycle, previousStartMs, cutoffMs));
+        await saveResets(store, providerId, pruneResets(resetsOf(fresh, providerId), cycle, previousStartMs, cutoffMs));
       }
     }
     if (auditRemoved > 0) {
-      if (auditKeep === 0) await redis.del(KEYS.apiTokenAudit);
-      else await redis.ltrim(KEYS.apiTokenAudit, 0, auditKeep - 1);
+      if (auditKeep === 0) await redis.del(store.keys.apiTokenAudit);
+      else await redis.ltrim(store.keys.apiTokenAudit, 0, auditKeep - 1);
     }
   }
 
@@ -246,7 +250,15 @@ export async function runHousekeeping(now: Date, { dryRun }: { dryRun: boolean }
     archived: report.history.archived,
   });
 
-  if (!dryRun) await redis.set(KEYS.housekeepingLast, JSON.stringify({ at: now.getTime(), report }));
+  if (!dryRun) await redis.set(store.keys.housekeepingLast, JSON.stringify({ at: now.getTime(), report }));
 
   return report;
+}
+
+/**
+ * The daily cron run (app/api/cron/housekeeping/route.ts): every tenant's
+ * housekeeping. A single-tenant instance has exactly one, `default`.
+ */
+export async function runScheduledHousekeeping(now: Date, options: { dryRun: boolean }): Promise<HousekeepingReport> {
+  return runHousekeeping(defaultTenantStore(), now, options);
 }

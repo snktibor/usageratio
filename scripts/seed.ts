@@ -15,6 +15,7 @@ import { getConfig } from "@/lib/config";
 import { DEMO_SEED } from "@/lib/demo/dataset";
 import { demoDatasetFor, seedStore } from "@/lib/demo/seed";
 import { storageKind } from "@/lib/redis";
+import { defaultTenantStore } from "@/lib/tenant";
 
 async function main(): Promise<number> {
   const { values } = parseArgs({
@@ -52,7 +53,12 @@ async function main(): Promise<number> {
   );
 
   try {
-    const summary = await seedStore({ now, wipe: values.reset, dryRun: values["dry-run"], dataset });
+    const summary = await seedStore(defaultTenantStore(), {
+      now,
+      wipe: values.reset,
+      dryRun: values["dry-run"],
+      dataset,
+    });
     if (values["dry-run"]) {
       console.log("Dry run: nothing written.");
       return 0;

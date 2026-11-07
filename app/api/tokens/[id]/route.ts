@@ -1,4 +1,4 @@
-import { apiError, json, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { hasSudo } from "@/lib/auth";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { revokeToken } from "@/lib/tokens";
@@ -25,11 +25,12 @@ export async function DELETE(request: Request, context: { params: Promise<Params
     if (origin) return origin;
     const readOnly = demoReadOnly();
     if (readOnly) return readOnly;
-    const unauthorized = await requireSession();
-    if (unauthorized) return unauthorized;
+    const tenant = await requireTenantSession();
+    if (tenant instanceof Response) return tenant;
+    const { store } = tenant;
     if (!(await hasSudo())) return apiError("sudo_required", 403);
 
-    const result = await revokeToken(id, new Date());
+    const result = await revokeToken(store, id, new Date());
     if (!result.ok) return apiError("not_found", 404);
     return json({ ok: true }, 200);
   })(request);

@@ -1,6 +1,6 @@
 import { apiError, json, withApiHandler } from "@/lib/api";
 import { demoReadOnly } from "@/lib/demo/mode";
-import { runHousekeeping } from "@/lib/housekeeping";
+import { runScheduledHousekeeping } from "@/lib/housekeeping";
 import { log } from "@/lib/log";
 import { safeEqual } from "@/lib/security";
 
@@ -39,6 +39,6 @@ export const GET = withApiHandler("api/cron/housekeeping", async ({ request, url
   }
 
   const dryRun = url.searchParams.get("dryRun") === "1";
-  const report = await runHousekeeping(new Date(), { dryRun });
+  const report = await runScheduledHousekeeping(new Date(), { dryRun });
   return json({ report }, 200);
 });

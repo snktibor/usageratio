@@ -1,4 +1,4 @@
-import { apiError, json, readJsonBody, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { parseArchivedOfficialUpdate } from "@/lib/official-usage";
 import { saveArchivedOfficial } from "@/lib/usage-store";
@@ -29,8 +29,9 @@ export const PUT = withApiHandler("api/official-usage/archived", async ({ reques
   const readOnly = demoReadOnly();
   if (readOnly) return readOnly;
 
-  const unauthorized = await requireSession();
-  if (unauthorized) return unauthorized;
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
+  const { store } = tenant;
 
   const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES });
   if (!body.ok) return body.response;
@@ -39,7 +40,7 @@ export const PUT = withApiHandler("api/official-usage/archived", async ({ reques
   if (!parsed.ok) return apiError("invalid_payload", 400, { details: parsed.errors });
 
   const { providerId, cycleStartMs, official, segmentStartMs } = parsed.update;
-  if (!(await saveArchivedOfficial(providerId, cycleStartMs, official, segmentStartMs))) {
+  if (!(await saveArchivedOfficial(store, providerId, cycleStartMs, official, segmentStartMs))) {
     return apiError("not_found", 404);
   }
 

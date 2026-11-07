@@ -1,4 +1,4 @@
-import { apiError, json, readJsonBody, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { grantSudo, pinShape } from "@/lib/auth";
 
 /**
@@ -20,16 +20,16 @@ function sudoInvalid(attemptsLeft?: number): Response {
 }
 
 export const GET = withApiHandler("api/auth/sudo", async () => {
-  const session = await requireSession();
-  if (session) return session;
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
   return json({ numeric: pinShape().numeric }, 200);
 });
 
 export const POST = withApiHandler("api/auth/sudo", async ({ request }) => {
   const origin = requireSameOrigin(request);
   if (origin) return origin;
-  const session = await requireSession();
-  if (session) return session;
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
 
   const body = await readJsonBody(request, { maxBytes: 1024 });
   if (!body.ok) return body.response;

@@ -1,4 +1,4 @@
-import { apiError, json, readJsonBody, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { hasSudo } from "@/lib/auth";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { deleteGroup, renameOrMergeGroup } from "@/lib/manage-store";
@@ -43,8 +43,9 @@ export async function PATCH(request: Request, context: { params: Promise<Params>
     if (origin) return origin;
     const readOnly = demoReadOnly();
     if (readOnly) return readOnly;
-    const unauthorized = await requireSession();
-    if (unauthorized) return unauthorized;
+    const tenant = await requireTenantSession();
+    if (tenant instanceof Response) return tenant;
+    const { store } = tenant;
 
     const idErrors: string[] = [];
     const groupId = parseId(group, "group", idErrors);
@@ -57,7 +58,7 @@ export async function PATCH(request: Request, context: { params: Promise<Params>
 
     if (parsed.merge && !(await hasSudo())) return apiError("sudo_required", 403);
 
-    const result = await renameOrMergeGroup(groupId, parsed.id, parsed.merge, new Date());
+    const result = await renameOrMergeGroup(store, groupId, parsed.id, parsed.merge, new Date());
     if (!result.ok)
       return apiError(
         result.reason === "exists" ? "group_exists" : "not_found",
@@ -74,8 +75,9 @@ export async function DELETE(request: Request, context: { params: Promise<Params
     if (origin) return origin;
     const readOnly = demoReadOnly();
     if (readOnly) return readOnly;
-    const unauthorized = await requireSession();
-    if (unauthorized) return unauthorized;
+    const tenant = await requireTenantSession();
+    if (tenant instanceof Response) return tenant;
+    const { store } = tenant;
     if (!(await hasSudo())) return apiError("sudo_required", 403);
 
     const idErrors: string[] = [];
@@ -83,7 +85,7 @@ export async function DELETE(request: Request, context: { params: Promise<Params
     if (idErrors.length > 0) return apiError("invalid_payload", 400, { details: idErrors });
 
     const force = url.searchParams.get("force") === "1";
-    const result = await deleteGroup(groupId, force, new Date());
+    const result = await deleteGroup(store, groupId, force, new Date());
     if (!result.ok) {
       return apiError(
         result.reason === "has_events" ? "group_has_events" : "not_found",

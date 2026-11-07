@@ -1,4 +1,4 @@
-import { apiError, json, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { hasSudo } from "@/lib/auth";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { encryptionKey, revealApiToken } from "@/lib/token-vault";
@@ -22,14 +22,15 @@ export const POST = withApiHandler("api/api-token/reveal", async ({ request }) =
   const readOnly = demoReadOnly();
   if (readOnly) return readOnly;
 
-  const session = await requireSession();
-  if (session) return session;
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
+  const { store } = tenant;
   if (!(await hasSudo())) return apiError("sudo_required", 403);
 
   const key = encryptionKey();
   if (!key) return apiError("encryption_key_missing", 500);
 
-  const revealed = await revealApiToken(key, new Date());
+  const revealed = await revealApiToken(store, key, new Date());
   if (revealed.state === "empty") return apiError("no_token", 404);
   if (revealed.state === "unreadable") return apiError("token_unreadable", 409);
   return json({ token: revealed.token }, 200);

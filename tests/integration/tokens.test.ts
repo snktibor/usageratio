@@ -3,10 +3,10 @@ import { DELETE as deleteTokenRoute } from "@/app/api/tokens/[id]/route";
 import { GET as getTokens, POST as postTokens } from "@/app/api/tokens/route";
 import { POST as postUsage } from "@/app/api/usage/route";
 import { getRedis, toStringRecord } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { sha256Hex } from "@/lib/security";
 import { useRedis } from "../helpers/redis-fixture";
 import { seedSession } from "../helpers/session";
+import { KEYS } from "../helpers/tenant";
 
 /**
  * /api/tokens (GET, POST) and /api/tokens/[id] (DELETE): the settings panel's

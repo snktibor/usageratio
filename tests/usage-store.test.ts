@@ -3,7 +3,6 @@ import { getConfig, MAX_MACHINES } from "@/lib/config";
 import { type CycleSummary, serializeCycleSummary } from "@/lib/history";
 import { MAX_PROVIDERS } from "@/lib/providers";
 import { getMemoryStoreForTests, getRedis, toStringRecord } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { emptyResets, type ProviderResets } from "@/lib/resets";
 import { MAX_GROUPS, ownResetOf, resolveConfig } from "@/lib/settings";
 import {
@@ -19,6 +18,7 @@ import {
 } from "@/lib/usage-store";
 import { parseUsageReport, type UsageReport } from "@/lib/validation";
 import { useRedis } from "./helpers/redis-fixture";
+import { KEYS, tenant } from "./helpers/tenant";
 
 const NOW = new Date("2026-09-23T00:00:00Z");
 const OPTIONS = { now: NOW, maxClockSkewMinutes: 10, retentionDays: 70, timeZone: "UTC" };
@@ -40,8 +40,11 @@ function report(body: Record<string, unknown>): UsageReport {
 }
 
 /** `storeReport`, asserting it was not refused by a registry cap. */
-async function storeOk(...args: Parameters<typeof storeReport>) {
-  const result = await storeReport(...args);
+/** `storeReport`'s arguments after the store. */
+type ReportArgs = Parameters<typeof storeReport> extends [unknown, ...infer Rest] ? Rest : never;
+
+async function storeOk(...args: ReportArgs) {
+  const result = await storeReport(tenant, ...args);
   if (!result.ok) throw new Error(`storeReport refused: ${result.refused} (limit ${result.limit})`);
   return result;
 }
@@ -50,25 +53,25 @@ describe("storeReport — duplicate detection", () => {
   useRedis();
 
   it("stores a report once; the identical retry is a duplicate that changes nothing", async () => {
-    const first = await storeReport(report({}), NOW, 70, null);
+    const first = await storeReport(tenant, report({}), NOW, 70, null);
     expect(first).toEqual({ ok: true, duplicate: false, newGroup: true, newProviders: ["claude"], heartbeat: false });
 
-    const second = await storeReport(report({}), NOW, 70, null);
+    const second = await storeReport(tenant, report({}), NOW, 70, null);
     expect(second).toEqual({ ok: true, duplicate: true, newGroup: false, newProviders: [], heartbeat: false });
 
-    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    const { eventsByProvider } = await loadEvents(tenant, ["claude"], GROUPS, 0);
     expect(eventsByProvider.claude).toHaveLength(1);
   });
 
   it("is not a duplicate when the machine, the tokens or the time differ", async () => {
-    await storeReport(report({}), NOW, 70, null);
+    await storeReport(tenant, report({}), NOW, 70, null);
     expect((await storeOk(report({ providers: { claude: 9999 } }), NOW, 70, null)).duplicate).toBe(false);
     expect((await storeOk(report({ machineId: "other" }), NOW, 70, null)).duplicate).toBe(false);
     expect((await storeOk(report({ timestamp: "2026-09-22T11:00:00Z" }), NOW, 70, null)).duplicate).toBe(false);
   });
 
   it("is a duplicate only once every one of its providers' events was already stored", async () => {
-    await storeReport(report({ providers: { claude: 100, deepseek: 50 } }), NOW, 70, null);
+    await storeReport(tenant, report({ providers: { claude: 100, deepseek: 50 } }), NOW, 70, null);
     // Claude repeats exactly, DeepSeek does not: not a duplicate overall, and both providers are already known.
     const mixed = await storeOk(report({ providers: { claude: 100, deepseek: 999 } }), NOW, 70, null);
     expect(mixed.duplicate).toBe(false);
@@ -84,7 +87,7 @@ describe("loadOldestReportTime", () => {
 
   it("is null before any report, then the oldest report over every provider and group", async () => {
     const groups = [...GROUPS, { groupId: "Work", color: null, firstSeenAt: 0 }];
-    expect(await loadOldestReportTime(["claude", "deepseek"], groups)).toBeNull();
+    expect(await loadOldestReportTime(tenant, ["claude", "deepseek"], groups)).toBeNull();
 
     await storeOk(report({ timestamp: "2026-09-22T10:00:00Z" }), NOW, 70, null);
     await storeOk(
@@ -95,8 +98,8 @@ describe("loadOldestReportTime", () => {
     );
     await storeOk(report({ timestamp: "2026-09-22T12:00:00Z" }), NOW, 70, null);
 
-    expect(await loadOldestReportTime(["claude", "deepseek"], groups)).toBe(Date.parse("2026-09-21T08:00:00Z"));
-    expect(await loadOldestReportTime(["claude"], groups)).toBe(Date.parse("2026-09-22T10:00:00Z"));
+    expect(await loadOldestReportTime(tenant, ["claude", "deepseek"], groups)).toBe(Date.parse("2026-09-21T08:00:00Z"));
+    expect(await loadOldestReportTime(tenant, ["claude"], groups)).toBe(Date.parse("2026-09-22T10:00:00Z"));
   });
 });
 
@@ -111,7 +114,7 @@ describe("storeReport — cost (an opt-in API-list-price estimate)", () => {
     });
     await storeOk(withCost, NOW, 70, null);
 
-    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    const { eventsByProvider } = await loadEvents(tenant, ["claude"], GROUPS, 0);
     expect(eventsByProvider.claude).toEqual([
       {
         machineId: "mac",
@@ -132,7 +135,7 @@ describe("storeReport — cost (an opt-in API-list-price estimate)", () => {
     expect(member).not.toHaveProperty("$");
     expect(member).not.toHaveProperty("$b");
 
-    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    const { eventsByProvider } = await loadEvents(tenant, ["claude"], GROUPS, 0);
     expect(eventsByProvider.claude![0]).not.toHaveProperty("costUsd");
     expect(eventsByProvider.claude![0]).not.toHaveProperty("modelCosts");
   });
@@ -142,7 +145,7 @@ describe("storeReport — cost (an opt-in API-list-price estimate)", () => {
       score: 1000,
       member: JSON.stringify({ m: "old-mac", t: 500, ts: 1000 }),
     });
-    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    const { eventsByProvider } = await loadEvents(tenant, ["claude"], GROUPS, 0);
     expect(eventsByProvider.claude).toEqual([{ machineId: "old-mac", groupId: "Personal", tokens: 500, ts: 1000 }]);
   });
 
@@ -156,9 +159,9 @@ describe("storeReport — cost (an opt-in API-list-price estimate)", () => {
         "2026-09-22": { providers: { claude: 200 } },
       },
     });
-    await storeReport(withDays, NOW, 70, cycle);
+    await storeReport(tenant, withDays, NOW, 70, cycle);
 
-    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    const { eventsByProvider } = await loadEvents(tenant, ["claude"], GROUPS, 0);
     const checkpoint = eventsByProvider.claude!.find((event) => event.checkpoint);
     expect(checkpoint).toBeDefined();
     expect(checkpoint).not.toHaveProperty("costUsd");
@@ -178,9 +181,9 @@ describe("storeReport — day checkpoints", () => {
         "2026-09-22": { providers: { claude: 200 } },
       },
     });
-    await storeReport(withDays, NOW, 70, cycle);
+    await storeReport(tenant, withDays, NOW, 70, cycle);
 
-    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    const { eventsByProvider } = await loadEvents(tenant, ["claude"], GROUPS, 0);
     const checkpoints = eventsByProvider.claude!.filter((event) => event.checkpoint);
     expect(checkpoints).toEqual([
       {
@@ -205,8 +208,8 @@ describe("storeReport — day checkpoints", () => {
       },
     });
     // A failed settings read (lib/ingest.ts) passes `null`: the report is stored, checkpoints are skipped.
-    await storeReport(withDays, NOW, 70, null);
-    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    await storeReport(tenant, withDays, NOW, 70, null);
+    const { eventsByProvider } = await loadEvents(tenant, ["claude"], GROUPS, 0);
     expect(eventsByProvider.claude).toHaveLength(1);
     expect(eventsByProvider.claude![0]!.checkpoint).toBeUndefined();
   });
@@ -219,7 +222,7 @@ describe("storeReport — day checkpoints", () => {
         "2026-09-22": { providers: { claude: 200 } },
       },
     });
-    await storeReport(first, NOW, 70, cycle);
+    await storeReport(tenant, first, NOW, 70, cycle);
 
     const second = report({
       providers: { claude: 1500 },
@@ -229,9 +232,9 @@ describe("storeReport — day checkpoints", () => {
         "2026-09-22": { providers: { claude: 500 } },
       },
     });
-    await storeReport(second, NOW, 70, cycle);
+    await storeReport(tenant, second, NOW, 70, cycle);
 
-    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    const { eventsByProvider } = await loadEvents(tenant, ["claude"], GROUPS, 0);
     // Two report events (10:00 and 14:00) plus one checkpoint: the day-21 checkpoint is identical both
     // times (same machine, tokens and moment), so ZADD NX skips the retry rather than storing it twice.
     expect(eventsByProvider.claude).toHaveLength(3);
@@ -243,10 +246,10 @@ describe("storeReport — heartbeat (an empty providers snapshot)", () => {
   useRedis();
 
   it("registers the group and writes nothing else", async () => {
-    const result = await storeReport(report({ providers: {} }), NOW, 70, null);
+    const result = await storeReport(tenant, report({ providers: {} }), NOW, 70, null);
     expect(result).toEqual({ ok: true, duplicate: false, newGroup: true, newProviders: [], heartbeat: true });
 
-    const indexes = await loadIndexes();
+    const indexes = await loadIndexes(tenant);
     expect(indexes.groups.map((group) => group.groupId)).toEqual(["Personal"]);
     expect(indexes.providers).toEqual([]);
     expect(indexes.machines).toEqual([]);
@@ -254,18 +257,18 @@ describe("storeReport — heartbeat (an empty providers snapshot)", () => {
   });
 
   it("a second heartbeat of an already-known group is not a new group, and still writes nothing else", async () => {
-    await storeReport(report({ providers: {} }), NOW, 70, null);
-    const again = await storeReport(report({ providers: {}, machineId: "other" }), NOW, 70, null);
+    await storeReport(tenant, report({ providers: {} }), NOW, 70, null);
+    const again = await storeReport(tenant, report({ providers: {}, machineId: "other" }), NOW, 70, null);
     expect(again).toEqual({ ok: true, duplicate: false, newGroup: false, newProviders: [], heartbeat: true });
     expect(getMemoryStoreForTests()?.keys()).toEqual(["usage:groups"]);
   });
 
   it("a real report after a heartbeat registers its provider and machine as usual", async () => {
-    await storeReport(report({ providers: {} }), NOW, 70, null);
-    const real = await storeReport(report({ providers: { claude: 500 } }), NOW, 70, null);
+    await storeReport(tenant, report({ providers: {} }), NOW, 70, null);
+    const real = await storeReport(tenant, report({ providers: { claude: 500 } }), NOW, 70, null);
     expect(real).toEqual({ ok: true, duplicate: false, newGroup: false, newProviders: ["claude"], heartbeat: false });
 
-    const indexes = await loadIndexes();
+    const indexes = await loadIndexes(tenant);
     expect(indexes.providers.map((provider) => provider.providerId)).toEqual(["claude"]);
     expect(indexes.machines).toHaveLength(1);
   });
@@ -276,7 +279,7 @@ describe("storeReport — machine mode and interval", () => {
 
   it("defaults a machine to auto/null and omits both fields from the stored entry", async () => {
     await storeOk(report({}), NOW, 70, null);
-    const indexes = await loadIndexes();
+    const indexes = await loadIndexes(tenant);
     expect(indexes.machines).toEqual([
       expect.objectContaining({ machineId: "mac", mode: "auto", intervalMinutes: null }),
     ]);
@@ -290,7 +293,7 @@ describe("storeReport — machine mode and interval", () => {
     await storeOk(report({ machineId: "phone", mode: "manual" }), NOW, 70, null);
     await storeOk(report({ machineId: "server", mode: "auto", intervalMinutes: 30 }), NOW, 70, null);
 
-    const indexes = await loadIndexes();
+    const indexes = await loadIndexes(tenant);
     const byId = new Map(indexes.machines.map((machine) => [machine.machineId, machine]));
     expect(byId.get("phone")).toEqual(
       expect.objectContaining({ machineId: "phone", mode: "manual", intervalMinutes: null }),
@@ -310,7 +313,7 @@ describe("storeReport — machine mode and interval", () => {
 
   it("reads an entry stored before mode/interval existed as auto/null (production Redis)", async () => {
     await getRedis().hset("usage:machines", { "claude:old-mac": JSON.stringify({ g: "Personal", ts: 1000, t: 500 }) });
-    const indexes = await loadIndexes();
+    const indexes = await loadIndexes(tenant);
     expect(indexes.machines).toEqual([
       expect.objectContaining({ machineId: "old-mac", mode: "auto", intervalMinutes: null }),
     ]);
@@ -320,7 +323,7 @@ describe("storeReport — machine mode and interval", () => {
     await getRedis().hset("usage:machines", {
       "claude:weird": JSON.stringify({ g: "Personal", ts: 1000, t: 500, iv: -5 }),
     });
-    const indexes = await loadIndexes();
+    const indexes = await loadIndexes(tenant);
     expect(indexes.machines).toEqual([
       expect.objectContaining({ machineId: "weird", mode: "auto", intervalMinutes: null }),
     ]);
@@ -334,9 +337,9 @@ describe("storeReport — registry caps", () => {
     for (let i = 0; i < MAX_GROUPS; i++) {
       await storeOk(report({ groupId: `Group ${i}`, providers: {} }), NOW, 70, null);
     }
-    expect((await storeReport(report({ groupId: "Group 0", providers: {} }), NOW, 70, null)).ok).toBe(true);
+    expect((await storeReport(tenant, report({ groupId: "Group 0", providers: {} }), NOW, 70, null)).ok).toBe(true);
 
-    const refused = await storeReport(report({ groupId: "Group new", providers: {} }), NOW, 70, null);
+    const refused = await storeReport(tenant, report({ groupId: "Group new", providers: {} }), NOW, 70, null);
     expect(refused).toEqual({ ok: false, refused: "too_many_groups", limit: MAX_GROUPS });
   });
 
@@ -344,9 +347,9 @@ describe("storeReport — registry caps", () => {
     for (let i = 0; i < MAX_PROVIDERS; i++) {
       await storeOk(report({ providers: { [`provider${i}`]: 10 } }), NOW, 70, null);
     }
-    expect((await storeReport(report({ providers: { provider0: 20 } }), NOW, 70, null)).ok).toBe(true);
+    expect((await storeReport(tenant, report({ providers: { provider0: 20 } }), NOW, 70, null)).ok).toBe(true);
 
-    const refused = await storeReport(report({ providers: { brandnew: 10 } }), NOW, 70, null);
+    const refused = await storeReport(tenant, report({ providers: { brandnew: 10 } }), NOW, 70, null);
     expect(refused).toEqual({ ok: false, refused: "too_many_providers", limit: MAX_PROVIDERS });
   });
 
@@ -354,9 +357,9 @@ describe("storeReport — registry caps", () => {
     for (let i = 0; i < MAX_MACHINES; i++) {
       await storeOk(report({ machineId: `m${i}` }), NOW, 70, null);
     }
-    expect((await storeReport(report({ machineId: "m0" }), NOW, 70, null)).ok).toBe(true);
+    expect((await storeReport(tenant, report({ machineId: "m0" }), NOW, 70, null)).ok).toBe(true);
 
-    const refused = await storeReport(report({ machineId: "brand-new-machine" }), NOW, 70, null);
+    const refused = await storeReport(tenant, report({ machineId: "brand-new-machine" }), NOW, 70, null);
     expect(refused).toEqual({ ok: false, refused: "too_many_machines", limit: MAX_MACHINES });
   });
 
@@ -365,7 +368,7 @@ describe("storeReport — registry caps", () => {
       await storeOk(report({ providers: { [`provider${i}`]: 10 } }), NOW, 70, null);
     }
     // Providers (and their "provider:mac" machines) are already at their cap; a heartbeat still goes through.
-    const heartbeat = await storeReport(report({ providers: {}, machineId: "another" }), NOW, 70, null);
+    const heartbeat = await storeReport(tenant, report({ providers: {}, machineId: "another" }), NOW, 70, null);
     expect(heartbeat).toEqual({ ok: true, duplicate: false, newGroup: false, newProviders: [], heartbeat: true });
   });
 });
@@ -390,19 +393,19 @@ describe("resets", () => {
   };
 
   it("saves and loads one provider's resets, and drops a document left empty", async () => {
-    await saveResets("claude", resets);
-    expect((await loadResets()).claude).toEqual(resets);
-    expect((await loadIndexes()).resets.claude).toEqual(resets);
-    await saveResets("claude", emptyResets());
-    expect(await loadResets()).toEqual({});
+    await saveResets(tenant, "claude", resets);
+    expect((await loadResets(tenant)).claude).toEqual(resets);
+    expect((await loadIndexes(tenant)).resets.claude).toEqual(resets);
+    await saveResets(tenant, "claude", emptyResets());
+    expect(await loadResets(tenant)).toEqual({});
   });
 
   it("sets and removes a provider's own reset", async () => {
     const own = { weekday: 2, monthDay: 22, hour: 14, minute: 0, source: "reset" as const };
-    await saveResetOverride("openai", own, NOW, ["openai"]);
-    expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toEqual(own);
-    await saveResetOverride("openai", null, NOW, ["openai"]);
-    expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toBeNull();
+    await saveResetOverride(tenant, "openai", own, NOW, ["openai"]);
+    expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings(tenant)), "openai")).toEqual(own);
+    await saveResetOverride(tenant, "openai", null, NOW, ["openai"]);
+    expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings(tenant)), "openai")).toBeNull();
   });
 
   describe("saveResetChange", () => {
@@ -424,26 +427,26 @@ describe("resets", () => {
     const change = { providerId: "openai", providerIds: ["openai"], now: NOW, officialFields: {} };
 
     it("writes the resets, and removes a document left empty", async () => {
-      await saveResetChange({ ...change, resets, rawSettings: null });
-      expect((await loadResets()).openai).toEqual(resets);
-      await saveResetChange({ ...change, resets: emptyResets(), rawSettings: null });
-      expect(await loadResets()).toEqual({});
+      await saveResetChange(tenant, { ...change, resets, rawSettings: null });
+      expect((await loadResets(tenant)).openai).toEqual(resets);
+      await saveResetChange(tenant, { ...change, resets: emptyResets(), rawSettings: null });
+      expect(await loadResets(tenant)).toEqual({});
     });
 
     it("sets and removes the provider's own reset, and leaves it alone when none is given", async () => {
-      await saveResetChange({ ...change, resets, override: own, rawSettings: await loadRawSettings() });
-      expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toEqual(own);
-      await saveResetChange({ ...change, resets, rawSettings: await loadRawSettings() });
-      expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toEqual(own);
-      await saveResetChange({ ...change, resets, override: null, rawSettings: await loadRawSettings() });
-      expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toBeNull();
+      await saveResetChange(tenant, { ...change, resets, override: own, rawSettings: await loadRawSettings(tenant) });
+      expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings(tenant)), "openai")).toEqual(own);
+      await saveResetChange(tenant, { ...change, resets, rawSettings: await loadRawSettings(tenant) });
+      expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings(tenant)), "openai")).toEqual(own);
+      await saveResetChange(tenant, { ...change, resets, override: null, rawSettings: await loadRawSettings(tenant) });
+      expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings(tenant)), "openai")).toBeNull();
     });
 
     it("deletes the archived summary at the given start only", async () => {
       const history = KEYS.history("openai");
       await getRedis().zadd(history, { score: 1000, member: serializeCycleSummary(archived(1000)) });
       await getRedis().zadd(history, { score: 5000, member: serializeCycleSummary(archived(5000)) });
-      await saveResetChange({ ...change, resets, rawSettings: null, deleteArchivedStartMs: 1000 });
+      await saveResetChange(tenant, { ...change, resets, rawSettings: null, deleteArchivedStartMs: 1000 });
       expect(await getRedis().zrange(history, 0, -1)).toEqual([serializeCycleSummary(archived(5000))]);
     });
 
@@ -451,21 +454,21 @@ describe("resets", () => {
       const ledger = KEYS.allTime("openai");
       await getRedis().hset(ledger, { "1000": serializeCycleSummary(archived(1000)) });
       await getRedis().hset(ledger, { "5000": serializeCycleSummary(archived(5000)) });
-      await saveResetChange({ ...change, resets, rawSettings: null, deleteArchivedStartMs: 1000 });
+      await saveResetChange(tenant, { ...change, resets, rawSettings: null, deleteArchivedStartMs: 1000 });
       expect(Object.keys(toStringRecord(await getRedis().hgetall(ledger)))).toEqual(["5000"]);
     });
 
     it("writes the official fields, and nothing for none", async () => {
-      await saveResetChange({ ...change, resets, rawSettings: null });
-      expect((await loadIndexes()).officialUsage).toEqual({});
-      await saveResetChange({ ...change, resets, rawSettings: null, officialFields: { claude: figure } });
-      expect((await loadIndexes()).officialUsage).toEqual({ claude: figure });
+      await saveResetChange(tenant, { ...change, resets, rawSettings: null });
+      expect((await loadIndexes(tenant)).officialUsage).toEqual({});
+      await saveResetChange(tenant, { ...change, resets, rawSettings: null, officialFields: { claude: figure } });
+      expect((await loadIndexes(tenant)).officialUsage).toEqual({ claude: figure });
     });
 
     it("writes all of it in one transaction", async () => {
       await getRedis().zadd(KEYS.history("openai"), { score: 1000, member: serializeCycleSummary(archived(1000)) });
       const multi = vi.spyOn(getRedis(), "multi");
-      await saveResetChange({
+      await saveResetChange(tenant, {
         ...change,
         resets,
         override: own,
@@ -474,10 +477,10 @@ describe("resets", () => {
         officialFields: { claude: figure },
       });
       expect(multi).toHaveBeenCalledTimes(1);
-      expect((await loadResets()).openai).toEqual(resets);
-      expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), "openai")).toEqual(own);
+      expect((await loadResets(tenant)).openai).toEqual(resets);
+      expect(ownResetOf(resolveConfig(getConfig(), await loadRawSettings(tenant)), "openai")).toEqual(own);
       expect(await getRedis().zcard(KEYS.history("openai"))).toBe(0);
-      expect((await loadIndexes()).officialUsage).toEqual({ claude: figure });
+      expect((await loadIndexes(tenant)).officialUsage).toEqual({ claude: figure });
     });
   });
 });
@@ -496,14 +499,14 @@ describe("storeReport — the counting basis", () => {
       },
     });
     await storeOk(withDays, NOW, 70, { timeZone: "UTC", startMs: S });
-    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    const { eventsByProvider } = await loadEvents(tenant, ["claude"], GROUPS, 0);
     expect(eventsByProvider.claude!.some((event) => event.checkpoint)).toBe(true);
     expect(eventsByProvider.claude!.every((event) => event.basisMs === S)).toBe(true);
   });
 
   it("stamps nothing when the cycle could not be read", async () => {
     await storeOk(report({}), NOW, 70, null);
-    const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0);
+    const { eventsByProvider } = await loadEvents(tenant, ["claude"], GROUPS, 0);
     expect(eventsByProvider.claude![0]).not.toHaveProperty("basisMs");
   });
 
@@ -528,7 +531,7 @@ describe("storeReport — the counting basis", () => {
       },
     };
     const tokensOf = async (withResets: Record<string, ProviderResets>) => {
-      const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0, withResets);
+      const { eventsByProvider } = await loadEvents(tenant, ["claude"], GROUPS, 0, withResets);
       return eventsByProvider.claude!.map((event) => event.tokens);
     };
 
@@ -559,7 +562,7 @@ describe("storeReport — the counting basis", () => {
         score: Date.parse("2026-09-22T17:00:00Z"),
         member: JSON.stringify({ m: "linux", t: 50, ts: Date.parse("2026-09-22T17:00:00Z"), s: "yesterday" }),
       });
-      const { eventsByProvider } = await loadEvents(["claude"], GROUPS, 0, resets);
+      const { eventsByProvider } = await loadEvents(tenant, ["claude"], GROUPS, 0, resets);
       const damaged = eventsByProvider.claude!.filter((event) => event.machineId === "linux");
       expect(damaged).toHaveLength(1);
       expect(damaged[0]).not.toHaveProperty("basisMs");

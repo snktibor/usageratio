@@ -1,5 +1,13 @@
 /**
- * Redis key layout — every key name the app uses, in one place.
+ * Redis key layout — every key name the app uses, in one place. No other
+ * module may spell a key: tests/redis-key-literals.test.ts fails on a string
+ * that starts with `usage:` or `t:` anywhere else.
+ *
+ * Tenant keys. Every key below up to "Global keys" belongs to one tenant
+ * (lib/tenant.ts) and is built by `tenantKeys(tenantId)` behind the tenant's
+ * prefix: `usage:` for the `default` tenant (so a single-tenant instance keeps
+ * exactly the key names it always had), `t:{tenantId}:usage:` for any other.
+ * They are written below with the `default` tenant's names.
  *
  *   usage:settings                        STRING provider limits, shared reset/display settings, and providers' own reset moments (resetOverrides; an entry may carry source?: "report" | "reset", and with it anchorMs?: the instant its weekly cycles step from by whole weeks) and reset modes (resetModes)
  *   usage:providers                       HASH   providerId → first-seen ms
@@ -43,6 +51,14 @@
  *
  *   usage:housekeeping:last  STRING {"at": ms, "report": HousekeepingReport} — the last run of
  *                                   lib/housekeeping.ts (see app/api/cron/housekeeping/route.ts)
+ *
+ *   usage:keys               SET    the tenant's key registry: the name of every dynamic key
+ *                                   (events, history, all-time, alert guards) it has written,
+ *                                   added in the same transaction as the write that creates the
+ *                                   key. With the fixed keys (`fixedTenantKeys`) it lists every
+ *                                   key the tenant owns without a SCAN, which deleting a tenant
+ *                                   relies on. A name whose key has since expired or emptied may
+ *                                   linger; it is harmless, and any later write registers it again.
  *
  *   usage:alert:{providerId}:{segmentStartMs}:{threshold}
  *                             STRING "1", SET NX EX 70d — the guard that makes a threshold
@@ -96,23 +112,115 @@
  * and archives the cycle that just ended; it never touches the event ZSETs,
  * which already self-prune on every report (`storeReport` in lib/usage-store.ts).
  *
- * Auth and rate-limit keys are built next to their code: usage:session:*,
- * usage:auth:* (lib/auth.ts) and usage:rl:* (lib/rate-limit.ts callers).
+ * Global keys (`GLOBAL_KEYS`), shared by every tenant:
+ *
+ *   usage:session:{sha256(sessionId:pin)}       STRING {"c": created ms, "s": last seen ms} — a PIN
+ *                                                session (lib/auth.ts)
+ *   usage:session:{sha256(sessionId:pin)}:sudo  STRING "1" EX 5 min — sudo on that session
+ *   usage:auth:ip:{sha256(ip)[:32]}             STRING failed-guess counter per address
+ *   usage:auth:ip:{sha256(ip)[:32]}:strikes     STRING lockout strikes per address (24h)
+ *   usage:auth:global                           STRING guesses from unknown browsers (1h window)
+ *   usage:auth:device:{sha256(deviceId)}        STRING "1" — a browser that has logged in before
+ *   usage:rl:*                                  STRING fixed-window rate-limit counters
+ *                                               (lib/rate-limit.ts), named in `GLOBAL_KEYS.rateLimit`
+ *   usage:demo:seededAt, usage:demo:seeding     STRING demo mode's seed stamp and lock (lib/demo/seed.ts)
  */
-export const KEYS = {
-  settings: "usage:settings",
-  providers: "usage:providers",
-  groups: "usage:groups",
-  machines: "usage:machines",
-  officialUsage: "usage:official",
-  resets: "usage:resets",
-  events: (providerId: string, groupId: string) => `usage:events:${providerId}:${groupId}`,
-  history: (providerId: string) => `usage:history:${providerId}`,
-  allTime: (providerId: string) => `usage:alltime:${providerId}`,
-  apiToken: "usage:api-token",
-  apiTokenAudit: "usage:api-token:audit",
-  housekeepingLast: "usage:housekeeping:last",
-  tokens: "usage:tokens",
-  alert: (providerId: string, segmentStartMs: number, threshold: number) =>
-    `usage:alert:${providerId}:${segmentStartMs}:${threshold}`,
+import { assertTenantId, DEFAULT_TENANT, type TenantId } from "@/lib/tenant-id";
+
+/** The key names of one tenant (see the layout above). */
+export interface TenantKeys {
+  /** `usage:` or `t:{tenantId}:usage:`: every key of the tenant starts with it. */
+  prefix: string;
+  settings: string;
+  providers: string;
+  groups: string;
+  machines: string;
+  officialUsage: string;
+  resets: string;
+  events: (providerId: string, groupId: string) => string;
+  history: (providerId: string) => string;
+  allTime: (providerId: string) => string;
+  apiToken: string;
+  apiTokenAudit: string;
+  housekeepingLast: string;
+  tokens: string;
+  alert: (providerId: string, segmentStartMs: number, threshold: number) => string;
+  registry: string;
+}
+
+/** The key prefix of `tenantId`: the `default` tenant keeps the bare `usage:` names. */
+function tenantPrefix(tenantId: TenantId): string {
+  assertTenantId(tenantId);
+  return tenantId === DEFAULT_TENANT ? "usage:" : `t:${tenantId}:usage:`;
+}
+
+export function tenantKeys(tenantId: TenantId): TenantKeys {
+  const p = tenantPrefix(tenantId);
+  return {
+    prefix: p,
+    settings: `${p}settings`,
+    providers: `${p}providers`,
+    groups: `${p}groups`,
+    machines: `${p}machines`,
+    officialUsage: `${p}official`,
+    resets: `${p}resets`,
+    events: (providerId, groupId) => `${p}events:${providerId}:${groupId}`,
+    history: (providerId) => `${p}history:${providerId}`,
+    allTime: (providerId) => `${p}alltime:${providerId}`,
+    apiToken: `${p}api-token`,
+    apiTokenAudit: `${p}api-token:audit`,
+    housekeepingLast: `${p}housekeeping:last`,
+    tokens: `${p}tokens`,
+    alert: (providerId, segmentStartMs, threshold) => `${p}alert:${providerId}:${segmentStartMs}:${threshold}`,
+    registry: `${p}keys`,
+  };
+}
+
+/** Every key of a tenant that has a fixed name; the dynamic ones are in its registry (`keys.registry`). */
+export function fixedTenantKeys(keys: TenantKeys): string[] {
+  return [
+    keys.settings,
+    keys.providers,
+    keys.groups,
+    keys.machines,
+    keys.officialUsage,
+    keys.resets,
+    keys.apiToken,
+    keys.apiTokenAudit,
+    keys.housekeepingLast,
+    keys.tokens,
+    keys.registry,
+  ];
+}
+
+/** Glob patterns matching a tenant's dynamic keys: only for scripts that may SCAN (the demo seed's wipe, migrations). */
+export function dynamicTenantKeyPatterns(keys: TenantKeys): string[] {
+  const p = keys.prefix;
+  return [`${p}events:*`, `${p}history:*`, `${p}alltime:*`, `${p}alert:*`];
+}
+
+/** Keys shared by every tenant (see "Global keys" above). */
+export const GLOBAL_KEYS = {
+  pinSession: (hash: string) => `usage:session:${hash}`,
+  authIp: (ipHash: string) => `usage:auth:ip:${ipHash}`,
+  authIpStrikes: (ipHash: string) => `usage:auth:ip:${ipHash}:strikes`,
+  authGlobal: "usage:auth:global",
+  authDevice: (deviceHash: string) => `usage:auth:device:${deviceHash}`,
+  rateLimit: {
+    unauth: (ipHash: string) => `usage:rl:unauth:${ipHash}`,
+    cycle: (tokenId: string) => `usage:rl:cycle:${tokenId}`,
+    ingestMachine: (hash: string) => `usage:rl:ingest:${hash}`,
+    ingestGlobal: (hourBucket: string) => `usage:rl:ingest:global:${hourBucket}`,
+    status: (tokenId: string) => `usage:rl:status:${tokenId}`,
+    official: (tokenId: string) => `usage:rl:official:${tokenId}`,
+    alertsTest: "usage:rl:alerts-test",
+  },
+  demoSeededAt: "usage:demo:seededAt",
+  demoSeeding: "usage:demo:seeding",
+  demoPattern: "usage:demo:*",
+};
+
+/** The pre-provider layout lib/migrate-legacy.ts migrates from (the `default` tenant's only). */
+export const LEGACY_KEYS = {
+  events: (groupId: string) => `usage:events:${groupId}`,
 };

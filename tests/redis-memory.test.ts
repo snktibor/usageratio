@@ -12,6 +12,7 @@ import {
   storeReport,
 } from "@/lib/usage-store";
 import { parseUsageReport, type UsageReport } from "@/lib/validation";
+import { tenant } from "./helpers/tenant";
 
 const T0 = Date.parse("2026-09-23T12:00:00Z");
 
@@ -109,6 +110,23 @@ describe("the memory store under the real @upstash/redis client", () => {
     expect(await redis.zcard("moved")).toBe(3);
     expect(await redis.renamenx("moved", "other")).toBe(0);
     await expect(redis.rename("nope", "x")).rejects.toThrow(/no such key/);
+  });
+
+  it("keeps sets: SADD counts new members, SREM drops the key with its last one", async () => {
+    expect(await redis.sadd("s", "b", "a")).toBe(2);
+    expect(await redis.sadd("s", "a", "c")).toBe(1);
+    expect(await redis.smembers("s")).toEqual(["a", "b", "c"]);
+    expect(await redis.scard("s")).toBe(3);
+    expect(await redis.sismember("s", "b")).toBe(1);
+    expect(await redis.sismember("s", "z")).toBe(0);
+    expect(await redis.srem("s", "a", "z")).toBe(1);
+    expect(await redis.srem("s", "b", "c")).toBe(2);
+    expect(await redis.exists("s")).toBe(0);
+    expect(await redis.smembers("missing")).toEqual([]);
+    await redis.set("str", "x");
+    await expect(redis.sadd("str", "a")).rejects.toThrow("WRONGTYPE");
+    await redis.sadd("dumped", "y", "x");
+    expect(store.dump().dumped).toEqual({ type: "set", value: ["x", "y"], ttl: -1 });
   });
 
   it("keeps lists newest-first with LPUSH, LTRIM and LRANGE", async () => {
@@ -228,7 +246,7 @@ describe("the application's store code on the memory store", () => {
   it("stores a report once: the same report again is a duplicate", async () => {
     const now = new Date(T0 + 1000);
     const cycle = { timeZone: "Europe/Budapest", startMs: T0 - 86_400_000 };
-    const first = await storeReport(report({}), now, 70, cycle);
+    const first = await storeReport(tenant, report({}), now, 70, cycle);
     expect(first).toEqual({
       ok: true,
       duplicate: false,
@@ -236,7 +254,7 @@ describe("the application's store code on the memory store", () => {
       newProviders: ["claude", "deepseek"],
       heartbeat: false,
     });
-    const second = await storeReport(report({}), now, 70, cycle);
+    const second = await storeReport(tenant, report({}), now, 70, cycle);
     expect(second).toEqual({ ok: true, duplicate: true, newGroup: false, newProviders: [], heartbeat: false });
 
     const store = getMemoryStoreForTests()!;
@@ -244,23 +262,30 @@ describe("the application's store code on the memory store", () => {
       "usage:events:claude:Personal",
       "usage:events:deepseek:Personal",
       "usage:groups",
+      "usage:keys",
       "usage:machines",
       "usage:providers",
     ]);
     expect(store.ttl("usage:events:claude:Personal")).toBe(71 * 86_400);
+    // The registry names every dynamic key the report created (lib/redis-keys.ts).
+    expect(store.dump()["usage:keys"]?.value).toEqual([
+      "usage:events:claude:Personal",
+      "usage:events:deepseek:Personal",
+    ]);
   });
 
   it("reads back the indexes and the events it stored", async () => {
     const now = new Date(T0 + 1000);
-    await storeReport(report({}), now, 70, null);
+    await storeReport(tenant, report({}), now, 70, null);
     await storeReport(
+      tenant,
       report({ machineId: "thinkpad", groupId: "Work", providers: { claude: 100 }, models: {} }),
       now,
       70,
       null,
     );
 
-    const indexes = await loadIndexes();
+    const indexes = await loadIndexes(tenant);
     expect(indexes.settings).toBeNull();
     expect(indexes.groups.map((group) => group.groupId).sort()).toEqual(["Personal", "Work"]);
     expect(indexes.providers.map((provider) => provider.providerId)).toEqual(["claude", "deepseek"]);
@@ -271,7 +296,7 @@ describe("the application's store code on the memory store", () => {
     ]);
 
     const providerIds = indexes.providers.map((provider) => provider.providerId);
-    const { eventsByProvider, groups } = await loadEvents(providerIds, indexes.groups, T0 - 3_600_000);
+    const { eventsByProvider, groups } = await loadEvents(tenant, providerIds, indexes.groups, T0 - 3_600_000);
     expect(eventsByProvider.claude).toHaveLength(2);
     expect(eventsByProvider.claude).toContainEqual({
       machineId: "mac-studio",
@@ -303,22 +328,22 @@ describe("the application's store code on the memory store", () => {
     });
     if (!parsed.ok) throw new Error(parsed.errors.join("; "));
 
-    expect(await saveSettings(parsed.update, new Date(T0), ["claude"])).toEqual({ ok: true });
-    const raw = await loadRawSettings();
+    expect(await saveSettings(tenant, parsed.update, new Date(T0), ["claude"])).toEqual({ ok: true });
+    const raw = await loadRawSettings(tenant);
     expect(raw).not.toBeNull();
     expect(JSON.parse(raw!)).toMatchObject({ period: "weekly", limits: { claude: 500_000 }, updatedAt: T0 });
-    const indexes = await loadIndexes();
+    const indexes = await loadIndexes(tenant);
     expect(indexes.groups).toEqual([{ groupId: "Work", color: "#3987e5", firstSeenAt: T0 }]);
   });
 
   it("stores and clears an official-usage figure", async () => {
     const parsed = parseOfficialUsageUpdate({ providerId: "claude", subLimitId: null, raw: "45.5", cycleStartMs: T0 });
     if (!parsed.ok) throw new Error(parsed.errors.join("; "));
-    await saveOfficialUsage(parsed.update, new Date(T0 + 5000));
-    expect((await loadIndexes()).officialUsage).toEqual({
+    await saveOfficialUsage(tenant, parsed.update, new Date(T0 + 5000));
+    expect((await loadIndexes(tenant)).officialUsage).toEqual({
       claude: JSON.stringify({ raw: "45.5", enteredAt: T0 + 5000, cycleStartMs: T0 }),
     });
-    await saveOfficialUsage({ ...parsed.update, raw: "" }, new Date(T0 + 6000));
-    expect((await loadIndexes()).officialUsage).toEqual({});
+    await saveOfficialUsage(tenant, { ...parsed.update, raw: "" }, new Date(T0 + 6000));
+    expect((await loadIndexes(tenant)).officialUsage).toEqual({});
   });
 });

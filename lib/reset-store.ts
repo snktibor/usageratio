@@ -20,6 +20,7 @@ import {
 } from "@/lib/reset-recording";
 import { addReset, cycleResets, type ProviderResets, type ResetEvent, resetsOf } from "@/lib/resets";
 import { ownResetOf, resetModeOf, resolveConfig, storedProviderIds, withResetOverride } from "@/lib/settings";
+import type { TenantStore } from "@/lib/tenant";
 import { loadIndexes, saveResetChange } from "@/lib/usage-store";
 
 /**
@@ -76,9 +77,9 @@ function extraFigure(action: ResetAction, event: ResetEvent): { raw: string; ent
   return null;
 }
 
-export async function applyResetAction(action: ResetAction, now: Date): Promise<ResetActionResult> {
+export async function applyResetAction(store: TenantStore, action: ResetAction, now: Date): Promise<ResetActionResult> {
   const { providerId } = action.request;
-  const indexes = await loadIndexes();
+  const indexes = await loadIndexes(store);
   const providerIds = mergeProviderIds(
     indexes.providers.map((provider) => provider.providerId),
     storedProviderIds(indexes.settings),
@@ -113,7 +114,7 @@ export async function applyResetAction(action: ResetAction, now: Date): Promise<
   if (!change.ok) return change;
 
   const after = change.override === undefined ? config : withResetOverride(config, providerId, change.override);
-  await saveResetChange({
+  await saveResetChange(store, {
     providerId,
     resets: change.resets,
     ...(change.override !== undefined && { override: change.override }),
@@ -146,22 +147,25 @@ export async function applyResetAction(action: ResetAction, now: Date): Promise<
  * and `providerIds` are those read with the request (`loadIndexes`). The caller
  * stores the reading itself.
  */
-export async function saveDetectedReset(params: {
-  providerId: string;
-  config: AppConfig;
-  resets: ProviderResets;
-  reset: Omit<ResetEvent, "id">;
-  override: ResetOverride | null;
-  rawSettings: string | null;
-  providerIds: string[];
-  rawOfficialUsage: Record<string, string>;
-  now: Date;
-}): Promise<ResetEvent> {
+export async function saveDetectedReset(
+  store: TenantStore,
+  params: {
+    providerId: string;
+    config: AppConfig;
+    resets: ProviderResets;
+    reset: Omit<ResetEvent, "id">;
+    override: ResetOverride | null;
+    rawSettings: string | null;
+    providerIds: string[];
+    rawOfficialUsage: Record<string, string>;
+    now: Date;
+  },
+): Promise<ResetEvent> {
   const { providerId, config, resets, reset, override, rawSettings, providerIds, rawOfficialUsage, now } = params;
   const event: ResetEvent = { id: randomUUID(), ...reset };
   const updated = addReset(resets, event);
   const after = override ? withResetOverride(config, providerId, override) : config;
-  await saveResetChange({
+  await saveResetChange(store, {
     providerId,
     resets: updated,
     ...(override && { override }),

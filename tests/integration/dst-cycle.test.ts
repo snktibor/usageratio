@@ -4,11 +4,11 @@ import { GET as getStatus } from "@/app/api/status/route";
 import { getConfig } from "@/lib/config";
 import { ingestReport } from "@/lib/ingest";
 import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { serializeSettings, settingsFromConfig, type UsageSettings } from "@/lib/settings";
 import type { StatusPayload } from "@/lib/status";
 import { createToken } from "@/lib/tokens";
 import { useRedis } from "../helpers/redis-fixture";
+import { KEYS, tenant } from "../helpers/tenant";
 
 /**
  * 2026-10-24, as it happened: Budapest left summer time the next night, and
@@ -44,6 +44,7 @@ describe("a provider's own reset across a DST shift", () => {
   const ingest = async (tokens: number, iso: string) => {
     const now = at(iso);
     const stored = await ingestReport(
+      tenant,
       { machineId: "zsiga-mac", groupId: "zsiga", providers: { claude: tokens }, timestamp: now.toISOString() },
       now,
     );
@@ -69,7 +70,7 @@ describe("a provider's own reset across a DST shift", () => {
     await ingest(3_736_784_569, "2026-10-24T10:03:57Z");
 
     const now = at("2026-10-24T11:20:00Z");
-    const created = await createToken("menu bar", null, now, "official");
+    const created = await createToken(tenant, "menu bar", null, now, "official");
     if (!created.ok) throw new Error("token not created");
     const answer = await postOfficial(
       new Request("http://localhost/api/official-usage/report", {

@@ -1,4 +1,4 @@
-import { apiError, json, readJsonBody, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { hasSudo } from "@/lib/auth";
 import { getConfig } from "@/lib/config";
 import { demoReadOnly } from "@/lib/demo/mode";
@@ -59,8 +59,9 @@ export async function PATCH(request: Request, context: { params: Promise<Params>
     if (origin) return origin;
     const readOnly = demoReadOnly();
     if (readOnly) return readOnly;
-    const unauthorized = await requireSession();
-    if (unauthorized) return unauthorized;
+    const tenant = await requireTenantSession();
+    if (tenant instanceof Response) return tenant;
+    const { store } = tenant;
 
     const segments = parseSegments(raw);
     if (!segments) return apiError("invalid_payload", 400, { details: ["invalid provider or machine id"] });
@@ -71,8 +72,9 @@ export async function PATCH(request: Request, context: { params: Promise<Params>
     if ("errors" in parsed) return apiError("invalid_payload", 400, { details: parsed.errors });
     if (parsed.merge && !(await hasSudo())) return apiError("sudo_required", 403);
 
-    const config = resolveConfig(getConfig(), await loadRawSettings());
+    const config = resolveConfig(getConfig(), await loadRawSettings(store));
     const result = await moveMachine(
+      store,
       segments.providerId,
       segments.machineId,
       { machineId: parsed.id, groupId: parsed.group },
@@ -100,14 +102,15 @@ export async function DELETE(request: Request, context: { params: Promise<Params
     if (origin) return origin;
     const readOnly = demoReadOnly();
     if (readOnly) return readOnly;
-    const unauthorized = await requireSession();
-    if (unauthorized) return unauthorized;
+    const tenant = await requireTenantSession();
+    if (tenant instanceof Response) return tenant;
+    const { store } = tenant;
     if (!(await hasSudo())) return apiError("sudo_required", 403);
 
     const segments = parseSegments(raw);
     if (!segments) return apiError("invalid_payload", 400, { details: ["invalid provider or machine id"] });
 
-    const result = await deleteMachine(segments.providerId, segments.machineId);
+    const result = await deleteMachine(store, segments.providerId, segments.machineId);
     if (!result.ok) return apiError("not_found", 404);
     return json({ ok: true, affected: result.affected }, 200);
   })(request);

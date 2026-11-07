@@ -1,4 +1,4 @@
-import { apiError, json, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { hasSudo } from "@/lib/auth";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { deleteProvider } from "@/lib/manage-store";
@@ -30,15 +30,16 @@ export async function DELETE(request: Request, context: { params: Promise<Params
     if (origin) return origin;
     const readOnly = demoReadOnly();
     if (readOnly) return readOnly;
-    const unauthorized = await requireSession();
-    if (unauthorized) return unauthorized;
+    const tenant = await requireTenantSession();
+    if (tenant instanceof Response) return tenant;
+    const { store } = tenant;
     if (!(await hasSudo())) return apiError("sudo_required", 403);
 
     const providerId = normalizeProviderId(provider);
     if (!providerId) return apiError("invalid_payload", 400, { details: ["invalid provider id"] });
 
     const force = url.searchParams.get("force") === "1";
-    const result = await deleteProvider(providerId, force, new Date());
+    const result = await deleteProvider(store, providerId, force, new Date());
     if (!result.ok) {
       return apiError(
         result.reason === "has_events" ? "provider_has_events" : "not_found",

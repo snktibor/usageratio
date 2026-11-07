@@ -3,9 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { evaluateAlerts, sendTestAlert } from "@/lib/alerts";
 import type { AlertsConfig } from "@/lib/config";
 import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import en from "@/messages/en.json";
 import { useRedis } from "./helpers/redis-fixture";
+import { KEYS, tenant } from "./helpers/tenant";
 
 /**
  * `getTranslations` (next-intl/server) resolves its config through the
@@ -52,7 +52,7 @@ describe("evaluateAlerts", () => {
 
   it("does nothing without a webhook URL", async () => {
     const fetchSpy = mockFetch();
-    await evaluateAlerts({
+    await evaluateAlerts(tenant, {
       providerId: "claude",
       label: "Claude",
       usedFraction: 0.9,
@@ -65,7 +65,7 @@ describe("evaluateAlerts", () => {
 
   it("does nothing while no threshold is crossed", async () => {
     const fetchSpy = mockFetch();
-    await evaluateAlerts({
+    await evaluateAlerts(tenant, {
       providerId: "claude",
       label: "Claude",
       usedFraction: 0.3,
@@ -86,16 +86,16 @@ describe("evaluateAlerts", () => {
       settings: alertsConfig(),
       now: new Date(),
     };
-    await evaluateAlerts(params);
+    await evaluateAlerts(tenant, params);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    await evaluateAlerts(params);
-    await evaluateAlerts(params);
+    await evaluateAlerts(tenant, params);
+    await evaluateAlerts(tenant, params);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it("claims the threshold in Redis with a ~70 day TTL", async () => {
     mockFetch();
-    await evaluateAlerts({
+    await evaluateAlerts(tenant, {
       providerId: "claude",
       label: "Claude",
       usedFraction: 0.55,
@@ -113,8 +113,8 @@ describe("evaluateAlerts", () => {
   it("fires again once usage crosses a higher threshold in the same cycle", async () => {
     const fetchSpy = mockFetch();
     const base = { providerId: "claude", label: "Claude", cycle: CYCLE, settings: alertsConfig(), now: new Date() };
-    await evaluateAlerts({ ...base, usedFraction: 0.55 });
-    await evaluateAlerts({ ...base, usedFraction: 0.85 });
+    await evaluateAlerts(tenant, { ...base, usedFraction: 0.55 });
+    await evaluateAlerts(tenant, { ...base, usedFraction: 0.85 });
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(bodyOf(fetchSpy, 0).threshold).toBe(50);
     expect(bodyOf(fetchSpy, 1).threshold).toBe(80);
@@ -122,7 +122,7 @@ describe("evaluateAlerts", () => {
 
   it("sends only the highest of several thresholds crossed at once", async () => {
     const fetchSpy = mockFetch();
-    await evaluateAlerts({
+    await evaluateAlerts(tenant, {
       providerId: "claude",
       label: "Claude",
       usedFraction: 1.5,
@@ -143,9 +143,9 @@ describe("evaluateAlerts", () => {
       settings: alertsConfig(),
       now: new Date(),
     };
-    await evaluateAlerts({ ...base, cycle: CYCLE });
+    await evaluateAlerts(tenant, { ...base, cycle: CYCLE });
     const nextCycle = { startMs: CYCLE.endMs, endMs: CYCLE.endMs + 604_800_000, timeZone: "UTC" };
-    await evaluateAlerts({ ...base, cycle: nextCycle });
+    await evaluateAlerts(tenant, { ...base, cycle: nextCycle });
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
@@ -159,22 +159,22 @@ describe("evaluateAlerts", () => {
       settings: alertsConfig(),
       now: new Date(),
     };
-    await Promise.all([evaluateAlerts(params), evaluateAlerts(params)]);
+    await Promise.all([evaluateAlerts(tenant, params), evaluateAlerts(tenant, params)]);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it("evaluates each provider on its own key", async () => {
     const fetchSpy = mockFetch();
     const base = { label: "Claude", usedFraction: 0.55, cycle: CYCLE, settings: alertsConfig(), now: new Date() };
-    await evaluateAlerts({ ...base, providerId: "claude" });
-    await evaluateAlerts({ ...base, providerId: "deepseek" });
+    await evaluateAlerts(tenant, { ...base, providerId: "claude" });
+    await evaluateAlerts(tenant, { ...base, providerId: "deepseek" });
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   describe("payload formats", () => {
     it("generic: a structured JSON body with the provider, threshold and cycle", async () => {
       const fetchSpy = mockFetch();
-      await evaluateAlerts({
+      await evaluateAlerts(tenant, {
         providerId: "claude",
         label: "Claude",
         usedFraction: 0.85,
@@ -195,7 +195,7 @@ describe("evaluateAlerts", () => {
 
     it("slack: a text field with the label and threshold", async () => {
       const fetchSpy = mockFetch();
-      await evaluateAlerts({
+      await evaluateAlerts(tenant, {
         providerId: "claude",
         label: "Claude",
         usedFraction: 0.85,
@@ -212,7 +212,7 @@ describe("evaluateAlerts", () => {
 
     it("discord: a content field with the label and threshold", async () => {
       const fetchSpy = mockFetch();
-      await evaluateAlerts({
+      await evaluateAlerts(tenant, {
         providerId: "claude",
         label: "Claude",
         usedFraction: 0.85,
@@ -230,7 +230,7 @@ describe("evaluateAlerts", () => {
   it("never throws when the webhook fails", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("down")));
     await expect(
-      evaluateAlerts({
+      evaluateAlerts(tenant, {
         providerId: "claude",
         label: "Claude",
         usedFraction: 0.9,

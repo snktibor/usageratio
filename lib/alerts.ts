@@ -7,10 +7,9 @@ import { parseOfficialPercent } from "@/lib/ground-truth";
 import { log } from "@/lib/log";
 import type { OfficialUsageUpdate } from "@/lib/official-usage";
 import { providerLabel } from "@/lib/providers";
-import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { resetEventsOf, segmentStartAt } from "@/lib/resets";
 import { countsForProvider, parseStoredSettings, settingsFromConfig, type UsageSettings } from "@/lib/settings";
+import type { TenantStore } from "@/lib/tenant";
 import { loadEvents, loadIndexes, loadRawSettings, loadResets } from "@/lib/usage-store";
 import type { UsageReport } from "@/lib/validation";
 import { sendWebhook, type WebhookResult } from "@/lib/webhook";
@@ -161,7 +160,7 @@ async function sendAlert(params: EvaluateAlertsParams & { threshold: number; use
  * without a message of their own. A no-op without a webhook URL, or when
  * nothing new was crossed.
  */
-export async function evaluateAlerts(params: EvaluateAlertsParams): Promise<void> {
+export async function evaluateAlerts(store: TenantStore, params: EvaluateAlertsParams): Promise<void> {
   try {
     const { providerId, usedFraction, cycle, settings } = params;
     if (!settings.webhookUrl) return;
@@ -170,12 +169,15 @@ export async function evaluateAlerts(params: EvaluateAlertsParams): Promise<void
     const crossed = settings.thresholds.filter((threshold) => usedPercent >= threshold).sort((a, b) => a - b);
     if (crossed.length === 0) return;
 
-    const redis = getRedis();
+    const redis = store.redis;
     let highestNew: number | null = null;
     for (const threshold of crossed) {
-      const key = KEYS.alert(providerId, cycle.segmentStartMs ?? cycle.startMs, threshold);
+      const key = store.keys.alert(providerId, cycle.segmentStartMs ?? cycle.startMs, threshold);
       const result = await redis.set(key, 1, { nx: true, ex: ALERT_TTL_SECONDS });
-      if (result === "OK") highestNew = threshold;
+      if (result === "OK") {
+        highestNew = threshold;
+        await redis.sadd(store.keys.registry, key);
+      }
     }
     if (highestNew === null) return;
 
@@ -191,13 +193,13 @@ export async function evaluateAlerts(params: EvaluateAlertsParams): Promise<void
  * (one extra round trip; nothing else already has them at this point) and
  * aggregates them exactly as the dashboard does (lib/aggregate.ts).
  */
-export async function checkIngestAlerts(report: UsageReport, now: Date): Promise<void> {
+export async function checkIngestAlerts(store: TenantStore, report: UsageReport, now: Date): Promise<void> {
   try {
     const providerIds = Object.keys(report.providers);
     if (providerIds.length === 0) return; // a heartbeat: nothing was measured
 
     const config = getConfig();
-    const indexes = await loadIndexes();
+    const indexes = await loadIndexes(store);
     const settings = parseStoredSettings(indexes.settings, settingsFromConfig(config));
     const { alerts } = settings;
     if (!alerts.webhookUrl || !settings.useTokenLimits) return;
@@ -215,7 +217,7 @@ export async function checkIngestAlerts(report: UsageReport, now: Date): Promise
         now.getTime(),
       );
 
-      const { eventsByProvider } = await loadEvents([providerId], indexes.groups, startMs, indexes.resets);
+      const { eventsByProvider } = await loadEvents(store, [providerId], indexes.groups, startMs, indexes.resets);
       const events = (eventsByProvider[providerId] ?? []).filter((event) =>
         countsForProvider(settings.excludedProviders, event.groupId, providerId),
       );
@@ -223,7 +225,7 @@ export async function checkIngestAlerts(report: UsageReport, now: Date): Promise
       const limit = settings.limits[providerId] ?? config.limit;
       if (!(limit > 0)) continue;
 
-      await evaluateAlerts({
+      await evaluateAlerts(store, {
         providerId,
         label: providerLabel(providerId),
         usedFraction: summary.total / limit,
@@ -244,7 +246,11 @@ export async function checkIngestAlerts(report: UsageReport, now: Date): Promise
  * from measured tokens. Skipped for a figure saved for an earlier segment or
  * cycle: it says nothing about the current one.
  */
-export async function checkOfficialUsageAlerts(update: OfficialUsageUpdate, now: Date): Promise<void> {
+export async function checkOfficialUsageAlerts(
+  store: TenantStore,
+  update: OfficialUsageUpdate,
+  now: Date,
+): Promise<void> {
   try {
     if (update.subLimitId !== null) return;
 
@@ -252,7 +258,7 @@ export async function checkOfficialUsageAlerts(update: OfficialUsageUpdate, now:
     if (percent === null) return;
 
     const config = getConfig();
-    const [rawSettings, resets] = await Promise.all([loadRawSettings(), loadResets()]);
+    const [rawSettings, resets] = await Promise.all([loadRawSettings(store), loadResets(store)]);
     const settings = parseStoredSettings(rawSettings, settingsFromConfig(config));
     const { alerts } = settings;
     if (!alerts.webhookUrl || settings.useTokenLimits) return;
@@ -264,7 +270,7 @@ export async function checkOfficialUsageAlerts(update: OfficialUsageUpdate, now:
     const segmentStartMs = segmentStartAt(window, resetEventsOf(resets, update.providerId), now.getTime());
     if (update.cycleStartMs !== segmentStartMs) return;
 
-    await evaluateAlerts({
+    await evaluateAlerts(store, {
       providerId: update.providerId,
       label: providerLabel(update.providerId),
       usedFraction: percent / 100,

@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { isDemoMode } from "@/lib/demo/mode";
 import { log } from "@/lib/log";
 import { getRedis } from "@/lib/redis";
+import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { clientIp, currentCookies, defer, isHttpsRequest } from "@/lib/request-context";
 import { safeEqual, sha256Hex } from "@/lib/security";
 
@@ -39,7 +40,7 @@ const BASE_LOCKOUT_SECONDS = 15 * 60;
 const MAX_LOCKOUT_SECONDS = 6 * 60 * 60;
 const GLOBAL_MAX_ATTEMPTS = 30;
 const GLOBAL_WINDOW_SECONDS = 60 * 60;
-const GLOBAL_KEY = "usage:auth:global";
+const GLOBAL_KEY = GLOBAL_KEYS.authGlobal;
 const DEVICE_TTL_SECONDS = 365 * 24 * 60 * 60;
 const SUDO_TTL_SECONDS = 5 * 60;
 const DEFAULT_SESSION_IDLE_DAYS = 7;
@@ -93,7 +94,7 @@ function sessionMaxSeconds(): number {
 
 /** Bound to the PIN: changing DASHBOARD_PIN orphans every existing session. */
 function sessionKey(sessionId: string, pin: string): string {
-  return `usage:session:${sha256Hex(`${sessionId}:${pin}`)}`;
+  return GLOBAL_KEYS.pinSession(sha256Hex(`${sessionId}:${pin}`));
 }
 
 /** The sudo flag lives right next to the session it belongs to. */
@@ -102,7 +103,7 @@ function sudoKey(sessionId: string, pin: string): string {
 }
 
 function deviceKey(deviceId: string): string {
-  return `usage:auth:device:${sha256Hex(deviceId)}`;
+  return GLOBAL_KEYS.authDevice(sha256Hex(deviceId));
 }
 
 /** The per-IP counter's key fragment: never logged in full (see `logIpHash`). */
@@ -140,12 +141,12 @@ type IpLimiterResult = { ok: true; attemptsLeft: number } | { ok: false; retryAf
  * budget whichever door it is aimed at.
  */
 async function checkIpLimiter(hash: string): Promise<IpLimiterResult> {
-  const key = `usage:auth:ip:${hash}`;
+  const key = GLOBAL_KEYS.authIp(hash);
   const { count, retryAfterSeconds } = await countAttempt(key, IP_WINDOW_SECONDS);
   if (count <= IP_MAX_ATTEMPTS) return { ok: true, attemptsLeft: IP_MAX_ATTEMPTS - count };
 
   if (count === IP_MAX_ATTEMPTS + 1) {
-    const strikes = await countAttempt(`${key}:strikes`, STRIKES_TTL_SECONDS);
+    const strikes = await countAttempt(GLOBAL_KEYS.authIpStrikes(hash), STRIKES_TTL_SECONDS);
     const lockoutSeconds = Math.min(BASE_LOCKOUT_SECONDS * 2 ** (strikes.count - 1), MAX_LOCKOUT_SECONDS);
     await getRedis().expire(key, lockoutSeconds);
     return { ok: false, retryAfterSeconds: lockoutSeconds };
@@ -211,8 +212,8 @@ export async function attemptLogin(pin: string): Promise<LoginResult> {
   const tx = redis.multi();
   tx.set(sessionKey(sessionId, expected), JSON.stringify({ c: now, s: now }), { ex: maxSeconds });
   tx.set(deviceKey(newDeviceId), "1", { ex: DEVICE_TTL_SECONDS });
-  tx.del(`usage:auth:ip:${hash}`);
-  tx.del(`usage:auth:ip:${hash}:strikes`);
+  tx.del(GLOBAL_KEYS.authIp(hash));
+  tx.del(GLOBAL_KEYS.authIpStrikes(hash));
   if (globalCounted) tx.decr(GLOBAL_KEY); // a successful login is not a failed guess
   await tx.exec();
 
@@ -270,8 +271,8 @@ export async function grantSudo(pin: string): Promise<LoginResult> {
 
   const tx = getRedis().multi();
   tx.set(sudoKey(sessionId, expected), "1", { ex: SUDO_TTL_SECONDS });
-  tx.del(`usage:auth:ip:${hash}`);
-  tx.del(`usage:auth:ip:${hash}:strikes`);
+  tx.del(GLOBAL_KEYS.authIp(hash));
+  tx.del(GLOBAL_KEYS.authIpStrikes(hash));
   await tx.exec();
   return { ok: true };
 }

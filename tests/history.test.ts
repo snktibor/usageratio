@@ -19,6 +19,7 @@ import { getRedis } from "@/lib/redis";
 import type { SubLimit } from "@/lib/sub-limits";
 import { archiveCycle, loadHistory, loadNewestArchivedStarts, saveArchivedOfficial } from "@/lib/usage-store";
 import { useRedis } from "./helpers/redis-fixture";
+import { tenant } from "./helpers/tenant";
 
 const HOUR = 3_600_000;
 const WINDOW = { startMs: 0, endMs: 7 * 24 * HOUR };
@@ -414,28 +415,28 @@ describe("archiveCycle / loadHistory / loadNewestArchivedStarts", () => {
   useRedis();
 
   it("writes a new cycle, and loadHistory reads it back newest first", async () => {
-    expect(await archiveCycle("claude", summaryAt(HOUR))).toBe(true);
-    expect(await archiveCycle("claude", summaryAt(2 * HOUR))).toBe(true);
+    expect(await archiveCycle(tenant, "claude", summaryAt(HOUR))).toBe(true);
+    expect(await archiveCycle(tenant, "claude", summaryAt(2 * HOUR))).toBe(true);
 
-    const history = await loadHistory(["claude"]);
+    const history = await loadHistory(tenant, ["claude"]);
     expect(history.claude?.map((entry) => entry.start)).toEqual([2 * HOUR, HOUR]);
   });
 
   it("is idempotent: the identical summary archived twice is written once", async () => {
     const summary = summaryAt(HOUR);
-    expect(await archiveCycle("claude", summary)).toBe(true);
+    expect(await archiveCycle(tenant, "claude", summary)).toBe(true);
     // A second render building the very same bytes (see lib/history.ts `archivedAt`) loses the ZADD NX race harmlessly.
-    expect(await archiveCycle("claude", summary)).toBe(false);
+    expect(await archiveCycle(tenant, "claude", summary)).toBe(false);
 
-    const history = await loadHistory(["claude"]);
+    const history = await loadHistory(tenant, ["claude"]);
     expect(history.claude).toHaveLength(1);
   });
 
   it("keeps only the newest HISTORY_RETENTION cycles per provider", async () => {
     for (let i = 1; i <= HISTORY_RETENTION + 5; i += 1) {
-      await archiveCycle("claude", summaryAt(i * HOUR));
+      await archiveCycle(tenant, "claude", summaryAt(i * HOUR));
     }
-    const history = await loadHistory(["claude"]);
+    const history = await loadHistory(tenant, ["claude"]);
     expect(history.claude).toHaveLength(HISTORY_RETENTION);
     // The oldest 5 were trimmed away; the newest HISTORY_RETENTION remain, newest first.
     expect(history.claude?.[0]?.start).toBe((HISTORY_RETENTION + 5) * HOUR);
@@ -443,25 +444,25 @@ describe("archiveCycle / loadHistory / loadNewestArchivedStarts", () => {
   });
 
   it("keeps every provider's history in its own key", async () => {
-    await archiveCycle("claude", summaryAt(HOUR));
-    await archiveCycle("openai", summaryAt(HOUR));
-    const history = await loadHistory(["claude", "openai"]);
+    await archiveCycle(tenant, "claude", summaryAt(HOUR));
+    await archiveCycle(tenant, "openai", summaryAt(HOUR));
+    const history = await loadHistory(tenant, ["claude", "openai"]);
     expect(history.claude).toHaveLength(1);
     expect(history.openai).toHaveLength(1);
   });
 
   it("reports the newest archived start per provider, and null before anything is archived", async () => {
-    expect(await loadNewestArchivedStarts(["claude"])).toEqual({ claude: null });
-    await archiveCycle("claude", summaryAt(HOUR));
-    await archiveCycle("claude", summaryAt(3 * HOUR));
-    await archiveCycle("claude", summaryAt(2 * HOUR));
-    expect(await loadNewestArchivedStarts(["claude", "openai"])).toEqual({ claude: 3 * HOUR, openai: null });
+    expect(await loadNewestArchivedStarts(tenant, ["claude"])).toEqual({ claude: null });
+    await archiveCycle(tenant, "claude", summaryAt(HOUR));
+    await archiveCycle(tenant, "claude", summaryAt(3 * HOUR));
+    await archiveCycle(tenant, "claude", summaryAt(2 * HOUR));
+    expect(await loadNewestArchivedStarts(tenant, ["claude", "openai"])).toEqual({ claude: 3 * HOUR, openai: null });
   });
 
   it("skips a damaged member instead of failing the whole read", async () => {
-    await archiveCycle("claude", summaryAt(HOUR));
+    await archiveCycle(tenant, "claude", summaryAt(HOUR));
     await getRedis().zadd("usage:history:claude", { score: 2 * HOUR, member: "not json" });
-    const history = await loadHistory(["claude"]);
+    const history = await loadHistory(tenant, ["claude"]);
     expect(history.claude?.map((entry) => entry.start)).toEqual([HOUR]);
   });
 });
@@ -471,11 +472,11 @@ describe("saveArchivedOfficial", () => {
 
   it("corrects the archived figure and keeps every other field", async () => {
     const summary = { ...summaryAt(HOUR), total: 1234, official: 82, groups: { work: 1234 } };
-    await archiveCycle("claude", summary);
-    await archiveCycle("claude", summaryAt(2 * HOUR));
+    await archiveCycle(tenant, "claude", summary);
+    await archiveCycle(tenant, "claude", summaryAt(2 * HOUR));
 
-    expect(await saveArchivedOfficial("claude", HOUR, 100)).toBe(true);
-    const history = await loadHistory(["claude"]);
+    expect(await saveArchivedOfficial(tenant, "claude", HOUR, 100)).toBe(true);
+    const history = await loadHistory(tenant, ["claude"]);
     expect(history.claude).toHaveLength(2);
     expect(history.claude?.[1]).toEqual({ ...summary, official: 100 });
     expect(history.claude?.[0]?.official).toBeNull();
@@ -491,10 +492,10 @@ describe("saveArchivedOfficial", () => {
       ],
       endedByReset: true,
     };
-    await archiveCycle("claude", summary);
+    await archiveCycle(tenant, "claude", summary);
 
-    expect(await saveArchivedOfficial("claude", HOUR, 95)).toBe(true);
-    expect((await loadHistory(["claude"])).claude?.[0]).toEqual({
+    expect(await saveArchivedOfficial(tenant, "claude", HOUR, 95)).toBe(true);
+    expect((await loadHistory(tenant, ["claude"])).claude?.[0]).toEqual({
       ...summary,
       official: 175,
       segments: [summary.segments![0], { ...summary.segments![1]!, official: 95 }],
@@ -510,28 +511,28 @@ describe("saveArchivedOfficial", () => {
         { start: 2 * HOUR, end: 3 * HOUR, official: 20, total: 250, groups: { work: 250 } },
       ],
     };
-    await archiveCycle("claude", summary);
+    await archiveCycle(tenant, "claude", summary);
 
-    expect(await saveArchivedOfficial("claude", HOUR, 60, HOUR)).toBe(true);
-    expect((await loadHistory(["claude"])).claude?.[0]?.official).toBe(80);
-    expect(await saveArchivedOfficial("claude", HOUR, 60, 5 * HOUR)).toBe(false);
-    expect((await loadHistory(["claude"])).claude?.[0]?.official).toBe(80);
+    expect(await saveArchivedOfficial(tenant, "claude", HOUR, 60, HOUR)).toBe(true);
+    expect((await loadHistory(tenant, ["claude"])).claude?.[0]?.official).toBe(80);
+    expect(await saveArchivedOfficial(tenant, "claude", HOUR, 60, 5 * HOUR)).toBe(false);
+    expect((await loadHistory(tenant, ["claude"])).claude?.[0]?.official).toBe(80);
   });
 
   it("clears the figure with null, and leaves one summary of the cycle after several corrections", async () => {
-    await archiveCycle("claude", { ...summaryAt(HOUR), official: 82 });
-    await saveArchivedOfficial("claude", HOUR, 90);
-    await saveArchivedOfficial("claude", HOUR, null);
+    await archiveCycle(tenant, "claude", { ...summaryAt(HOUR), official: 82 });
+    await saveArchivedOfficial(tenant, "claude", HOUR, 90);
+    await saveArchivedOfficial(tenant, "claude", HOUR, null);
     const raw = await getRedis().zrange("usage:history:claude", 0, -1);
     expect(raw).toHaveLength(1);
-    expect((await loadHistory(["claude"])).claude?.[0]?.official).toBeNull();
+    expect((await loadHistory(tenant, ["claude"])).claude?.[0]?.official).toBeNull();
   });
 
   it("writes nothing for a cycle that has no archived summary", async () => {
-    await archiveCycle("claude", summaryAt(HOUR));
-    expect(await saveArchivedOfficial("claude", 2 * HOUR, 100)).toBe(false);
-    expect(await saveArchivedOfficial("openai", HOUR, 100)).toBe(false);
-    expect((await loadHistory(["claude"])).claude?.map((entry) => entry.start)).toEqual([HOUR]);
+    await archiveCycle(tenant, "claude", summaryAt(HOUR));
+    expect(await saveArchivedOfficial(tenant, "claude", 2 * HOUR, 100)).toBe(false);
+    expect(await saveArchivedOfficial(tenant, "openai", HOUR, 100)).toBe(false);
+    expect((await loadHistory(tenant, ["claude"])).claude?.map((entry) => entry.start)).toEqual([HOUR]);
     expect(await getRedis().exists("usage:history:openai")).toBe(0);
   });
 });

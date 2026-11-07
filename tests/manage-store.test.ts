@@ -12,9 +12,9 @@ import {
 } from "@/lib/manage-store";
 import { officialUsageField } from "@/lib/official-usage";
 import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { loadEvents, loadIndexes, saveResets } from "@/lib/usage-store";
 import { useRedis } from "./helpers/redis-fixture";
+import { KEYS, tenant } from "./helpers/tenant";
 
 const NOW = new Date("2026-09-23T00:00:00Z");
 /** The weekly cycle NOW falls in starts on Monday; ingest stamps every stored report with it. */
@@ -22,6 +22,7 @@ const CYCLE_START_MS = Date.parse("2026-09-21T00:00:00Z");
 
 async function ingest(body: Record<string, unknown>, now = NOW) {
   const result = await ingestReport(
+    tenant,
     { machineId: "mac", groupId: "Personal", providers: { claude: 100 }, timestamp: now.toISOString(), ...body },
     now,
   );
@@ -63,7 +64,7 @@ describe("moveMachine — rename", () => {
       timestamp: new Date(t2).toISOString(),
     });
 
-    const result = await moveMachine("claude", "mac-1", { machineId: "mac-1-renamed" }, MOVE);
+    const result = await moveMachine(tenant, "claude", "mac-1", { machineId: "mac-1-renamed" }, MOVE);
     expect(result).toEqual({ ok: true, affected: { events: 1, machines: 1, groups: 0 } });
 
     const key = KEYS.events("claude", "Personal");
@@ -81,7 +82,7 @@ describe("moveMachine — rename", () => {
 
   it("keeps a manual machine's mode and an auto one's interval in its index entry", async () => {
     await ingest({ machineId: "mac-1", mode: "manual" });
-    await moveMachine("claude", "mac-1", { machineId: "mac-9" }, MOVE);
+    await moveMachine(tenant, "claude", "mac-1", { machineId: "mac-9" }, MOVE);
     const moved = JSON.parse((await getRedis().hget<string>(KEYS.machines, "claude:mac-9"))!);
     expect(moved.md).toBe("manual");
   });
@@ -90,20 +91,20 @@ describe("moveMachine — rename", () => {
     await ingest({ machineId: "mac-1" });
     await ingest({ machineId: "mac-2" });
 
-    const result = await moveMachine("claude", "mac-1", { machineId: "mac-2" }, MOVE);
+    const result = await moveMachine(tenant, "claude", "mac-1", { machineId: "mac-2" }, MOVE);
     expect(result).toEqual({ ok: false, reason: "exists" });
     expect(await getRedis().hexists(KEYS.machines, "claude:mac-1")).toBe(1);
     expect(await getRedis().hexists(KEYS.machines, "claude:mac-2")).toBe(1);
   });
 
   it("answers not_found for a machine that does not exist", async () => {
-    const result = await moveMachine("claude", "ghost", { machineId: "new-name" }, MOVE);
+    const result = await moveMachine(tenant, "claude", "ghost", { machineId: "new-name" }, MOVE);
     expect(result).toEqual({ ok: false, reason: "not_found" });
   });
 
   it("is a no-op success when neither the id nor the group changes", async () => {
     await ingest({ machineId: "mac-1" });
-    const result = await moveMachine("claude", "mac-1", { machineId: "mac-1", groupId: "Personal" }, MOVE);
+    const result = await moveMachine(tenant, "claude", "mac-1", { machineId: "mac-1", groupId: "Personal" }, MOVE);
     expect(result).toEqual({ ok: true, affected: { events: 0, machines: 0, groups: 0 } });
   });
 });
@@ -115,7 +116,7 @@ describe("moveMachine — group", () => {
     await ingest({ machineId: "mac-1", groupId: "Personal", providers: { claude: 100 } });
     await ingest({ machineId: "mac-2", groupId: "Work", providers: { claude: 40 } });
 
-    const result = await moveMachine("claude", "mac-1", { groupId: "Work" }, MOVE);
+    const result = await moveMachine(tenant, "claude", "mac-1", { groupId: "Work" }, MOVE);
     expect(result).toEqual({ ok: true, affected: { events: 1, machines: 1, groups: 1 } });
 
     expect(await members(KEYS.events("claude", "Personal"))).toEqual([]);
@@ -127,7 +128,7 @@ describe("moveMachine — group", () => {
 
   it("answers group_not_found for a group nobody defined", async () => {
     await ingest({ machineId: "mac-1" });
-    expect(await moveMachine("claude", "mac-1", { groupId: "Nowhere" }, MOVE)).toEqual({
+    expect(await moveMachine(tenant, "claude", "mac-1", { groupId: "Nowhere" }, MOVE)).toEqual({
       ok: false,
       reason: "group_not_found",
     });
@@ -141,7 +142,7 @@ describe("moveMachine — group", () => {
     // Read as two machines today: 100 + 40.
     expect(await cycleTotal()).toBe(140);
 
-    const result = await moveMachine("claude", "mac-1", { groupId: "Work" }, MOVE);
+    const result = await moveMachine(tenant, "claude", "mac-1", { groupId: "Work" }, MOVE);
     expect(result).toEqual({ ok: true, affected: { events: 1, machines: 1, groups: 1 } });
     expect(await members(KEYS.events("claude", "Personal"))).toEqual([]);
     expect(await cycleTotal()).toBe(100);
@@ -162,9 +163,9 @@ async function seedHistory(groupId: string, machineId: string, points: [number, 
 
 /** The claude total of the cycle NOW falls in (weekly, from Monday), as the dashboard reads it. */
 async function cycleTotal(now = NOW): Promise<number> {
-  const indexes = await loadIndexes();
+  const indexes = await loadIndexes(tenant);
   const startMs = Date.parse("2026-09-21T00:00:00Z");
-  const { eventsByProvider } = await loadEvents(["claude"], indexes.groups, startMs);
+  const { eventsByProvider } = await loadEvents(tenant, ["claude"], indexes.groups, startMs);
   return summarizeUsage(eventsByProvider.claude!, { startMs, endMs: now.getTime() + 1 }, "snapshot").total;
 }
 
@@ -192,7 +193,7 @@ describe("moveMachine — merge", () => {
 
   it("refuses (exists) without the merge flag", async () => {
     await seedWrongInstall();
-    expect(await moveMachine("claude", "wrong", { machineId: "laptop" }, { ...MOVE, now: later })).toEqual({
+    expect(await moveMachine(tenant, "claude", "wrong", { machineId: "laptop" }, { ...MOVE, now: later })).toEqual({
       ok: false,
       reason: "exists",
     });
@@ -203,7 +204,13 @@ describe("moveMachine — merge", () => {
     // Read as two machines today: 150 + 200, day 2 counted twice.
     expect(await cycleTotal(later)).toBe(350);
 
-    const result = await moveMachine("claude", "wrong", { machineId: "laptop" }, { ...MOVE, merge: true, now: later });
+    const result = await moveMachine(
+      tenant,
+      "claude",
+      "wrong",
+      { machineId: "laptop" },
+      { ...MOVE, merge: true, now: later },
+    );
     expect(result).toEqual({ ok: true, affected: { events: 2, machines: 2, groups: 1 } });
 
     // Day 1: 100 (the wrong install), day 2: 100 (laptop), day 3: 60 (laptop).
@@ -230,6 +237,7 @@ describe("moveMachine — merge", () => {
     await seedWrongInstall();
     expect(
       await moveMachine(
+        tenant,
         "claude",
         "wrong",
         { machineId: "laptop" },
@@ -246,7 +254,7 @@ describe("deleteMachine", () => {
     await ingest({ machineId: "mac-1", providers: { claude: 100 } });
     await ingest({ machineId: "mac-2", providers: { claude: 250 } });
 
-    const result = await deleteMachine("claude", "mac-1");
+    const result = await deleteMachine(tenant, "claude", "mac-1");
     expect(result).toEqual({ ok: true, affected: { events: 1, machines: 1, groups: 0 } });
 
     const list = await members(KEYS.events("claude", "Personal"));
@@ -257,7 +265,7 @@ describe("deleteMachine", () => {
   });
 
   it("answers not_found for a machine that does not exist", async () => {
-    expect(await deleteMachine("claude", "ghost")).toEqual({ ok: false, reason: "not_found" });
+    expect(await deleteMachine(tenant, "claude", "ghost")).toEqual({ ok: false, reason: "not_found" });
   });
 });
 
@@ -272,7 +280,7 @@ describe("pruneMachines", () => {
       "claude:recent": JSON.stringify({ g: "Personal", ts: freshMs, t: 500 }),
     });
 
-    const result = await pruneMachines(NOW, INACTIVE_MACHINE_DAYS);
+    const result = await pruneMachines(tenant, NOW, INACTIVE_MACHINE_DAYS);
     expect(result.removedIds).toEqual(["claude:old"]);
     expect(await getRedis().hexists(KEYS.machines, "claude:old")).toBe(0);
     expect(await getRedis().hexists(KEYS.machines, "claude:recent")).toBe(1);
@@ -282,7 +290,7 @@ describe("pruneMachines", () => {
     await getRedis().hset(KEYS.machines, {
       "claude:recent": JSON.stringify({ g: "Personal", ts: NOW.getTime(), t: 500 }),
     });
-    const result = await pruneMachines(NOW, INACTIVE_MACHINE_DAYS);
+    const result = await pruneMachines(tenant, NOW, INACTIVE_MACHINE_DAYS);
     expect(result.removedIds).toEqual([]);
   });
 });
@@ -300,7 +308,7 @@ describe("renameOrMergeGroup — rename", () => {
       timestamp: new Date(t1).toISOString(),
     });
 
-    const result = await renameOrMergeGroup("Work", "Team", false, NOW);
+    const result = await renameOrMergeGroup(tenant, "Work", "Team", false, NOW);
     expect(result).toEqual({ ok: true, affected: { events: 1, machines: 1, groups: 1 } });
 
     expect(await getRedis().exists(KEYS.events("claude", "Work"))).toBe(0);
@@ -321,13 +329,13 @@ describe("renameOrMergeGroup — rename", () => {
     await ingest({ groupId: "Work", providers: {} });
     await ingest({ groupId: "Team", providers: {} });
 
-    const result = await renameOrMergeGroup("Work", "Team", false, NOW);
+    const result = await renameOrMergeGroup(tenant, "Work", "Team", false, NOW);
     expect(result).toEqual({ ok: false, reason: "exists" });
     expect(await getRedis().hexists(KEYS.groups, "Work")).toBe(1);
   });
 
   it("answers not_found for a group that does not exist", async () => {
-    expect(await renameOrMergeGroup("Ghost", "Team", false, NOW)).toEqual({ ok: false, reason: "not_found" });
+    expect(await renameOrMergeGroup(tenant, "Ghost", "Team", false, NOW)).toEqual({ ok: false, reason: "not_found" });
   });
 });
 
@@ -358,7 +366,7 @@ describe("renameOrMergeGroup — merge", () => {
       timestamp: new Date(t2).toISOString(),
     });
 
-    const result = await renameOrMergeGroup("Work", "Team", true, NOW);
+    const result = await renameOrMergeGroup(tenant, "Work", "Team", true, NOW);
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
     // Work held 2 members before the merge (shared + solo): that is what moved.
@@ -379,7 +387,7 @@ describe("renameOrMergeGroup — merge", () => {
     await ingest({ groupId: "Team", providers: {} }, new Date(NOW.getTime() - 5_000));
     const before = JSON.parse((await getRedis().hget<string>(KEYS.groups, "Team"))!);
 
-    await renameOrMergeGroup("Work", "Team", true, NOW);
+    await renameOrMergeGroup(tenant, "Work", "Team", true, NOW);
 
     const after = JSON.parse((await getRedis().hget<string>(KEYS.groups, "Team"))!);
     expect(after).toEqual(before);
@@ -393,7 +401,7 @@ describe("renameOrMergeGroup — merge", () => {
     await ingest({ groupId: "Work", providers: {} });
     await ingest({ groupId: "Team", providers: {} });
 
-    await renameOrMergeGroup("Work", "Team", true, NOW);
+    await renameOrMergeGroup(tenant, "Work", "Team", true, NOW);
 
     const settings = JSON.parse((await getRedis().get<string>(KEYS.settings))!);
     expect(new Set(settings.excludedProviders.Team)).toEqual(new Set(["claude", "deepseek"]));
@@ -406,7 +414,7 @@ describe("deleteGroup", () => {
 
   it("refuses (has_events) without force while it still has stored events", async () => {
     await ingest({ groupId: "Work" });
-    const result = await deleteGroup("Work", false, NOW);
+    const result = await deleteGroup(tenant, "Work", false, NOW);
     expect(result).toEqual({ ok: false, reason: "has_events" });
     expect(await getRedis().exists(KEYS.events("claude", "Work"))).toBe(1);
   });
@@ -415,7 +423,7 @@ describe("deleteGroup", () => {
     await getRedis().set(KEYS.settings, JSON.stringify({ excludedProviders: { Work: ["claude"] } }));
     await ingest({ groupId: "Work", machineId: "mac1" });
 
-    const result = await deleteGroup("Work", true, NOW);
+    const result = await deleteGroup(tenant, "Work", true, NOW);
     expect(result).toEqual({ ok: true, affected: { events: 1, machines: 1, groups: 1 } });
 
     expect(await getRedis().exists(KEYS.events("claude", "Work"))).toBe(0);
@@ -426,7 +434,7 @@ describe("deleteGroup", () => {
   });
 
   it("answers not_found for a group that does not exist", async () => {
-    expect(await deleteGroup("Ghost", true, NOW)).toEqual({ ok: false, reason: "not_found" });
+    expect(await deleteGroup(tenant, "Ghost", true, NOW)).toEqual({ ok: false, reason: "not_found" });
   });
 });
 
@@ -435,7 +443,7 @@ describe("deleteProvider", () => {
 
   it("refuses (has_events) without force while it still has stored events", async () => {
     await ingest({});
-    const result = await deleteProvider("claude", false, NOW);
+    const result = await deleteProvider(tenant, "claude", false, NOW);
     expect(result).toEqual({ ok: false, reason: "has_events" });
   });
 
@@ -457,7 +465,7 @@ describe("deleteProvider", () => {
     });
     await ingest({ groupId: "Work", machineId: "mac1", providers: { claude: 100 } });
     await ingest({ groupId: "Solo", machineId: "mac2", providers: { claude: 200 } });
-    await saveResets("claude", {
+    await saveResets(tenant, "claude", {
       v: 1,
       events: [
         {
@@ -473,9 +481,9 @@ describe("deleteProvider", () => {
       ],
       autoOffCycleStartMs: null,
     });
-    await saveResets("openai", { v: 1, events: [], autoOffCycleStartMs: CYCLE_START_MS });
+    await saveResets(tenant, "openai", { v: 1, events: [], autoOffCycleStartMs: CYCLE_START_MS });
 
-    const result = await deleteProvider("claude", true, NOW);
+    const result = await deleteProvider(tenant, "claude", true, NOW);
     expect(result).toEqual({ ok: true, affected: { events: 2, machines: 2, groups: 2 } });
 
     expect(await getRedis().exists(KEYS.events("claude", "Work"))).toBe(0);
@@ -496,6 +504,6 @@ describe("deleteProvider", () => {
   });
 
   it("answers not_found for a provider that does not exist", async () => {
-    expect(await deleteProvider("ghost", true, NOW)).toEqual({ ok: false, reason: "not_found" });
+    expect(await deleteProvider(tenant, "ghost", true, NOW)).toEqual({ ok: false, reason: "not_found" });
   });
 });

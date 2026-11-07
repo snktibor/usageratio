@@ -1,7 +1,14 @@
 # Data model
 
-The full key layout is also documented at the top of `lib/redis-keys.ts` (`KEYS`) — this page expands
-on it. All data goes through Upstash's REST API (`lib/redis.ts`); `USAGE_STORE=memory` or
+The full key layout is also documented at the top of `lib/redis-keys.ts` (`tenantKeys`,
+`GLOBAL_KEYS`) — this page expands on it.
+
+Every key in the table up to `usage:alltime:{providerId}` belongs to one **tenant** (an isolated
+dataset, see `lib/tenant.ts`). A single-tenant instance has exactly one, `default`, whose keys are the
+plain `usage:` names below. Any other tenant would have the same keys behind the prefix
+`t:{tenantId}:usage:`. Code reaches a tenant's keys only through a tenant-bound store
+(`TenantStore`), never by spelling a key (`tests/redis-key-literals.test.ts` enforces it). The keys
+from `usage:session:*` on are global, shared by every tenant. All data goes through Upstash's REST API (`lib/redis.ts`); `USAGE_STORE=memory` or
 `DEMO_MODE=1` swap in an in-memory implementation of the same interface (`lib/redis-memory.ts`) for
 local development and tests.
 
@@ -29,6 +36,7 @@ local development and tests.
 | `usage:housekeeping:last` | STRING | JSON `{"at": ms, "report": HousekeepingReport}` | Forever (overwritten each run) | `runHousekeeping` (non-dry-run) |
 | `usage:alert:{providerId}:{segmentStartMs}:{threshold}` | STRING | `"1"`, `SET NX` | 70 days TTL | `lib/alerts.ts` `evaluateAlerts` — the guard that makes a threshold fire once per provider per segment of a cycle (the cycle's start while it has no keep reset) |
 | `usage:history:{providerId}` | ZSET | score = cycle start (epoch ms); member = JSON `CycleSummary` (see [History](#history-archived-cycles)) | Newest 24 entries per provider (`HISTORY_RETENTION`), trimmed on write | The first dashboard render after a cycle ends, or the daily housekeeping run's `history` step — whichever comes first (`archiveCycle` via `archiveDueCycles`); also `npm run seed`'s pre-archived entries |
+| `usage:keys` | SET | the name of every dynamic key the tenant has written (`events:*`, `history:*`, `alltime:*`, `alert:*`) | A name may outlive its key (an expired alert guard, an events set that pruned itself to nothing); harmless, and re-added by the next write | The same transaction as the write that creates the key. With the fixed keys (`fixedTenantKeys`) it lists every key of a tenant without a `SCAN` |
 | `usage:alltime:{providerId}` | HASH | field = cycle start (epoch ms); value = JSON `CycleSummary` without `models`/`subLimits` (see [All-time totals](#all-time-totals)) | Never trimmed: one small entry per cycle | `archiveCycle`, together with the history entry (`HSETNX`, also for every summary still in the history); rewritten by `PUT /api/official-usage/archived`, deleted with the history entry when a restart is moved or deleted |
 | `usage:session:{sha256(sessionId:pin)}` | STRING | JSON `{"c": createdAtMs, "s": lastSeenMs}` (a bare `"1"` for a legacy pre-rolling session) | Ends after `SESSION_IDLE_DAYS` (default 7) without use, and `SESSION_MAX_DAYS` (default 30) after creation at the latest; the key's TTL is the remaining maximum lifetime | Login (`attemptLogin`); `s` refreshed at most hourly by `isAuthenticated` |
 | `usage:session:{...}:sudo` | STRING | `"1"` | 5 minutes | `POST /api/auth/sudo` |

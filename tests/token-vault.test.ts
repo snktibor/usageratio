@@ -14,6 +14,7 @@ import {
 } from "@/lib/token-vault";
 import { useRedis } from "./helpers/redis-fixture";
 import { fakeCookieJar, withRequest } from "./helpers/request";
+import { tenant } from "./helpers/tenant";
 
 /**
  * lib/token-vault.ts as M2 leaves it: key rotation (TOKEN_ENCRYPTION_KEY_PREVIOUS,
@@ -77,18 +78,18 @@ describe("the token vault", () => {
 
     it("without a key nothing can be stored or read: the status says no_key", async () => {
       vi.stubEnv("TOKEN_ENCRYPTION_KEY", "");
-      expect(await loadApiTokenStatus()).toEqual({ state: "no_key" });
+      expect(await loadApiTokenStatus(tenant)).toEqual({ state: "no_key" });
       vi.stubEnv("TOKEN_ENCRYPTION_KEY", "not a key");
-      expect(await loadApiTokenStatus()).toEqual({ state: "no_key" });
+      expect(await loadApiTokenStatus(tenant)).toEqual({ state: "no_key" });
       // saveApiToken takes the key as a parameter: without one it cannot even be called.
     });
   });
 
   describe("saving", () => {
     it("is empty at first, then stored and compared with the server's token", async () => {
-      expect(await loadApiTokenStatus()).toEqual({ state: "empty" });
+      expect(await loadApiTokenStatus(tenant)).toEqual({ state: "empty" });
 
-      const saved = await withRequest(() => saveApiToken(SERVER_TOKEN, KEY, NOW), { headers: BROWSER_HEADERS });
+      const saved = await withRequest(() => saveApiToken(tenant, SERVER_TOKEN, KEY, NOW), { headers: BROWSER_HEADERS });
       expect(saved).toEqual({
         action: "created",
         status: {
@@ -99,7 +100,7 @@ describe("the token vault", () => {
           needsReseal: false,
         },
       });
-      expect(await loadApiTokenStatus()).toEqual({
+      expect(await loadApiTokenStatus(tenant)).toEqual({
         state: "stored",
         updatedAt: NOW.getTime(),
         matchesServer: true,
@@ -119,11 +120,11 @@ describe("the token vault", () => {
     });
 
     it("a second save is an update, and a different value shows up as a mismatch", async () => {
-      await withRequest(() => saveApiToken(SERVER_TOKEN, KEY, NOW));
+      await withRequest(() => saveApiToken(tenant, SERVER_TOKEN, KEY, NOW));
       const later = new Date(NOW.getTime() + 60_000);
-      const saved = await withRequest(() => saveApiToken("another-token-of-16-chars", KEY, later));
+      const saved = await withRequest(() => saveApiToken(tenant, "another-token-of-16-chars", KEY, later));
       expect(saved).toMatchObject({ action: "updated", status: { updatedAt: later.getTime(), matchesServer: false } });
-      expect(await loadApiTokenStatus()).toMatchObject({
+      expect(await loadApiTokenStatus(tenant)).toMatchObject({
         state: "stored",
         updatedAt: later.getTime(),
         matchesServer: false,
@@ -131,13 +132,13 @@ describe("the token vault", () => {
 
       // Without USAGE_API_TOKEN there is nothing to compare with.
       vi.stubEnv("USAGE_API_TOKEN", "");
-      expect(await loadApiTokenStatus()).toMatchObject({ state: "stored", matchesServer: null });
+      expect(await loadApiTokenStatus(tenant)).toMatchObject({ state: "stored", matchesServer: null });
     });
 
     it("puts the save on the audit trail with the browser's details, IP hashed rather than kept", async () => {
       const jar = fakeCookieJar({ usageratio_session: SESSION_ID });
-      await withRequest(() => saveApiToken(SERVER_TOKEN, KEY, NOW), { headers: BROWSER_HEADERS, cookies: jar });
-      const trail = await loadAuditTrail();
+      await withRequest(() => saveApiToken(tenant, SERVER_TOKEN, KEY, NOW), { headers: BROWSER_HEADERS, cookies: jar });
+      const trail = await loadAuditTrail(tenant);
       const { ipHash, ipPrefix } = ipFields("203.0.113.9");
       expect(trail).toEqual([
         {
@@ -158,23 +159,23 @@ describe("the token vault", () => {
 
     it("keeps the raw address when AUDIT_RAW_IP=1", async () => {
       vi.stubEnv("AUDIT_RAW_IP", "1");
-      await withRequest(() => saveApiToken(SERVER_TOKEN, KEY, NOW), { headers: BROWSER_HEADERS });
-      const [entry] = await loadAuditTrail();
+      await withRequest(() => saveApiToken(tenant, SERVER_TOKEN, KEY, NOW), { headers: BROWSER_HEADERS });
+      const [entry] = await loadAuditTrail(tenant);
       expect(entry?.ip).toBe("203.0.113.9");
     });
 
     it("hashes with AUDIT_SALT when it is set, instead of TOKEN_ENCRYPTION_KEY", async () => {
       vi.stubEnv("AUDIT_SALT", "a-fixed-salt");
-      await withRequest(() => saveApiToken(SERVER_TOKEN, KEY, NOW), { headers: BROWSER_HEADERS });
-      const [entry] = await loadAuditTrail();
+      await withRequest(() => saveApiToken(tenant, SERVER_TOKEN, KEY, NOW), { headers: BROWSER_HEADERS });
+      const [entry] = await loadAuditTrail(tenant);
       const { ipHash, ipPrefix } = ipFields("203.0.113.9", "a-fixed-salt");
       expect(entry?.ip).toBe(`${ipPrefix} · ${ipHash}`);
     });
 
     it("caps the User-Agent at 256 characters", async () => {
       const longUa = `Mozilla/5.0 ${"x".repeat(400)}`;
-      await withRequest(() => saveApiToken(SERVER_TOKEN, KEY, NOW), { headers: { "user-agent": longUa } });
-      const [entry] = await loadAuditTrail();
+      await withRequest(() => saveApiToken(tenant, SERVER_TOKEN, KEY, NOW), { headers: { "user-agent": longUa } });
+      const [entry] = await loadAuditTrail(tenant);
       expect(entry?.userAgent).toHaveLength(256);
       expect(entry?.userAgent).toBe(longUa.slice(0, 256));
     });
@@ -182,20 +183,20 @@ describe("the token vault", () => {
 
   describe("revealing", () => {
     it("answers empty before a save", async () => {
-      expect(await withRequest(() => revealApiToken(KEY, NOW))).toEqual({ state: "empty" });
-      expect(await loadAuditTrail()).toEqual([]);
+      expect(await withRequest(() => revealApiToken(tenant, KEY, NOW))).toEqual({ state: "empty" });
+      expect(await loadAuditTrail(tenant)).toEqual([]);
     });
 
     it("hands the token out only after the request is on the audit trail, newest first", async () => {
-      await withRequest(() => saveApiToken(SERVER_TOKEN, KEY, NOW), { headers: BROWSER_HEADERS });
+      await withRequest(() => saveApiToken(tenant, SERVER_TOKEN, KEY, NOW), { headers: BROWSER_HEADERS });
       const later = new Date(NOW.getTime() + 5_000);
-      const revealed = await withRequest(() => revealApiToken(KEY, later), {
+      const revealed = await withRequest(() => revealApiToken(tenant, KEY, later), {
         headers: { ...BROWSER_HEADERS, "x-forwarded-for": "198.51.100.7" },
         cookies: fakeCookieJar({ usageratio_session: SESSION_ID }),
       });
       expect(revealed).toEqual({ state: "stored", token: SERVER_TOKEN });
 
-      const trail = await loadAuditTrail();
+      const trail = await loadAuditTrail(tenant);
       const revealIp = ipFields("198.51.100.7");
       const saveIp = ipFields("203.0.113.9");
       expect(trail.map((entry) => [entry.action, entry.at, entry.ip, entry.session])).toEqual([
@@ -205,24 +206,24 @@ describe("the token vault", () => {
     });
 
     it("records an anonymous client as 'unknown' with no session", async () => {
-      await withRequest(() => saveApiToken(SERVER_TOKEN, KEY, NOW));
-      await withRequest(() => revealApiToken(KEY, NOW));
-      const [entry] = await loadAuditTrail();
+      await withRequest(() => saveApiToken(tenant, SERVER_TOKEN, KEY, NOW));
+      await withRequest(() => revealApiToken(tenant, KEY, NOW));
+      const [entry] = await loadAuditTrail(tenant);
       expect(entry).toMatchObject({ action: "revealed", ip: "unknown", session: null, userAgent: "", os: null });
       expect(entry?.browser).toBeNull(); // the UI says "unknown client" in its own language
     });
 
     it("keeps the token back when the audit write fails", async ({ skip }) => {
       if (redis.real) skip();
-      await withRequest(() => saveApiToken(SERVER_TOKEN, KEY, NOW));
+      await withRequest(() => saveApiToken(tenant, SERVER_TOKEN, KEY, NOW));
       redis.store?.failNext("LPUSH", "injected: audit list unavailable");
-      await expect(withRequest(() => revealApiToken(KEY, NOW))).rejects.toThrow();
+      await expect(withRequest(() => revealApiToken(tenant, KEY, NOW))).rejects.toThrow();
       // Nothing was appended: the trail still holds the save alone.
-      expect((await loadAuditTrail()).map((entry) => entry.action)).toEqual(["created"]);
+      expect((await loadAuditTrail(tenant)).map((entry) => entry.action)).toEqual(["created"]);
     });
 
     it(`keeps at most ${AUDIT_LIMIT} entries, dropping the oldest`, async () => {
-      await withRequest(() => saveApiToken(SERVER_TOKEN, KEY, NOW));
+      await withRequest(() => saveApiToken(tenant, SERVER_TOKEN, KEY, NOW));
       const old = Array.from({ length: AUDIT_LIMIT + 20 }, (_, index) =>
         serializeAuditRecord({
           at: NOW.getTime() - (index + 1) * 1000,
@@ -241,8 +242,8 @@ describe("the token vault", () => {
       expect(await getRedis().llen(AUDIT_KEY)).toBe(AUDIT_LIMIT + 21);
 
       const revealedAt = new Date(NOW.getTime() + 1000);
-      await withRequest(() => revealApiToken(KEY, revealedAt));
-      const trail = await loadAuditTrail();
+      await withRequest(() => revealApiToken(tenant, KEY, revealedAt));
+      const trail = await loadAuditTrail(tenant);
       expect(trail).toHaveLength(AUDIT_LIMIT);
       expect(await getRedis().llen(AUDIT_KEY)).toBe(AUDIT_LIMIT);
       expect(trail[0]).toMatchObject({ action: "revealed", at: revealedAt.getTime() });
@@ -258,44 +259,44 @@ describe("the token vault", () => {
         JSON.stringify({ at: "x", a: "revealed" }),
         JSON.stringify({ a: "nope" }),
       );
-      expect(await loadAuditTrail()).toEqual([]);
+      expect(await loadAuditTrail(tenant)).toEqual([]);
     });
   });
 
   describe("a stored copy that does not open", () => {
     it("is unreadable after the ciphertext was damaged, keeping its timestamp", async () => {
-      await withRequest(() => saveApiToken(SERVER_TOKEN, KEY, NOW));
+      await withRequest(() => saveApiToken(tenant, SERVER_TOKEN, KEY, NOW));
       const document = JSON.parse(String(await getRedis().get(TOKEN_KEY))) as Record<string, string>;
       const ct = document.ct!;
       document.ct = `${ct.slice(0, -2)}${ct.endsWith("AA") ? "BB" : "AA"}`;
       await getRedis().set(TOKEN_KEY, JSON.stringify(document));
 
-      expect(await loadApiTokenStatus()).toEqual({ state: "unreadable", updatedAt: NOW.getTime() });
-      expect(await withRequest(() => revealApiToken(KEY, NOW))).toEqual({ state: "unreadable" });
+      expect(await loadApiTokenStatus(tenant)).toEqual({ state: "unreadable", updatedAt: NOW.getTime() });
+      expect(await withRequest(() => revealApiToken(tenant, KEY, NOW))).toEqual({ state: "unreadable" });
       // A refused reveal leaves no trace on the trail.
-      expect((await loadAuditTrail()).map((entry) => entry.action)).toEqual(["created"]);
+      expect((await loadAuditTrail(tenant)).map((entry) => entry.action)).toEqual(["created"]);
     });
 
     it("is unreadable under an unrelated key with no rotation set up", async () => {
-      await withRequest(() => saveApiToken(SERVER_TOKEN, KEY, NOW));
-      expect(await loadApiTokenStatus(OTHER_KEY)).toEqual({ state: "unreadable", updatedAt: NOW.getTime() });
-      expect(await withRequest(() => revealApiToken(OTHER_KEY, NOW))).toEqual({ state: "unreadable" });
+      await withRequest(() => saveApiToken(tenant, SERVER_TOKEN, KEY, NOW));
+      expect(await loadApiTokenStatus(tenant, OTHER_KEY)).toEqual({ state: "unreadable", updatedAt: NOW.getTime() });
+      expect(await withRequest(() => revealApiToken(tenant, OTHER_KEY, NOW))).toEqual({ state: "unreadable" });
       vi.stubEnv("TOKEN_ENCRYPTION_KEY", OTHER_KEY.toString("base64"));
-      expect(await loadApiTokenStatus()).toEqual({ state: "unreadable", updatedAt: NOW.getTime() });
+      expect(await loadApiTokenStatus(tenant)).toEqual({ state: "unreadable", updatedAt: NOW.getTime() });
     });
 
     it("is unreadable, without a timestamp, when the stored value is not even JSON", async () => {
       await getRedis().set(TOKEN_KEY, "garbage");
-      expect(await loadApiTokenStatus()).toEqual({ state: "unreadable", updatedAt: null });
+      expect(await loadApiTokenStatus(tenant)).toEqual({ state: "unreadable", updatedAt: null });
       await getRedis().set(TOKEN_KEY, JSON.stringify({ v: 2, iv: "", ct: "", tag: "", updatedAt: 5 }));
-      expect(await loadApiTokenStatus()).toEqual({ state: "unreadable", updatedAt: 5 });
+      expect(await loadApiTokenStatus(tenant)).toEqual({ state: "unreadable", updatedAt: 5 });
     });
 
     it("a re-save replaces the damaged copy and reads as an update", async () => {
       await getRedis().set(TOKEN_KEY, "garbage");
-      const saved = await withRequest(() => saveApiToken(SERVER_TOKEN, KEY, NOW));
+      const saved = await withRequest(() => saveApiToken(tenant, SERVER_TOKEN, KEY, NOW));
       expect(saved.action).toBe("updated");
-      expect(await loadApiTokenStatus()).toMatchObject({
+      expect(await loadApiTokenStatus(tenant)).toMatchObject({
         state: "stored",
         updatedAt: NOW.getTime(),
         matchesServer: true,
@@ -312,7 +313,7 @@ describe("the token vault", () => {
       const sealed = sealSecret(SERVER_TOKEN, PREVIOUS_KEY, CONTEXT, keyFingerprint(PREVIOUS_KEY));
       await getRedis().set(TOKEN_KEY, JSON.stringify({ ...sealed, updatedAt: NOW.getTime() }));
 
-      const status = await withRequest(() => loadApiTokenStatus(KEY));
+      const status = await withRequest(() => loadApiTokenStatus(tenant, KEY));
       expect(status).toEqual({
         state: "stored",
         updatedAt: NOW.getTime(),
@@ -326,7 +327,7 @@ describe("the token vault", () => {
       expect(resealed.kid).toBe(keyFingerprint(KEY));
       // Re-sealed, but the content is unchanged and the timestamp is kept.
       expect(resealed.updatedAt).toBe(NOW.getTime());
-      const rereadStatus = await withRequest(() => loadApiTokenStatus(KEY));
+      const rereadStatus = await withRequest(() => loadApiTokenStatus(tenant, KEY));
       expect(rereadStatus).toMatchObject({ needsReseal: false });
     });
 
@@ -335,7 +336,7 @@ describe("the token vault", () => {
       expect(sealed.kid).toBeUndefined();
       await getRedis().set(TOKEN_KEY, JSON.stringify({ ...sealed, updatedAt: NOW.getTime() }));
 
-      const status = await withRequest(() => loadApiTokenStatus(KEY));
+      const status = await withRequest(() => loadApiTokenStatus(tenant, KEY));
       expect(status).toMatchObject({ state: "stored", needsReseal: true });
       await flushDeferred();
       const resealed = JSON.parse(String(await getRedis().get(TOKEN_KEY))) as Record<string, unknown>;
@@ -346,14 +347,14 @@ describe("the token vault", () => {
       const sealed = sealSecret(SERVER_TOKEN, KEY, CONTEXT, "ffffffff");
       await getRedis().set(TOKEN_KEY, JSON.stringify({ ...sealed, updatedAt: NOW.getTime() }));
 
-      const revealed = await withRequest(() => revealApiToken(KEY, NOW));
+      const revealed = await withRequest(() => revealApiToken(tenant, KEY, NOW));
       expect(revealed).toEqual({ state: "stored", token: SERVER_TOKEN });
     });
 
     it("does not re-seal a document already sealed with the current key", async () => {
-      await withRequest(() => saveApiToken(SERVER_TOKEN, KEY, NOW));
+      await withRequest(() => saveApiToken(tenant, SERVER_TOKEN, KEY, NOW));
       const before = String(await getRedis().get(TOKEN_KEY));
-      expect(await withRequest(() => loadApiTokenStatus(KEY))).toMatchObject({ needsReseal: false });
+      expect(await withRequest(() => loadApiTokenStatus(tenant, KEY))).toMatchObject({ needsReseal: false });
       await flushDeferred();
       expect(String(await getRedis().get(TOKEN_KEY))).toBe(before);
     });
@@ -361,7 +362,7 @@ describe("the token vault", () => {
     it("is unreadable when it opens with neither the current nor the previous key", async () => {
       const sealed = sealSecret(SERVER_TOKEN, OTHER_KEY, CONTEXT, keyFingerprint(OTHER_KEY));
       await getRedis().set(TOKEN_KEY, JSON.stringify({ ...sealed, updatedAt: NOW.getTime() }));
-      expect(await withRequest(() => loadApiTokenStatus(KEY))).toEqual({
+      expect(await withRequest(() => loadApiTokenStatus(tenant, KEY))).toEqual({
         state: "unreadable",
         updatedAt: NOW.getTime(),
       });

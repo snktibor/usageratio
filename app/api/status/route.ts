@@ -1,6 +1,7 @@
 import { apiError, json, requireBearerThrottled, withApiHandler } from "@/lib/api";
 import { STATUS_RATE_LIMIT_PER_TOKEN } from "@/lib/config";
 import { hit } from "@/lib/rate-limit";
+import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { loadStatus } from "@/lib/status";
 
 /**
@@ -22,9 +23,10 @@ import { loadStatus } from "@/lib/status";
 export const GET = withApiHandler("api/status", async ({ request }) => {
   const auth = await requireBearerThrottled(request);
   if (auth instanceof Response) return auth;
+  const { store } = auth;
 
-  const limit = await hit(`usage:rl:status:${auth.tokenId}`, STATUS_RATE_LIMIT_PER_TOKEN, 3600);
+  const limit = await hit(GLOBAL_KEYS.rateLimit.status(auth.tokenId), STATUS_RATE_LIMIT_PER_TOKEN, 3600);
   if (!limit.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: limit.retryAfterSeconds });
 
-  return json({ ...(await loadStatus()) }, 200);
+  return json({ ...(await loadStatus(store)) }, 200);
 });

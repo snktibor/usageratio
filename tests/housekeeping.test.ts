@@ -5,11 +5,11 @@ import { getCycle, getPreviousCycle } from "@/lib/cycle";
 import { runHousekeeping } from "@/lib/housekeeping";
 import { ingestReport } from "@/lib/ingest";
 import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { restartOverride } from "@/lib/resets";
 import { serializeGroupEntry, serializeSettings, settingsFromConfig } from "@/lib/settings";
 import { loadHistory, loadResets, saveResets } from "@/lib/usage-store";
 import { useRedis } from "./helpers/redis-fixture";
+import { KEYS, tenant } from "./helpers/tenant";
 
 /**
  * lib/housekeeping.ts prunes the index hashes (machines, providers, groups,
@@ -104,7 +104,7 @@ describe("runHousekeeping", () => {
   it("prunes what nothing points to, and keeps what is still alive or too new to judge", async () => {
     await seedScenario();
 
-    const report = await runHousekeeping(NOW, { dryRun: false });
+    const report = await runHousekeeping(tenant, NOW, { dryRun: false });
 
     expect(report.machines).toEqual({ removed: 1, ids: ["dead-provider:mA"] });
     expect(report.providers.removed).toBe(1);
@@ -150,7 +150,7 @@ describe("runHousekeeping", () => {
       .hgetall("usage:machines")
       .exec();
 
-    const report = await runHousekeeping(NOW, { dryRun: true });
+    const report = await runHousekeeping(tenant, NOW, { dryRun: true });
     expect(report.machines.removed).toBe(1);
     expect(report.providers.removed).toBe(1);
     expect(report.groups.removed).toBe(1);
@@ -175,8 +175,8 @@ describe("runHousekeeping", () => {
 
   it("is idempotent: a second run right after finds nothing left to prune", async () => {
     await seedScenario();
-    await runHousekeeping(NOW, { dryRun: false });
-    const second = await runHousekeeping(new Date(NOW.getTime() + 1000), { dryRun: false });
+    await runHousekeeping(tenant, NOW, { dryRun: false });
+    const second = await runHousekeeping(tenant, new Date(NOW.getTime() + 1000), { dryRun: false });
 
     expect(second.machines.removed).toBe(0);
     expect(second.providers.removed).toBe(0);
@@ -192,7 +192,7 @@ describe("runHousekeeping", () => {
     await redis.hset("usage:providers", { p: String(NOW.getTime() - 1000 * DAY_MS) });
     await seedEvents("p", "ancient", NOW.getTime() - 999 * DAY_MS);
 
-    const report = await runHousekeeping(NOW, { dryRun: false });
+    const report = await runHousekeeping(tenant, NOW, { dryRun: false });
     expect(report.groups.removed).toBe(0);
     expect(await redis.hexists("usage:groups", "ancient")).toBe(1);
   });
@@ -215,13 +215,13 @@ describe("runHousekeeping", () => {
     await redis.lpush("usage:api-token:audit", record(NOW.getTime()));
     await redis.rpush("usage:api-token:audit", record(NOW.getTime() - 20 * DAY_MS));
 
-    const report = await runHousekeeping(NOW, { dryRun: false });
+    const report = await runHousekeeping(tenant, NOW, { dryRun: false });
     expect(report.audit.removed).toBe(1);
     expect(await redis.llen("usage:api-token:audit")).toBe(1);
   });
 
   it("does nothing on a bare store", async () => {
-    const report = await runHousekeeping(NOW, { dryRun: false });
+    const report = await runHousekeeping(tenant, NOW, { dryRun: false });
     expect(report).toEqual({
       machines: { removed: 0, ids: [] },
       providers: { removed: 0, ids: [] },
@@ -249,7 +249,7 @@ describe("runHousekeeping", () => {
       recordedAtMs: atMs,
     });
     const older = previous.start.getTime() - 7 * DAY_MS;
-    await saveResets("claude", {
+    await saveResets(tenant, "claude", {
       v: 1,
       events: [
         event("old", older + DAY_MS, older),
@@ -259,10 +259,10 @@ describe("runHousekeeping", () => {
       autoOffCycleStartMs: previous.start.getTime(),
     });
 
-    const report = await runHousekeeping(NOW, { dryRun: false });
+    const report = await runHousekeeping(tenant, NOW, { dryRun: false });
 
     expect(report.resets).toEqual({ removed: 1, ids: ["claude:old"] });
-    const kept = (await loadResets()).claude;
+    const kept = (await loadResets(tenant)).claude;
     expect(kept?.events.map((e) => e.id)).toEqual(["prev", "now"]);
     expect(kept?.autoOffCycleStartMs).toBeNull();
   });
@@ -282,16 +282,16 @@ describe("runHousekeeping", () => {
       recordedAtMs: atMs,
       ...(kind === "restart" ? { previousOverride: null } : {}),
     });
-    await saveResets("openai", {
+    await saveResets(tenant, "openai", {
       v: 1,
       events: [event("restart", "restart"), event("keep", "keep")],
       autoOffCycleStartMs: null,
     });
 
-    const report = await runHousekeeping(NOW, { dryRun: false });
+    const report = await runHousekeeping(tenant, NOW, { dryRun: false });
 
     expect(report.resets).toEqual({ removed: 1, ids: ["openai:keep"] });
-    expect((await loadResets()).openai?.events.map((e) => e.id)).toEqual(["restart"]);
+    expect((await loadResets(tenant)).openai?.events.map((e) => e.id)).toEqual(["restart"]);
   });
 
   it("keeps a reset recorded while the run is under way", async () => {
@@ -310,27 +310,27 @@ describe("runHousekeeping", () => {
     const older = previous.start.getTime() - 7 * DAY_MS;
     const stale = event("old", older + DAY_MS, older);
     const late = event("late", cycle.start.getTime() + DAY_MS, cycle.start.getTime());
-    await saveResets("claude", { v: 1, events: [stale], autoOffCycleStartMs: null });
+    await saveResets(tenant, "claude", { v: 1, events: [stale], autoOffCycleStartMs: null });
 
     // The audit trail is read after the snapshot and before the write: a report lands in between.
     const redis = getRedis();
     const lrange = redis.lrange.bind(redis);
     vi.spyOn(redis, "lrange").mockImplementation(async (...args: Parameters<typeof lrange>) => {
-      await saveResets("claude", { v: 1, events: [stale, late], autoOffCycleStartMs: null });
+      await saveResets(tenant, "claude", { v: 1, events: [stale, late], autoOffCycleStartMs: null });
       return lrange(...args);
     });
 
-    const report = await runHousekeeping(NOW, { dryRun: false });
+    const report = await runHousekeeping(tenant, NOW, { dryRun: false });
 
     expect(report.resets).toEqual({ removed: 1, ids: ["claude:old"] });
-    expect((await loadResets()).claude?.events.map((e) => e.id)).toEqual(["late"]);
+    expect((await loadResets(tenant)).claude?.events.map((e) => e.id)).toEqual(["late"]);
   });
 
   it("prunes an official figure from an earlier segment of the current cycle", async () => {
     const cycle = getCycle(NOW, getConfig().reset);
     const R = cycle.start.getTime() + DAY_MS;
     await getRedis().hset("usage:providers", { claude: String(NOW.getTime()) });
-    await saveResets("claude", {
+    await saveResets(tenant, "claude", {
       v: 1,
       events: [
         {
@@ -351,7 +351,7 @@ describe("runHousekeeping", () => {
       "claude:fable": JSON.stringify({ raw: "5", enteredAt: R + 1000, cycleStartMs: R }),
     });
 
-    const report = await runHousekeeping(NOW, { dryRun: false });
+    const report = await runHousekeeping(tenant, NOW, { dryRun: false });
 
     expect(report.officialUsage.ids).toEqual(["claude"]);
   });
@@ -363,6 +363,7 @@ describe("runHousekeeping", () => {
       const previous = getPreviousCycle(cycle, getConfig().reset);
       const at = new Date(previous.start.getTime() + DAY_MS);
       const result = await ingestReport(
+        tenant,
         {
           machineId: "mac",
           groupId: "Personal",
@@ -382,31 +383,31 @@ describe("runHousekeeping", () => {
         claude: JSON.stringify({ raw: "40", enteredAt: NOW.getTime(), cycleStartMs: previous.start.getTime() }),
       });
 
-      const report = await runHousekeeping(NOW, { dryRun: false });
+      const report = await runHousekeeping(tenant, NOW, { dryRun: false });
 
       expect(report.history).toEqual({ archived: 1, ids: ["claude"] });
       expect(report.officialUsage.ids).toEqual(["claude"]);
-      const history = await loadHistory(["claude"]);
+      const history = await loadHistory(tenant, ["claude"]);
       expect(history.claude).toHaveLength(1);
       expect(history.claude?.[0]).toMatchObject({ start: previous.start.getTime(), total: 1234, official: 40 });
     });
 
     it("archives each cycle once: a second run, like a later dashboard render, finds nothing due", async () => {
       await reportInPreviousCycle("claude", 1234);
-      await runHousekeeping(NOW, { dryRun: false });
-      const second = await runHousekeeping(new Date(NOW.getTime() + 1000), { dryRun: false });
+      await runHousekeeping(tenant, NOW, { dryRun: false });
+      const second = await runHousekeeping(tenant, new Date(NOW.getTime() + 1000), { dryRun: false });
 
       expect(second.history).toEqual({ archived: 0, ids: [] });
-      expect((await loadHistory(["claude"])).claude).toHaveLength(1);
+      expect((await loadHistory(tenant, ["claude"])).claude).toHaveLength(1);
     });
 
     it("dry run names the providers that are due but writes no history", async () => {
       await reportInPreviousCycle("claude", 1234);
 
-      const report = await runHousekeeping(NOW, { dryRun: true });
+      const report = await runHousekeeping(tenant, NOW, { dryRun: true });
 
       expect(report.history).toEqual({ archived: 1, ids: ["claude"] });
-      expect((await loadHistory(["claude"])).claude ?? []).toHaveLength(0);
+      expect((await loadHistory(tenant, ["claude"])).claude ?? []).toHaveLength(0);
     });
 
     it("skips a provider with no events in the cycle that just ended", async () => {
@@ -414,7 +415,7 @@ describe("runHousekeeping", () => {
       await getRedis().hset("usage:providers", { claude: String(NOW.getTime()) });
       await getRedis().hset("usage:groups", { Personal: serializeGroupEntry("#3987e5", NOW.getTime()) });
 
-      const report = await runHousekeeping(NOW, { dryRun: false });
+      const report = await runHousekeeping(tenant, NOW, { dryRun: false });
       expect(report.history).toEqual({ archived: 0, ids: [] });
     });
     describe("with a provider's own reset", () => {
@@ -431,6 +432,7 @@ describe("runHousekeeping", () => {
 
       async function reportAt(providerId: string, at: string) {
         const result = await ingestReport(
+          tenant,
           {
             machineId: "mac",
             groupId: "Personal",
@@ -447,10 +449,10 @@ describe("runHousekeeping", () => {
         await reportAt("claude", "2026-09-12T10:00:00Z");
         await reportAt("openai", "2026-09-15T10:00:00Z");
 
-        const report = await runHousekeeping(OVERRIDE_NOW, { dryRun: false });
+        const report = await runHousekeeping(tenant, OVERRIDE_NOW, { dryRun: false });
 
         expect(report.history.ids.sort()).toEqual(["claude", "openai"]);
-        const history = await loadHistory(["claude", "openai"]);
+        const history = await loadHistory(tenant, ["claude", "openai"]);
         expect(history.claude?.[0]).toMatchObject({
           start: Date.parse("2026-09-10T09:00:00Z"),
           end: Date.parse("2026-09-17T09:00:00Z"),
@@ -465,7 +467,7 @@ describe("runHousekeeping", () => {
           "claude:sub": JSON.stringify({ raw: "30", enteredAt: 1, cycleStartMs: Date.parse("2026-09-10T09:00:00Z") }),
         });
 
-        const report = await runHousekeeping(OVERRIDE_NOW, { dryRun: false });
+        const report = await runHousekeeping(tenant, OVERRIDE_NOW, { dryRun: false });
 
         expect(report.officialUsage.ids).toEqual(["claude:sub"]);
         expect(await getRedis().hexists("usage:official", "claude")).toBe(1);
@@ -477,6 +479,7 @@ describe("runHousekeeping", () => {
       const S = getCycle(new Date(R), getConfig().reset).start.getTime();
       const at = new Date(S + DAY_MS);
       const stored = await ingestReport(
+        tenant,
         { machineId: "mac", groupId: "Personal", providers: { openai: 500 }, timestamp: at.toISOString() },
         at,
       );
@@ -488,7 +491,7 @@ describe("runHousekeeping", () => {
           NOW,
         ),
       );
-      await saveResets("openai", {
+      await saveResets(tenant, "openai", {
         v: 1,
         events: [
           {
@@ -506,10 +509,10 @@ describe("runHousekeeping", () => {
         autoOffCycleStartMs: null,
       });
 
-      const report = await runHousekeeping(NOW, { dryRun: false });
+      const report = await runHousekeeping(tenant, NOW, { dryRun: false });
 
       expect(report.history.ids).toContain("openai");
-      expect((await loadHistory(["openai"])).openai?.[0]).toMatchObject({
+      expect((await loadHistory(tenant, ["openai"])).openai?.[0]).toMatchObject({
         start: S,
         end: R,
         official: 90,
@@ -528,6 +531,7 @@ describe("runHousekeeping", () => {
         [R + DAY_MS, 400],
       ] as const) {
         const stored = await ingestReport(
+          tenant,
           {
             machineId: "mac",
             groupId: "Personal",
@@ -538,7 +542,7 @@ describe("runHousekeeping", () => {
         );
         if (!stored.ok) throw new Error(JSON.stringify(stored));
       }
-      await saveResets("claude", {
+      await saveResets(tenant, "claude", {
         v: 1,
         events: [
           {
@@ -558,10 +562,10 @@ describe("runHousekeeping", () => {
         claude: JSON.stringify({ raw: "20", enteredAt: R + 3_600_000, cycleStartMs: R }),
       });
 
-      const report = await runHousekeeping(NOW, { dryRun: false });
+      const report = await runHousekeeping(tenant, NOW, { dryRun: false });
 
       expect(report.history.ids).toEqual(["claude"]);
-      const summary = (await loadHistory(["claude"])).claude?.[0];
+      const summary = (await loadHistory(tenant, ["claude"])).claude?.[0];
       expect(summary).toMatchObject({ start: S, official: 90 });
       expect(summary?.segments).toHaveLength(2);
       expect(summary?.segments?.[0]).toMatchObject({ start: S, end: R, official: 70 });
@@ -575,7 +579,7 @@ describe("runHousekeeping", () => {
     await getRedis().set("usage:settings", serializeSettings(settings, NOW));
     await getRedis().hset("usage:providers", { "kept-provider": String(OLD) });
 
-    const report = await runHousekeeping(NOW, { dryRun: false });
+    const report = await runHousekeeping(tenant, NOW, { dryRun: false });
     expect(report.providers.ids).not.toContain("kept-provider");
     expect(await getRedis().hexists("usage:providers", "kept-provider")).toBe(1);
   });

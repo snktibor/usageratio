@@ -1,5 +1,5 @@
 import { checkOfficialUsageAlerts } from "@/lib/alerts";
-import { apiError, json, readJsonBody, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { parseOfficialUsageUpdate } from "@/lib/official-usage";
 import { defer } from "@/lib/request-context";
@@ -31,8 +31,9 @@ export const PUT = withApiHandler("api/official-usage", async ({ request }) => {
   const readOnly = demoReadOnly();
   if (readOnly) return readOnly;
 
-  const unauthorized = await requireSession();
-  if (unauthorized) return unauthorized;
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
+  const { store } = tenant;
 
   const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES });
   if (!body.ok) return body.response;
@@ -42,10 +43,10 @@ export const PUT = withApiHandler("api/official-usage", async ({ request }) => {
 
   const enteredAt = Date.now();
   const now = new Date(enteredAt);
-  await saveOfficialUsage(parsed.update, now);
+  await saveOfficialUsage(store, parsed.update, now);
 
   // Threshold alerts (lib/alerts.ts): the only signal while the token limits are off.
-  defer(() => checkOfficialUsageAlerts(parsed.update, now));
+  defer(() => checkOfficialUsageAlerts(store, parsed.update, now));
 
   return json({ ok: true, enteredAt }, 200);
 });

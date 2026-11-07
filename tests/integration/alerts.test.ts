@@ -8,13 +8,13 @@ import { getConfig } from "@/lib/config";
 import { getCycle } from "@/lib/cycle";
 import { ingestReport } from "@/lib/ingest";
 import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { flushDeferred } from "@/lib/request-context";
 import { serializeSettings, settingsFromConfig, type UsageSettings } from "@/lib/settings";
 import { saveResets } from "@/lib/usage-store";
 import en from "@/messages/en.json";
 import { useRedis } from "../helpers/redis-fixture";
 import { seedSession } from "../helpers/session";
+import { KEYS, tenant } from "../helpers/tenant";
 
 /** See tests/alerts.test.ts: `getTranslations` needs Next's plugin, absent under plain Vitest. */
 vi.mock("next-intl/server", () => ({
@@ -134,7 +134,7 @@ describe("threshold alerts, wired into the routes", () => {
       const now = new Date("2026-09-23T12:00:00Z");
       const cycleStartMs = Date.parse("2026-09-17T09:00:00Z");
 
-      await checkOfficialUsageAlerts({ providerId: "claude", subLimitId: null, raw: "95", cycleStartMs }, now);
+      await checkOfficialUsageAlerts(tenant, { providerId: "claude", subLimitId: null, raw: "95", cycleStartMs }, now);
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       expect(await getRedis().exists(KEYS.alert("claude", cycleStartMs, 90))).toBe(1);
@@ -243,10 +243,14 @@ describe("threshold alerts, wired into the routes", () => {
 
     it("fires the thresholds again for the new segment's figure", async () => {
       await seedSettings({ useTokenLimits: false, resetOverrides: {}, alerts });
-      await saveResets("claude", resetDoc);
+      await saveResets(tenant, "claude", resetDoc);
       const fetchSpy = mockFetch();
 
-      await checkOfficialUsageAlerts({ providerId: "claude", subLimitId: null, raw: "92", cycleStartMs: R }, NOW);
+      await checkOfficialUsageAlerts(
+        tenant,
+        { providerId: "claude", subLimitId: null, raw: "92", cycleStartMs: R },
+        NOW,
+      );
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       expect(await getRedis().exists(KEYS.alert("claude", R, 90))).toBe(1);
@@ -254,21 +258,26 @@ describe("threshold alerts, wired into the routes", () => {
 
     it("ignores a figure tagged with an earlier segment", async () => {
       await seedSettings({ useTokenLimits: false, resetOverrides: {}, alerts });
-      await saveResets("claude", resetDoc);
+      await saveResets(tenant, "claude", resetDoc);
       const fetchSpy = mockFetch();
 
-      await checkOfficialUsageAlerts({ providerId: "claude", subLimitId: null, raw: "92", cycleStartMs: S }, NOW);
+      await checkOfficialUsageAlerts(
+        tenant,
+        { providerId: "claude", subLimitId: null, raw: "92", cycleStartMs: S },
+        NOW,
+      );
 
       expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it("measures the tokens of the segment only", async () => {
       await seedSettings({ useTokenLimits: true, limits: { claude: 1000 }, resetOverrides: {}, alerts });
-      await saveResets("claude", resetDoc);
+      await saveResets(tenant, "claude", resetDoc);
       const fetchSpy = mockFetch();
       const store = async (tokens: number, iso: string) => {
         const at = new Date(iso);
         const result = await ingestReport(
+          tenant,
           { machineId: "mac", groupId: "Personal", providers: { claude: tokens }, timestamp: iso },
           at,
         );
@@ -279,7 +288,7 @@ describe("threshold alerts, wired into the routes", () => {
       const last = await store(1000, "2026-09-23T11:00:00Z");
 
       // 1000 since the cycle start would be 100%; since the reset it is 100 tokens, 10%.
-      await checkIngestAlerts(last, NOW);
+      await checkIngestAlerts(tenant, last, NOW);
       expect(fetchSpy).not.toHaveBeenCalled();
     });
   });

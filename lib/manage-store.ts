@@ -2,9 +2,8 @@ import type { UsageEvent } from "@/lib/aggregate";
 import type { ResetConfig, TokenMode } from "@/lib/config";
 import { getCycle, getDaySegments } from "@/lib/cycle";
 import { carryOver, type MergeCycle, type MergeUnit } from "@/lib/machine-merge";
-import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { randomGroupColor, serializeGroupEntry } from "@/lib/settings";
+import type { TenantStore } from "@/lib/tenant";
 import { eventMember, loadIndexes, loadRawSettings, parseEvent } from "@/lib/usage-store";
 
 /**
@@ -83,10 +82,10 @@ function memberMachineId(raw: string): string | null {
 }
 
 /** Every member of each key, with its score and machine id, in one round trip. Unparsable members are skipped: never rewritten, never counted. */
-async function readMembersForKeys(keys: string[]): Promise<Map<string, ParsedMember[]>> {
+async function readMembersForKeys(store: TenantStore, keys: string[]): Promise<Map<string, ParsedMember[]>> {
   const map = new Map<string, ParsedMember[]>();
   if (keys.length === 0) return map;
-  const pipeline = getRedis().pipeline();
+  const pipeline = store.redis.pipeline();
   for (const key of keys) pipeline.zrange(key, 0, -1, { withScores: true });
   const results = (await pipeline.exec()) as unknown[];
   keys.forEach((key, index) => {
@@ -124,12 +123,13 @@ function rewriteMemberMachineId(raw: string, newMachineId: string): string {
  * (`unsupported_mode` otherwise); a plain move works in every mode.
  */
 export async function moveMachine(
+  store: TenantStore,
   providerId: string,
   machineId: string,
   target: { machineId?: string; groupId?: string },
   options: MoveMachineOptions,
 ): Promise<MoveMachineResult> {
-  const indexes = await loadIndexes();
+  const indexes = await loadIndexes(store);
   const source = indexes.machines.find((m) => m.providerId === providerId && m.machineId === machineId);
   if (!source) return { ok: false, reason: "not_found" };
   const newMachineId = target.machineId ?? machineId;
@@ -141,8 +141,8 @@ export async function moveMachine(
   if (!indexes.groups.some((group) => group.groupId === newGroupId)) return { ok: false, reason: "group_not_found" };
 
   const groupIds = indexes.groups.map((group) => group.groupId);
-  const keys = groupIds.map((groupId) => KEYS.events(providerId, groupId));
-  const membersByKey = await readMembersForKeys(keys);
+  const keys = groupIds.map((groupId) => store.keys.events(providerId, groupId));
+  const membersByKey = await readMembersForKeys(store, keys);
 
   // One unit per group and machine id: the machine's own history there, and its carry-over.
   const units: MoveUnit[] = [];
@@ -170,7 +170,7 @@ export async function moveMachine(
     units.find((unit) => unit.machineId === newMachineId && unit.groupId === newGroupId) ??
     [...units].sort((a, b) => latestRaw(b) - latestRaw(a))[0];
 
-  const destKey = KEYS.events(providerId, newGroupId);
+  const destKey = store.keys.events(providerId, newGroupId);
   // The members that leave their place: all of them, but the base's own reports when they already sit where they belong.
   const baseStays = base?.key === destKey && base.machineId === newMachineId;
   const removals = units.map((unit) => ({
@@ -201,7 +201,7 @@ export async function moveMachine(
     }
   }
 
-  const tx = getRedis().multi();
+  const tx = store.redis.multi();
   let eventsTouched = 0;
   for (const removal of removals) {
     if (removal.members.length === 0) continue;
@@ -213,12 +213,13 @@ export async function moveMachine(
     const [first, ...rest] = additions as [{ score: number; member: string }, ...{ score: number; member: string }[]];
     tx.zadd(destKey, first, ...rest);
     tx.expire(destKey, (options.retentionDays + 1) * 86_400);
+    tx.sadd(store.keys.registry, destKey);
   }
 
   // The index keeps whichever of the two entries reported last, now under the new id and group.
   const newest = existing && existing.lastSeenAt > source.lastSeenAt ? existing : source;
-  if (renamed) tx.hdel(KEYS.machines, `${providerId}:${machineId}`);
-  tx.hset(KEYS.machines, {
+  if (renamed) tx.hdel(store.keys.machines, `${providerId}:${machineId}`);
+  tx.hset(store.keys.machines, {
     [`${providerId}:${newMachineId}`]: JSON.stringify({
       g: newGroupId,
       ts: newest.lastSeenAt,
@@ -254,16 +255,16 @@ function mergeCycles(earliestMs: number, { reset, now }: MoveMachineOptions): Me
 }
 
 /** Deletes one machine (one provider): its `usage:machines` field and every member naming it, in every group's events key of this provider. */
-export async function deleteMachine(providerId: string, machineId: string): Promise<DeleteResult> {
-  const indexes = await loadIndexes();
+export async function deleteMachine(store: TenantStore, providerId: string, machineId: string): Promise<DeleteResult> {
+  const indexes = await loadIndexes(store);
   const machine = indexes.machines.find((m) => m.providerId === providerId && m.machineId === machineId);
   if (!machine) return { ok: false, reason: "not_found" };
 
   const groupIds = indexes.groups.map((group) => group.groupId);
-  const keys = groupIds.map((groupId) => KEYS.events(providerId, groupId));
-  const membersByKey = await readMembersForKeys(keys);
+  const keys = groupIds.map((groupId) => store.keys.events(providerId, groupId));
+  const membersByKey = await readMembersForKeys(store, keys);
 
-  const tx = getRedis().multi();
+  const tx = store.redis.multi();
   let eventsTouched = 0;
   for (const key of keys) {
     const matches = (membersByKey.get(key) ?? []).filter((entry) => entry.machineId === machineId);
@@ -271,25 +272,35 @@ export async function deleteMachine(providerId: string, machineId: string): Prom
     eventsTouched += matches.length;
     tx.zrem(key, ...matches.map((entry) => entry.raw));
   }
-  tx.hdel(KEYS.machines, `${providerId}:${machineId}`);
+  tx.hdel(store.keys.machines, `${providerId}:${machineId}`);
   await tx.exec();
 
   return { ok: true, affected: { events: eventsTouched, machines: 1, groups: 0 } };
 }
 
 /** Silent machines dropped from the index (not their stored reports), across every provider. Mirrors lib/housekeeping.ts's own machine step, triggered on demand. */
-export async function pruneMachines(now: Date, inactiveDays: number): Promise<{ removedIds: string[] }> {
-  const indexes = await loadIndexes();
+export async function pruneMachines(
+  store: TenantStore,
+  now: Date,
+  inactiveDays: number,
+): Promise<{ removedIds: string[] }> {
+  const indexes = await loadIndexes(store);
   const cutoffMs = now.getTime() - inactiveDays * 86_400_000;
   const stale = indexes.machines.filter((machine) => machine.lastSeenAt < cutoffMs);
   const fields = stale.map((machine) => `${machine.providerId}:${machine.machineId}`);
-  if (fields.length > 0) await getRedis().hdel(KEYS.machines, ...fields);
+  if (fields.length > 0) await store.redis.hdel(store.keys.machines, ...fields);
   return { removedIds: fields };
 }
 
 /** Moves (or merges) a group's `excludedProviders` entry in the settings document; a no-op without a stored document or exclusion. */
-async function moveExclusionsInSettings(oldId: string, newId: string, merge: boolean, now: Date): Promise<void> {
-  const raw = await loadRawSettings();
+async function moveExclusionsInSettings(
+  store: TenantStore,
+  oldId: string,
+  newId: string,
+  merge: boolean,
+  now: Date,
+): Promise<void> {
+  const raw = await loadRawSettings(store);
   if (!raw) return;
   let doc: unknown;
   try {
@@ -306,8 +317,8 @@ async function moveExclusionsInSettings(oldId: string, newId: string, merge: boo
   const merged = merge ? [...new Set([...destinationList, ...sourceList])] : sourceList;
   if (merged.length > 0) exclusions[newId] = merged;
 
-  await getRedis().set(
-    KEYS.settings,
+  await store.redis.set(
+    store.keys.settings,
     JSON.stringify({ ...doc, excludedProviders: exclusions, updatedAt: now.getTime() }),
   );
 }
@@ -323,12 +334,13 @@ async function moveExclusionsInSettings(oldId: string, newId: string, merge: boo
  * (unioning the source's providers into them), and moves the machines.
  */
 export async function renameOrMergeGroup(
+  store: TenantStore,
   groupId: string,
   newGroupId: string,
   merge: boolean,
   now: Date,
 ): Promise<RenameGroupResult> {
-  const indexes = await loadIndexes();
+  const indexes = await loadIndexes(store);
   const groupsById = new Map(indexes.groups.map((group) => [group.groupId, group]));
   const source = groupsById.get(groupId);
   if (!source) return { ok: false, reason: "not_found" };
@@ -336,10 +348,10 @@ export async function renameOrMergeGroup(
   const destinationExists = groupsById.has(newGroupId);
   if (destinationExists && !merge) return { ok: false, reason: "exists" };
 
-  const redis = getRedis();
+  const redis = store.redis;
   const providerIds = indexes.providers.map((provider) => provider.providerId);
-  const srcKeys = providerIds.map((providerId) => KEYS.events(providerId, groupId));
-  const destKeys = providerIds.map((providerId) => KEYS.events(providerId, newGroupId));
+  const srcKeys = providerIds.map((providerId) => store.keys.events(providerId, groupId));
+  const destKeys = providerIds.map((providerId) => store.keys.events(providerId, newGroupId));
 
   let srcExists: number[] = [];
   let destExists: number[] = [];
@@ -371,6 +383,7 @@ export async function renameOrMergeGroup(
     } else {
       tx.rename(srcKey, destKey);
     }
+    tx.sadd(store.keys.registry, destKey);
   }
 
   const movedMachines = indexes.machines.filter((machine) => machine.groupId === groupId);
@@ -383,23 +396,25 @@ export async function renameOrMergeGroup(
         t: machine.lastTokens,
       });
     }
-    tx.hset(KEYS.machines, machineEntries);
+    tx.hset(store.keys.machines, machineEntries);
   }
 
   if (!destinationExists) {
-    tx.hset(KEYS.groups, { [newGroupId]: serializeGroupEntry(source.color ?? randomGroupColor(), source.firstSeenAt) });
+    tx.hset(store.keys.groups, {
+      [newGroupId]: serializeGroupEntry(source.color ?? randomGroupColor(), source.firstSeenAt),
+    });
   }
-  tx.hdel(KEYS.groups, groupId);
+  tx.hdel(store.keys.groups, groupId);
   await tx.exec();
 
-  await moveExclusionsInSettings(groupId, newGroupId, merge, now);
+  await moveExclusionsInSettings(store, groupId, newGroupId, merge, now);
 
   return { ok: true, affected: { events: eventsTouched, machines: movedMachines.length, groups: 1 } };
 }
 
 /** Removes a group's `excludedProviders` entry outright (used by `deleteGroup`); a no-op without one. */
-async function removeExclusionsInSettings(groupId: string, now: Date): Promise<void> {
-  const raw = await loadRawSettings();
+async function removeExclusionsInSettings(store: TenantStore, groupId: string, now: Date): Promise<void> {
+  const raw = await loadRawSettings(store);
   if (!raw) return;
   let doc: unknown;
   try {
@@ -410,8 +425,8 @@ async function removeExclusionsInSettings(groupId: string, now: Date): Promise<v
   if (!isRecord(doc) || !isRecord(doc.excludedProviders) || !Object.hasOwn(doc.excludedProviders, groupId)) return;
   const exclusions = { ...doc.excludedProviders } as Record<string, unknown>;
   delete exclusions[groupId];
-  await getRedis().set(
-    KEYS.settings,
+  await store.redis.set(
+    store.keys.settings,
     JSON.stringify({ ...doc, excludedProviders: exclusions, updatedAt: now.getTime() }),
   );
 }
@@ -423,14 +438,19 @@ async function removeExclusionsInSettings(groupId: string, now: Date): Promise<v
  * deletes every provider's events key for it, its `usage:groups` entry, its
  * machines' `usage:machines` fields, and its `excludedProviders` entry.
  */
-export async function deleteGroup(groupId: string, force: boolean, now: Date): Promise<DeleteWithEventsResult> {
-  const indexes = await loadIndexes();
+export async function deleteGroup(
+  store: TenantStore,
+  groupId: string,
+  force: boolean,
+  now: Date,
+): Promise<DeleteWithEventsResult> {
+  const indexes = await loadIndexes(store);
   const group = indexes.groups.find((candidate) => candidate.groupId === groupId);
   if (!group) return { ok: false, reason: "not_found" };
 
-  const redis = getRedis();
+  const redis = store.redis;
   const providerIds = indexes.providers.map((provider) => provider.providerId);
-  const keys = providerIds.map((providerId) => KEYS.events(providerId, groupId));
+  const keys = providerIds.map((providerId) => store.keys.events(providerId, groupId));
 
   let existsFlags: number[] = [];
   if (keys.length > 0) {
@@ -453,18 +473,18 @@ export async function deleteGroup(groupId: string, force: boolean, now: Date): P
 
   const tx = redis.multi();
   for (const key of activeKeys) tx.del(key);
-  if (machineFields.length > 0) tx.hdel(KEYS.machines, ...machineFields);
-  tx.hdel(KEYS.groups, groupId);
+  if (machineFields.length > 0) tx.hdel(store.keys.machines, ...machineFields);
+  tx.hdel(store.keys.groups, groupId);
   await tx.exec();
 
-  await removeExclusionsInSettings(groupId, now);
+  await removeExclusionsInSettings(store, groupId, now);
 
   return { ok: true, affected: { events: eventsTouched, machines: machineFields.length, groups: 1 } };
 }
 
 /** Strips `providerId` from `limits`, `subLimits`, `hiddenProviders` and every `excludedProviders` entry of the settings document; a no-op without a stored document or reference. */
-async function scrubProviderInSettings(providerId: string, now: Date): Promise<void> {
-  const raw = await loadRawSettings();
+async function scrubProviderInSettings(store: TenantStore, providerId: string, now: Date): Promise<void> {
+  const raw = await loadRawSettings(store);
   if (!raw) return;
   let doc: unknown;
   try {
@@ -513,7 +533,7 @@ async function scrubProviderInSettings(providerId: string, now: Date): Promise<v
 
   if (!changed) return;
   next.updatedAt = now.getTime();
-  await getRedis().set(KEYS.settings, JSON.stringify(next));
+  await store.redis.set(store.keys.settings, JSON.stringify(next));
 }
 
 /**
@@ -523,14 +543,19 @@ async function scrubProviderInSettings(providerId: string, now: Date): Promise<v
  * `usage:machines` fields, its `usage:official` fields (its own and every
  * sub-limit's), and scrubs it from the settings document.
  */
-export async function deleteProvider(providerId: string, force: boolean, now: Date): Promise<DeleteWithEventsResult> {
-  const indexes = await loadIndexes();
+export async function deleteProvider(
+  store: TenantStore,
+  providerId: string,
+  force: boolean,
+  now: Date,
+): Promise<DeleteWithEventsResult> {
+  const indexes = await loadIndexes(store);
   const known = indexes.providers.some((provider) => provider.providerId === providerId);
   if (!known) return { ok: false, reason: "not_found" };
 
-  const redis = getRedis();
+  const redis = store.redis;
   const groupIds = indexes.groups.map((group) => group.groupId);
-  const keys = groupIds.map((groupId) => KEYS.events(providerId, groupId));
+  const keys = groupIds.map((groupId) => store.keys.events(providerId, groupId));
 
   let existsFlags: number[] = [];
   if (keys.length > 0) {
@@ -557,13 +582,13 @@ export async function deleteProvider(providerId: string, force: boolean, now: Da
 
   const tx = redis.multi();
   for (const key of activeKeys) tx.del(key);
-  if (machineFields.length > 0) tx.hdel(KEYS.machines, ...machineFields);
-  tx.hdel(KEYS.providers, providerId);
-  if (officialFields.length > 0) tx.hdel(KEYS.officialUsage, ...officialFields);
-  tx.hdel(KEYS.resets, providerId);
+  if (machineFields.length > 0) tx.hdel(store.keys.machines, ...machineFields);
+  tx.hdel(store.keys.providers, providerId);
+  if (officialFields.length > 0) tx.hdel(store.keys.officialUsage, ...officialFields);
+  tx.hdel(store.keys.resets, providerId);
   await tx.exec();
 
-  await scrubProviderInSettings(providerId, now);
+  await scrubProviderInSettings(store, providerId, now);
 
   return { ok: true, affected: { events: eventsTouched, machines: machineFields.length, groups: activeGroupCount } };
 }

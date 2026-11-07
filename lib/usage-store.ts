@@ -12,8 +12,7 @@ import {
 } from "@/lib/history";
 import { type OfficialUsageUpdate, officialUsageField, storedEntryFor } from "@/lib/official-usage";
 import { MAX_PROVIDERS, mergeProviderIds, normalizeProviderId } from "@/lib/providers";
-import { getRedis, toStringRecord } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
+import { toStringRecord } from "@/lib/redis";
 import { TxPlan } from "@/lib/redis-tx";
 import {
   dropStaleBasis,
@@ -34,6 +33,7 @@ import {
   serializeSettings,
   settingsFromConfig,
 } from "@/lib/settings";
+import type { TenantStore } from "@/lib/tenant";
 import type { ReportMode, UsageReport } from "@/lib/validation";
 
 /**
@@ -174,21 +174,27 @@ export type StoreReportResult =
  * written — the caps bound runaway growth, they are not an exact invariant
  * (see lib/config.ts MAX_MACHINES).
  */
-async function checkRegistryCaps(report: UsageReport, heartbeat: boolean): Promise<StoreReportRefusal | null> {
+async function checkRegistryCaps(
+  store: TenantStore,
+  report: UsageReport,
+  heartbeat: boolean,
+): Promise<StoreReportRefusal | null> {
   const providers = Object.entries(report.providers);
-  const redis = getRedis();
+  const redis = store.redis;
   const caps = redis.pipeline();
   const plan = new TxPlan();
-  plan.add("groupCount", () => caps.hlen(KEYS.groups));
-  plan.add("groupExists", () => caps.hexists(KEYS.groups, report.groupId));
+  plan.add("groupCount", () => caps.hlen(store.keys.groups));
+  plan.add("groupExists", () => caps.hexists(store.keys.groups, report.groupId));
   if (!heartbeat) {
-    plan.add("providerCount", () => caps.hlen(KEYS.providers));
+    plan.add("providerCount", () => caps.hlen(store.keys.providers));
     for (const [providerId] of providers) {
-      plan.add(`providerExists:${providerId}`, () => caps.hexists(KEYS.providers, providerId));
+      plan.add(`providerExists:${providerId}`, () => caps.hexists(store.keys.providers, providerId));
     }
-    plan.add("machineCount", () => caps.hlen(KEYS.machines));
+    plan.add("machineCount", () => caps.hlen(store.keys.machines));
     for (const [providerId] of providers) {
-      plan.add(`machineExists:${providerId}`, () => caps.hexists(KEYS.machines, `${providerId}:${report.machineId}`));
+      plan.add(`machineExists:${providerId}`, () =>
+        caps.hexists(store.keys.machines, `${providerId}:${report.machineId}`),
+      );
     }
   }
   const results: unknown[] = await caps.exec();
@@ -231,6 +237,7 @@ async function checkRegistryCaps(report: UsageReport, heartbeat: boolean): Promi
  * `checkRegistryCaps` above.
  */
 export async function storeReport(
+  store: TenantStore,
   report: UsageReport,
   now: Date,
   retentionDays: number,
@@ -239,7 +246,7 @@ export async function storeReport(
   const providers = Object.entries(report.providers);
   const heartbeat = providers.length === 0;
 
-  const refused = await checkRegistryCaps(report, heartbeat);
+  const refused = await checkRegistryCaps(store, report, heartbeat);
   if (refused === "too_many_groups") return { ok: false, refused, limit: MAX_GROUPS };
   if (refused === "too_many_providers") return { ok: false, refused, limit: MAX_PROVIDERS };
   if (refused === "too_many_machines") return { ok: false, refused, limit: MAX_MACHINES };
@@ -254,15 +261,15 @@ export async function storeReport(
       ? reportCheckpoints(report, cycle.timeZone, (providerId) => Math.max(startOf(providerId), oldestMs))
       : [];
 
-  const tx = getRedis().multi();
+  const tx = store.redis.multi();
   const plan = new TxPlan();
   plan.add("group", () =>
-    tx.hsetnx(KEYS.groups, report.groupId, serializeGroupEntry(randomGroupColor(), now.getTime())),
+    tx.hsetnx(store.keys.groups, report.groupId, serializeGroupEntry(randomGroupColor(), now.getTime())),
   );
   if (!heartbeat) {
     const machineEntries: Record<string, string> = {};
     for (const [providerId, tokens] of providers) {
-      const eventsKey = KEYS.events(providerId, report.groupId);
+      const eventsKey = store.keys.events(providerId, report.groupId);
       const member = eventMember(
         report.machineId,
         tokens,
@@ -281,13 +288,14 @@ export async function storeReport(
         report.mode ?? "auto",
         report.intervalMinutes ?? null,
       );
-      plan.add(`provider:${providerId}`, () => tx.hsetnx(KEYS.providers, providerId, now.getTime()));
+      plan.add(`provider:${providerId}`, () => tx.hsetnx(store.keys.providers, providerId, now.getTime()));
       plan.add(`event:${providerId}`, () => tx.zadd(eventsKey, { nx: true }, { score: report.timestampMs, member }));
+      plan.add(null, () => tx.sadd(store.keys.registry, eventsKey));
       plan.add(null, () => tx.zremrangebyscore(eventsKey, 0, oldestMs));
       plan.add(null, () => tx.expire(eventsKey, (retentionDays + 1) * 86_400));
       machineEntries[`${providerId}:${report.machineId}`] = lastReport;
     }
-    plan.add(null, () => tx.hset(KEYS.machines, machineEntries));
+    plan.add(null, () => tx.hset(store.keys.machines, machineEntries));
     for (const [providerId] of providers) {
       const members = checkpoints
         .filter((checkpoint) => checkpoint.providerId === providerId)
@@ -306,7 +314,8 @@ export async function storeReport(
           ),
         }));
       const [first, ...rest] = members;
-      if (first) plan.add(null, () => tx.zadd(KEYS.events(providerId, report.groupId), { nx: true }, first, ...rest));
+      if (first)
+        plan.add(null, () => tx.zadd(store.keys.events(providerId, report.groupId), { nx: true }, first, ...rest));
     }
   }
   const results: unknown[] = await tx.exec();
@@ -430,14 +439,14 @@ function parseResetsHash(raw: unknown): Record<string, ProviderResets> {
  * one round trip. The settings come first because they decide how far back
  * `loadEvents` must reach.
  */
-export async function loadIndexes(): Promise<StoreIndexes> {
-  const indexes = getRedis().pipeline();
-  indexes.get(KEYS.settings);
-  indexes.hgetall(KEYS.groups);
-  indexes.hgetall(KEYS.providers);
-  indexes.hgetall(KEYS.machines);
-  indexes.hgetall(KEYS.officialUsage);
-  indexes.hgetall(KEYS.resets);
+export async function loadIndexes(store: TenantStore): Promise<StoreIndexes> {
+  const indexes = store.redis.pipeline();
+  indexes.get(store.keys.settings);
+  indexes.hgetall(store.keys.groups);
+  indexes.hgetall(store.keys.providers);
+  indexes.hgetall(store.keys.machines);
+  indexes.hgetall(store.keys.officialUsage);
+  indexes.hgetall(store.keys.resets);
   const [rawSettings, rawGroups, rawProviders, rawMachines, rawOfficialUsage, rawResets]: unknown[] =
     await indexes.exec();
 
@@ -484,25 +493,27 @@ export async function loadIndexes(): Promise<StoreIndexes> {
  * default account follow first-seen order; the demo seed uses this to list its
  * accounts in its own order.
  */
-export async function registerProviders(providerIds: string[], atMs: number): Promise<void> {
+export async function registerProviders(store: TenantStore, providerIds: string[], atMs: number): Promise<void> {
   if (providerIds.length === 0) return;
-  const tx = getRedis().multi();
+  const tx = store.redis.multi();
   providerIds.forEach((providerId, index) => {
-    tx.hsetnx(KEYS.providers, providerId, atMs + index);
+    tx.hsetnx(store.keys.providers, providerId, atMs + index);
   });
   await tx.exec();
 }
 
 /** The stored settings document alone. */
-export async function loadRawSettings(): Promise<string | null> {
-  return toRawDocument(await getRedis().get(KEYS.settings));
+export async function loadRawSettings(store: TenantStore): Promise<string | null> {
+  return toRawDocument(await store.redis.get(store.keys.settings));
 }
 
 /** Minimal index read for clients asking how to scope their next ccusage snapshot. */
-export async function loadReportContext(): Promise<{ settings: string | null; providerIds: string[] }> {
-  const reads = getRedis().pipeline();
-  reads.get(KEYS.settings);
-  reads.hgetall(KEYS.providers);
+export async function loadReportContext(
+  store: TenantStore,
+): Promise<{ settings: string | null; providerIds: string[] }> {
+  const reads = store.redis.pipeline();
+  reads.get(store.keys.settings);
+  reads.hgetall(store.keys.providers);
   const [rawSettings, rawProviders]: unknown[] = await reads.exec();
   return {
     settings: toRawDocument(rawSettings),
@@ -513,10 +524,11 @@ export async function loadReportContext(): Promise<{ settings: string | null; pr
 /**
  * All reports of `groups` since `sinceMs`, and for every group whether it has
  * any stored report at all (also older ones). One round trip. `resets` are the
- * providers' resets (`loadIndexes().resets`): a cycle a restart began drops the
+ * providers' resets (`loadIndexes(store).resets`): a cycle a restart began drops the
  * snapshot reports counted from before it.
  */
 export async function loadEvents(
+  store: TenantStore,
   providerIds: string[],
   groups: IndexedGroup[],
   sinceMs: number,
@@ -526,7 +538,7 @@ export async function loadEvents(
   const eventsByProvider = Object.fromEntries(providers.map((providerId) => [providerId, [] as UsageEvent[]]));
   if (groups.length === 0) return { eventsByProvider, groups: [] };
 
-  const reads = getRedis().pipeline();
+  const reads = store.redis.pipeline();
   const plan = new TxPlan();
   const requests: { providerId: string; groupId: string }[] = [];
   const request = (providerId: string, groupId: string, key: string) => {
@@ -537,7 +549,7 @@ export async function loadEvents(
   };
   for (const providerId of providers) {
     for (const group of groups) {
-      request(providerId, group.groupId, KEYS.events(providerId, group.groupId));
+      request(providerId, group.groupId, store.keys.events(providerId, group.groupId));
     }
   }
   const results: unknown[] = await reads.exec();
@@ -591,17 +603,21 @@ export async function loadEvents(
  * group; null when there is none. Tells how far back the full dashboard can
  * reach (lib/cycle-options.ts): one member per key, not the reports.
  */
-export async function loadOldestReportTime(providerIds: string[], groups: IndexedGroup[]): Promise<number | null> {
+export async function loadOldestReportTime(
+  store: TenantStore,
+  providerIds: string[],
+  groups: IndexedGroup[],
+): Promise<number | null> {
   const providers = mergeProviderIds(providerIds);
   if (groups.length === 0 || providers.length === 0) return null;
 
-  const reads = getRedis().pipeline();
+  const reads = store.redis.pipeline();
   const plan = new TxPlan();
   const requests: string[] = [];
   for (const providerId of providers) {
     for (const group of groups) {
       const index = requests.length;
-      plan.add(`oldest:${index}`, () => reads.zrange(KEYS.events(providerId, group.groupId), 0, 0));
+      plan.add(`oldest:${index}`, () => reads.zrange(store.keys.events(providerId, group.groupId), 0, 0));
       requests.push(group.groupId);
     }
   }
@@ -617,11 +633,15 @@ export async function loadOldestReportTime(providerIds: string[], groups: Indexe
 }
 
 /** `loadEvents` without the events: just which groups still have stored reports. */
-export async function loadGroupActivity(groups: IndexedGroup[], providerIds: string[]): Promise<KnownGroup[]> {
+export async function loadGroupActivity(
+  store: TenantStore,
+  groups: IndexedGroup[],
+  providerIds: string[],
+): Promise<KnownGroup[]> {
   if (groups.length === 0) return [];
 
   const providers = mergeProviderIds(providerIds);
-  const reads = getRedis().pipeline();
+  const reads = store.redis.pipeline();
   const plan = new TxPlan();
   const requestedGroups: string[] = [];
   const check = (groupId: string, key: string) => {
@@ -629,7 +649,7 @@ export async function loadGroupActivity(groups: IndexedGroup[], providerIds: str
     requestedGroups.push(groupId);
   };
   for (const group of groups) {
-    for (const providerId of providers) check(group.groupId, KEYS.events(providerId, group.groupId));
+    for (const providerId of providers) check(group.groupId, store.keys.events(providerId, group.groupId));
   }
   const results: unknown[] = await reads.exec();
   const active = new Set<string>();
@@ -651,22 +671,23 @@ export type SaveSettingsResult = { ok: true } | { ok: false; groupsWithReports: 
  * exactly that happens; the group's next hourly report heals it.
  */
 export async function saveSettings(
+  store: TenantStore,
   update: SettingsUpdate,
   now: Date,
   providerIds: string[],
 ): Promise<SaveSettingsResult> {
-  const redis = getRedis();
+  const redis = store.redis;
 
   const reads = redis.pipeline();
   const plan = new TxPlan();
-  plan.add("groups", () => reads.hgetall(KEYS.groups));
+  plan.add("groups", () => reads.hgetall(store.keys.groups));
   const reportChecks: string[] = [];
   const check = (groupId: string, key: string) => {
     plan.add(`check:${reportChecks.length}`, () => reads.exists(key));
     reportChecks.push(groupId);
   };
   for (const groupId of update.removedGroups) {
-    for (const providerId of mergeProviderIds(providerIds)) check(groupId, KEYS.events(providerId, groupId));
+    for (const providerId of mergeProviderIds(providerIds)) check(groupId, store.keys.events(providerId, groupId));
   }
   const results: unknown[] = await reads.exec();
   const rawGroups = plan.result(results, "groups");
@@ -686,9 +707,9 @@ export async function saveSettings(
   }
 
   const tx = redis.multi();
-  tx.set(KEYS.settings, serializeSettings(update.settings, now));
-  if (update.groups.length > 0) tx.hset(KEYS.groups, entries);
-  if (update.removedGroups.length > 0) tx.hdel(KEYS.groups, ...update.removedGroups);
+  tx.set(store.keys.settings, serializeSettings(update.settings, now));
+  if (update.groups.length > 0) tx.hset(store.keys.groups, entries);
+  if (update.removedGroups.length > 0) tx.hdel(store.keys.groups, ...update.removedGroups);
   await tx.exec();
 
   return { ok: true };
@@ -699,16 +720,16 @@ export async function saveSettings(
  * or one of its sub-limits'. An empty `raw` clears it, so switching browsers
  * (or the next auto-refresh) shows nothing rather than a stale percentage.
  */
-export async function saveOfficialUsage(update: OfficialUsageUpdate, now: Date): Promise<void> {
+export async function saveOfficialUsage(store: TenantStore, update: OfficialUsageUpdate, now: Date): Promise<void> {
   const field = officialUsageField(update.providerId, update.subLimitId);
   const stored = storedEntryFor(update, now.getTime());
-  if (stored === null) await getRedis().hdel(KEYS.officialUsage, field);
-  else await getRedis().hset(KEYS.officialUsage, { [field]: stored });
+  if (stored === null) await store.redis.hdel(store.keys.officialUsage, field);
+  else await store.redis.hset(store.keys.officialUsage, { [field]: stored });
 }
 
 /** Every provider's usage resets (lib/resets.ts), one read. */
-export async function loadResets(): Promise<Record<string, ProviderResets>> {
-  return parseResetsHash(await getRedis().hgetall(KEYS.resets));
+export async function loadResets(store: TenantStore): Promise<Record<string, ProviderResets>> {
+  return parseResetsHash(await store.redis.hgetall(store.keys.resets));
 }
 
 /** One provider's resets as the stored document; null when nothing is left in it (the field is removed). */
@@ -722,10 +743,10 @@ function resetsDocument(resets: ProviderResets): string | null {
  * racing (a report detecting a reset while one is edited by hand) leave the
  * later one's. A document with nothing left in it is removed.
  */
-export async function saveResets(providerId: string, resets: ProviderResets): Promise<void> {
+export async function saveResets(store: TenantStore, providerId: string, resets: ProviderResets): Promise<void> {
   const document = resetsDocument(resets);
-  if (document === null) await getRedis().hdel(KEYS.resets, providerId);
-  else await getRedis().hset(KEYS.resets, { [providerId]: document });
+  if (document === null) await store.redis.hdel(store.keys.resets, providerId);
+  else await store.redis.hset(store.keys.resets, { [providerId]: document });
 }
 
 /** The stored settings with `providerId`'s own reset set (a value) or removed (null). */
@@ -749,14 +770,15 @@ function settingsWithOverride(
  * whole, like two panel saves. A usage reset moves it through `saveResetChange`.
  */
 export async function saveResetOverride(
+  store: TenantStore,
   providerId: string,
   override: ResetOverride | null,
   now: Date,
   providerIds: string[],
 ): Promise<void> {
-  await getRedis().set(
-    KEYS.settings,
-    settingsWithOverride(await loadRawSettings(), providerId, override, now, providerIds),
+  await store.redis.set(
+    store.keys.settings,
+    settingsWithOverride(await loadRawSettings(store), providerId, override, now, providerIds),
   );
 }
 
@@ -773,32 +795,35 @@ export async function saveResetOverride(
  * request, so a panel save in between loses: the same last-writer-wins race as
  * `saveResetOverride`.
  */
-export async function saveResetChange(change: {
-  providerId: string;
-  resets: ProviderResets;
-  override?: ResetOverride | null;
-  rawSettings: string | null;
-  providerIds: string[];
-  now: Date;
-  deleteArchivedStartMs?: number;
-  officialFields: Record<string, string>;
-}): Promise<void> {
+export async function saveResetChange(
+  store: TenantStore,
+  change: {
+    providerId: string;
+    resets: ProviderResets;
+    override?: ResetOverride | null;
+    rawSettings: string | null;
+    providerIds: string[];
+    now: Date;
+    deleteArchivedStartMs?: number;
+    officialFields: Record<string, string>;
+  },
+): Promise<void> {
   const { providerId, override, deleteArchivedStartMs, officialFields } = change;
-  const tx = getRedis().multi();
+  const tx = store.redis.multi();
   const document = resetsDocument(change.resets);
-  if (document === null) tx.hdel(KEYS.resets, providerId);
-  else tx.hset(KEYS.resets, { [providerId]: document });
+  if (document === null) tx.hdel(store.keys.resets, providerId);
+  else tx.hset(store.keys.resets, { [providerId]: document });
   if (override !== undefined) {
     tx.set(
-      KEYS.settings,
+      store.keys.settings,
       settingsWithOverride(change.rawSettings, providerId, override, change.now, change.providerIds),
     );
   }
   if (deleteArchivedStartMs !== undefined) {
-    tx.zremrangebyscore(KEYS.history(providerId), deleteArchivedStartMs, deleteArchivedStartMs);
-    tx.hdel(KEYS.allTime(providerId), String(deleteArchivedStartMs));
+    tx.zremrangebyscore(store.keys.history(providerId), deleteArchivedStartMs, deleteArchivedStartMs);
+    tx.hdel(store.keys.allTime(providerId), String(deleteArchivedStartMs));
   }
-  if (Object.keys(officialFields).length > 0) tx.hset(KEYS.officialUsage, officialFields);
+  if (Object.keys(officialFields).length > 0) tx.hset(store.keys.officialUsage, officialFields);
   await tx.exec();
 }
 
@@ -815,10 +840,10 @@ export async function saveResetChange(change: {
  * already holds stay as they are. Returns whether this call is the one that
  * actually wrote the summary into the history.
  */
-export async function archiveCycle(providerId: string, summary: CycleSummary): Promise<boolean> {
-  const key = KEYS.history(providerId);
-  const ledger = KEYS.allTime(providerId);
-  const archived = await getRedis().zrange(key, 0, -1);
+export async function archiveCycle(store: TenantStore, providerId: string, summary: CycleSummary): Promise<boolean> {
+  const key = store.keys.history(providerId);
+  const ledger = store.keys.allTime(providerId);
+  const archived = await store.redis.zrange(key, 0, -1);
   const entries = [
     summary,
     ...(Array.isArray(archived) ? archived : [])
@@ -826,10 +851,11 @@ export async function archiveCycle(providerId: string, summary: CycleSummary): P
       .filter((entry): entry is CycleSummary => entry !== null),
   ];
 
-  const tx = getRedis().multi();
+  const tx = store.redis.multi();
   const plan = new TxPlan();
   plan.add("added", () => tx.zadd(key, { nx: true }, { score: summary.start, member: serializeCycleSummary(summary) }));
   plan.add(null, () => tx.zremrangebyrank(key, 0, -(HISTORY_RETENTION + 1)));
+  plan.add(null, () => tx.sadd(store.keys.registry, key, ledger));
   for (const entry of entries) {
     plan.add(null, () => tx.hsetnx(ledger, String(entry.start), serializeCycleSummary(ledgerEntryOf(entry))));
   }
@@ -849,23 +875,25 @@ export async function archiveCycle(providerId: string, summary: CycleSummary): P
  * the cycle has no readable summary, or no segment starting at `segmentStartMs`.
  */
 export async function saveArchivedOfficial(
+  store: TenantStore,
   providerId: string,
   cycleStartMs: number,
   official: number | null,
   segmentStartMs?: number,
 ): Promise<boolean> {
-  const key = KEYS.history(providerId);
-  const members = await getRedis().zrange(key, cycleStartMs, cycleStartMs, { byScore: true });
+  const key = store.keys.history(providerId);
+  const members = await store.redis.zrange(key, cycleStartMs, cycleStartMs, { byScore: true });
   const summary = (Array.isArray(members) ? members : [])
     .map((member) => parseCycleSummary(String(member)))
     .find((entry): entry is CycleSummary => entry !== null && entry.start === cycleStartMs);
   const corrected = summary ? withCorrectedOfficial(summary, official, segmentStartMs) : null;
   if (!corrected) return false;
 
-  const tx = getRedis().multi();
+  const tx = store.redis.multi();
   tx.zremrangebyscore(key, cycleStartMs, cycleStartMs);
   tx.zadd(key, { score: cycleStartMs, member: serializeCycleSummary(corrected) });
-  tx.hset(KEYS.allTime(providerId), { [String(cycleStartMs)]: serializeCycleSummary(ledgerEntryOf(corrected)) });
+  tx.hset(store.keys.allTime(providerId), { [String(cycleStartMs)]: serializeCycleSummary(ledgerEntryOf(corrected)) });
+  tx.sadd(store.keys.registry, key, store.keys.allTime(providerId));
   await tx.exec();
   return true;
 }
@@ -875,14 +903,17 @@ export async function saveArchivedOfficial(
  * archived yet. One round trip: a dashboard read uses this to decide whether
  * the previous cycle still needs archiving (see app/[locale]/(dashboard)/page.tsx).
  */
-export async function loadNewestArchivedStarts(providerIds: string[]): Promise<Record<string, number | null>> {
+export async function loadNewestArchivedStarts(
+  store: TenantStore,
+  providerIds: string[],
+): Promise<Record<string, number | null>> {
   const starts: Record<string, number | null> = {};
   if (providerIds.length === 0) return starts;
 
-  const reads = getRedis().pipeline();
+  const reads = store.redis.pipeline();
   const plan = new TxPlan();
   for (const providerId of providerIds) {
-    plan.add(`newest:${providerId}`, () => reads.zrange(KEYS.history(providerId), -1, -1, { withScores: true }));
+    plan.add(`newest:${providerId}`, () => reads.zrange(store.keys.history(providerId), -1, -1, { withScores: true }));
   }
   const results: unknown[] = await reads.exec();
 
@@ -895,15 +926,15 @@ export async function loadNewestArchivedStarts(providerIds: string[]): Promise<R
 }
 
 /** Up to HISTORY_RETENTION archived cycles per provider, newest first. One round trip. */
-export async function loadHistory(providerIds: string[]): Promise<Record<string, CycleSummary[]>> {
+export async function loadHistory(store: TenantStore, providerIds: string[]): Promise<Record<string, CycleSummary[]>> {
   const history: Record<string, CycleSummary[]> = {};
   if (providerIds.length === 0) return history;
 
-  const reads = getRedis().pipeline();
+  const reads = store.redis.pipeline();
   const plan = new TxPlan();
   for (const providerId of providerIds) {
     plan.add(`entries:${providerId}`, () =>
-      reads.zrange(KEYS.history(providerId), 0, HISTORY_RETENTION - 1, { rev: true }),
+      reads.zrange(store.keys.history(providerId), 0, HISTORY_RETENTION - 1, { rev: true }),
     );
   }
   const results: unknown[] = await reads.exec();
@@ -919,14 +950,14 @@ export async function loadHistory(providerIds: string[]): Promise<Record<string,
 }
 
 /** Every cycle in each provider's all-time ledger (lib/all-time.ts), oldest first. One round trip. */
-export async function loadAllTime(providerIds: string[]): Promise<Record<string, CycleSummary[]>> {
+export async function loadAllTime(store: TenantStore, providerIds: string[]): Promise<Record<string, CycleSummary[]>> {
   const ledgers: Record<string, CycleSummary[]> = {};
   if (providerIds.length === 0) return ledgers;
 
-  const reads = getRedis().pipeline();
+  const reads = store.redis.pipeline();
   const plan = new TxPlan();
   for (const providerId of providerIds) {
-    plan.add(`ledger:${providerId}`, () => reads.hgetall(KEYS.allTime(providerId)));
+    plan.add(`ledger:${providerId}`, () => reads.hgetall(store.keys.allTime(providerId)));
   }
   const results: unknown[] = await reads.exec();
 

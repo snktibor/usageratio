@@ -1,4 +1,4 @@
-import { apiError, json, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { hasSudo } from "@/lib/auth";
 import { INACTIVE_MACHINE_DAYS } from "@/lib/config";
 import { demoReadOnly } from "@/lib/demo/mode";
@@ -20,10 +20,11 @@ export const POST = withApiHandler("api/machines/prune", async ({ request }) => 
   if (origin) return origin;
   const readOnly = demoReadOnly();
   if (readOnly) return readOnly;
-  const unauthorized = await requireSession();
-  if (unauthorized) return unauthorized;
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
+  const { store } = tenant;
   if (!(await hasSudo())) return apiError("sudo_required", 403);
 
-  const { removedIds } = await pruneMachines(new Date(), INACTIVE_MACHINE_DAYS);
+  const { removedIds } = await pruneMachines(store, new Date(), INACTIVE_MACHINE_DAYS);
   return json({ ok: true, affected: { events: 0, machines: removedIds.length, groups: 0 } }, 200);
 });
