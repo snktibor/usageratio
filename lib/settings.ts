@@ -22,7 +22,7 @@ import {
   type SubLimitMode,
 } from "@/lib/sub-limits";
 import { parseId } from "@/lib/validation";
-import { isAllowedWebhookUrl, MAX_WEBHOOK_URL_LENGTH } from "@/lib/webhook";
+import { isAllowedWebhookUrl, MAX_WEBHOOK_URL_LENGTH, maskWebhookUrl, unmaskWebhookUrl } from "@/lib/webhook";
 
 /**
  * Everything the settings panel edits: the budget, the providers shown and
@@ -134,6 +134,11 @@ export interface SettingsUpdate {
 /** What the settings panel renders, and what GET /api/settings returns. */
 export interface SettingsView {
   settings: UsageSettings;
+  /**
+   * Multi-tenant mode: `settings.alerts.webhookUrl` is the stored URL's mask (lib/webhook.ts
+   * `maskWebhookUrl`), and sending that mask back keeps the stored URL.
+   */
+  webhookMasked?: boolean;
   timeZone: string;
   /** `models`: this cycle's model ids of the provider (without their dates), for picking a sub-limit's. */
   providers: { id: string; label: string; models: string[] }[];
@@ -974,4 +979,39 @@ export function buildSettingsView(
       hasReports: group.hasReports,
     })),
   };
+}
+
+/** `settings` with the alert webhook URL masked (multi-tenant mode: see lib/webhook.ts `maskWebhookUrl`). */
+export function withMaskedWebhook(settings: UsageSettings): UsageSettings {
+  const { webhookUrl } = settings.alerts;
+  return webhookUrl === null
+    ? settings
+    : { ...settings, alerts: { ...settings.alerts, webhookUrl: maskWebhookUrl(webhookUrl) } };
+}
+
+/** The settings view a multi-tenant workspace's members get: the webhook URL masked. */
+export function maskSettingsView(view: SettingsView): SettingsView {
+  return { ...view, settings: withMaskedWebhook(view.settings), webhookMasked: true };
+}
+
+/** The webhook URL stored in a settings document; null when alerts are off. */
+export function storedWebhookUrl(rawSettings: string | null, config: AppConfig): string | null {
+  return resolveConfig(config, rawSettings, storedProviderIds(rawSettings)).alerts.webhookUrl;
+}
+
+/**
+ * A PUT body whose `alerts.webhookUrl` may be the stored URL's mask (lib/webhook.ts
+ * `unmaskWebhookUrl`): the mask becomes the stored URL again; an edited mask fails. Anything else
+ * passes through untouched, for `parseSettingsUpdate` to check.
+ */
+export function restoreMaskedWebhook(
+  body: unknown,
+  stored: string | null,
+): { ok: true; body: unknown } | { ok: false } {
+  const alerts = asRecord(asRecord(body)?.alerts);
+  if (!alerts || typeof alerts.webhookUrl !== "string") return { ok: true, body };
+  const restored = unmaskWebhookUrl(alerts.webhookUrl, stored);
+  if (!restored.ok) return { ok: false };
+  const record = body as Record<string, unknown>;
+  return { ok: true, body: { ...record, alerts: { ...alerts, webhookUrl: restored.url } } };
 }

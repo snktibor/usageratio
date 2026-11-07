@@ -14,7 +14,13 @@ import { earliestStartMs } from "@/lib/provider-cycles";
 import { mergeProviderIds } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { isMultiTenant } from "@/lib/registration";
-import { buildSettingsView, resolveConfig, type SettingsView, storedProviderIds } from "@/lib/settings";
+import {
+  buildSettingsView,
+  maskSettingsView,
+  resolveConfig,
+  type SettingsView,
+  storedProviderIds,
+} from "@/lib/settings";
 import type { TenantStore } from "@/lib/tenant";
 import { currentTenant } from "@/lib/tenant-context";
 import { loadEvents, loadIndexes } from "@/lib/usage-store";
@@ -46,7 +52,7 @@ async function loadSettingsView(store: TenantStore): Promise<SettingsView> {
   const config = resolveConfig(getConfig(), indexes.settings, providerIds);
   const since = earliestStartMs(now, config, providerIds, "previous");
   const { eventsByProvider, groups } = await loadEvents(store, providerIds, indexes.groups, since);
-  return buildSettingsView(
+  const view = buildSettingsView(
     config,
     groups,
     providerIds,
@@ -54,6 +60,8 @@ async function loadSettingsView(store: TenantStore): Promise<SettingsView> {
       Object.entries(eventsByProvider).map(([providerId, events]) => [providerId, modelKeysIn(events)]),
     ),
   );
+  // Multi-tenant mode: the alert webhook URL reaches no browser, the owner's included.
+  return isMultiTenant() ? maskSettingsView(view) : view;
 }
 
 export default async function Page({ params }: { params: Promise<{ locale: string }> }) {

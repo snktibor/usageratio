@@ -128,6 +128,11 @@ With `REGISTRATION=invite` or `open`, the PIN is replaced by GitHub sign-in (`li
   them (`createdBy`), and removing a member offers (ticked by default) to revoke theirs. Removal,
   leaving and handing over hold a short per-workspace lock, so two of them at once cannot leave a
   workspace without its owner. Handing over needs sudo.
+- **The alert webhook URL is never read back** in multi-tenant mode, not even by the owner: a
+  member who could read it could post into the owner's Slack. Settings answer it masked (origin and
+  last four characters: `https://hooks.slack.com/…••••4f2a`); a save that sends the mask back
+  unchanged keeps the stored URL, an edited mask is refused, a new URL replaces it. "Send test" with
+  the mask goes to the stored URL. A single-user instance shows it in full, as before.
 - **The stale-tab guard.** The active workspace belongs to the session, so switching it in one tab
   switches every tab. Every page sends the workspace it was rendered for with each change
   (`X-Usageratio-Tenant`); the server refuses it with `412 tenant_changed` when that is not the

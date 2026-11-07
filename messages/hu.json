@@ -257,6 +257,7 @@
     "alerts_webhook_label": "Webhook URL",
     "alerts_webhook_placeholder": "https://…",
     "alerts_webhook_invalid": "Adj meg egy https URL-t, ami nem helyi vagy privát cím.",
+    "alerts_webhook_masked": "A mentett URL rejtve van, előled is. Hagyd így a megtartásához, vagy illessz be egy újat a cseréjéhez.",
     "alerts_format_label": "Üzenet formátuma",
     "alerts_format_generic": "Általános JSON",
     "alerts_format_slack": "Slack",

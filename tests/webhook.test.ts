@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isAllowedWebhookUrl, MAX_WEBHOOK_URL_LENGTH, sendWebhook } from "@/lib/webhook";
+import {
+  isAllowedWebhookUrl,
+  MAX_WEBHOOK_URL_LENGTH,
+  maskWebhookUrl,
+  sendWebhook,
+  unmaskWebhookUrl,
+  webhookFieldProblem,
+} from "@/lib/webhook";
 import { version } from "@/package.json";
 
 describe("isAllowedWebhookUrl", () => {
@@ -146,5 +153,33 @@ describe("sendWebhook", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("down"));
     await sendWebhook("https://example.com/hook", {});
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the masked webhook URL (multi-tenant mode)", () => {
+  const stored = "https://hooks.slack.com/services/T000/B000/XXXXXXXX4f2a";
+
+  it("shows only the origin and the last four characters, and nothing of a short path", () => {
+    expect(maskWebhookUrl(stored)).toBe("https://hooks.slack.com/…••••4f2a");
+    expect(maskWebhookUrl("https://example.com/hook")).toBe("https://example.com/…••••");
+    expect(maskWebhookUrl(stored)).not.toContain("services");
+  });
+
+  it("stands for the stored URL only when sent back unchanged", () => {
+    expect(unmaskWebhookUrl(maskWebhookUrl(stored), stored)).toEqual({ ok: true, url: stored });
+    expect(unmaskWebhookUrl("https://hooks.slack.com/…••••4f2b", stored)).toEqual({ ok: false });
+    // The URL changed meanwhile, or alerts were turned off: an old mask is not a URL.
+    expect(unmaskWebhookUrl(maskWebhookUrl(stored), "https://hooks.slack.com/services/new/one")).toEqual({ ok: false });
+    expect(unmaskWebhookUrl(maskWebhookUrl(stored), null)).toEqual({ ok: false });
+    expect(unmaskWebhookUrl("https://new.example/hook", stored)).toEqual({ ok: true, url: "https://new.example/hook" });
+  });
+
+  it("never lets the form save an edited mask, which would otherwise pass as a URL", () => {
+    const mask = maskWebhookUrl(stored);
+    expect(isAllowedWebhookUrl(`${mask}x`)).toBe(true);
+    expect(webhookFieldProblem(`${mask}x`, mask)).toBe(true);
+    expect(webhookFieldProblem(mask, mask)).toBe(false);
+    expect(webhookFieldProblem(mask, null)).toBe(true);
+    expect(webhookFieldProblem("https://new.example/hook", mask)).toBe(false);
   });
 });

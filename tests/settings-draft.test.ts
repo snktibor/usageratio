@@ -14,7 +14,14 @@ import {
   withOwnReset,
 } from "@/components/settings/draft";
 import { getConfig } from "@/lib/config";
-import { buildSettingsView, MAX_ALERT_THRESHOLDS, MAX_GROUPS, MAX_LIMIT, parseSettingsUpdate } from "@/lib/settings";
+import {
+  buildSettingsView,
+  MAX_ALERT_THRESHOLDS,
+  MAX_GROUPS,
+  MAX_LIMIT,
+  maskSettingsView,
+  parseSettingsUpdate,
+} from "@/lib/settings";
 import { MAX_SUB_LIMIT_MODELS } from "@/lib/sub-limits";
 
 /**
@@ -251,6 +258,7 @@ describe("toRequest", () => {
       ...draft,
       alerts: {
         webhookUrl: " https://hooks.example.com/x ",
+        storedMask: null,
         thresholds: [90, 25, 25],
         newThreshold: "",
         perProvider: false,
@@ -275,6 +283,23 @@ describe("toRequest", () => {
     const draft = draftFrom(view);
     const withBadWebhook: Draft = { ...draft, alerts: { ...draft.alerts, webhookUrl: "https://localhost/x" } };
     expect(toRequest(withBadWebhook)).toEqual({ problem: { code: "invalid_alert_webhook" } });
+  });
+
+  it("keeps a masked webhook left as it is, and refuses an edited mask", () => {
+    const masked = maskSettingsView(
+      buildSettingsView(
+        { ...config, alerts: { ...config.alerts, webhookUrl: "https://hooks.slack.com/services/T0/B0/abcdef4f2a" } },
+        [],
+        ["claude", "deepseek"],
+      ),
+    );
+    const draft = draftFrom(masked);
+    expect(draft.alerts.webhookUrl).toBe("https://hooks.slack.com/…••••4f2a");
+    const kept = toRequest(draft);
+    if (!("request" in kept)) throw new Error(`expected a request, got ${JSON.stringify(kept)}`);
+    expect(kept.request.alerts.webhookUrl).toBe("https://hooks.slack.com/…••••4f2a");
+    const edited = { ...draft, alerts: { ...draft.alerts, webhookUrl: "https://hooks.slack.com/…••••4f2b" } };
+    expect(toRequest(edited)).toEqual({ problem: { code: "invalid_alert_webhook" } });
   });
 
   it("requires at least one threshold", () => {

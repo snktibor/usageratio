@@ -257,6 +257,7 @@
     "alerts_webhook_label": "Webhook-URL",
     "alerts_webhook_placeholder": "https://…",
     "alerts_webhook_invalid": "Gib eine https-URL ein, die keine lokale oder private Adresse ist.",
+    "alerts_webhook_masked": "Die gespeicherte URL ist verborgen, auch für dich. Lass sie so, um sie zu behalten, oder füge eine neue ein, um sie zu ersetzen.",
     "alerts_format_label": "Nachrichtenformat",
     "alerts_format_generic": "Generisches JSON",
     "alerts_format_slack": "Slack",

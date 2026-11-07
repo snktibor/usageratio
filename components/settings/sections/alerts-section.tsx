@@ -12,7 +12,7 @@ import { Toast } from "@/components/ui/toast";
 import { routing } from "@/i18n/routing";
 import type { AlertsFormat } from "@/lib/config";
 import { MAX_ALERT_THRESHOLDS } from "@/lib/settings";
-import { isAllowedWebhookUrl } from "@/lib/webhook";
+import { webhookFieldProblem } from "@/lib/webhook";
 
 const FORMATS: AlertsFormat[] = ["generic", "slack", "discord"];
 
@@ -46,7 +46,7 @@ export function AlertsSection({
   const [testNotice, setTestNotice] = useState<string | null>(null);
 
   const trimmedUrl = alerts.webhookUrl.trim();
-  const urlProblem = trimmedUrl !== "" && !isAllowedWebhookUrl(trimmedUrl);
+  const urlProblem = trimmedUrl !== "" && webhookFieldProblem(trimmedUrl, alerts.storedMask);
   const thresholdsFull = alerts.thresholds.length >= MAX_ALERT_THRESHOLDS;
 
   function addThreshold() {
@@ -113,6 +113,7 @@ export function AlertsSection({
           className={`mt-1.5 block w-full min-w-0 ${FIELD}`}
         />
       </label>
+      {alerts.storedMask !== null && !urlProblem && <p className="text-sm text-ink-3">{t("alerts_webhook_masked")}</p>}
       {urlProblem && <StatusLine tone="problem">{t("alerts_webhook_invalid")}</StatusLine>}
 
       <fieldset>

@@ -2,11 +2,13 @@ import { hasLocale } from "next-intl";
 import { routing } from "@/i18n/routing";
 import { sendTestAlert } from "@/lib/alerts";
 import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
-import type { AlertsFormat } from "@/lib/config";
+import { type AlertsFormat, getConfig } from "@/lib/config";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { hit } from "@/lib/rate-limit";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
-import { ALERT_FORMATS } from "@/lib/settings";
+import { isMultiTenant } from "@/lib/registration";
+import { ALERT_FORMATS, restoreMaskedWebhook, storedWebhookUrl } from "@/lib/settings";
+import { loadIndexes } from "@/lib/usage-store";
 import { isAllowedWebhookUrl, MAX_WEBHOOK_URL_LENGTH } from "@/lib/webhook";
 
 /**
@@ -17,6 +19,9 @@ import { isAllowedWebhookUrl, MAX_WEBHOOK_URL_LENGTH } from "@/lib/webhook";
  * PUT /api/settings, not here.
  *
  *   POST { "webhookUrl": "https://hooks.example.com/x", "format": "slack", "locale": "en" }
+ *
+ * Multi-tenant mode: the page only has the stored URL masked; that mask, sent unchanged, tests the
+ * stored URL, and an edited mask is a 400.
  *
  * 200 { "ok": true, "status": 200 } · 400 bad JSON/payload · 401 no session ·
  * 403 foreign origin · 413 body too large · 415 not JSON ·
@@ -79,7 +84,19 @@ export const POST = withApiHandler("api/alerts/test", async ({ request }) => {
   const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES });
   if (!body.ok) return body.response;
 
-  const parsed = parseTestAlertRequest(body.value);
+  // Multi-tenant mode: the page only knows the stored URL masked, and sends that mask to test it.
+  let value = body.value;
+  if (isMultiTenant()) {
+    const restored = restoreMaskedWebhook(
+      { alerts: value },
+      storedWebhookUrl((await loadIndexes(tenant.store)).settings, getConfig()),
+    );
+    if (!restored.ok)
+      return apiError("invalid_payload", 400, { details: ["webhookUrl is masked: enter the full URL again"] });
+    value = (restored.body as { alerts: unknown }).alerts;
+  }
+
+  const parsed = parseTestAlertRequest(value);
   if (!parsed.ok) return apiError("invalid_payload", 400, { details: parsed.errors });
 
   const result = await sendTestAlert(parsed.value);
