@@ -12,7 +12,18 @@ function richWindowsConfig() {
 }
 
 /** The collapsed "Information" section: prerequisite, token, update, log and uninstall notes. */
-export function SetupNotes({ os, mode, notesId }: { os: SetupOs; mode: SetupMode; notesId: string }) {
+export function SetupNotes({
+  os,
+  mode,
+  notesId,
+  multiTenant = false,
+}: {
+  os: SetupOs;
+  mode: SetupMode;
+  notesId: string;
+  /** Multi-tenant mode: every machine has a token of its own, not the server's shared one. */
+  multiTenant?: boolean;
+}) {
   const t = useTranslations("Setup");
   const unix = os !== "windows";
 
@@ -27,13 +38,19 @@ export function SetupNotes({ os, mode, notesId }: { os: SetupOs; mode: SetupMode
 
         <dt className="text-ink-3">{t("token")}</dt>
         <dd className="text-ink-2">
-          {t.rich("token_desc", {
-            mac: INSTALLED_CONFIG.macos,
-            win: INSTALLED_CONFIG.windows,
-            Code: richCode,
-            BreakablePath: richWindowsConfig,
-            strong: (chunks: ReactNode) => <strong className="font-medium text-ink">{chunks}</strong>,
-          })}
+          {multiTenant
+            ? t.rich("token_desc_multi", {
+                mac: INSTALLED_CONFIG.macos,
+                Code: richCode,
+                BreakablePath: richWindowsConfig,
+              })
+            : t.rich("token_desc", {
+                mac: INSTALLED_CONFIG.macos,
+                win: INSTALLED_CONFIG.windows,
+                Code: richCode,
+                BreakablePath: richWindowsConfig,
+                strong: (chunks: ReactNode) => <strong className="font-medium text-ink">{chunks}</strong>,
+              })}
         </dd>
 
         <dt className="text-ink-3">{t("update")}</dt>

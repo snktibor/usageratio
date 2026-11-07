@@ -5,6 +5,7 @@ import { useState } from "react";
 import { type CopyErrorCode, fetchApiToken } from "@/components/clipboard";
 import { CommandBlock } from "@/components/code-block";
 import { InfoTip } from "@/components/info-tip";
+import { issueMachineToken } from "@/components/setup/machine-token";
 import { panelId, tabId } from "@/components/setup/route-tabs";
 import { Segmented } from "@/components/setup/steps";
 import { SudoUnlock } from "@/components/setup/sudo-unlock";
@@ -32,6 +33,7 @@ export function OneShotRoute({
   draft,
   tokenStatus,
   blobs,
+  multiTenant = false,
 }: {
   tabsId: string;
   hidden: boolean;
@@ -42,6 +44,8 @@ export function OneShotRoute({
   draft: MachineSettings;
   tokenStatus: ApiTokenStatus;
   blobs: OneShotBlobs;
+  /** Multi-tenant mode: no shared token; the copy issues this machine's own (machine-token.ts). */
+  multiTenant?: boolean;
 }) {
   const t = useTranslations("Setup");
   const tSettings = useTranslations("Settings");
@@ -51,7 +55,7 @@ export function OneShotRoute({
   const [sudoRequired, setSudoRequired] = useState(false);
   /** How the copy made by the PIN form ended; the copy button shows its own. */
   const [pinCopy, setPinCopy] = useState<"copied" | Exclude<CopyErrorCode, "sudo_required"> | null>(null);
-  const available = tokenStatus.state === "stored";
+  const available = multiTenant || tokenStatus.state === "stored";
   const note = apiTokenStatusNote(tokenStatus);
   const packedNote = (name: string, blob: string) => t("packed_note", { name, lines: blob.split("\n").length });
   const preview = renderOneShot(os, runner, settings ?? draft, t("token_placeholder"), {
@@ -61,7 +65,8 @@ export function OneShotRoute({
   });
   const build = async () => {
     if (!settings) throw new Error("invalid settings");
-    return renderOneShot(os, runner, settings, await fetchApiToken(), blobs);
+    const token = multiTenant ? await issueMachineToken(settings.machineId) : await fetchApiToken();
+    return renderOneShot(os, runner, settings, token, blobs);
   };
 
   return (
@@ -133,10 +138,12 @@ export function OneShotRoute({
           </div>
           {!settings ? (
             <p className="text-sm text-ink-3">{t("fix_group_machine")}</p>
+          ) : multiTenant ? (
+            <p className="text-sm text-ink-3">{t("copy_issues_token")}</p>
           ) : available ? (
             <p className="text-sm text-ink-3">{t("copy_fetches_token")}</p>
           ) : null}
-          {!available || note.tone === "warning" ? (
+          {!multiTenant && (!available || note.tone === "warning") ? (
             <StatusLine tone={note.tone}>
               {tSettings(note.key)}
               {tokenStatus.state === "empty" || tokenStatus.state === "unreadable" ? t("provide_in_settings") : ""}

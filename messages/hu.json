@@ -690,7 +690,22 @@
     "file_not_installed": "nem települ, csak egyszer fut",
     "file_content_aria": "{name} tartalma",
     "token_placeholder": "‹token: a Másolás gomb illeszti be›",
-    "packed_note": "‹{name}, tömörítve: {lines} sor base64›"
+    "packed_note": "‹{name}, tömörítve: {lines} sor base64›",
+    "readme_secret_warning": "Ez a csomag titkot tartalmaz: ennek a gépnek az API tokenjét, a(z) {file} fájlban. Ne oszd meg a csomagot, és töröld, miután a kliens települt. Ha kiszivárog, vond vissza a tokent a Beállítások → Tokenek alatt.",
+    "readme_step_token_included": "2. Semmit nem kell beírni: a csomag már tartalmazza ennek a gépnek a saját tokenjét.",
+    "machine_problem_missing": "Nevezd meg a gépet: a tokenje hozzá van kötve.",
+    "copy_issues_token": "A másolás létrehozza ennek a gépnek a saját tokenjét (hozzá kötve, a Beállítások → Tokenek alatt látszik), látogatásonként egyszer.",
+    "zip_token_included": "Semmit nem kell beírni: a csomag a gép saját, új tokenjét tartalmazza, így a telepítő nem kér tokent. A csomag ezért titok: töröld, miután a kliens települt.",
+    "machine_token_note": "Amikor a telepítő az API tokent kéri, ennek a gépnek a saját tokenjét add meg: itt hozhatod létre (a géphez kötött, és a Beállítások → Tokenek alatt látszik).",
+    "machine_token_button": "A gép tokenjének létrehozása",
+    "machine_token_label": "A gép tokenje",
+    "machine_token_once": "Másold ki most: többször nem jelenik meg.",
+    "package_download_failed": "A csomag nem készült el. Próbáld újra egy pillanat múlva.",
+    "copy_problem_too_many_tokens": "Ennek a workspace-nek már annyi tokenje van, amennyi lehet. Előbb vonj vissza egyet a Beállítások → Tokenek alatt.",
+    "machine_label_required": "Gép azonosító",
+    "machine_hint_required": "A gép tokenje ehhez a névhez kötődik; ha a gép már jelent, azt a nevet használd, amelyen jelent.",
+    "zip_desc_multi": "Kész csomag telepítővel, a fenti beállításokkal, benne a gép saját, új tokenjével: a telepítő semmit nem kérdez.",
+    "token_desc_multi": "Minden gép a saját, hozzá kötött tokenjével jelent: a ZIP tartalmazza, a másik két út pedig létrehozza neked. Mindegyik látszik, és visszavonható a Beállítások → Tokenek alatt. Egy beállított gépen itt találod: <Code>{mac}</Code> (macOS és Linux) vagy <Code><BreakablePath></BreakablePath></Code> (Windows)."
   },
   "Auth": {
     "pin_malformed": "A PIN-kód vagy jelmondat 5–64 karakter hosszú lehet.",

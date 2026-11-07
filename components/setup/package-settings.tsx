@@ -36,6 +36,7 @@ export function PackageSettings({
   groups,
   check,
   ids,
+  machineRequired = false,
 }: {
   os: SetupOs;
   setOs: (os: SetupOs) => void;
@@ -48,6 +49,8 @@ export function PackageSettings({
   groups: SetupGroup[];
   check: SettingsCheck;
   ids: { group: string; groupNote: string; machine: string; machineNote: string };
+  /** Multi-tenant mode: the machine's token is bound to its name, so the name is needed. */
+  machineRequired?: boolean;
 }) {
   const t = useTranslations("Setup");
   const rule = t("id_rule");
@@ -58,7 +61,13 @@ export function PackageSettings({
       : check.group === "invalid"
         ? t("group_problem_invalid", { rule })
         : null;
-  const machineProblem = check.ok ? null : check.machine === "invalid" ? t("machine_problem_invalid", { rule }) : null;
+  const machineProblem = check.ok
+    ? null
+    : check.machine === "invalid"
+      ? t("machine_problem_invalid", { rule })
+      : check.machine === "missing"
+        ? t("machine_problem_missing")
+        : null;
   const selectedGroup = group.trim();
 
   return (
@@ -125,7 +134,7 @@ export function PackageSettings({
 
         <div className="min-w-0">
           <label htmlFor={ids.machine} className="text-sm text-ink-3">
-            {t("machine_label")}
+            {machineRequired ? t("machine_label_required") : t("machine_label")}
           </label>
           <input
             id={ids.machine}
@@ -140,7 +149,11 @@ export function PackageSettings({
             aria-describedby={ids.machineNote}
             className={`mt-1.5 block w-full ${FIELD}`}
           />
-          <FieldNote id={ids.machineNote} problem={machineProblem} hint={t("machine_hint")} />
+          <FieldNote
+            id={ids.machineNote}
+            problem={machineProblem}
+            hint={machineRequired ? t("machine_hint_required") : t("machine_hint")}
+          />
         </div>
       </div>
     </section>

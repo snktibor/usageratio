@@ -14,7 +14,7 @@ All source: `app/api/**/route.ts`, shared helpers in `lib/api.ts`.
 - [`PUT /api/official-usage/archived`](#put-apiofficial-usagearchived)
 - [`POST /api/official-usage/report`](#post-apiofficial-usagereport)
 - [`POST`/`PUT`/`DELETE /api/resets`](#postputdelete-apiresets)
-- [`GET /api/setup`](#get-apisetup)
+- [`GET`/`POST /api/setup`](#get-apisetup)
 - [`GET`/`PUT /api/api-token`, `POST /api/api-token/reveal`, `GET /api/api-token/audit`](#the-stored-api-token)
 - [`GET`/`POST /api/tokens`, `DELETE /api/tokens/[id]`, `POST /api/tokens/[id]/rotate`, `GET /api/tokens/audit`](#per-machine-tokens)
 - [`GET /api/machines`, `PATCH`/`DELETE /api/machines/[provider]/[machine]`, `POST /api/machines/prune`](#machines)
@@ -456,8 +456,16 @@ not_revertable` · `413`/`415` bad body · `503` Redis down.
 Auth: **session** (redirects `303` to `/setup` without one, rather than a JSON 401 — it's meant to be
 opened as a link/download). `?os=macos|linux|windows&mode=auto|manual&group=Work&machine=win-desktop`.
 Returns the Setup page's ZIP: `200 application/zip` with `Content-Disposition: attachment` · `303` no
-session · `400` bad parameters · `503` Redis down. Contains no secret — see
-[clients.md](clients.md#installing-from-the-setup-page).
+session · `400` bad parameters · `404` multi-tenant mode · `503` Redis down. Contains no secret — see
+[clients.md](clients.md#installing-from-the-setup-page). Single-user instances only.
+
+**`POST /api/setup`** (multi-tenant mode only; session, same-origin) `{ "os", "mode", "group",
+"machine", "token", "locale"? }` → the same ZIP, with a secret inside: `token` in the package's
+config (`API_TOKEN` / `apiToken`), so the installer asks for nothing; the README says the package
+is a secret. The page issues that token first through `POST /api/tokens` (sudo, the audit trail,
+one per machine and visit); only the workspace's own live `ingest` token bound to `machine` is
+taken. `400` bad parameters, no `machine`, or `invalid_token` · `401` no session · `403` foreign
+origin · `404` single-user instance · `412 tenant_changed` · `503` Redis down.
 
 ## The stored API token
 

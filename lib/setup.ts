@@ -67,6 +67,12 @@ export interface MachineSettings {
   groupId: string;
   /** Empty: the installer keeps the id the machine already reports under, else the computer's name. */
   machineId: string;
+  /**
+   * Multi-tenant mode: the machine's own API token, issued for this package (app/api/setup); the
+   * installer then uses it instead of asking. Absent on a single-user instance, whose package never
+   * carries a secret.
+   */
+  token?: string;
 }
 
 /** What a package file is for; a `Setup.role_*` message key. */
@@ -238,6 +244,11 @@ export function packageFiles(os: SetupOs, mode: SetupMode): PackageFile[] {
   return os === "windows" ? windowsFiles(mode) : unixFiles(os, mode);
 }
 
+/** The label of a token the setup page issues for a machine (at most 64 characters, lib/tokens.ts). */
+export function setupTokenLabel(machineId: string): string {
+  return `${machineId} (setup)`.slice(0, 64);
+}
+
 /** The ZIP's name without extension; also the folder it unpacks into. */
 export function packageName(os: SetupOs, mode: SetupMode): string {
   return `usageratio-${os}-${mode}`;
@@ -248,22 +259,26 @@ export function packageName(os: SetupOs, mode: SetupMode): string {
 // The macOS/Linux config is sourced by bash: nothing in a value may end its double quotes.
 const SHELL_UNSAFE = /["$`\\\r\n]/;
 
-/** The package's config file. The installer adds the token and writes the real one. */
+/**
+ * The package's config file. The installer adds the token (asked for, or the package's own in
+ * multi-tenant mode) and writes the real one.
+ */
 export function renderConfig(os: SetupOs, settings: MachineSettings): string {
-  const { apiUrl, machineId, groupId } = settings;
+  const { apiUrl, machineId, groupId, token } = settings;
   if (os === "windows") {
-    return `${JSON.stringify({ apiUrl, machineId, groupId }, null, 2)}\n`;
+    return `${JSON.stringify({ apiUrl, machineId, groupId, ...(token && { apiToken: token }) }, null, 2)}\n`;
   }
 
-  for (const value of [apiUrl, machineId, groupId]) {
+  for (const value of [apiUrl, machineId, groupId, token ?? ""]) {
     if (SHELL_UNSAFE.test(value)) throw new Error(`config value cannot be written safely: ${JSON.stringify(value)}`);
   }
-  return `API_URL="${apiUrl}"\nMACHINE_ID="${machineId}"\nGROUP_ID="${groupId}"\n`;
+  const tokenLine = token ? `API_TOKEN="${token}"\n` : "";
+  return `API_URL="${apiUrl}"\nMACHINE_ID="${machineId}"\nGROUP_ID="${groupId}"\n${tokenLine}`;
 }
 
 export type SettingsCheck =
   | { ok: true; groupId: string; machineId: string }
-  | { ok: false; group: "missing" | "invalid" | null; machine: "invalid" | null };
+  | { ok: false; group: "missing" | "invalid" | null; machine: "missing" | "invalid" | null };
 
 /** The page's group and machine fields, checked by the same rule the ingest API applies. */
 export function checkMachineSettings(group: string, machine: string): SettingsCheck {
@@ -507,12 +522,17 @@ export function renderReadme(
   const lines = [
     translate("readme_title", { os: OS_LABEL[os], mode }),
     "",
+    ...(settings.token
+      ? [translate("readme_secret_warning", { file: os === "windows" ? "config.json" : "config" }), ""]
+      : []),
     translate(`mode_${mode}_${os}`),
     "",
     translate("readme_install_heading"),
     "",
     ...steps,
-    translate("readme_step_token", { path: INSTALLED_CONFIG[os] }),
+    settings.token
+      ? translate("readme_step_token_included")
+      : translate("readme_step_token", { path: INSTALLED_CONFIG[os] }),
     translate("readme_step_installed", { folder }),
     "",
     translate("readme_settings_heading"),
