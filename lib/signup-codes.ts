@@ -32,7 +32,10 @@ export function signupCodeHash(code: string): string {
 }
 
 /** Issues a code; the plaintext is returned once and never stored. */
-export async function createSignupCode(createdBy: string, now: Date): Promise<{ id: string; code: string }> {
+export async function createSignupCode(
+  createdBy: string,
+  now: Date,
+): Promise<{ id: string; code: string; entry: SignupCodeEntry }> {
   const code = randomBytes(32).toString("base64url");
   const id = `sc_${randomBytes(6).toString("base64url")}`;
   const hash = signupCodeHash(code);
@@ -43,7 +46,7 @@ export async function createSignupCode(createdBy: string, now: Date): Promise<{ 
     [id]: JSON.stringify({ hash, createdAt: now.getTime(), expiresAt, createdBy }),
   });
   await tx.exec();
-  return { id, code };
+  return { id, code, entry: { id, createdAt: now.getTime(), expiresAt, createdBy, usedAt: null, usedBy: null } };
 }
 
 /** Whether a code with this hash is live (checked before sending anyone to GitHub; it is consumed later). */

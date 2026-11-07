@@ -23,6 +23,8 @@ All source: `app/api/**/route.ts`, shared helpers in `lib/api.ts`.
 - [`POST /api/alerts/test`](#alerts-test)
 - [`GET`/`POST /api/auth/sudo`](#sudo)
 - [`POST /api/auth/github/start`, `GET /api/auth/github/callback`](#github-sign-in)
+- [`GET`/`DELETE /api/account`, `DELETE /api/account/sessions`](#account)
+- [`GET /api/admin`, `POST /api/admin/signup-codes`, `DELETE /api/admin/signup-codes/[id]`, `PATCH /api/admin/tenants/[id]`](#instance-admin)
 - [`GET /api/cron/housekeeping`, `POST /api/housekeeping`](#housekeeping)
 - [`GET /api/export`](#export)
 - [`POST /api/csp-report`](#csp-report)
@@ -560,6 +562,35 @@ Multi-tenant mode only (`REGISTRATION=invite|open`); both answer `404` on a sing
   `sudo_mismatch` (a different GitHub account than the signed-in one), `misconfigured`,
   `rate_limited`. A failed sudo goes back to the page that asked, with the same `?signin_error=`,
   where the unlock prompt shows it.
+
+## Account
+
+Multi-tenant mode only (`404` on a single-user instance). Auth: a signed-in user's session, with or
+without a workspace.
+
+- **`GET /api/account`** → `{ "account": { "login", "createdAt", "workspaces": [{ "tenantId", "name",
+  "role", "members", "current" }], "sessions": [{ "tag", "label", "createdAt", "seenAt", "current" }] } }`.
+- **`DELETE /api/account`** (same-origin, sudo) → `200 { "ok": true, "workspacesDeleted",
+  "workspacesLeft" }` and the session cookie cleared. `409 owns_shared_workspace` (with
+  `tenantIds`): hand those workspaces over first; `409 owns_default_workspace`: the instance's
+  original data is never deleted this way; `403 sudo_required`.
+- **`DELETE /api/account/sessions`** (same-origin) → `200 { "ended": n }`: every session of the user,
+  this one included.
+
+## Instance admin
+
+Multi-tenant mode, and a user whose GitHub id is in `ADMIN_GITHUB_IDS`; everyone else gets `404`.
+
+- **`GET /api/admin`** → `{ "overview": { "usersWithWorkspace", "tenants": { "total", "active",
+  "disabled" }, "rows": [{ "tenantId", "createdAt", "status", "owners", "members", "machines",
+  "providers", "tokens", "lastReportAt", "keys" }] }, "signupCodes": [{ "id", "createdAt",
+  "expiresAt", "createdBy", "usedAt", "usedBy" }] }` — counts only, never a workspace's data.
+- **`POST /api/admin/signup-codes`** (same-origin) → `201 { "id", "url": "https://…/signup#<code>" }`,
+  shown once.
+- **`DELETE /api/admin/signup-codes/[id]`** (same-origin) → `200`; `404` for a used or unknown code.
+- **`PATCH /api/admin/tenants/[id]`** (same-origin) `{ "status": "active" | "disabled" }` → `200`. A
+  disabled workspace keeps its data; its members get nothing and its machines' tokens get
+  `403 tenant_disabled`. `404` for the default workspace, an unknown one, or one being deleted.
 
 ## Housekeeping
 

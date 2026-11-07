@@ -10,8 +10,9 @@ import { alertGuardSegmentMs } from "@/lib/redis-keys";
 import { pruneResets, resetEventsOf, resetsOf } from "@/lib/resets";
 import { parseStoredSettings, resolveConfig, settingsFromConfig } from "@/lib/settings";
 import { type TenantStore, tenantStore } from "@/lib/tenant";
+import { deleteTenant } from "@/lib/tenant-deletion";
 import { DEFAULT_TENANT } from "@/lib/tenant-id";
-import { markHousekept, tenantsByHousekeepingAge } from "@/lib/tenants";
+import { loadTenantRecord, markHousekept, tenantsByHousekeepingAge } from "@/lib/tenants";
 import { pruneRevokedTokens } from "@/lib/tokens";
 import { loadEvents, loadIndexes, loadResets, saveResets } from "@/lib/usage-store";
 
@@ -324,6 +325,13 @@ export async function runScheduledHousekeeping(
       break;
     }
     try {
+      // A tenant whose deletion was cut short is not housekept (that would write to it): the
+      // deletion is finished instead, and the tenant is gone from the order for good.
+      if ((await loadTenantRecord(tenantId))?.status === "deleting") {
+        if (!dryRun) await deleteTenant(tenantId, now);
+        summary.processed += 1;
+        continue;
+      }
       const tenantReport = await runHousekeeping(tenantStore(tenantId), now, { dryRun });
       if (tenantId === DEFAULT_TENANT) report = tenantReport;
       if (!dryRun) await markHousekept(tenantId, now.getTime());

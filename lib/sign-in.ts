@@ -10,6 +10,7 @@ import { clientIp, isHttpsRequest } from "@/lib/request-context";
 import { sha256Hex } from "@/lib/security";
 import { consumeSignupCode, isSignupCodeShape, signupCodeHash, signupCodeIsLive } from "@/lib/signup-codes";
 import type { TenantId } from "@/lib/tenant-id";
+import { loadTenantRecord, tenantIsActive } from "@/lib/tenants";
 import { currentUserSession, markSessionAuthenticated, startUserSession } from "@/lib/user-session";
 import { createTenantFor, findOrCreateGithubUser, hasGithubIdentity, userForGithub, userTenants } from "@/lib/users";
 
@@ -23,7 +24,7 @@ import { createTenantFor, findOrCreateGithubUser, hasGithubIdentity, userForGith
  */
 
 /** Where a sign-in may return to: the pages that show the sign-in screen. Anything else goes home. */
-const RETURN_TO = new Set(["/", "/setup", "/settings"]);
+const RETURN_TO = new Set(["/", "/setup", "/settings", "/account", "/admin"]);
 const OAUTH_COOKIE = "ur_oauth";
 
 export function safeReturnTo(raw: unknown): string {
@@ -112,6 +113,14 @@ export async function startSignIn(params: {
   };
 }
 
+/** The first of the user's tenants (lib/users.ts `userTenants` order) that is not disabled or being deleted. */
+async function firstActiveTenant(userId: string): Promise<TenantId | null> {
+  for (const { tenantId } of await userTenants(userId)) {
+    if (tenantIsActive(tenantId, await loadTenantRecord(tenantId))) return tenantId;
+  }
+  return null;
+}
+
 /** The name of the nonce cookie on this connection, for the callback to read. */
 export async function oauthCookieName(): Promise<string> {
   return hostCookieName(OAUTH_COOKIE, await isHttpsRequest());
@@ -189,7 +198,7 @@ export async function finishSignIn(
     }
   }
 
-  const active = newTenant ?? (await userTenants(userId))[0]?.tenantId ?? null;
+  const active = newTenant ?? (await firstActiveTenant(userId));
   cookies.push(await startUserSession(userId, active, now));
   log.info("signin.ok", { userId, purpose: attempt.purpose });
   return { location: landing, cookies };

@@ -186,6 +186,15 @@ export function LogOutIcon({ className }: IconProps) {
   );
 }
 
+export function UserIcon({ className }: IconProps) {
+  return (
+    <Glyph className={className}>
+      <circle cx="8" cy="5.4" r="2.6" />
+      <path d="M2.8 13.6c.6-2.4 2.7-4 5.2-4s4.6 1.6 5.2 4" />
+    </Glyph>
+  );
+}
+
 /** The GitHub mark: a solid logo, so it breaks from `Glyph`'s stroke-only style. */
 export function GitHubIcon({ className }: IconProps) {
   return (

@@ -4,7 +4,7 @@ import { ArchivedCycleView, type PastSummary } from "@/components/archived-cycle
 import { AutoRefresh } from "@/components/auto-refresh";
 import { CycleBar } from "@/components/cycle-bar";
 import { DashboardView, type HistoryContext } from "@/components/dashboard-view";
-import { DownloadIcon, ExportIcon, GitHubIcon, LogOutIcon, SlidersIcon } from "@/components/icons";
+import { DownloadIcon, ExportIcon, GitHubIcon, LogOutIcon, SlidersIcon, UserIcon } from "@/components/icons";
 import { Link } from "@/i18n/routing";
 import type { AllTimeSummary } from "@/lib/all-time";
 import { getConfig } from "@/lib/config";
@@ -14,6 +14,7 @@ import { isDemoMode } from "@/lib/demo/mode";
 import { formatClock } from "@/lib/format";
 import type { CycleSummary } from "@/lib/history";
 import type { Translator } from "@/lib/i18n";
+import { isMultiTenant } from "@/lib/registration";
 import { version } from "@/package.json";
 
 export type { PastSummary };
@@ -122,6 +123,15 @@ export async function Dashboard({
             <SlidersIcon />
             <span className="sr-only sm:not-sr-only">{t("dashboard_settings")}</span>
           </Link>
+          {isMultiTenant() && (
+            <Link
+              href="/account"
+              className="flex items-center gap-2 rounded-md border border-rule px-2.5 py-1.5 text-ink-2 transition-colors hover:border-ink-3 hover:text-ink sm:px-3"
+            >
+              <UserIcon />
+              <span className="sr-only sm:not-sr-only">{t("dashboard_account")}</span>
+            </Link>
+          )}
           {!isDemoMode() && (
             <form action={logout}>
               <button

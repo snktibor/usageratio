@@ -45,7 +45,7 @@ local development and tests.
 | `usage:auth:global` | STRING | attempt counter | 1 hour | Login attempts from browsers with no known-device cookie |
 | `usage:rl:*` (`ingest`, `ingest:global`, `cycle`, `unauth`, `alerts-test`) | STRING | fixed-window counter (`lib/rate-limit.ts`) | matches the limit's own window | The endpoint being rate-limited |
 | `usage:demo:seededAt`, `usage:demo:seeding` | STRING | timestamp / lock | `usage:demo:seeding` expires after 60s | Demo mode's self-seeding (`ensureDemoData`) |
-| `usage:tenant:{tenantId}` | STRING | JSON `{"v": 1, "name", "createdAt", "status": "active"}` — a tenant's own record (`lib/tenants.ts`) | Forever | `npm run migrate:tenant` (the default tenant's) |
+| `usage:tenant:{tenantId}` | STRING | JSON `{"v": 1, "name", "createdAt", "status": "active"\|"disabled"\|"deleting", "statusAt"?}` — a tenant's own record (`lib/tenants.ts`); an unknown status reads as "disabled" | Until the tenant is deleted (the record goes last) | Workspace creation; `npm run migrate:tenant` (the default tenant's); the instance admin (status) |
 | `usage:tenants` | ZSET | `tenantId → createdMs`, every tenant besides `default`, which always exists | Forever | Tenant creation (none yet: a single-tenant instance has only `default`) |
 | `usage:tenants:housekept` | ZSET | `tenantId → last housekeeping run (ms)` | Forever | The cron run, after each tenant's housekeeping |
 | `usage:user:{userId}` (+ `:identities` SET, `:tenants` HASH, `:sessions` ZSET) | STRING | JSON `{"v": 1, "login", "createdAt", "lastLoginAt"}`; the identities (`github:{id}`), the user's tenants (`tenantId → role`) and sessions (`sha256(sid) → created ms`) | Until the account is deleted (F7) | Multi-tenant sign-in (`lib/users.ts`) |
