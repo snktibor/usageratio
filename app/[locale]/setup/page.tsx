@@ -4,10 +4,12 @@ import { getTranslations, setRequestLocale } from "next-intl/server";
 import { SignInGate } from "@/components/auth/sign-in-gate";
 import { type SetupGroup, SetupView } from "@/components/setup/setup-view";
 import { StorageProblem } from "@/components/storage-problem";
+import { TenantGuard } from "@/components/tenant-guard";
 import { routing } from "@/i18n/routing";
 import type { ApiTokenStatus } from "@/lib/api-token";
 import { log } from "@/lib/log";
 import { StorageNotConfiguredError } from "@/lib/redis";
+import { isMultiTenant } from "@/lib/registration";
 import { NEUTRAL_COLOR, resolveGroupColors } from "@/lib/settings";
 import { detectOs, parseMode, parseOs, parseRoute } from "@/lib/setup";
 import { loadClientSources, oneShotBlobs, usageEndpoint } from "@/lib/setup-package";
@@ -47,12 +49,16 @@ export default async function SetupPage({
 
   let groups: SetupGroup[] | null = null;
   let tokenStatus: ApiTokenStatus = { state: "empty" };
+  let tenantId: string | null = null;
   let storageError: unknown = null;
 
   try {
     // Like the dashboard: the stored groups are only read after the session check passed.
     const tenant = await currentTenant();
-    if (tenant) [groups, tokenStatus] = await Promise.all([loadGroups(tenant.store), loadApiTokenStatus(tenant.store)]);
+    if (tenant) {
+      tenantId = tenant.store.tenantId;
+      [groups, tokenStatus] = await Promise.all([loadGroups(tenant.store), loadApiTokenStatus(tenant.store)]);
+    }
   } catch (error) {
     storageError = error;
     log.error("setup_page.load_failed", { err: error });
@@ -65,17 +71,20 @@ export default async function SetupPage({
 
   const [query, requestHeaders, sources] = await Promise.all([searchParams, headers(), loadClientSources()]);
   return (
-    <SetupView
-      initialOs={
-        parseOs(query.os) ?? detectOs(requestHeaders.get("user-agent"), requestHeaders.get("sec-ch-ua-platform"))
-      }
-      initialMode={parseMode(query.mode) ?? "auto"}
-      initialRoute={parseRoute(query.route) ?? "zip"}
-      apiUrl={usageEndpoint(requestHeaders)}
-      groups={groups}
-      sources={sources}
-      oneShot={oneShotBlobs(sources)}
-      tokenStatus={tokenStatus}
-    />
+    <>
+      {isMultiTenant() && tenantId && <TenantGuard tenantId={tenantId} />}
+      <SetupView
+        initialOs={
+          parseOs(query.os) ?? detectOs(requestHeaders.get("user-agent"), requestHeaders.get("sec-ch-ua-platform"))
+        }
+        initialMode={parseMode(query.mode) ?? "auto"}
+        initialRoute={parseRoute(query.route) ?? "zip"}
+        apiUrl={usageEndpoint(requestHeaders)}
+        groups={groups}
+        sources={sources}
+        oneShot={oneShotBlobs(sources)}
+        tokenStatus={tokenStatus}
+      />
+    </>
   );
 }

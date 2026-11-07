@@ -24,6 +24,15 @@ export function AccountView({ account, admin }: { account: Account; admin: boole
   const [ending, setEnding] = useState(false);
   const [state, setState] = useState<DeleteState>({ phase: "idle" });
 
+  async function open(tenantId: string) {
+    const response = await fetch("/api/session/tenant", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tenantId }),
+    }).catch(() => null);
+    if (response?.ok) window.location.assign(`/${locale}`);
+  }
+
   async function signOutEverywhere() {
     setEnding(true);
     const response = await fetch("/api/account/sessions", { method: "DELETE" }).catch(() => null);
@@ -73,9 +82,20 @@ export function AccountView({ account, admin }: { account: Account; admin: boole
                 {workspace.name}
                 {workspace.current && <span className="ml-2 text-sm text-ink-3">{t("current")}</span>}
               </span>
-              <span className="text-sm text-ink-2">
-                {workspace.role === "owner" ? t("role_owner") : t("role_member")} ·{" "}
-                {t("members", { count: workspace.members })}
+              <span className="flex flex-wrap items-center gap-3 text-sm text-ink-2">
+                <span>
+                  {workspace.role === "owner" ? t("role_owner") : t("role_member")} ·{" "}
+                  {t("members", { count: workspace.members })}
+                </span>
+                {workspace.current ? (
+                  <Link href="/workspace" className={QUIET_BUTTON}>
+                    {t("manage")}
+                  </Link>
+                ) : (
+                  <button type="button" className={QUIET_BUTTON} onClick={() => open(workspace.tenantId)}>
+                    {t("open")}
+                  </button>
+                )}
               </span>
             </li>
           ))}

@@ -709,7 +709,14 @@
     "error_signup_code_invalid": "This sign-up link is no longer valid: it was used, revoked, or it expired.",
     "error_sudo_mismatch": "That was a different GitHub account than the one signed in here.",
     "error_rate_limited": "Too many sign-in attempts from here. Please wait a few minutes.",
-    "error_unavailable": "The server could not be reached. Please try again."
+    "error_unavailable": "The server could not be reached. Please try again.",
+    "join_heading": "Join a workspace",
+    "join_description": "You were invited to a workspace on usageratio. Sign in with GitHub to join it: you will see its usage and can manage its machines.",
+    "join_button": "Join with GitHub",
+    "join_missing_code": "This invite link is incomplete. Open the full link you were given.",
+    "no_workspace_account": "Your account",
+    "error_invite_invalid": "This invite is no longer valid: it was used, revoked, or it expired. Ask for a new one.",
+    "error_invite_wrong_account": "This invite is for a different GitHub account. Sign in with the account it names, or ask for a new invite."
   },
   "Account": {
     "heading": "Account",
@@ -736,7 +743,9 @@
     "delete_sudo": "Deleting the account needs a fresh sign-in.",
     "delete_owns_shared": "You own a workspace that others belong to. Hand it over to one of them first.",
     "delete_owns_default": "You own this instance's original workspace, which cannot be deleted from here.",
-    "delete_failed": "The account could not be deleted. Please try again."
+    "delete_failed": "The account could not be deleted. Please try again.",
+    "open": "Open",
+    "manage": "Members"
   },
   "Admin": {
     "heading": "Instance admin",
@@ -778,5 +787,50 @@
   },
   "Metadata": {
     "description": "usageratio tracks AI coding-agent token usage across machines and groups against a weekly or monthly budget."
+  },
+  "TenantGuard": {
+    "changed": "This tab still shows a workspace you switched away from in another tab, so nothing was saved here.",
+    "reload": "Reload"
+  },
+  "Workspace": {
+    "account_link": "Account",
+    "you_own": "You own this workspace.",
+    "you_member": "You are a member of this workspace.",
+    "members_heading": "Members",
+    "you": "(you)",
+    "role_owner": "owner",
+    "role_member": "member",
+    "joined": "joined",
+    "make_owner": "Make owner",
+    "remove": "Remove",
+    "owner_only_note": "Only the owner can invite or remove people.",
+    "invites_heading": "Invites",
+    "invites_description": "An invite link lets one person join as a member within 7 days. It is shown only once. Anyone with the link can use it, unless you name a GitHub account.",
+    "invite_login_label": "Only for this GitHub account (optional)",
+    "invite_login_placeholder": "octocat",
+    "create_invite": "Create an invite link",
+    "new_invite_once": "Copy this link now and send it to the person you invite: it is not shown again.",
+    "new_invite_label": "Invite link",
+    "invite_for": "for @{login}",
+    "invite_anyone": "anyone with the link",
+    "invite_expires": "expires",
+    "revoke": "Revoke",
+    "no_invites": "No pending invites.",
+    "leave_heading": "Leave the workspace",
+    "leave_description": "You lose access to its data. The machine tokens you created keep working until the owner revokes them.",
+    "leave_button": "Leave",
+    "leave_title": "Leave {name}?",
+    "remove_title": "Remove {login} from the workspace?",
+    "remove_body": "They lose access on their next request. Their account stays, and you can invite them again.",
+    "remove_tokens": "Also revoke the machine tokens they created",
+    "removed": "{login} was removed; {count, plural, =0 {no tokens were revoked} one {# token was revoked} other {# tokens were revoked}}.",
+    "transfer_title": "Make {login} the owner?",
+    "transfer_body": "They can then invite and remove people, export the data and delete the workspace. You stay on as a member.",
+    "transfer_sudo": "Handing the workspace over needs a fresh sign-in.",
+    "cancel": "Cancel",
+    "error_too_many_invites": "At most 10 invites can be pending at once. Revoke one first.",
+    "error_invalid_login": "That is not a GitHub login.",
+    "error_busy": "Another change to the members is running. Try again in a moment.",
+    "error_failed": "That did not work. Please try again."
   }
 }

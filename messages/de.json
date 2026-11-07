@@ -709,7 +709,14 @@
     "error_signup_code_invalid": "Dieser Registrierungslink gilt nicht mehr: Er wurde benutzt, widerrufen oder ist abgelaufen.",
     "error_sudo_mismatch": "Das war ein anderes GitHub-Konto als das, mit dem du hier angemeldet bist.",
     "error_rate_limited": "Zu viele Anmeldeversuche von hier. Bitte warte ein paar Minuten.",
-    "error_unavailable": "Der Server ist nicht erreichbar. Bitte versuche es erneut."
+    "error_unavailable": "Der Server ist nicht erreichbar. Bitte versuche es erneut.",
+    "join_heading": "Einem Workspace beitreten",
+    "join_description": "Du wurdest in einen usageratio-Workspace eingeladen. Melde dich mit GitHub an, um beizutreten: Du siehst dann seine Nutzung und kannst seine Geräte verwalten.",
+    "join_button": "Mit GitHub beitreten",
+    "join_missing_code": "Dieser Einladungslink ist unvollständig. Öffne den vollständigen Link, den du erhalten hast.",
+    "no_workspace_account": "Dein Konto",
+    "error_invite_invalid": "Diese Einladung ist nicht mehr gültig: Sie wurde verwendet, widerrufen oder ist abgelaufen. Bitte um eine neue.",
+    "error_invite_wrong_account": "Diese Einladung gilt für ein anderes GitHub-Konto. Melde dich mit dem genannten Konto an oder bitte um eine neue Einladung."
   },
   "Account": {
     "heading": "Konto",
@@ -736,7 +743,9 @@
     "delete_sudo": "Zum Löschen des Kontos ist eine erneute Anmeldung nötig.",
     "delete_owns_shared": "Du bist Owner eines Workspace, in dem auch andere Mitglied sind. Übergib ihn zuerst an eine dieser Personen.",
     "delete_owns_default": "Du bist Owner des ursprünglichen Workspace dieser Instanz, der hier nicht gelöscht werden kann.",
-    "delete_failed": "Das Konto konnte nicht gelöscht werden. Bitte versuche es erneut."
+    "delete_failed": "Das Konto konnte nicht gelöscht werden. Bitte versuche es erneut.",
+    "open": "Öffnen",
+    "manage": "Mitglieder"
   },
   "Admin": {
     "heading": "Instanz-Admin",
@@ -778,5 +787,50 @@
   },
   "Metadata": {
     "description": "usageratio verfolgt den Token-Verbrauch von KI-Coding-Agenten über Maschinen und Gruppen hinweg, gemessen an einem wöchentlichen oder monatlichen Budget."
+  },
+  "TenantGuard": {
+    "changed": "Dieser Tab zeigt noch einen Workspace, von dem du in einem anderen Tab weggewechselt hast, daher wurde hier nichts gespeichert.",
+    "reload": "Neu laden"
+  },
+  "Workspace": {
+    "account_link": "Konto",
+    "you_own": "Dir gehört dieser Workspace.",
+    "you_member": "Du bist Mitglied dieses Workspace.",
+    "members_heading": "Mitglieder",
+    "you": "(du)",
+    "role_owner": "Owner",
+    "role_member": "Mitglied",
+    "joined": "beigetreten",
+    "make_owner": "Zum Owner machen",
+    "remove": "Entfernen",
+    "owner_only_note": "Nur der Owner kann Personen einladen oder entfernen.",
+    "invites_heading": "Einladungen",
+    "invites_description": "Mit einem Einladungslink kann eine Person innerhalb von 7 Tagen als Mitglied beitreten. Er wird nur einmal angezeigt. Jeder mit dem Link kann ihn verwenden, außer du nennst ein GitHub-Konto.",
+    "invite_login_label": "Nur für dieses GitHub-Konto (optional)",
+    "invite_login_placeholder": "octocat",
+    "create_invite": "Einladungslink erstellen",
+    "new_invite_once": "Kopiere diesen Link jetzt und schicke ihn der eingeladenen Person: Er wird nicht noch einmal angezeigt.",
+    "new_invite_label": "Einladungslink",
+    "invite_for": "für @{login}",
+    "invite_anyone": "jeder mit dem Link",
+    "invite_expires": "läuft ab",
+    "revoke": "Widerrufen",
+    "no_invites": "Keine offenen Einladungen.",
+    "leave_heading": "Workspace verlassen",
+    "leave_description": "Du verlierst den Zugriff auf seine Daten. Die von dir erstellten Geräte-Tokens funktionieren weiter, bis der Owner sie widerruft.",
+    "leave_button": "Verlassen",
+    "leave_title": "{name} verlassen?",
+    "remove_title": "{login} aus dem Workspace entfernen?",
+    "remove_body": "Der Zugriff endet mit der nächsten Anfrage. Das Konto bleibt bestehen, und du kannst die Person wieder einladen.",
+    "remove_tokens": "Auch die von dieser Person erstellten Geräte-Tokens widerrufen",
+    "removed": "{login} wurde entfernt; {count, plural, =0 {kein Token wurde widerrufen} one {# Token wurde widerrufen} other {# Tokens wurden widerrufen}}.",
+    "transfer_title": "{login} zum Owner machen?",
+    "transfer_body": "Diese Person kann dann Personen einladen und entfernen, die Daten exportieren und den Workspace löschen. Du bleibst als Mitglied.",
+    "transfer_sudo": "Für die Übergabe des Workspace ist eine frische Anmeldung nötig.",
+    "cancel": "Abbrechen",
+    "error_too_many_invites": "Höchstens 10 Einladungen können gleichzeitig offen sein. Widerrufe zuerst eine.",
+    "error_invalid_login": "Das ist kein GitHub-Login.",
+    "error_busy": "Gerade läuft eine andere Änderung an den Mitgliedern. Versuche es gleich noch einmal.",
+    "error_failed": "Das hat nicht geklappt. Bitte versuche es erneut."
   }
 }

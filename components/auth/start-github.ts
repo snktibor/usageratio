@@ -6,13 +6,14 @@
  */
 export type StartFailure =
   | "signup_code_invalid"
+  | "invite_invalid"
   | "registration_closed"
   | "rate_limited"
   | "misconfigured"
   | "unavailable";
 
 export async function startGithubSignIn(params: {
-  purpose: "login" | "signup" | "sudo";
+  purpose: "login" | "signup" | "join" | "sudo";
   locale: string;
   returnTo?: string;
   code?: string;
@@ -35,6 +36,7 @@ export async function startGithubSignIn(params: {
   }
   switch (payload?.error) {
     case "signup_code_invalid":
+    case "invite_invalid":
     case "registration_closed":
     case "rate_limited":
       return payload.error;

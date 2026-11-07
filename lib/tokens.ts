@@ -67,6 +67,8 @@ export interface MachineToken {
   lastUsedAt: number | null;
   /** Set by DELETE /api/tokens/[id]; null while the token is live. */
   revokedAt: number | null;
+  /** The userId who created it (multi-tenant mode); null on a single-user instance and for older tokens. */
+  createdBy: string | null;
 }
 
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -127,6 +129,7 @@ function parseStored(raw: string): MachineToken | null {
     createdAt: entry.createdAt,
     lastUsedAt: typeof entry.lastUsedAt === "number" ? entry.lastUsedAt : null,
     revokedAt: typeof entry.revokedAt === "number" ? entry.revokedAt : null,
+    createdBy: typeof entry.createdBy === "string" ? entry.createdBy : null,
   };
 }
 
@@ -157,6 +160,7 @@ export async function createToken(
   machineId: string | null,
   now: Date,
   scope: TokenScope = "ingest",
+  createdBy: string | null = null,
 ): Promise<CreateTokenResult> {
   const redis = store.redis;
   const count = await redis.hlen(store.keys.tokens);
@@ -172,6 +176,7 @@ export async function createToken(
     createdAt: now.getTime(),
     lastUsedAt: null,
     revokedAt: null,
+    createdBy,
   };
   const hash = hashToken(token);
   const tx = redis.multi();
@@ -196,6 +201,21 @@ export async function revokeToken(store: TenantStore, id: string, now: Date): Pr
     await redis.hset(store.keys.tokens, { [hash]: serialize({ ...token, revokedAt: now.getTime() }) });
   }
   return { ok: true };
+}
+
+/** Revokes every live token `userId` created (a member removed with their tokens); how many it revoked. */
+export async function revokeTokensCreatedBy(store: TenantStore, userId: string, now: Date): Promise<number> {
+  const raw = toStringRecord(await store.redis.hgetall(store.keys.tokens));
+  const changes: Record<string, string> = {};
+  for (const [hash, value] of Object.entries(raw)) {
+    const token = parseStored(value);
+    if (token && token.createdBy === userId && token.revokedAt === null) {
+      changes[hash] = serialize({ ...token, revokedAt: now.getTime() });
+    }
+  }
+  const count = Object.keys(changes).length;
+  if (count > 0) await store.redis.hset(store.keys.tokens, changes);
+  return count;
 }
 
 /** The tenant `bearer` was issued for, from the token index; null for a token the index does not know. */
@@ -233,7 +253,12 @@ export async function authenticateToken(store: TenantStore, bearer: string, now:
   if (token.lastUsedAt === null || now.getTime() - token.lastUsedAt >= LAST_USED_REFRESH_MS) {
     const nowMs = now.getTime();
     defer(async () => {
-      await store.redis.hset(store.keys.tokens, { [hash]: serialize({ ...token, lastUsedAt: nowMs }) });
+      // Re-read first: the token may have been revoked since it was read above, and writing the
+      // old copy back would bring it to life again.
+      const latest = await store.redis.hget<string>(store.keys.tokens, hash);
+      const current = latest === null || latest === undefined ? null : parseStored(String(latest));
+      if (!current || current.revokedAt !== null) return;
+      await store.redis.hset(store.keys.tokens, { [hash]: serialize({ ...current, lastUsedAt: nowMs }) });
     });
   }
 

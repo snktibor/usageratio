@@ -14,6 +14,8 @@ const ERRORS = [
   "github_failed",
   "registration_closed",
   "signup_code_invalid",
+  "invite_invalid",
+  "invite_wrong_account",
   "sudo_mismatch",
   "rate_limited",
   "unavailable",
@@ -27,7 +29,8 @@ function isSignInError(value: string | null): value is SignInError {
 /**
  * The "Sign in with GitHub" button of a multi-tenant instance, with the
  * failure of the last attempt, if any. `purpose: "signup"` redeems the
- * sign-up code from the /signup link (`code`).
+ * sign-up code from the /signup link (`code`), `purpose: "join"` the
+ * workspace invite from the /join link.
  */
 export function GithubSignIn({
   next = "/",
@@ -35,7 +38,7 @@ export function GithubSignIn({
   code,
 }: {
   next?: string;
-  purpose?: "login" | "signup";
+  purpose?: "login" | "signup" | "join";
   code?: string;
 }) {
   const t = useTranslations("SignIn");
@@ -61,7 +64,13 @@ export function GithubSignIn({
         disabled={busy}
         className="w-full rounded-md bg-ink px-4 py-3 text-base font-medium text-page transition-opacity hover:opacity-90 disabled:opacity-60"
       >
-        {busy ? t("opening") : purpose === "signup" ? t("signup_button") : t("button")}
+        {busy
+          ? t("opening")
+          : purpose === "signup"
+            ? t("signup_button")
+            : purpose === "join"
+              ? t("join_button")
+              : t("button")}
       </button>
       <p role="alert" className="mt-4 flex min-h-12 items-start gap-2.5 text-sm text-ink">
         {error && (

@@ -5,11 +5,12 @@ import { Suspense, useEffect, useState } from "react";
 import { GithubSignIn } from "@/components/auth/github-sign-in";
 
 /**
- * The /signup link carries its code in the URL fragment (`/signup#code`),
- * which the browser never sends to a server: it is read here, and only ever
- * leaves in the body of the sign-in's start request.
+ * The /signup and /join links carry their code in the URL fragment
+ * (`/signup#code`, `/join#code`), which the browser never sends to a server:
+ * it is read here, and only ever leaves in the body of the sign-in's start
+ * request.
  */
-export function SignupRedeem() {
+export function SignupRedeem({ purpose = "signup" }: { purpose?: "signup" | "join" }) {
   const t = useTranslations("SignIn");
   const [code, setCode] = useState<string | null | undefined>(undefined);
 
@@ -19,10 +20,16 @@ export function SignupRedeem() {
   }, []);
 
   if (code === undefined) return null;
-  if (code === null) return <p className="mt-10 max-w-md text-sm text-ink">{t("signup_missing_code")}</p>;
+  if (code === null) {
+    return (
+      <p className="mt-10 max-w-md text-sm text-ink">
+        {purpose === "join" ? t("join_missing_code") : t("signup_missing_code")}
+      </p>
+    );
+  }
   return (
     <Suspense>
-      <GithubSignIn purpose="signup" code={code} />
+      <GithubSignIn purpose={purpose} code={code} />
     </Suspense>
   );
 }

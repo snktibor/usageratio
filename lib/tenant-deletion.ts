@@ -1,3 +1,4 @@
+import { deleteTenantInvites } from "@/lib/invites";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import { fixedTenantKeys, GLOBAL_KEYS } from "@/lib/redis-keys";
 import { type TenantStore, tenantStore } from "@/lib/tenant";
@@ -7,7 +8,7 @@ import { loadTenantRecord, setTenantStatus } from "@/lib/tenants";
 /**
  * Deletes a tenant and everything of it, for good: its own keys (the fixed
  * ones and every name in its key registry, so no SCAN is needed), its tokens'
- * entries in the global token index, its members' links to it, its places in
+ * entries in the global token index, its invites, its members' links to it, its places in
  * the tenant indexes, and last its record. The record is marked "deleting"
  * first, so nothing can be read or reported meanwhile; every step can run
  * again, so a deletion that was cut short is simply run again to finish.
@@ -33,11 +34,14 @@ export async function deleteTenant(tenantId: TenantId, now: Date): Promise<Delet
 
   const firstPass = await deleteOwnKeys(store);
 
+  await deleteTenantInvites(tenantId);
+
   // The members' side of each membership, then the tenant's own.
   const members = Object.keys(toStringRecord(await redis.hgetall(GLOBAL_KEYS.tenantMembers(tenantId))));
   const tx = redis.multi();
   for (const userId of members) tx.hdel(GLOBAL_KEYS.userTenants(userId), tenantId);
   tx.del(GLOBAL_KEYS.tenantMembers(tenantId));
+  tx.del(GLOBAL_KEYS.tenantLock(tenantId));
   tx.zrem(GLOBAL_KEYS.tenants, tenantId);
   tx.zrem(GLOBAL_KEYS.tenantsHousekept, tenantId);
   tx.del(GLOBAL_KEYS.tenantRecord(tenantId));

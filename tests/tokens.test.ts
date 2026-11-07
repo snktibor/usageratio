@@ -86,6 +86,7 @@ describe("createToken / listTokens", () => {
       createdAt: now.getTime(),
       lastUsedAt: null,
       revokedAt: null,
+      createdBy: null,
     });
   });
 

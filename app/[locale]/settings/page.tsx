@@ -3,6 +3,7 @@ import { getTranslations, setRequestLocale } from "next-intl/server";
 import { SignInGate } from "@/components/auth/sign-in-gate";
 import { SettingsPage } from "@/components/settings/settings-page";
 import { StorageProblem } from "@/components/storage-problem";
+import { TenantGuard } from "@/components/tenant-guard";
 import { routing } from "@/i18n/routing";
 import { currentTime } from "@/lib/clock";
 import { getConfig } from "@/lib/config";
@@ -12,6 +13,7 @@ import { modelKeysIn } from "@/lib/models";
 import { earliestStartMs } from "@/lib/provider-cycles";
 import { mergeProviderIds } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
+import { isMultiTenant } from "@/lib/registration";
 import { buildSettingsView, resolveConfig, type SettingsView, storedProviderIds } from "@/lib/settings";
 import type { TenantStore } from "@/lib/tenant";
 import { currentTenant } from "@/lib/tenant-context";
@@ -59,12 +61,16 @@ export default async function Page({ params }: { params: Promise<{ locale: strin
   if (hasLocale(routing.locales, locale)) setRequestLocale(locale);
 
   let view: SettingsView | null = null;
+  let tenantId: string | null = null;
   let storageError: unknown = null;
 
   try {
     // Like the dashboard: nothing stored is read before the session check passed.
     const tenant = await currentTenant();
-    if (tenant) view = await loadSettingsView(tenant.store);
+    if (tenant) {
+      tenantId = tenant.store.tenantId;
+      view = await loadSettingsView(tenant.store);
+    }
   } catch (error) {
     storageError = error;
     log.error("settings_page.load_failed", { err: error });
@@ -75,5 +81,10 @@ export default async function Page({ params }: { params: Promise<{ locale: strin
   }
   if (!view) return <SignInGate next="/settings" />;
 
-  return <SettingsPage view={view} />;
+  return (
+    <>
+      {isMultiTenant() && tenantId && <TenantGuard tenantId={tenantId} />}
+      <SettingsPage view={view} />
+    </>
+  );
 }

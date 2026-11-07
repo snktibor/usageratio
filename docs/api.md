@@ -24,6 +24,7 @@ All source: `app/api/**/route.ts`, shared helpers in `lib/api.ts`.
 - [`GET`/`POST /api/auth/sudo`](#sudo)
 - [`POST /api/auth/github/start`, `GET /api/auth/github/callback`](#github-sign-in)
 - [`GET`/`DELETE /api/account`, `DELETE /api/account/sessions`](#account)
+- [`GET /api/workspace`, invites, members, `POST /api/workspace/leave`, `POST /api/workspace/transfer`, `POST /api/session/tenant`](#workspace-members-and-invites)
 - [`GET /api/admin`, `POST /api/admin/signup-codes`, `DELETE /api/admin/signup-codes/[id]`, `PATCH /api/admin/tenants/[id]`](#instance-admin)
 - [`GET /api/cron/housekeeping`, `POST /api/housekeeping`](#housekeeping)
 - [`GET /api/export`](#export)
@@ -547,11 +548,12 @@ never again. See [clients.md](clients.md#per-machine-tokens-vs-the-master-token)
 Multi-tenant mode only (`REGISTRATION=invite|open`); both answer `404` on a single-user instance.
 
 - **`POST /api/auth/github/start`** (same-origin)
-  `{ "purpose": "login"|"signup"|"sudo", "returnTo"?: "/settings", "locale"?: "hu", "code"?: "…" }` →
+  `{ "purpose": "login"|"signup"|"join"|"sudo", "returnTo"?: "/settings", "locale"?: "hu", "code"?: "…" }` →
   `200 { "url": "https://github.com/login/oauth/authorize?…" }`, with the attempt's nonce cookie
   (`__Host-ur_oauth`, 10 minutes). The page navigates to `url` itself. `returnTo` is one of `/`,
-  `/setup`, `/settings` (anything else means `/`); `code` is a sign-up code (`purpose: "signup"`);
-  `"sudo"` needs a session. `400 invalid_payload` / `signup_code_invalid` · `401` sudo without a
+  `/setup`, `/settings`, `/account`, `/admin`, `/workspace` (anything else means `/`); `code` is a sign-up code (`purpose: "signup"`);
+  `"sudo"` needs a session; `"join"` takes a workspace invite as `code`. `400 invalid_payload` /
+  `signup_code_invalid` / `invite_invalid` · `401` sudo without a
   session · `403 forbidden_origin` / `registration_closed` · `429 rate_limited` (20 per 10 minutes
   per address, shared with the callback; 300 shared by every request when no trusted proxy names
   the address) · `500 server_misconfigured` (no OAuth App configured).
@@ -561,7 +563,9 @@ Multi-tenant mode only (`REGISTRATION=invite|open`); both answer `404` on a sing
   another browser), `github_denied`, `github_failed`, `registration_closed`, `signup_code_invalid`,
   `sudo_mismatch` (a different GitHub account than the signed-in one), `misconfigured`,
   `rate_limited`. A failed sudo goes back to the page that asked, with the same `?signin_error=`,
-  where the unlock prompt shows it.
+  where the unlock prompt shows it; a failed join goes back to `/{locale}/join?signin_error=`
+  with `invite_invalid` (used, revoked, expired, or its workspace is switched off) or
+  `invite_wrong_account` (the invite names another GitHub login; it stays unused).
 
 ## Account
 
@@ -576,6 +580,36 @@ without a workspace.
   original data is never deleted this way; `403 sudo_required`.
 - **`DELETE /api/account/sessions`** (same-origin) → `200 { "ended": n }`: every session of the user,
   this one included.
+
+## Workspace members and invites
+
+Multi-tenant mode only (`404` on a single-user instance). Auth: a signed-in session with a
+workspace; the workspace is always the session's own. Every route that changes something also needs
+the stale-tab header `X-Usageratio-Tenant: <tenantId>` naming that workspace, and answers
+`409 tenant_changed` when it is missing or names another one (the workspace was switched in another
+tab). This holds for every session-authenticated change in multi-tenant mode, not only these routes;
+the app's pages send it themselves. A member gets `403 owner_only` from the owner's routes.
+
+- **`GET /api/workspace`** → `{ "workspace": { "tenantId", "name", "role", "you", "members": [{
+  "userId", "login", "role", "joinedAt", "invitedBy" }], "invites": [{ "id", "createdAt",
+  "expiresAt", "createdBy", "login" }] } }`. `invites` is empty for a member.
+- **`POST /api/workspace/invites`** (owner, same-origin) `{ "login"?: "octocat" }` → `201 { "url":
+  "https://…/join#<code>", "entry" }`, shown once. The invite lets one person in as a member within 7
+  days; with `login`, only that GitHub account. `400` not a login · `422 too_many_invites` (10 pending).
+- **`DELETE /api/workspace/invites/[id]`** (owner, same-origin) → `200`; `404` for an invite that is
+  not this workspace's.
+- **`DELETE /api/workspace/members/[userId]?revokeTokens=1`** (owner, same-origin) → `200 { "ok": true,
+  "tokensRevoked" }`. The member loses the workspace on their next request; with `revokeTokens=1` the
+  machine tokens they created are revoked too. `404` not a member · `409 cannot_remove_owner` ·
+  `409 members_busy` (another change to the members is running; try again).
+- **`POST /api/workspace/leave`** (member, same-origin) → `200 { "ok": true, "tenantId": next | null }`;
+  the session moves to the user's next workspace. Tokens they created stay. `409 owner_cannot_leave`.
+- **`POST /api/workspace/transfer`** (owner, same-origin, sudo) `{ "userId" }` → `200`: that member
+  becomes the owner, the old owner a member, in one transaction. `404` not a member ·
+  `403 sudo_required` · `409 members_busy`.
+- **`POST /api/session/tenant`** (same-origin, any signed-in session) `{ "tenantId" }` → `200`: this
+  browser's session switches to that workspace. `404` for a workspace the user does not belong to,
+  one that does not exist, and one that is switched off alike.
 
 ## Instance admin
 
@@ -616,7 +650,8 @@ Multi-tenant mode, and a user whose GitHub id is in `ADMIN_GITHUB_IDS`; everyone
     — the top-level `cycle` is the earliest provider's, `providers[].cycle` the provider's own window
     of the requested cycle; `events` are that window's raw reports, `history` is every archived cycle for that
     provider (not filtered to the requested cycle).
-  - `400` bad query · `401` no session · `404` unknown provider · `503` Redis down.
+  - `400` bad query · `401` no session · `403 owner_only` (in a multi-tenant workspace only its owner
+    exports) · `404` unknown provider · `503` Redis down.
 
 ## CSP report
 

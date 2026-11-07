@@ -153,7 +153,17 @@
  *                                           for "sign out everywhere"
  *   usage:identity:github:{id}       STRING userId (SET NX: one user per GitHub account, by its
  *                                           numeric id, never by the login, which can be renamed)
- *   usage:tenant:{tenantId}:members  HASH   userId → {"role", "joinedAt"}
+ *   usage:tenant:{tenantId}:members  HASH   userId → {"role", "joinedAt", "invitedBy"?}: one owner per
+ *                                           tenant, any number of members (lib/members.ts)
+ *   usage:tenant:{tenantId}:invites  HASH   inviteId → {"hash", "createdAt", "expiresAt", "createdBy",
+ *                                           "login"?}: the tenant's pending invites, for listing and
+ *                                           revoking (lib/invites.ts); expired ones are pruned by
+ *                                           housekeeping
+ *   usage:tenant:{tenantId}:lock     STRING "1" EX 10 — held while the members change (remove, leave,
+ *                                           transfer), so two changes cannot leave a tenant without
+ *                                           its owner
+ *   usage:invite:{sha256(code)}      STRING {"tenantId", "inviteId", "login"?} EX = expiry: a workspace
+ *                                           invite, GETDEL when it is accepted
  *   usage:session2:{sha256(sid)}     STRING {"v": 2, "u": userId, "t": tenantId | null, "c": created
  *                                           ms, "s": last seen ms, "a": last GitHub sign-in ms,
  *                                           "ua": browser/OS label} EX = the session's maximum
@@ -161,7 +171,8 @@
  *                                           session can never be read as one, nor the other way.
  *   usage:oauth:{sha256(state)}      STRING one sign-in attempt's state (lib/oauth-state.ts):
  *                                           {"nonceHash", "verifier", "purpose", "returnTo",
- *                                           "locale", "signup"?, "sid"?} EX 600, GETDEL in the callback
+ *                                           "locale", "signup"?, "invite"?, "sid"?} EX 600, GETDEL in
+ *                                           the callback
  *   usage:signup:{sha256(code)}      STRING {"codeId"} EX = expiry: an instance admin's sign-up
  *                                           code (lib/signup-codes.ts), GETDEL when it is used
  *   usage:signups                    HASH   codeId → {"hash", "createdAt", "expiresAt", "createdBy",
@@ -284,6 +295,9 @@ export const GLOBAL_KEYS = {
   },
   tenantRecord: (tenantId: string) => `usage:tenant:${tenantId}`,
   tenantMembers: (tenantId: string) => `usage:tenant:${tenantId}:members`,
+  tenantInvites: (tenantId: string) => `usage:tenant:${tenantId}:invites`,
+  tenantLock: (tenantId: string) => `usage:tenant:${tenantId}:lock`,
+  invite: (hash: string) => `usage:invite:${hash}`,
   user: (userId: string) => `usage:user:${userId}`,
   userIdentities: (userId: string) => `usage:user:${userId}:identities`,
   userTenants: (userId: string) => `usage:user:${userId}:tenants`,

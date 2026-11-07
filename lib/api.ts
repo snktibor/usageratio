@@ -19,6 +19,7 @@ import {
 import { safeEqual, sha256Hex } from "@/lib/security";
 import { defaultTenantStore, type TenantStore, tenantStore } from "@/lib/tenant";
 import { currentTenant, type TenantContext } from "@/lib/tenant-context";
+import { TENANT_HEADER } from "@/lib/tenant-header";
 import { loadTenantRecord, tenantIsActive } from "@/lib/tenants";
 import { authenticateToken, indexToken, type TokenScope, tokenTenant } from "@/lib/tokens";
 import { currentUserSession, type UserSession } from "@/lib/user-session";
@@ -80,7 +81,14 @@ export type ApiErrorCode =
   | "signup_code_invalid"
   | "tenant_disabled"
   | "owns_shared_workspace"
-  | "owns_default_workspace";
+  | "owns_default_workspace"
+  | "invite_invalid"
+  | "too_many_invites"
+  | "tenant_changed"
+  | "owner_only"
+  | "owner_cannot_leave"
+  | "cannot_remove_owner"
+  | "members_busy";
 
 export const MIN_API_TOKEN_LENGTH = 16;
 
@@ -164,13 +172,36 @@ export async function readJsonBody(
   }
 }
 
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
 /**
  * The signed-in browser's tenant (lib/tenant-context.ts), or the 401 to answer
  * instead. The tenant comes from the session alone. Throws when the store
  * cannot be asked.
+ *
+ * In multi-tenant mode a request that changes something must also name the
+ * tenant its page was rendered for (lib/tenant-header.ts): 409 tenant_changed
+ * when that is not the session's tenant any more (switched in another tab),
+ * or when it names none. The header never chooses the tenant.
  */
 export async function requireTenantSession(): Promise<Response | TenantContext> {
-  return (await currentTenant()) ?? apiError("unauthorized", 401);
+  const tenant = await currentTenant();
+  if (!tenant) return apiError("unauthorized", 401);
+  const request = currentRequest();
+  if (isMultiTenant() && !SAFE_METHODS.has(request?.method ?? "GET")) {
+    if (request?.namedTenant !== tenant.store.tenantId) return apiError("tenant_changed", 409);
+  }
+  return tenant;
+}
+
+/** 403 owner_only unless the tenant context is its tenant's owner (a single-user instance's PIN always is). */
+export function requireOwner(tenant: TenantContext): Response | null {
+  return tenant.role === "owner" ? null : apiError("owner_only", 403);
+}
+
+/** 404 on a single-user instance, for the routes that only exist in multi-tenant mode. */
+export function requireMultiTenant(): Response | null {
+  return isMultiTenant() ? null : apiError("not_found", 404);
 }
 
 /**
@@ -339,10 +370,11 @@ export function withApiHandler(
     const requestId = requestIdFrom(request.headers);
     const started = performance.now();
     const outer = currentRequest();
+    const guard = { method: request.method, namedTenant: request.headers.get(TENANT_HEADER) };
     const context =
       outer?.cookies !== undefined
-        ? { ...outer, requestId, route: name }
-        : { requestId, route: name, headers: request.headers, cookies: requestCookieJar(request) };
+        ? { ...outer, requestId, route: name, ...guard }
+        : { requestId, route: name, ...guard, headers: request.headers, cookies: requestCookieJar(request) };
     return runWithRequest(context, async () => {
       let response: Response;
       try {
