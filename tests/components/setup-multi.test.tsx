@@ -55,7 +55,7 @@ describe("the setup page in multi-tenant mode", () => {
     fetchMock.mockImplementation(async (url: string) =>
       url === "/api/tokens"
         ? answer(201, { id: "tk_AAAAAAAA", token: "ur_live_studio-token" })
-        : new Response(new Blob(["zip"]), { status: 200 }),
+        : new Response("zip", { status: 200, headers: { "content-type": "application/zip" } }),
     );
     renderZip();
     expect(screen.getByText(/Nothing to type/)).toBeTruthy();
