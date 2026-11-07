@@ -2,11 +2,13 @@ import { hasLocale } from "next-intl";
 import { routing } from "@/i18n/routing";
 import { sendTestAlert } from "@/lib/alerts";
 import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
-import type { AlertsFormat } from "@/lib/config";
+import { type AlertsFormat, getConfig } from "@/lib/config";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { hit } from "@/lib/rate-limit";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
-import { ALERT_FORMATS } from "@/lib/settings";
+import { isMultiTenant } from "@/lib/registration";
+import { ALERT_FORMATS, resolveWebhookField, storedWebhookUrl } from "@/lib/settings";
+import { loadRawSettings } from "@/lib/usage-store";
 import { isAllowedWebhookUrl, MAX_WEBHOOK_URL_LENGTH } from "@/lib/webhook";
 
 /**
@@ -17,6 +19,10 @@ import { isAllowedWebhookUrl, MAX_WEBHOOK_URL_LENGTH } from "@/lib/webhook";
  * PUT /api/settings, not here.
  *
  *   POST { "webhookUrl": "https://hooks.example.com/x", "format": "slack", "locale": "en" }
+ *
+ * Multi-tenant mode: the page only has the stored URL masked; `{ "keepWebhook": true, "format",
+ * "locale" }` tests the stored URL (400 when alerts are off), and a `webhookUrl` with the mask's
+ * characters in it is a 400.
  *
  * 200 { "ok": true, "status": 200 } · 400 bad JSON/payload · 401 no session ·
  * 403 foreign origin · 413 body too large · 415 not JSON ·
@@ -79,7 +85,17 @@ export const POST = withApiHandler("api/alerts/test", async ({ request }) => {
   const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES });
   if (!body.ok) return body.response;
 
-  const parsed = parseTestAlertRequest(body.value);
+  // Multi-tenant mode: the page only has the stored URL masked, and asks to test that one.
+  let value = body.value;
+  if (isMultiTenant()) {
+    const resolved = await resolveWebhookField(value, async () =>
+      storedWebhookUrl(await loadRawSettings(tenant.store), getConfig()),
+    );
+    if (!resolved.ok) return apiError("invalid_payload", 400, { details: ["webhookUrl cannot be a masked URL"] });
+    value = resolved.fields;
+  }
+
+  const parsed = parseTestAlertRequest(value);
   if (!parsed.ok) return apiError("invalid_payload", 400, { details: parsed.errors });
 
   const result = await sendTestAlert(parsed.value);

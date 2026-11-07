@@ -2,8 +2,17 @@ import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, 
 import { getConfig } from "@/lib/config";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { mergeProviderIds } from "@/lib/providers";
-import { buildSettingsView, parseSettingsUpdate, resolveConfig, storedProviderIds } from "@/lib/settings";
-import { loadGroupActivity, loadIndexes, saveSettings } from "@/lib/usage-store";
+import { isMultiTenant } from "@/lib/registration";
+import {
+  buildSettingsView,
+  parseSettingsUpdate,
+  resolveConfig,
+  resolveWebhookField,
+  storedProviderIds,
+  storedWebhookUrl,
+  withMaskedWebhook,
+} from "@/lib/settings";
+import { loadGroupActivity, loadIndexes, loadRawSettings, saveSettings } from "@/lib/usage-store";
 
 /**
  * /api/settings — the budget and the groups, for the dashboard's settings panel.
@@ -29,6 +38,11 @@ import { loadGroupActivity, loadIndexes, saveSettings } from "@/lib/usage-store"
  *            "groups": [{ "id": "Work", "color": "#3987e5" }],   create or recolour; others stay
  *            "removedGroups": ["Old"] }                          only groups without stored reports
  *
+ * Multi-tenant mode: the alert webhook URL is never read back, by anyone (the design's decision 3).
+ * GET answers it masked (`https://hooks.slack.com/…••••4f2a`, with `"webhookMasked": true`). A PUT
+ * keeps the stored URL with `"alerts": { "keepWebhook": true, … }` (the URL stored at that moment,
+ * whatever it is); a `webhookUrl` with the mask's characters in it is a 400.
+ *
  * 200 ok · 400 bad JSON/payload, or every provider hidden · 401 no session · 403 foreign origin ·
  * 409 a group to remove still has reports (nothing was saved) · 413 body too large ·
  * 415 not JSON · 503 Redis down
@@ -47,10 +61,8 @@ export const GET = withApiHandler("api/settings", async () => {
     storedProviderIds(indexes.settings),
   );
   const config = resolveConfig(getConfig(), indexes.settings, providerIds);
-  return json(
-    { ...buildSettingsView(config, await loadGroupActivity(store, indexes.groups, providerIds), providerIds) },
-    200,
-  );
+  const groups = await loadGroupActivity(store, indexes.groups, providerIds);
+  return json({ ...buildSettingsView(config, groups, { maskWebhook: isMultiTenant() }, providerIds) }, 200);
 });
 
 export const PUT = withApiHandler("api/settings", async ({ request }) => {
@@ -66,10 +78,21 @@ export const PUT = withApiHandler("api/settings", async ({ request }) => {
   const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES });
   if (!body.ok) return body.response;
 
-  const parsed = parseSettingsUpdate(body.value);
+  let value = body.value;
+  if (isMultiTenant() && typeof value === "object" && value !== null && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    const alerts = await resolveWebhookField(record.alerts, async () =>
+      storedWebhookUrl(await loadRawSettings(store), getConfig()),
+    );
+    if (!alerts.ok) return apiError("invalid_payload", 400, { details: ["alerts.webhookUrl cannot be a masked URL"] });
+    value = { ...record, alerts: alerts.fields };
+  }
+
+  const parsed = parseSettingsUpdate(value);
   if (!parsed.ok) return apiError("invalid_payload", 400, { details: parsed.errors });
 
   const indexes = await loadIndexes(store);
+
   const providerIds = mergeProviderIds(
     indexes.providers.map((provider) => provider.providerId),
     storedProviderIds(indexes.settings),
@@ -86,5 +109,6 @@ export const PUT = withApiHandler("api/settings", async ({ request }) => {
   const saved = await saveSettings(store, parsed.update, new Date(), providerIds);
   if (!saved.ok) return apiError("groups_have_reports", 409, { groups: saved.groupsWithReports });
 
-  return json({ ok: true, settings: parsed.update.settings }, 200);
+  const { settings } = parsed.update;
+  return json({ ok: true, settings: isMultiTenant() ? withMaskedWebhook(settings) : settings }, 200);
 });

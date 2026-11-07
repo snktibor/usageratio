@@ -307,6 +307,14 @@ Auth: **session** (GET), **session** + same-origin (PUT).
 `GET` → `{ settings, timeZone, providers: [{id, label, models}], groups: [{id, color, hasReports}] }`
 (`settings` matches the shape in [configuration.md](configuration.md)).
 
+In multi-tenant mode `settings.alerts.webhookUrl` comes masked (`https://hooks.slack.com/…••••4f2a`,
+with `"webhookMasked": true`), for every role: the URL is never read back. The mask is for display
+only. A `PUT` keeps the stored URL with `"alerts": { "webhookUrl": null, "keepWebhook": true, … }`,
+which means the URL stored at that moment (alerts stay off if they were turned off meanwhile). A
+`webhookUrl` with any of the mask's characters (`•`, `…`) in it is `400`. The `PUT` response masks
+the URL too. `POST /api/alerts/test` takes `{ "keepWebhook": true, "format", "locale" }` to test
+the stored URL.
+
 `PUT` body — the whole document; nothing is filled in with a default, so every field below is
 required on every save (a document stored before some of them existed is still read leniently on
 `GET`, and by every other code path — see [data-model.md](data-model.md)):

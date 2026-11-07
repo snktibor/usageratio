@@ -46,9 +46,11 @@ async function loadSettingsView(store: TenantStore): Promise<SettingsView> {
   const config = resolveConfig(getConfig(), indexes.settings, providerIds);
   const since = earliestStartMs(now, config, providerIds, "previous");
   const { eventsByProvider, groups } = await loadEvents(store, providerIds, indexes.groups, since);
+  // Multi-tenant mode: the alert webhook URL reaches no browser, the owner's included.
   return buildSettingsView(
     config,
     groups,
+    { maskWebhook: isMultiTenant() },
     providerIds,
     Object.fromEntries(
       Object.entries(eventsByProvider).map(([providerId, events]) => [providerId, modelKeysIn(events)]),

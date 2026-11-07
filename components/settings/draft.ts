@@ -22,7 +22,7 @@ import {
   subLimitIdFor,
 } from "@/lib/sub-limits";
 import { parseId } from "@/lib/validation";
-import { isAllowedWebhookUrl } from "@/lib/webhook";
+import { webhookFieldProblem } from "@/lib/webhook";
 
 /**
  * The settings form's draft: its state, and the pure parsing/validation that
@@ -86,6 +86,11 @@ export interface DraftProvider {
 /** The alerts section's draft: the webhook URL as typed; empty means alerts are off. */
 export interface AlertsDraft {
   webhookUrl: string;
+  /**
+   * Multi-tenant mode: the stored URL's mask, which the field starts with. Left as it is, it keeps
+   * the stored URL (the server swaps it back); null on a single-user instance or with alerts off.
+   */
+  storedMask: string | null;
   /** Sorted, each value once. */
   thresholds: number[];
   /** The "add a threshold" field, as typed. */
@@ -134,6 +139,8 @@ export interface SettingsRequest {
   subLimits: Record<string, SubLimit[]>;
   alerts: {
     webhookUrl: string | null;
+    /** Multi-tenant mode: keep the stored URL, which this page only has masked (`webhookUrl` is then null). */
+    keepWebhook?: true;
     thresholds: number[];
     perProvider: boolean;
     format: AlertsFormat;
@@ -233,6 +240,7 @@ export function draftFrom(view: SettingsView): Draft {
     apiToken: "",
     alerts: {
       webhookUrl: view.settings.alerts.webhookUrl ?? "",
+      storedMask: view.webhookMasked ? view.settings.alerts.webhookUrl : null,
       thresholds: [...view.settings.alerts.thresholds],
       newThreshold: "",
       perProvider: view.settings.alerts.perProvider,
@@ -442,8 +450,10 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
 
   // An empty field turns alerts off; a non-empty one must pass the same allow-list the server enforces.
   const trimmedWebhook = draft.alerts.webhookUrl.trim();
-  const webhookUrl = trimmedWebhook === "" ? null : trimmedWebhook;
-  if (webhookUrl !== null && !isAllowedWebhookUrl(webhookUrl)) {
+  // Multi-tenant mode: the stored URL's mask, untouched, keeps the stored URL; the mask itself is never sent.
+  const keepWebhook = draft.alerts.storedMask !== null && trimmedWebhook === draft.alerts.storedMask;
+  const webhookUrl = trimmedWebhook === "" || keepWebhook ? null : trimmedWebhook;
+  if (webhookUrl !== null && webhookFieldProblem(webhookUrl, null)) {
     return { problem: { code: "invalid_alert_webhook" } };
   }
   // A value left in the "add" field was meant to be added: do not lose it silently.
@@ -481,6 +491,7 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
       subLimits,
       alerts: {
         webhookUrl,
+        ...(keepWebhook && { keepWebhook: true as const }),
         thresholds: [...thresholds].sort((a, b) => a - b),
         perProvider: draft.alerts.perProvider,
         format: draft.alerts.format,
