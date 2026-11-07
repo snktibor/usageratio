@@ -1,4 +1,4 @@
-import { apiError, json, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { hasSudo } from "@/lib/auth";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { runHousekeeping } from "@/lib/housekeeping";
@@ -26,11 +26,12 @@ export const POST = withApiHandler("api/housekeeping", async ({ request, url }) 
   if (originError) return originError;
   const readOnly = demoReadOnly();
   if (readOnly) return readOnly;
-  const sessionError = await requireSession();
-  if (sessionError) return sessionError;
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
+  const { store } = tenant;
 
   const dryRun = url.searchParams.get("dryRun") === "1";
   if (!dryRun && !(await hasSudo())) return apiError("sudo_required", 403);
-  const report = await runHousekeeping(new Date(), { dryRun });
+  const report = await runHousekeeping(store, new Date(), { dryRun });
   return json({ report }, 200);
 });

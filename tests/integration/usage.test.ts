@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET, POST } from "@/app/api/usage/route";
 import { getConfig } from "@/lib/config";
 import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { MAX_GROUPS, serializeSettings, settingsFromConfig, type UsageSettings } from "@/lib/settings";
 import { createToken, revokeToken } from "@/lib/tokens";
 import { useRedis } from "../helpers/redis-fixture";
+import { KEYS, tenant } from "../helpers/tenant";
 
 const URL = "http://localhost/api/usage";
 const SERVER_TOKEN = "0123456789abcdef0123456789abcdef";
@@ -192,7 +192,7 @@ describe("POST|GET /api/usage", () => {
 
   describe("per-machine tokens (lib/tokens.ts), alongside the master USAGE_API_TOKEN", () => {
     it("accepts an unbound per-machine token exactly like the master token", async () => {
-      const issued = await createToken("laptop", null, new Date());
+      const issued = await createToken(tenant, "laptop", null, new Date());
       if (!issued.ok) throw new Error("unreachable");
       const response = await POST(post(validReport(), { authorization: `Bearer ${issued.token}` }));
       expect(response.status).toBe(201);
@@ -200,11 +200,11 @@ describe("POST|GET /api/usage", () => {
 
     it("accepts a report from an official token (the menu bar app's), held to its bound machine", async () => {
       const report = validReport();
-      const own = await createToken("menu bar", "mac", new Date(), "official");
+      const own = await createToken(tenant, "menu bar", "mac", new Date(), "official");
       if (!own.ok) throw new Error("unreachable");
       expect((await POST(post(report, { authorization: `Bearer ${own.token}` }))).status).toBe(201);
 
-      const other = await createToken("menu bar elsewhere", "other-machine", new Date(), "official");
+      const other = await createToken(tenant, "menu bar elsewhere", "other-machine", new Date(), "official");
       if (!other.ok) throw new Error("unreachable");
       const refused = await POST(post(report, { authorization: `Bearer ${other.token}` }));
       expect(refused.status).toBe(403);
@@ -212,15 +212,15 @@ describe("POST|GET /api/usage", () => {
     });
 
     it("answers 401 once that token is revoked", async () => {
-      const issued = await createToken("laptop", null, new Date());
+      const issued = await createToken(tenant, "laptop", null, new Date());
       if (!issued.ok) throw new Error("unreachable");
-      await revokeToken(issued.id, new Date());
+      await revokeToken(tenant, issued.id, new Date());
       const response = await POST(post(validReport(), { authorization: `Bearer ${issued.token}` }));
       expect(response.status).toBe(401);
     });
 
     it("a machine-bound token reports for its own machine, 403 machine_mismatch for another", async () => {
-      const issued = await createToken("desktop", "mac-studio", new Date());
+      const issued = await createToken(tenant, "desktop", "mac-studio", new Date());
       if (!issued.ok) throw new Error("unreachable");
       const auth = { authorization: `Bearer ${issued.token}` };
 

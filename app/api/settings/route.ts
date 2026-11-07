@@ -1,4 +1,4 @@
-import { apiError, json, readJsonBody, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { getConfig } from "@/lib/config";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { mergeProviderIds } from "@/lib/providers";
@@ -37,16 +37,20 @@ import { loadGroupActivity, loadIndexes, saveSettings } from "@/lib/usage-store"
 const MAX_BODY_BYTES = 16_384;
 
 export const GET = withApiHandler("api/settings", async () => {
-  const unauthorized = await requireSession();
-  if (unauthorized) return unauthorized;
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
+  const { store } = tenant;
 
-  const indexes = await loadIndexes();
+  const indexes = await loadIndexes(store);
   const providerIds = mergeProviderIds(
     indexes.providers.map((provider) => provider.providerId),
     storedProviderIds(indexes.settings),
   );
   const config = resolveConfig(getConfig(), indexes.settings, providerIds);
-  return json({ ...buildSettingsView(config, await loadGroupActivity(indexes.groups, providerIds), providerIds) }, 200);
+  return json(
+    { ...buildSettingsView(config, await loadGroupActivity(store, indexes.groups, providerIds), providerIds) },
+    200,
+  );
 });
 
 export const PUT = withApiHandler("api/settings", async ({ request }) => {
@@ -55,8 +59,9 @@ export const PUT = withApiHandler("api/settings", async ({ request }) => {
   const readOnly = demoReadOnly();
   if (readOnly) return readOnly;
 
-  const unauthorized = await requireSession();
-  if (unauthorized) return unauthorized;
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
+  const { store } = tenant;
 
   const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES });
   if (!body.ok) return body.response;
@@ -64,7 +69,7 @@ export const PUT = withApiHandler("api/settings", async ({ request }) => {
   const parsed = parseSettingsUpdate(body.value);
   if (!parsed.ok) return apiError("invalid_payload", 400, { details: parsed.errors });
 
-  const indexes = await loadIndexes();
+  const indexes = await loadIndexes(store);
   const providerIds = mergeProviderIds(
     indexes.providers.map((provider) => provider.providerId),
     storedProviderIds(indexes.settings),
@@ -78,7 +83,7 @@ export const PUT = withApiHandler("api/settings", async ({ request }) => {
   ) {
     return apiError("invalid_payload", 400, { details: ["at least one provider must stay visible"] });
   }
-  const saved = await saveSettings(parsed.update, new Date(), providerIds);
+  const saved = await saveSettings(store, parsed.update, new Date(), providerIds);
   if (!saved.ok) return apiError("groups_have_reports", 409, { groups: saved.groupsWithReports });
 
   return json({ ok: true, settings: parsed.update.settings }, 200);

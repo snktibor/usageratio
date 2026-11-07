@@ -12,6 +12,7 @@ import { ingestReport } from "@/lib/ingest";
 import { earliestCycle, providerCycle } from "@/lib/provider-cycles";
 import { mergeProviderIds } from "@/lib/providers";
 import { hit } from "@/lib/rate-limit";
+import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { defer } from "@/lib/request-context";
 import { sha256Hex } from "@/lib/security";
 import { resolveConfig, storedProviderIds } from "@/lib/settings";
@@ -86,12 +87,13 @@ function hourBucket(now: Date): string {
 export const GET = withApiHandler("api/usage", async ({ request }) => {
   const auth = await requireBearerThrottled(request);
   if (auth instanceof Response) return auth;
+  const { store } = auth;
 
-  const cycleHit = await hit(`usage:rl:cycle:${auth.tokenId}`, CYCLE_RATE_LIMIT_PER_TOKEN, 3600);
+  const cycleHit = await hit(GLOBAL_KEYS.rateLimit.cycle(auth.tokenId), CYCLE_RATE_LIMIT_PER_TOKEN, 3600);
   if (!cycleHit.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: cycleHit.retryAfterSeconds });
 
   const config = getConfig();
-  const context = await loadReportContext();
+  const context = await loadReportContext(store);
   const providerIds = mergeProviderIds(context.providerIds, storedProviderIds(context.settings));
   const effective = resolveConfig(config, context.settings, providerIds);
   const now = new Date();
@@ -123,6 +125,7 @@ export const GET = withApiHandler("api/usage", async ({ request }) => {
 export const POST = withApiHandler("api/usage", async ({ request }) => {
   const auth = await requireBearerThrottled(request);
   if (auth instanceof Response) return auth;
+  const { store } = auth;
   // A read token may look, never report; an official one (the menu bar app's) reports like an ingest token.
   if (auth.scope === "read") return apiError("read_only_token", 403);
   // The demo's data is synthetic on purpose; nothing gets in.
@@ -139,24 +142,28 @@ export const POST = withApiHandler("api/usage", async ({ request }) => {
     return apiError("machine_mismatch", 403);
   }
   if (machineId) {
-    const machineKey = `usage:rl:ingest:${sha256Hex(`${auth.tokenId}:${machineId}`).slice(0, 32)}`;
+    const machineKey = GLOBAL_KEYS.rateLimit.ingestMachine(sha256Hex(`${auth.tokenId}:${machineId}`).slice(0, 32));
     const machineHit = await hit(machineKey, INGEST_RATE_LIMIT_PER_MACHINE, 3600);
     if (!machineHit.allowed) {
       return apiError("rate_limited", 429, { retryAfterSeconds: machineHit.retryAfterSeconds });
     }
   }
-  const globalHit = await hit(`usage:rl:ingest:global:${hourBucket(new Date())}`, INGEST_RATE_LIMIT_GLOBAL, 3600);
+  const globalHit = await hit(
+    GLOBAL_KEYS.rateLimit.ingestGlobal(hourBucket(new Date())),
+    INGEST_RATE_LIMIT_GLOBAL,
+    3600,
+  );
   if (!globalHit.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: globalHit.retryAfterSeconds });
 
   const now = new Date();
-  const result = await ingestReport(body.value, now);
+  const result = await ingestReport(store, body.value, now);
   if (!result.ok) {
     if ("refused" in result) return apiError(result.refused, 422, { limit: result.limit });
     return apiError("invalid_payload", 400, { details: result.errors });
   }
 
   // Threshold alerts (lib/alerts.ts): measured-token signal, only when the token limits are on.
-  if (!result.duplicate && !result.heartbeat) defer(() => checkIngestAlerts(result.report, now));
+  if (!result.duplicate && !result.heartbeat) defer(() => checkIngestAlerts(store, result.report, now));
 
   const { cycle } = result;
   return json(

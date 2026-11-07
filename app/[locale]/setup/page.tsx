@@ -6,12 +6,13 @@ import { type SetupGroup, SetupView } from "@/components/setup/setup-view";
 import { StorageProblem } from "@/components/storage-problem";
 import { routing } from "@/i18n/routing";
 import type { ApiTokenStatus } from "@/lib/api-token";
-import { isAuthenticated } from "@/lib/auth";
 import { log } from "@/lib/log";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { NEUTRAL_COLOR, resolveGroupColors } from "@/lib/settings";
 import { detectOs, parseMode, parseOs, parseRoute } from "@/lib/setup";
 import { loadClientSources, oneShotBlobs, usageEndpoint } from "@/lib/setup-package";
+import type { TenantStore } from "@/lib/tenant";
+import { currentTenant } from "@/lib/tenant-context";
 import { loadApiTokenStatus } from "@/lib/token-vault";
 import { loadIndexes } from "@/lib/usage-store";
 
@@ -26,8 +27,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 /** The known groups in order of first appearance, with the colours the dashboard shows them in. */
-async function loadGroups(): Promise<SetupGroup[]> {
-  const { groups } = await loadIndexes();
+async function loadGroups(store: TenantStore): Promise<SetupGroup[]> {
+  const { groups } = await loadIndexes(store);
   const colors = resolveGroupColors(groups);
   return [...groups]
     .sort((a, b) => a.firstSeenAt - b.firstSeenAt || a.groupId.localeCompare(b.groupId))
@@ -50,7 +51,8 @@ export default async function SetupPage({
 
   try {
     // Like the dashboard: the stored groups are only read after the session check passed.
-    if (await isAuthenticated()) [groups, tokenStatus] = await Promise.all([loadGroups(), loadApiTokenStatus()]);
+    const tenant = await currentTenant();
+    if (tenant) [groups, tokenStatus] = await Promise.all([loadGroups(tenant.store), loadApiTokenStatus(tenant.store)]);
   } catch (error) {
     storageError = error;
     log.error("setup_page.load_failed", { err: error });

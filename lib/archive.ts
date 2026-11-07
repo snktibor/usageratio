@@ -5,6 +5,7 @@ import { log } from "@/lib/log";
 import { providerCycle } from "@/lib/provider-cycles";
 import { keepResetsOf, type ProviderResets, type ResetEvent, resetEventsOf, restartStarting } from "@/lib/resets";
 import { configForProvider, countsForProvider, subLimitsOf } from "@/lib/settings";
+import type { TenantStore } from "@/lib/tenant";
 import { archiveCycle, loadNewestArchivedStarts } from "@/lib/usage-store";
 
 export interface ArchiveInput {
@@ -15,7 +16,7 @@ export interface ArchiveInput {
   eventsByProvider: Record<string, UsageEvent[]>;
   /** The raw `usage:official` hash, for the previous cycle's typed-in percentage. */
   rawOfficialUsage: Record<string, string>;
-  /** Every provider's resets (`loadIndexes().resets`): a restart's cut-short cycle, keep resets' segments. */
+  /** Every provider's resets (`loadIndexes(store).resets`): a restart's cut-short cycle, keep resets' segments. */
   resets: Record<string, ProviderResets>;
   /** Only report which providers are due; write nothing. */
   dryRun?: boolean;
@@ -84,17 +85,12 @@ export function summarizeProviderCycle({
  * one bad provider neither breaks the dashboard nor the rest of the run.
  * Returns the ids of the providers that were due (and, unless `dryRun`, archived).
  */
-export async function archiveDueCycles({
-  providerIds,
-  config,
-  now,
-  eventsByProvider,
-  rawOfficialUsage,
-  resets,
-  dryRun = false,
-}: ArchiveInput): Promise<string[]> {
+export async function archiveDueCycles(
+  store: TenantStore,
+  { providerIds, config, now, eventsByProvider, rawOfficialUsage, resets, dryRun = false }: ArchiveInput,
+): Promise<string[]> {
   if (providerIds.length === 0) return [];
-  const newestStarts = await loadNewestArchivedStarts(providerIds);
+  const newestStarts = await loadNewestArchivedStarts(store, providerIds);
   const windowOf = (providerId: string) => {
     const { cycle, previous } = providerCycle(now, config, providerId, resetEventsOf(resets, providerId));
     return { previousStartMs: previous.start.getTime(), cycleStartMs: cycle.start.getTime() };
@@ -120,7 +116,7 @@ export async function archiveDueCycles({
           rawOfficialUsage,
           resetEvents: resetEventsOf(resets, providerId),
         });
-        await archiveCycle(providerId, summary);
+        await archiveCycle(store, providerId, summary);
         return providerId;
       } catch (error) {
         log.error("history.archive_failed", { providerId, err: error });

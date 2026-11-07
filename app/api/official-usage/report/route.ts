@@ -7,6 +7,7 @@ import { decideOfficialReport, parseOfficialReport } from "@/lib/official-report
 import { officialUsageField, parseStoredOfficialEntry } from "@/lib/official-usage";
 import { mergeProviderIds } from "@/lib/providers";
 import { hit } from "@/lib/rate-limit";
+import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { defer } from "@/lib/request-context";
 import { saveDetectedReset } from "@/lib/reset-store";
 import { resetsOf } from "@/lib/resets";
@@ -40,9 +41,10 @@ export const POST = withApiHandler("api/official-usage/report", async ({ request
 
   const auth = await requireBearerThrottled(request);
   if (auth instanceof Response) return auth;
+  const { store } = auth;
   if (auth.scope !== "official") return apiError("official_scope_required", 403);
 
-  const limit = await hit(`usage:rl:official:${auth.tokenId}`, OFFICIAL_REPORT_RATE_LIMIT_PER_TOKEN, 3600);
+  const limit = await hit(GLOBAL_KEYS.rateLimit.official(auth.tokenId), OFFICIAL_REPORT_RATE_LIMIT_PER_TOKEN, 3600);
   if (!limit.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: limit.retryAfterSeconds });
 
   const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES });
@@ -53,7 +55,7 @@ export const POST = withApiHandler("api/official-usage/report", async ({ request
   if (!parsed.ok) return apiError("invalid_payload", 400, { details: parsed.errors });
   const { report } = parsed;
 
-  const indexes = await loadIndexes();
+  const indexes = await loadIndexes(store);
   const providerIds = mergeProviderIds(
     indexes.providers.map((provider) => provider.providerId),
     storedProviderIds(indexes.settings),
@@ -73,14 +75,14 @@ export const POST = withApiHandler("api/official-usage/report", async ({ request
 
   // A detected reset moves the provider's reset itself, in its own transaction.
   if (decision.override && !decision.reset) {
-    await saveResetOverride(report.providerId, decision.override, now, providerIds);
+    await saveResetOverride(store, report.providerId, decision.override, now, providerIds);
   } else if (decision.refresh) {
     // The same reset, its instant or wall clock read again: the cycle does not change.
-    await saveResetOverride(report.providerId, decision.refresh, now, providerIds);
+    await saveResetOverride(store, report.providerId, decision.refresh, now, providerIds);
   }
   const detected =
     decision.reset &&
-    (await saveDetectedReset({
+    (await saveDetectedReset(store, {
       providerId: report.providerId,
       config,
       resets,
@@ -101,8 +103,8 @@ export const POST = withApiHandler("api/official-usage/report", async ({ request
       resetsAtMs: report.resetsAtMs,
     };
     // The reading's own time: the dashboard says when the figure was true, not when it arrived.
-    await saveOfficialUsage(update, new Date(report.observedAtMs));
-    defer(() => checkOfficialUsageAlerts(update, now));
+    await saveOfficialUsage(store, update, new Date(report.observedAtMs));
+    defer(() => checkOfficialUsageAlerts(store, update, now));
   }
 
   const { override } = decision;

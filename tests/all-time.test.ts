@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { allTimeCycles, ledgerEntryOf, summarizeAllTime } from "@/lib/all-time";
 import { type CycleSummary, HISTORY_RETENTION, serializeCycleSummary } from "@/lib/history";
 import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { archiveCycle, loadAllTime, loadHistory, saveArchivedOfficial } from "@/lib/usage-store";
 import { useRedis } from "./helpers/redis-fixture";
+import { KEYS, tenant } from "./helpers/tenant";
 
 const DAY = 86_400_000;
 const WEEK = 7 * DAY;
@@ -125,10 +125,10 @@ describe("the all-time ledger in Redis", () => {
 
   it("gets every archived cycle, without its models and sub-limits, and keeps the ones the history trims", async () => {
     for (let index = 1; index <= HISTORY_RETENTION + 3; index += 1) {
-      await archiveCycle("claude", cycle(index, { total: index }));
+      await archiveCycle(tenant, "claude", cycle(index, { total: index }));
     }
-    expect((await loadHistory(["claude"])).claude).toHaveLength(HISTORY_RETENTION);
-    const ledger = (await loadAllTime(["claude"])).claude ?? [];
+    expect((await loadHistory(tenant, ["claude"])).claude).toHaveLength(HISTORY_RETENTION);
+    const ledger = (await loadAllTime(tenant, ["claude"])).claude ?? [];
     expect(ledger).toHaveLength(HISTORY_RETENTION + 3);
     expect(ledger.map((entry) => entry.total)).toEqual(
       Array.from({ length: HISTORY_RETENTION + 3 }, (_, index) => index + 1),
@@ -142,28 +142,28 @@ describe("the all-time ledger in Redis", () => {
       const summary = cycle(index, { total: index });
       await getRedis().zadd(KEYS.history("claude"), { score: summary.start, member: serializeCycleSummary(summary) });
     }
-    await archiveCycle("claude", cycle(HISTORY_RETENTION + 1, { total: HISTORY_RETENTION + 1 }));
-    expect((await loadAllTime(["claude"])).claude).toHaveLength(HISTORY_RETENTION + 1);
+    await archiveCycle(tenant, "claude", cycle(HISTORY_RETENTION + 1, { total: HISTORY_RETENTION + 1 }));
+    expect((await loadAllTime(tenant, ["claude"])).claude).toHaveLength(HISTORY_RETENTION + 1);
   });
 
   it("keeps an entry it already holds when the same cycle is archived again", async () => {
-    await archiveCycle("claude", cycle(1, { total: 10 }));
+    await archiveCycle(tenant, "claude", cycle(1, { total: 10 }));
     await getRedis().zremrangebyscore(KEYS.history("claude"), WEEK, WEEK);
-    await archiveCycle("claude", cycle(1, { total: 99 }));
-    expect((await loadAllTime(["claude"])).claude?.map((entry) => entry.total)).toEqual([10]);
+    await archiveCycle(tenant, "claude", cycle(1, { total: 99 }));
+    expect((await loadAllTime(tenant, ["claude"])).claude?.map((entry) => entry.total)).toEqual([10]);
   });
 
   it("follows a correction of the archived official figure", async () => {
-    await archiveCycle("claude", cycle(1, { total: 10, official: 82 }));
-    expect(await saveArchivedOfficial("claude", WEEK, 100)).toBe(true);
-    expect((await loadAllTime(["claude"])).claude?.[0]?.official).toBe(100);
+    await archiveCycle(tenant, "claude", cycle(1, { total: 10, official: 82 }));
+    expect(await saveArchivedOfficial(tenant, "claude", WEEK, 100)).toBe(true);
+    expect((await loadAllTime(tenant, ["claude"])).claude?.[0]?.official).toBe(100);
   });
 
   it("keeps every provider's ledger apart, and skips a damaged entry", async () => {
-    await archiveCycle("claude", cycle(1, { total: 10 }));
-    await archiveCycle("openai", cycle(2, { total: 20 }));
+    await archiveCycle(tenant, "claude", cycle(1, { total: 10 }));
+    await archiveCycle(tenant, "openai", cycle(2, { total: 20 }));
     await getRedis().hset(KEYS.allTime("claude"), { [String(5 * WEEK)]: "not json" });
-    const ledgers = await loadAllTime(["claude", "openai", "gemini"]);
+    const ledgers = await loadAllTime(tenant, ["claude", "openai", "gemini"]);
     expect(ledgers.claude?.map((entry) => entry.start)).toEqual([WEEK]);
     expect(ledgers.openai?.map((entry) => entry.start)).toEqual([2 * WEEK]);
     expect(ledgers.gemini).toEqual([]);

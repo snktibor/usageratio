@@ -4,7 +4,6 @@ import { PinGate } from "@/components/pin-gate";
 import { SettingsPage } from "@/components/settings/settings-page";
 import { StorageProblem } from "@/components/storage-problem";
 import { routing } from "@/i18n/routing";
-import { isAuthenticated } from "@/lib/auth";
 import { currentTime } from "@/lib/clock";
 import { getConfig } from "@/lib/config";
 import { ensureDemoData } from "@/lib/demo/seed";
@@ -14,6 +13,8 @@ import { earliestStartMs } from "@/lib/provider-cycles";
 import { mergeProviderIds } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { buildSettingsView, resolveConfig, type SettingsView, storedProviderIds } from "@/lib/settings";
+import type { TenantStore } from "@/lib/tenant";
+import { currentTenant } from "@/lib/tenant-context";
 import { loadEvents, loadIndexes } from "@/lib/usage-store";
 
 // Rendered per request: the page depends on the session cookie and on the stored settings.
@@ -31,18 +32,18 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
  * settings, the known groups, and the models seen since the previous cycle
  * began (for picking a sub-limit's).
  */
-async function loadSettingsView(): Promise<SettingsView> {
+async function loadSettingsView(store: TenantStore): Promise<SettingsView> {
   const now = currentTime();
   // Demo mode only: reseeds the synthetic data once it has gone stale.
-  await ensureDemoData(now);
-  const indexes = await loadIndexes();
+  await ensureDemoData(store, now);
+  const indexes = await loadIndexes(store);
   const providerIds = mergeProviderIds(
     indexes.providers.map((provider) => provider.providerId),
     storedProviderIds(indexes.settings),
   );
   const config = resolveConfig(getConfig(), indexes.settings, providerIds);
   const since = earliestStartMs(now, config, providerIds, "previous");
-  const { eventsByProvider, groups } = await loadEvents(providerIds, indexes.groups, since);
+  const { eventsByProvider, groups } = await loadEvents(store, providerIds, indexes.groups, since);
   return buildSettingsView(
     config,
     groups,
@@ -62,7 +63,8 @@ export default async function Page({ params }: { params: Promise<{ locale: strin
 
   try {
     // Like the dashboard: nothing stored is read before the session check passed.
-    if (await isAuthenticated()) view = await loadSettingsView();
+    const tenant = await currentTenant();
+    if (tenant) view = await loadSettingsView(tenant.store);
   } catch (error) {
     storageError = error;
     log.error("settings_page.load_failed", { err: error });

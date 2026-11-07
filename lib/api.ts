@@ -1,11 +1,11 @@
 import { errors as upstash } from "@upstash/redis";
-import { isAuthenticated } from "@/lib/auth";
 import { UNAUTH_RATE_LIMIT_PER_IP } from "@/lib/config";
 import { reportError } from "@/lib/error-reporter";
 import { isForeignOrigin } from "@/lib/http";
 import { log } from "@/lib/log";
 import { hit } from "@/lib/rate-limit";
 import { StorageNotConfiguredError } from "@/lib/redis";
+import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import {
   type CookieJar,
   clientIp,
@@ -15,6 +15,8 @@ import {
   runWithRequest,
 } from "@/lib/request-context";
 import { safeEqual, sha256Hex } from "@/lib/security";
+import { defaultTenantStore, type TenantStore } from "@/lib/tenant";
+import { currentTenant, type TenantContext } from "@/lib/tenant-context";
 import { authenticateToken, type TokenScope } from "@/lib/tokens";
 
 /**
@@ -153,9 +155,13 @@ export async function readJsonBody(
   }
 }
 
-/** 401 unless the dashboard's PIN session is live. Throws when the store cannot be asked. */
-export async function requireSession(): Promise<Response | null> {
-  return (await isAuthenticated()) ? null : apiError("unauthorized", 401);
+/**
+ * The signed-in browser's tenant (lib/tenant-context.ts), or the 401 to answer
+ * instead. The tenant comes from the session alone. Throws when the store
+ * cannot be asked.
+ */
+export async function requireTenantSession(): Promise<Response | TenantContext> {
+  return (await currentTenant()) ?? apiError("unauthorized", 401);
 }
 
 /** 403 for a request a foreign origin sent (lib/http.ts). */
@@ -170,6 +176,8 @@ export interface BearerAuth {
   machineId: string | null;
   /** What it may do (lib/tokens.ts `TokenScope`); the master token may do everything, "ingest". */
   scope: TokenScope;
+  /** The token's tenant: decided by the token alone, never by anything else in the request. */
+  store: TenantStore;
 }
 
 /**
@@ -191,11 +199,13 @@ export async function requireBearer(request: Request): Promise<Response | Bearer
   const bearer = /^Bearer\s+(\S+)\s*$/i.exec(request.headers.get("authorization") ?? "");
   const presented = bearer?.[1];
   if (!presented) return apiError("unauthorized", 401, { scheme: "bearer" });
-  if (safeEqual(presented, expected)) return { tokenId: "master", machineId: null, scope: "ingest" };
+  // A single-tenant instance: the master token and every per-machine token belong to the default tenant.
+  const store = defaultTenantStore();
+  if (safeEqual(presented, expected)) return { tokenId: "master", machineId: null, scope: "ingest", store };
 
-  const result = await authenticateToken(presented, new Date());
+  const result = await authenticateToken(store, presented, new Date());
   if (!result.ok) return apiError("unauthorized", 401, { scheme: "bearer" });
-  return { tokenId: result.tokenId, machineId: result.machineId, scope: result.scope };
+  return { tokenId: result.tokenId, machineId: result.machineId, scope: result.scope, store };
 }
 
 /**
@@ -209,7 +219,7 @@ export async function requireBearerThrottled(request: Request): Promise<Response
   const auth = await requireBearer(request);
   if (!(auth instanceof Response) || auth.status !== 401) return auth;
 
-  const key = `usage:rl:unauth:${sha256Hex(await clientIp()).slice(0, 32)}`;
+  const key = GLOBAL_KEYS.rateLimit.unauth(sha256Hex(await clientIp()).slice(0, 32));
   const unauth = await hit(key, UNAUTH_RATE_LIMIT_PER_IP, 60);
   if (!unauth.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: unauth.retryAfterSeconds });
   return auth;
@@ -247,7 +257,7 @@ function cookiesNotWritable(action: "set" | "delete"): never {
 
 /**
  * A read-only cookie jar parsed straight from the request's own `Cookie`
- * header: every route this wraps only ever reads a session (`requireSession`),
+ * header: every route this wraps only ever reads a session (`requireTenantSession`),
  * never sets one, so `set`/`delete` throw rather than silently doing nothing.
  */
 function requestCookieJar(request: Request): CookieJar {

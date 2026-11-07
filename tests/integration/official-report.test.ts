@@ -4,12 +4,12 @@ import { GET as getStatus } from "@/app/api/status/route";
 import { getConfig } from "@/lib/config";
 import { parseStoredOfficialEntry } from "@/lib/official-usage";
 import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { serializeSettings, settingsFromConfig, type UsageSettings } from "@/lib/settings";
 import type { StatusPayload } from "@/lib/status";
 import { createToken, type TokenScope } from "@/lib/tokens";
 import { loadIndexes, loadResets, registerProviders, saveResets } from "@/lib/usage-store";
 import { useRedis } from "../helpers/redis-fixture";
+import { KEYS, tenant } from "../helpers/tenant";
 
 /**
  * POST /api/official-usage/report: a provider's own weekly percentage, from an
@@ -38,7 +38,7 @@ function post(payload: unknown, token?: string): Request {
 }
 
 async function tokenOf(scope: TokenScope): Promise<string> {
-  const created = await createToken(`${scope} token`, null, NOW, scope);
+  const created = await createToken(tenant, `${scope} token`, null, NOW, scope);
   if (!created.ok) throw new Error("token not created");
   return created.token;
 }
@@ -87,7 +87,7 @@ describe("POST /api/official-usage/report", () => {
   it("moves the reset, stores the figure for the new cycle, and the status shows it", async () => {
     await seedSettings("weekly");
     // The status lists providers that have reported tokens.
-    await registerProviders(["claude"], Date.parse("2026-09-01T00:00:00Z"));
+    await registerProviders(tenant, ["claude"], Date.parse("2026-09-01T00:00:00Z"));
     const token = await tokenOf("official");
     const response = await POST(post(body(), token));
     expect(response.status).toBe(200);
@@ -142,7 +142,7 @@ describe("POST /api/official-usage/report", () => {
   it("detects a keep reset from two readings of the same window, and records it", async () => {
     await seedSettings("weekly");
     const token = await tokenOf("official");
-    await registerProviders(["claude"], NOW.getTime());
+    await registerProviders(tenant, ["claude"], NOW.getTime());
     // The first reading aligns Claude to its window (Thursday 09:00) and is stored with its window.
     expect((await POST(post(body({ usedPercent: 62 }), token))).status).toBe(200);
 
@@ -153,18 +153,18 @@ describe("POST /api/official-usage/report", () => {
     expect(answer).toMatchObject({ ok: true, saved: true, cycleChanged: false, reset: null });
     expect(answer.detectedReset).toMatchObject({ kind: "keep", atMs: observedAtMs });
 
-    const resets = await loadResets();
+    const resets = await loadResets(tenant);
     expect(resets.claude?.events).toEqual([
       expect.objectContaining({ id: answer.detectedReset.id, before: 62, source: "report" }),
     ]);
-    const stored = parseStoredOfficialEntry((await loadIndexes()).officialUsage.claude!);
+    const stored = parseStoredOfficialEntry((await loadIndexes(tenant)).officialUsage.claude!);
     expect(stored).toMatchObject({ view: { raw: "2" }, cycleStartMs: observedAtMs });
   });
 
   it("detects a Codex restart from a window that jumped a week past R, and records it", async () => {
     await seedSettings("weekly");
     const token = await tokenOf("official");
-    await registerProviders(["openai"], NOW.getTime());
+    await registerProviders(tenant, ["openai"], NOW.getTime());
     const S = Date.parse("2026-09-21T00:00:00Z");
     const E = Date.parse("2026-09-28T00:00:00Z");
     const R = Date.parse("2026-09-23T08:00:00Z");
@@ -205,7 +205,7 @@ describe("POST /api/official-usage/report", () => {
       source: "reset",
       anchorMs: R,
     });
-    expect((await loadResets()).openai?.events).toEqual([
+    expect((await loadResets(tenant)).openai?.events).toEqual([
       expect.objectContaining({
         id: answer.detectedReset.id,
         kind: "restart",
@@ -216,16 +216,16 @@ describe("POST /api/official-usage/report", () => {
         previousOverride: null,
       }),
     ]);
-    const stored = parseStoredOfficialEntry((await loadIndexes()).officialUsage.openai!);
+    const stored = parseStoredOfficialEntry((await loadIndexes(tenant)).officialUsage.openai!);
     expect(stored).toMatchObject({ view: { raw: "1", enteredAt: observedAtMs }, cycleStartMs: R });
   });
 
   it("ignores a reading whose window ends elsewhere while detection is off for the cycle, and moves nothing", async () => {
     await seedSettings("weekly");
     const token = await tokenOf("official");
-    await registerProviders(["openai"], NOW.getTime());
+    await registerProviders(tenant, ["openai"], NOW.getTime());
     const off = { v: 1 as const, events: [], autoOffCycleStartMs: Date.parse("2026-09-21T00:00:00Z") };
-    await saveResets("openai", off);
+    await saveResets(tenant, "openai", off);
 
     const response = await POST(post(body({ providerId: "openai" }), token));
     expect(response.status).toBe(200);
@@ -240,7 +240,7 @@ describe("POST /api/official-usage/report", () => {
     const settings = JSON.parse((await getRedis().get<string>(KEYS.settings)) as string);
     expect(settings.resetOverrides).toEqual({});
     expect(await getRedis().hlen(KEYS.officialUsage)).toBe(0);
-    expect((await loadResets()).openai).toEqual(off);
+    expect((await loadResets(tenant)).openai).toEqual(off);
   });
 
   it("answers 409 stale_reading for a window that already reset", async () => {

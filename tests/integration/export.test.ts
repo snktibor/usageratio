@@ -3,10 +3,10 @@ import { GET } from "@/app/api/export/route";
 import { getConfig } from "@/lib/config";
 import { ingestReport } from "@/lib/ingest";
 import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { serializeSettings, settingsFromConfig } from "@/lib/settings";
 import { useRedis } from "../helpers/redis-fixture";
 import { seedSession } from "../helpers/session";
+import { KEYS, tenant } from "../helpers/tenant";
 
 const PIN = "12345";
 
@@ -44,6 +44,7 @@ describe("GET /api/export", () => {
     const cookie = await seedSession(PIN);
     const now = new Date();
     const ingested = await ingestReport(
+      tenant,
       {
         machineId: "mac",
         groupId: "Work",
@@ -74,6 +75,7 @@ describe("GET /api/export", () => {
     const cookie = await seedSession(PIN);
     const now = new Date();
     await ingestReport(
+      tenant,
       { machineId: "mac", groupId: "Work", providers: { claude: 500, openai: 300 }, timestamp: now.toISOString() },
       now,
     );
@@ -102,6 +104,7 @@ describe("GET /api/export", () => {
     const now = new Date();
     // A report from the current cycle must not leak into the previous cycle's export.
     await ingestReport(
+      tenant,
       { machineId: "mac", groupId: "Work", providers: { claude: 500 }, timestamp: now.toISOString() },
       now,
     );
@@ -126,6 +129,7 @@ describe("GET /api/export", () => {
       for (const at of ["2026-09-16T12:00:00Z", "2026-09-18T12:00:00Z", "2026-09-22T12:00:00Z"]) {
         const when = new Date(at);
         const ingested = await ingestReport(
+          tenant,
           { machineId: "mac", groupId: "Work", providers: { claude: 500, openai: 300 }, timestamp: at },
           when,
         );

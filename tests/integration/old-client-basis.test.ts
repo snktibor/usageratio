@@ -3,10 +3,10 @@ import { GET as getStatus } from "@/app/api/status/route";
 import { GET as getCycle, POST as postUsage } from "@/app/api/usage/route";
 import { getConfig } from "@/lib/config";
 import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { serializeSettings, settingsFromConfig, type UsageSettings } from "@/lib/settings";
 import type { StatusPayload } from "@/lib/status";
 import { useRedis } from "../helpers/redis-fixture";
+import { KEYS } from "../helpers/tenant";
 
 /**
  * 2026-10-31: Claude's own window reset at 11:00 UTC, the shared reset

@@ -7,10 +7,10 @@ import { DELETE as deleteProviderRoute } from "@/app/api/providers/[provider]/ro
 import { INACTIVE_MACHINE_DAYS } from "@/lib/config";
 import { ingestReport } from "@/lib/ingest";
 import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { sha256Hex } from "@/lib/security";
 import { useRedis } from "../helpers/redis-fixture";
 import { seedSession } from "../helpers/session";
+import { KEYS, tenant } from "../helpers/tenant";
 
 const ORIGIN = { origin: "http://localhost", host: "localhost" };
 const PIN = "12345";
@@ -18,6 +18,7 @@ const NOW = new Date("2026-09-23T00:00:00Z");
 
 async function ingest(body: Record<string, unknown>, now = NOW) {
   const result = await ingestReport(
+    tenant,
     { machineId: "mac", groupId: "Personal", providers: { claude: 100 }, timestamp: now.toISOString(), ...body },
     now,
   );

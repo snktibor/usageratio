@@ -5,6 +5,7 @@ import { ensureDemoData } from "@/lib/demo/seed";
 import { reportError } from "@/lib/error-reporter";
 import { log } from "@/lib/log";
 import { storageKind } from "@/lib/redis";
+import { defaultTenantStore } from "@/lib/tenant";
 import { version } from "@/package.json";
 
 /**
@@ -22,7 +23,7 @@ export async function registerNode(): Promise<void> {
     demo: isDemoMode(),
   });
   // Demo mode: the in-memory store starts empty, so fill it before the first request.
-  if (isDemoMode()) await ensureDemoData(currentTime());
+  if (isDemoMode()) await ensureDemoData(defaultTenantStore(), currentTime());
 }
 
 export const onRequestErrorNode: Instrumentation.onRequestError = async (error, request, context) => {

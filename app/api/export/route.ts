@@ -1,4 +1,4 @@
-import { apiError, json, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, requireTenantSession, withApiHandler } from "@/lib/api";
 import { currentTime } from "@/lib/clock";
 import { getConfig } from "@/lib/config";
 import { dateInTimeZone } from "@/lib/cycle";
@@ -32,15 +32,16 @@ import { loadEvents, loadHistory, loadIndexes } from "@/lib/usage-store";
  */
 
 export const GET = withApiHandler("api/export", async ({ url }) => {
-  const unauthorized = await requireSession();
-  if (unauthorized) return unauthorized;
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
+  const { store } = tenant;
 
   const parsed = parseExportQuery(url.searchParams);
   if (!parsed.ok) return apiError("invalid_payload", 400, { details: parsed.errors });
   const { format, cycle: cycleChoice, providerId } = parsed.query;
 
   const now = currentTime();
-  const indexes = await loadIndexes();
+  const indexes = await loadIndexes(store);
   const allProviderIds = mergeProviderIds(
     indexes.providers.map((provider) => provider.providerId),
     storedProviderIds(indexes.settings),
@@ -59,12 +60,13 @@ export const GET = withApiHandler("api/export", async ({ url }) => {
 
   // One round trip covers both cycles of every provider, whichever was asked for.
   const { eventsByProvider } = await loadEvents(
+    store,
     allProviderIds,
     indexes.groups,
     earliestStartMs(now, config, targetProviderIds, "previous"),
     indexes.resets,
   );
-  const historyByProvider = await loadHistory(targetProviderIds);
+  const historyByProvider = await loadHistory(store, targetProviderIds);
 
   const input: ExportInput = {
     generatedAtMs: now.getTime(),

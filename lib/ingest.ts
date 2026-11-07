@@ -2,6 +2,7 @@ import { getConfig, type TokenMode } from "@/lib/config";
 import { getCycle } from "@/lib/cycle";
 import { earliestCycle } from "@/lib/provider-cycles";
 import { resetFor, resolveConfig } from "@/lib/settings";
+import type { TenantStore } from "@/lib/tenant";
 import { loadRawSettings, type StoreReportRefusal, storeReport } from "@/lib/usage-store";
 import { parseUsageReport, type UsageReport } from "@/lib/validation";
 
@@ -36,7 +37,7 @@ export type IngestResult =
       tokenMode: TokenMode;
     };
 
-export async function ingestReport(body: unknown, now: Date): Promise<IngestResult> {
+export async function ingestReport(store: TenantStore, body: unknown, now: Date): Promise<IngestResult> {
   const config = getConfig();
 
   // The settings panel's saved time zone (once there is one) is the effective
@@ -44,7 +45,7 @@ export async function ingestReport(body: unknown, now: Date): Promise<IngestResu
   // checked against the same zone the cycle (and its checkpoints) use below.
   // A failed read falls back to the env/default zone and skips the cycle
   // lookup entirely, so the report is still stored, just without checkpoints.
-  const rawSettings = await loadRawSettings().catch(() => undefined);
+  const rawSettings = await loadRawSettings(store).catch(() => undefined);
   const resolved = rawSettings === undefined ? null : resolveConfig(config, rawSettings);
   const timeZone = resolved?.reset.timeZone ?? config.reset.timeZone;
 
@@ -66,7 +67,7 @@ export async function ingestReport(body: unknown, now: Date): Promise<IngestResu
     startMs: (providerId: string) => getCycle(reportAt, resetFor(resolved, providerId)).start.getTime(),
   };
 
-  const stored = await storeReport(parsed.report, now, config.retentionDays, reportCycle);
+  const stored = await storeReport(store, parsed.report, now, config.retentionDays, reportCycle);
   if (!stored.ok) return stored;
 
   // The earliest current cycle among the report's providers: what the client counted from.

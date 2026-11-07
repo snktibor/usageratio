@@ -4,13 +4,13 @@ import { getConfig } from "@/lib/config";
 import { type CycleSummary, serializeCycleSummary } from "@/lib/history";
 import { parseStoredOfficialEntry } from "@/lib/official-usage";
 import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { saveDetectedReset } from "@/lib/reset-store";
 import { emptyResets, restartOverride } from "@/lib/resets";
 import { ownResetOf, resolveConfig, serializeSettings, settingsFromConfig } from "@/lib/settings";
 import { loadIndexes, loadRawSettings, loadResets, registerProviders, saveResets } from "@/lib/usage-store";
 import { useRedis } from "../helpers/redis-fixture";
 import { seedSession } from "../helpers/session";
+import { KEYS, tenant } from "../helpers/tenant";
 
 /** /api/resets: a provider's usage resets in the current cycle (lib/reset-recording.ts, lib/reset-store.ts). */
 
@@ -39,11 +39,11 @@ async function call(method: "POST" | "PUT" | "DELETE", body: unknown, cookie: st
 }
 
 async function ownReset(providerId: string) {
-  return ownResetOf(resolveConfig(getConfig(), await loadRawSettings()), providerId);
+  return ownResetOf(resolveConfig(getConfig(), await loadRawSettings(tenant)), providerId);
 }
 
 async function officialEntry(field: string) {
-  const raw = (await loadIndexes()).officialUsage[field];
+  const raw = (await loadIndexes(tenant)).officialUsage[field];
   return raw ? parseStoredOfficialEntry(raw) : null;
 }
 
@@ -58,7 +58,7 @@ describe("/api/resets", () => {
       KEYS.settings,
       serializeSettings({ ...settingsFromConfig(getConfig()), resetOverrides: {} }, NOW),
     );
-    await registerProviders(["claude", "openai"], NOW.getTime());
+    await registerProviders(tenant, ["claude", "openai"], NOW.getTime());
     cookie = await seedSession(PIN);
   });
   afterEach(() => {
@@ -97,7 +97,7 @@ describe("/api/resets", () => {
       source: "manual",
       cycleStartMs: S,
     });
-    expect((await loadResets()).claude?.events).toEqual(body.events);
+    expect((await loadResets(tenant)).claude?.events).toEqual(body.events);
   });
 
   it("takes the before-figure from the stored figure read before the reset, and leaves that figure in its segment", async () => {
@@ -185,7 +185,7 @@ describe("/api/resets", () => {
     expect(refused).toMatchObject({ status: 409, body: { error: "not_revertable" } });
 
     const beforeAtMs = R + 3_600_000 - 600_000;
-    await saveResets("claude", {
+    await saveResets(tenant, "claude", {
       v: 1,
       events: [
         {
@@ -204,7 +204,7 @@ describe("/api/resets", () => {
     const reverted = await call("DELETE", { providerId: "claude", id: "detected", revert: true }, cookie);
     expect(reverted.status).toBe(200);
     expect(await officialEntry("claude")).toEqual({ view: { raw: "62", enteredAt: beforeAtMs }, cycleStartMs: S });
-    expect((await loadResets()).claude?.autoOffCycleStartMs).toBe(S);
+    expect((await loadResets(tenant)).claude?.autoOffCycleStartMs).toBe(S);
   });
 });
 
@@ -216,11 +216,11 @@ describe("saveDetectedReset", () => {
       openai: JSON.stringify({ raw: "3", enteredAt: R + 60_000, cycleStartMs: S }),
     });
     const providerIds = ["claude", "openai"];
-    const indexes = await loadIndexes();
+    const indexes = await loadIndexes(tenant);
     const config = resolveConfig(getConfig(), indexes.settings, providerIds);
     const override = restartOverride(R, config.reset.timeZone);
 
-    const event = await saveDetectedReset({
+    const event = await saveDetectedReset(tenant, {
       providerId: "openai",
       config,
       resets: emptyResets(),
@@ -241,7 +241,7 @@ describe("saveDetectedReset", () => {
       now: NOW,
     });
 
-    expect((await loadResets()).openai?.events).toEqual([event]);
+    expect((await loadResets(tenant)).openai?.events).toEqual([event]);
     expect(await ownReset("openai")).toEqual(override);
     expect(await officialEntry("openai")).toEqual({ view: { raw: "3", enteredAt: R + 60_000 }, cycleStartMs: R });
   });

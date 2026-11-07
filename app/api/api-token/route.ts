@@ -1,4 +1,4 @@
-import { apiError, json, readJsonBody, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { isValidApiToken } from "@/lib/api-token";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { encryptionKey, loadApiTokenStatus, saveApiToken } from "@/lib/token-vault";
@@ -24,9 +24,10 @@ import { encryptionKey, loadApiTokenStatus, saveApiToken } from "@/lib/token-vau
 const MAX_BODY_BYTES = 2_048;
 
 export const GET = withApiHandler("api/api-token", async () => {
-  const unauthorized = await requireSession();
-  if (unauthorized) return unauthorized;
-  return json({ status: await loadApiTokenStatus() }, 200);
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
+  const { store } = tenant;
+  return json({ status: await loadApiTokenStatus(store) }, 200);
 });
 
 export const PUT = withApiHandler("api/api-token", async ({ request }) => {
@@ -35,8 +36,9 @@ export const PUT = withApiHandler("api/api-token", async ({ request }) => {
   const readOnly = demoReadOnly();
   if (readOnly) return readOnly;
 
-  const unauthorized = await requireSession();
-  if (unauthorized) return unauthorized;
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
+  const { store } = tenant;
 
   const key = encryptionKey();
   if (!key) return apiError("encryption_key_missing", 500);
@@ -55,6 +57,6 @@ export const PUT = withApiHandler("api/api-token", async ({ request }) => {
     });
   }
 
-  const saved = await saveApiToken(token, key, new Date());
+  const saved = await saveApiToken(store, token, key, new Date());
   return json({ ok: true, action: saved.action, status: saved.status }, 200);
 });

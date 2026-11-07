@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { getRedis, toStringRecord } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
+import { toStringRecord } from "@/lib/redis";
 import { defer } from "@/lib/request-context";
 import { sha256Hex } from "@/lib/security";
+import type { TenantStore } from "@/lib/tenant";
 
 /**
  * Per-machine API tokens: an alternative to the one shared `USAGE_API_TOKEN`
@@ -130,8 +130,8 @@ export function labelProblem(value: string): "empty" | "too_long" | null {
 }
 
 /** Every stored token, newest first. An entry that does not parse is left out rather than crashing the list. */
-export async function listTokens(): Promise<MachineToken[]> {
-  const raw = toStringRecord(await getRedis().hgetall(KEYS.tokens));
+export async function listTokens(store: TenantStore): Promise<MachineToken[]> {
+  const raw = toStringRecord(await store.redis.hgetall(store.keys.tokens));
   return Object.values(raw)
     .flatMap((value) => {
       const token = parseStored(value);
@@ -144,13 +144,14 @@ export type CreateTokenResult = { ok: true; id: string; token: string } | { ok: 
 
 /** Issues a fresh token and stores its hash; the plaintext is returned once and never stored. */
 export async function createToken(
+  store: TenantStore,
   label: string,
   machineId: string | null,
   now: Date,
   scope: TokenScope = "ingest",
 ): Promise<CreateTokenResult> {
-  const redis = getRedis();
-  const count = await redis.hlen(KEYS.tokens);
+  const redis = store.redis;
+  const count = await redis.hlen(store.keys.tokens);
   if (count >= MAX_TOKENS) return { ok: false, reason: "too_many" };
 
   const token = generatePlainToken();
@@ -164,23 +165,23 @@ export async function createToken(
     lastUsedAt: null,
     revokedAt: null,
   };
-  await redis.hset(KEYS.tokens, { [hashToken(token)]: serialize(record) });
+  await redis.hset(store.keys.tokens, { [hashToken(token)]: serialize(record) });
   return { ok: true, id, token };
 }
 
 export type RevokeTokenResult = { ok: true } | { ok: false; reason: "not_found" };
 
 /** Sets `revokedAt` on the token with this public id; idempotent — revoking an already-revoked token still answers ok. */
-export async function revokeToken(id: string, now: Date): Promise<RevokeTokenResult> {
-  const redis = getRedis();
-  const raw = toStringRecord(await redis.hgetall(KEYS.tokens));
+export async function revokeToken(store: TenantStore, id: string, now: Date): Promise<RevokeTokenResult> {
+  const redis = store.redis;
+  const raw = toStringRecord(await redis.hgetall(store.keys.tokens));
   const entry = Object.entries(raw).find(([, value]) => parseStored(value)?.id === id);
   if (!entry) return { ok: false, reason: "not_found" };
 
   const [hash, value] = entry;
   const token = parseStored(value)!;
   if (token.revokedAt === null) {
-    await redis.hset(KEYS.tokens, { [hash]: serialize({ ...token, revokedAt: now.getTime() }) });
+    await redis.hset(store.keys.tokens, { [hash]: serialize({ ...token, revokedAt: now.getTime() }) });
   }
   return { ok: true };
 }
@@ -195,10 +196,10 @@ export type TokenAuthResult =
  * fresh match refreshes `lastUsedAt` in the background (`defer`, at most once
  * an hour) so the settings panel can show it without slowing the request down.
  */
-export async function authenticateToken(bearer: string, now: Date): Promise<TokenAuthResult> {
-  const redis = getRedis();
+export async function authenticateToken(store: TenantStore, bearer: string, now: Date): Promise<TokenAuthResult> {
+  const redis = store.redis;
   const hash = hashToken(bearer);
-  const raw = await redis.hget<string>(KEYS.tokens, hash);
+  const raw = await redis.hget<string>(store.keys.tokens, hash);
   if (raw === null || raw === undefined) return { ok: false, reason: "not_found" };
 
   const token = parseStored(String(raw));
@@ -208,7 +209,7 @@ export async function authenticateToken(bearer: string, now: Date): Promise<Toke
   if (token.lastUsedAt === null || now.getTime() - token.lastUsedAt >= LAST_USED_REFRESH_MS) {
     const nowMs = now.getTime();
     defer(async () => {
-      await getRedis().hset(KEYS.tokens, { [hash]: serialize({ ...token, lastUsedAt: nowMs }) });
+      await store.redis.hset(store.keys.tokens, { [hash]: serialize({ ...token, lastUsedAt: nowMs }) });
     });
   }
 
@@ -221,12 +222,13 @@ export async function authenticateToken(bearer: string, now: Date): Promise<Toke
  * removed without deleting anything, matching `runHousekeeping`'s own option.
  */
 export async function pruneRevokedTokens(
+  store: TenantStore,
   now: Date,
   options: { retentionDays?: number; dryRun?: boolean } = {},
 ): Promise<{ removed: number; ids: string[] }> {
   const { retentionDays = REVOKED_RETENTION_DAYS, dryRun = false } = options;
-  const redis = getRedis();
-  const raw = toStringRecord(await redis.hgetall(KEYS.tokens));
+  const redis = store.redis;
+  const raw = toStringRecord(await redis.hgetall(store.keys.tokens));
   const cutoffMs = now.getTime() - retentionDays * 86_400_000;
 
   const staleHashes: string[] = [];
@@ -238,6 +240,6 @@ export async function pruneRevokedTokens(
       staleIds.push(token.id);
     }
   }
-  if (!dryRun && staleHashes.length > 0) await redis.hdel(KEYS.tokens, ...staleHashes);
+  if (!dryRun && staleHashes.length > 0) await redis.hdel(store.keys.tokens, ...staleHashes);
   return { removed: staleHashes.length, ids: staleIds };
 }

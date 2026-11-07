@@ -1,9 +1,9 @@
 import { getTranslations } from "next-intl/server";
 import { apiError, withApiHandler } from "@/lib/api";
-import { isAuthenticated } from "@/lib/auth";
 import { requestLocale } from "@/lib/request-locale";
 import { checkMachineSettings, parseMode, parseOs } from "@/lib/setup";
 import { buildSetupZip, loadClientSources, usageEndpoint } from "@/lib/setup-package";
+import { currentTenant } from "@/lib/tenant-context";
 
 /**
  * GET /api/setup?os=macos|linux|windows&mode=auto|manual&group=Work&machine=win-desktop[&locale=hu]
@@ -24,7 +24,7 @@ import { buildSetupZip, loadClientSources, usageEndpoint } from "@/lib/setup-pac
 export const GET = withApiHandler("api/setup", async ({ request }) => {
   const locale = await requestLocale(request);
 
-  if (!(await isAuthenticated())) {
+  if (!(await currentTenant())) {
     return Response.redirect(new URL(`/${locale}/setup`, request.url), 303);
   }
 

@@ -6,6 +6,7 @@ import { currentCookies, runWithRequest } from "@/lib/request-context";
 import { createToken, revokeToken } from "@/lib/tokens";
 import { useRedis } from "./helpers/redis-fixture";
 import { fakeCookieJar, withRequest } from "./helpers/request";
+import { tenant } from "./helpers/tenant";
 
 const URL = "http://localhost:3000/api/usage";
 
@@ -164,45 +165,49 @@ describe("requireBearer", () => {
       tokenId: "master",
       machineId: null,
       scope: "ingest",
+      store: expect.objectContaining({ tenantId: "default" }),
     });
   });
 
   it("authenticates a per-machine token, unbound or bound to a machine", async () => {
     vi.stubEnv("USAGE_API_TOKEN", "0123456789abcdef");
     const now = new Date("2026-09-26T00:00:00Z");
-    const unbound = await createToken("laptop", null, now);
-    const bound = await createToken("desktop", "mac-studio", now);
+    const unbound = await createToken(tenant, "laptop", null, now);
+    const bound = await createToken(tenant, "desktop", "mac-studio", now);
     if (!unbound.ok || !bound.ok) throw new Error("unreachable");
 
     expect(await requireBearer(request(`Bearer ${unbound.token}`))).toEqual({
       tokenId: unbound.id,
       machineId: null,
       scope: "ingest",
+      store: expect.objectContaining({ tenantId: "default" }),
     });
     expect(await requireBearer(request(`Bearer ${bound.token}`))).toEqual({
       tokenId: bound.id,
       machineId: "mac-studio",
       scope: "ingest",
+      store: expect.objectContaining({ tenantId: "default" }),
     });
   });
 
   it("hands back a read token's scope", async () => {
     vi.stubEnv("USAGE_API_TOKEN", "0123456789abcdef");
-    const read = await createToken("menu bar", null, new Date(), "read");
+    const read = await createToken(tenant, "menu bar", null, new Date(), "read");
     if (!read.ok) throw new Error("unreachable");
     expect(await requireBearer(request(`Bearer ${read.token}`))).toEqual({
       tokenId: read.id,
       machineId: null,
       scope: "read",
+      store: expect.objectContaining({ tenantId: "default" }),
     });
   });
 
   it("answers 401 for a revoked per-machine token", async () => {
     vi.stubEnv("USAGE_API_TOKEN", "0123456789abcdef");
     const now = new Date("2026-09-26T00:00:00Z");
-    const created = await createToken("laptop", null, now);
+    const created = await createToken(tenant, "laptop", null, now);
     if (!created.ok) throw new Error("unreachable");
-    await revokeToken(created.id, now);
+    await revokeToken(tenant, created.id, now);
 
     const response = (await requireBearer(request(`Bearer ${created.token}`))) as Response;
     expect(response.status).toBe(401);

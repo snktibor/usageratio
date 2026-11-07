@@ -1,4 +1,4 @@
-import { apiError, json, readJsonBody, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { currentTime } from "@/lib/clock";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { parseResetDelete, parseResetPost, parseResetPut } from "@/lib/reset-recording";
@@ -38,15 +38,16 @@ function resetHandler(parse: (body: unknown) => ParsedAction) {
     const readOnly = demoReadOnly();
     if (readOnly) return readOnly;
 
-    const unauthorized = await requireSession();
-    if (unauthorized) return unauthorized;
+    const tenant = await requireTenantSession();
+    if (tenant instanceof Response) return tenant;
+    const { store } = tenant;
 
     const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES });
     if (!body.ok) return body.response;
     const parsed = parse(body.value);
     if (!parsed.ok) return apiError("invalid_payload", 400, { details: parsed.errors });
 
-    const result = await applyResetAction(parsed.action, currentTime());
+    const result = await applyResetAction(store, parsed.action, currentTime());
     if (!result.ok) return apiError(result.refused, result.refused === "not_found" ? 404 : 409);
     return json({ ok: true, events: result.events, cycle: result.cycle }, 200);
   });

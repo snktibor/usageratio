@@ -10,7 +10,7 @@ import { Redis, type Requester, type UpstashRequest, type UpstashResponse } from
  *
  * Used by demo mode (`DEMO_MODE=1`, no Redis needed) and by the tests (a
  * fresh store per test, an injectable clock, one-off failures). It keeps
- * strings, hashes, lists and sorted sets with lazy key expiry, and nothing
+ * strings, hashes, lists, sets and sorted sets with lazy key expiry, and nothing
  * else: no persistence, no Lua, no pub/sub, no cluster semantics.
  */
 
@@ -18,6 +18,7 @@ type Entry =
   | { type: "string"; value: string; expiresAt: number | null }
   | { type: "hash"; value: Map<string, string>; expiresAt: number | null }
   | { type: "list"; value: string[]; expiresAt: number | null }
+  | { type: "set"; value: Set<string>; expiresAt: number | null }
   | { type: "zset"; value: Map<string, number>; expiresAt: number | null };
 
 type EntryType = Entry["type"];
@@ -142,10 +143,17 @@ export function createMemoryRequester(options: { now?: () => number } = {}): {
   }
 
   /** The container behind `key`, created empty (keeping no expiry) when missing. */
-  function container<T extends "hash" | "list" | "zset">(key: string, type: T): Extract<Entry, { type: T }> {
+  function container<T extends "hash" | "list" | "set" | "zset">(key: string, type: T): Extract<Entry, { type: T }> {
     const existing = typed(key, type);
     if (existing) return existing;
-    const value = type === "hash" ? new Map<string, string>() : type === "zset" ? new Map<string, number>() : [];
+    const value =
+      type === "hash"
+        ? new Map<string, string>()
+        : type === "zset"
+          ? new Map<string, number>()
+          : type === "set"
+            ? new Set<string>()
+            : [];
     const entry = { type, value, expiresAt: null } as Extract<Entry, { type: T }>;
     data.set(key, entry);
     return entry;
@@ -352,6 +360,26 @@ export function createMemoryRequester(options: { now?: () => number } = {}): {
       return removed;
     },
 
+    SADD: (args) => {
+      const set = container(asString(args[0]), "set");
+      let added = 0;
+      for (const member of args.slice(1).map(asString)) {
+        if (!set.value.has(member)) added += 1;
+        set.value.add(member);
+      }
+      return added;
+    },
+    SREM: (args) => {
+      const key = asString(args[0]);
+      const set = typed(key, "set");
+      if (!set) return 0;
+      const removed = args.slice(1).filter((member) => set.value.delete(asString(member))).length;
+      dropIfEmpty(key, set);
+      return removed;
+    },
+    SMEMBERS: (args) => [...(typed(asString(args[0]), "set")?.value ?? [])].sort(),
+    SCARD: (args) => typed(asString(args[0]), "set")?.value.size ?? 0,
+    SISMEMBER: (args) => (typed(asString(args[0]), "set")?.value.has(asString(args[1])) ? 1 : 0),
     LPUSH: (args) => {
       const list = container(asString(args[0]), "list");
       for (const value of args.slice(1)) list.value.unshift(asString(value));
@@ -618,7 +646,9 @@ export function createMemoryRequester(options: { now?: () => number } = {}): {
               ? Object.fromEntries(entry.value)
               : entry.type === "list"
                 ? [...entry.value]
-                : sortedMembers(entry.value);
+                : entry.type === "set"
+                  ? [...entry.value].sort()
+                  : sortedMembers(entry.value);
         snapshot[key] = { type: entry.type, value, ttl: ttlOf(entry, 1000) };
       }
       return snapshot;

@@ -12,6 +12,7 @@ import type { QuotaAssessment, QuotaStatus } from "@/lib/quota";
 import { type RecentPace, recentPace } from "@/lib/recent-pace";
 import { resetEventsOf } from "@/lib/resets";
 import { resolveConfig, storedProviderIds } from "@/lib/settings";
+import type { TenantStore } from "@/lib/tenant";
 import { loadEvents, loadIndexes } from "@/lib/usage-store";
 
 /**
@@ -194,11 +195,11 @@ export function buildStatus(
  * (app/[locale]/(dashboard)/page.tsx), minus the lazy archiving: a status
  * lookup only ever reads.
  */
-export async function loadStatus(): Promise<StatusPayload> {
+export async function loadStatus(store: TenantStore): Promise<StatusPayload> {
   const now = currentTime();
   // Demo mode only: reseeds the synthetic data once it has gone stale.
-  await ensureDemoData(now);
-  const indexes = await loadIndexes();
+  await ensureDemoData(store, now);
+  const indexes = await loadIndexes(store);
   const providerIds = mergeProviderIds(
     indexes.providers.map((provider) => provider.providerId),
     storedProviderIds(indexes.settings),
@@ -209,7 +210,7 @@ export async function loadStatus(): Promise<StatusPayload> {
   const cycle = getCycle(now, config.reset);
   // The previous cycles ride along: counter mode's baseline needs them.
   const since = earliestStartMs(now, config, providerIds, "previous");
-  const { eventsByProvider, groups } = await loadEvents(providerIds, indexes.groups, since, indexes.resets);
+  const { eventsByProvider, groups } = await loadEvents(store, providerIds, indexes.groups, since, indexes.resets);
   // Each provider's stored ground-truth figure applies while its current segment runs (lib/resets.ts).
   const officialUsage = currentOfficialEntries(indexes.officialUsage, (providerId) =>
     currentSegmentStartMs(now, config, providerId, resetEventsOf(indexes.resets, providerId)),

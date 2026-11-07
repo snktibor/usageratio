@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { getRedis, toStringRecord } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { flushDeferred } from "@/lib/request-context";
 import { sha256Hex } from "@/lib/security";
 import {
@@ -21,6 +20,7 @@ import {
 } from "@/lib/tokens";
 import { useRedis } from "./helpers/redis-fixture";
 import { withRequest } from "./helpers/request";
+import { KEYS, tenant } from "./helpers/tenant";
 
 /**
  * lib/tokens.ts: per-machine API tokens, an alternative to the shared
@@ -65,7 +65,7 @@ describe("createToken / listTokens", () => {
 
   it("stores only the hash: the plaintext never appears in the hash's value", async () => {
     const now = new Date("2026-09-26T00:00:00Z");
-    const result = await createToken("Mac Studio", null, now);
+    const result = await createToken(tenant, "Mac Studio", null, now);
     if (!result.ok) throw new Error("unreachable");
 
     expect(result.token.startsWith(TOKEN_PREFIX)).toBe(true);
@@ -90,19 +90,19 @@ describe("createToken / listTokens", () => {
   });
 
   it("keeps a machine binding when one is given", async () => {
-    const result = await createToken("Desktop", "mac-studio", new Date());
+    const result = await createToken(tenant, "Desktop", "mac-studio", new Date());
     if (!result.ok) throw new Error("unreachable");
-    const [token] = await listTokens();
+    const [token] = await listTokens(tenant);
     expect(token?.machineId).toBe("mac-studio");
   });
 
   it("lists newest first, and skips an entry that does not parse", async () => {
-    const t1 = await createToken("first", null, new Date(1000));
-    const t2 = await createToken("second", null, new Date(2000));
+    const t1 = await createToken(tenant, "first", null, new Date(1000));
+    const t2 = await createToken(tenant, "second", null, new Date(2000));
     if (!t1.ok || !t2.ok) throw new Error("unreachable");
     await getRedis().hset(KEYS.tokens, { garbage: "not json" });
 
-    const tokens = await listTokens();
+    const tokens = await listTokens(tenant);
     expect(tokens.map((token) => token.label)).toEqual(["second", "first"]);
   });
 
@@ -123,7 +123,7 @@ describe("createToken / listTokens", () => {
         ]),
       ),
     );
-    const result = await createToken("one too many", null, new Date());
+    const result = await createToken(tenant, "one too many", null, new Date());
     expect(result).toEqual({ ok: false, reason: "too_many" });
   });
 });
@@ -132,23 +132,23 @@ describe("revokeToken", () => {
   useRedis();
 
   it("sets revokedAt, and is idempotent on a second call", async () => {
-    const created = await createToken("laptop", null, new Date(0));
+    const created = await createToken(tenant, "laptop", null, new Date(0));
     if (!created.ok) throw new Error("unreachable");
 
     const now = new Date("2026-09-26T00:00:00Z");
-    expect(await revokeToken(created.id, now)).toEqual({ ok: true });
-    const [token] = await listTokens();
+    expect(await revokeToken(tenant, created.id, now)).toEqual({ ok: true });
+    const [token] = await listTokens(tenant);
     expect(token?.revokedAt).toBe(now.getTime());
 
     // A second revoke of the same token is a no-op, not an error, and keeps the first timestamp.
     const later = new Date(now.getTime() + 60_000);
-    expect(await revokeToken(created.id, later)).toEqual({ ok: true });
-    const [stillFirst] = await listTokens();
+    expect(await revokeToken(tenant, created.id, later)).toEqual({ ok: true });
+    const [stillFirst] = await listTokens(tenant);
     expect(stillFirst?.revokedAt).toBe(now.getTime());
   });
 
   it("answers not_found for an id nothing was ever issued with", async () => {
-    expect(await revokeToken("tk_ghost001", new Date())).toEqual({ ok: false, reason: "not_found" });
+    expect(await revokeToken(tenant, "tk_ghost001", new Date())).toEqual({ ok: false, reason: "not_found" });
   });
 });
 
@@ -156,11 +156,11 @@ describe("authenticateToken", () => {
   useRedis();
 
   it("accepts a live token, rejects an unknown one and a revoked one", async () => {
-    const created = await createToken("laptop", null, new Date(0));
+    const created = await createToken(tenant, "laptop", null, new Date(0));
     if (!created.ok) throw new Error("unreachable");
 
     await withRequest(async () => {
-      expect(await authenticateToken(created.token, new Date())).toEqual({
+      expect(await authenticateToken(tenant, created.token, new Date())).toEqual({
         ok: true,
         tokenId: created.id,
         machineId: null,
@@ -168,17 +168,20 @@ describe("authenticateToken", () => {
       });
     });
 
-    expect(await authenticateToken("ur_not-a-real-token", new Date())).toEqual({ ok: false, reason: "not_found" });
+    expect(await authenticateToken(tenant, "ur_not-a-real-token", new Date())).toEqual({
+      ok: false,
+      reason: "not_found",
+    });
 
-    await revokeToken(created.id, new Date());
-    expect(await authenticateToken(created.token, new Date())).toEqual({ ok: false, reason: "revoked" });
+    await revokeToken(tenant, created.id, new Date());
+    expect(await authenticateToken(tenant, created.token, new Date())).toEqual({ ok: false, reason: "revoked" });
   });
 
   it("hands back the bound machineId when the token has one", async () => {
-    const created = await createToken("desktop", "mac-studio", new Date(0));
+    const created = await createToken(tenant, "desktop", "mac-studio", new Date(0));
     if (!created.ok) throw new Error("unreachable");
     await withRequest(async () => {
-      expect(await authenticateToken(created.token, new Date())).toEqual({
+      expect(await authenticateToken(tenant, created.token, new Date())).toEqual({
         ok: true,
         tokenId: created.id,
         machineId: "mac-studio",
@@ -188,18 +191,18 @@ describe("authenticateToken", () => {
   });
 
   it("issues a read token unbound, even when a machine is passed", async () => {
-    const created = await createToken("menu bar", "mac-studio", new Date(0), "read");
+    const created = await createToken(tenant, "menu bar", "mac-studio", new Date(0), "read");
     if (!created.ok) throw new Error("unreachable");
-    const [token] = await listTokens();
+    const [token] = await listTokens(tenant);
     expect(token).toMatchObject({ scope: "read", machineId: null });
   });
 
   it("issues an official token bound to its machine, and verifies it with that scope", async () => {
-    const created = await createToken("menu bar", "mac-studio", new Date(0), "official");
+    const created = await createToken(tenant, "menu bar", "mac-studio", new Date(0), "official");
     if (!created.ok) throw new Error("unreachable");
-    const [token] = await listTokens();
+    const [token] = await listTokens(tenant);
     expect(token).toMatchObject({ scope: "official", machineId: "mac-studio" });
-    expect(await authenticateToken(created.token, new Date(0))).toMatchObject({
+    expect(await authenticateToken(tenant, created.token, new Date(0))).toMatchObject({
       ok: true,
       scope: "official",
       machineId: "mac-studio",
@@ -216,37 +219,37 @@ describe("authenticateToken", () => {
         createdAt: 1,
       }),
     });
-    expect(await listTokens()).toEqual([expect.objectContaining({ id: "tk_OFFICIAL", scope: "official" })]);
+    expect(await listTokens(tenant)).toEqual([expect.objectContaining({ id: "tk_OFFICIAL", scope: "official" })]);
   });
 
   it("reads an entry stored before scopes existed as an ingest token", async () => {
     await getRedis().hset(KEYS.tokens, {
       [hashToken("ur_legacy")]: JSON.stringify({ id: "tk_LEGACY01", label: "old", machineId: null, createdAt: 1 }),
     });
-    const [token] = await listTokens();
+    const [token] = await listTokens(tenant);
     expect(token?.scope).toBe("ingest");
   });
 
   it("refreshes lastUsedAt at most once an hour", async () => {
-    const created = await createToken("laptop", null, new Date(0));
+    const created = await createToken(tenant, "laptop", null, new Date(0));
     if (!created.ok) throw new Error("unreachable");
 
     const first = new Date(1_000_000);
-    await withRequest(() => authenticateToken(created.token, first));
+    await withRequest(() => authenticateToken(tenant, created.token, first));
     await flushDeferred();
-    expect((await listTokens())[0]?.lastUsedAt).toBe(first.getTime());
+    expect((await listTokens(tenant))[0]?.lastUsedAt).toBe(first.getTime());
 
     // Well inside the hour: no write.
     const soonAfter = new Date(first.getTime() + 5_000);
-    await withRequest(() => authenticateToken(created.token, soonAfter));
+    await withRequest(() => authenticateToken(tenant, created.token, soonAfter));
     await flushDeferred();
-    expect((await listTokens())[0]?.lastUsedAt).toBe(first.getTime());
+    expect((await listTokens(tenant))[0]?.lastUsedAt).toBe(first.getTime());
 
     // Past the refresh interval: writes again.
     const muchLater = new Date(first.getTime() + LAST_USED_REFRESH_MS + 1);
-    await withRequest(() => authenticateToken(created.token, muchLater));
+    await withRequest(() => authenticateToken(tenant, created.token, muchLater));
     await flushDeferred();
-    expect((await listTokens())[0]?.lastUsedAt).toBe(muchLater.getTime());
+    expect((await listTokens(tenant))[0]?.lastUsedAt).toBe(muchLater.getTime());
   });
 });
 
@@ -257,42 +260,42 @@ describe("pruneRevokedTokens", () => {
     const now = new Date("2026-09-26T00:00:00Z");
     const day = 86_400_000;
 
-    const live = await createToken("live", null, new Date(0));
-    const revokedRecently = await createToken("recent", null, new Date(0));
-    const revokedLongAgo = await createToken("old", null, new Date(0));
+    const live = await createToken(tenant, "live", null, new Date(0));
+    const revokedRecently = await createToken(tenant, "recent", null, new Date(0));
+    const revokedLongAgo = await createToken(tenant, "old", null, new Date(0));
     if (!live.ok || !revokedRecently.ok || !revokedLongAgo.ok) throw new Error("unreachable");
 
-    await revokeToken(revokedRecently.id, new Date(now.getTime() - 5 * day));
-    await revokeToken(revokedLongAgo.id, new Date(now.getTime() - 100 * day));
+    await revokeToken(tenant, revokedRecently.id, new Date(now.getTime() - 5 * day));
+    await revokeToken(tenant, revokedLongAgo.id, new Date(now.getTime() - 100 * day));
 
-    const result = await pruneRevokedTokens(now);
+    const result = await pruneRevokedTokens(tenant, now);
     expect(result).toEqual({ removed: 1, ids: [revokedLongAgo.id] });
 
-    const remaining = (await listTokens()).map((token) => token.id).sort();
+    const remaining = (await listTokens(tenant)).map((token) => token.id).sort();
     expect(remaining).toEqual([live.id, revokedRecently.id].sort());
   });
 
   it("dryRun reports what would be removed without deleting anything", async () => {
     const now = new Date("2026-09-26T00:00:00Z");
     const day = 86_400_000;
-    const created = await createToken("old", null, new Date(0));
+    const created = await createToken(tenant, "old", null, new Date(0));
     if (!created.ok) throw new Error("unreachable");
-    await revokeToken(created.id, new Date(now.getTime() - 100 * day));
+    await revokeToken(tenant, created.id, new Date(now.getTime() - 100 * day));
 
-    const result = await pruneRevokedTokens(now, { dryRun: true });
+    const result = await pruneRevokedTokens(tenant, now, { dryRun: true });
     expect(result).toEqual({ removed: 1, ids: [created.id] });
-    expect(await listTokens()).toHaveLength(1);
+    expect(await listTokens(tenant)).toHaveLength(1);
   });
 
   it("respects a custom retentionDays", async () => {
     const now = new Date("2026-09-26T00:00:00Z");
     const day = 86_400_000;
-    const created = await createToken("old", null, new Date(0));
+    const created = await createToken(tenant, "old", null, new Date(0));
     if (!created.ok) throw new Error("unreachable");
-    await revokeToken(created.id, new Date(now.getTime() - 20 * day));
+    await revokeToken(tenant, created.id, new Date(now.getTime() - 20 * day));
 
-    expect(await pruneRevokedTokens(now, { retentionDays: 30 })).toEqual({ removed: 0, ids: [] });
-    expect(await pruneRevokedTokens(now, { retentionDays: 10 })).toEqual({ removed: 1, ids: [created.id] });
+    expect(await pruneRevokedTokens(tenant, now, { retentionDays: 30 })).toEqual({ removed: 0, ids: [] });
+    expect(await pruneRevokedTokens(tenant, now, { retentionDays: 10 })).toEqual({ removed: 1, ids: [created.id] });
   });
 });
 

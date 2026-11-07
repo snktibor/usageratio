@@ -11,11 +11,10 @@ import {
 } from "@/lib/api-token";
 import { sessionTag } from "@/lib/auth";
 import { log } from "@/lib/log";
-import { getRedis } from "@/lib/redis";
-import { KEYS } from "@/lib/redis-keys";
 import { clientIp, currentHeaders, defer } from "@/lib/request-context";
 import { keyFingerprint, openSecret, parseEncryptionKey, sealSecret } from "@/lib/secret-box";
 import { safeEqual, sha256Hex } from "@/lib/security";
+import type { TenantStore } from "@/lib/tenant";
 
 /**
  * The stored copy of the clients' API token, for the setup page's copy button.
@@ -116,8 +115,8 @@ function openWithKeys(
   return previousToken === null ? null : { token: previousToken, openedWithCurrent: false, documentKid: kid };
 }
 
-async function loadToken(keys: EncryptionKeys): Promise<StoredToken> {
-  const raw = await getRedis().get<string>(KEYS.apiToken);
+async function loadToken(store: TenantStore, keys: EncryptionKeys): Promise<StoredToken> {
+  const raw = await store.redis.get<string>(store.keys.apiToken);
   if (raw === null || raw === undefined) return { state: "empty" };
 
   let document: Record<string, unknown> = {};
@@ -135,7 +134,7 @@ async function loadToken(keys: EncryptionKeys): Promise<StoredToken> {
 }
 
 /** Re-seals `token` with the current key, in the background: called once a document opens with anything else. */
-function scheduleReseal(token: string, keys: EncryptionKeys, updatedAt: number | null): void {
+function scheduleReseal(store: TenantStore, token: string, keys: EncryptionKeys, updatedAt: number | null): void {
   const key = keys.current;
   if (!key) return;
   defer(async () => {
@@ -143,7 +142,7 @@ function scheduleReseal(token: string, keys: EncryptionKeys, updatedAt: number |
       ...sealSecret(token, key, CONTEXT, keyFingerprint(key)),
       updatedAt: updatedAt ?? Date.now(),
     });
-    await getRedis().set(KEYS.apiToken, document);
+    await store.redis.set(store.keys.apiToken, document);
   });
 }
 
@@ -154,12 +153,15 @@ function matchesServerToken(token: string): boolean | null {
 }
 
 /** What is stored, without the token itself. */
-export async function loadApiTokenStatus(key: Buffer | null = encryptionKey()): Promise<ApiTokenStatus> {
+export async function loadApiTokenStatus(
+  store: TenantStore,
+  key: Buffer | null = encryptionKey(),
+): Promise<ApiTokenStatus> {
   if (!key) return { state: "no_key" };
   const keys = mergeKeys(key);
-  const stored = await loadToken(keys);
+  const stored = await loadToken(store, keys);
   if (stored.state !== "stored") return stored;
-  if (stored.needsReseal) scheduleReseal(stored.token, keys, stored.updatedAt);
+  if (stored.needsReseal) scheduleReseal(store, stored.token, keys, stored.updatedAt);
   return {
     state: "stored",
     updatedAt: stored.updatedAt,
@@ -202,22 +204,23 @@ async function auditRecord(action: AuditAction, now: Date): Promise<string> {
 
 /** Encrypts and stores `token`, in one transaction with its audit entry. */
 export async function saveApiToken(
+  store: TenantStore,
   token: string,
   key: Buffer,
   now: Date,
 ): Promise<{ action: "created" | "updated"; status: ApiTokenStatus }> {
-  const redis = getRedis();
+  const redis = store.redis;
   // A read before the transaction: two browsers saving in the same instant is not worth a script.
-  const action = Number(await redis.exists(KEYS.apiToken)) === 1 ? "updated" : "created";
+  const action = Number(await redis.exists(store.keys.apiToken)) === 1 ? "updated" : "created";
   const document = JSON.stringify({
     ...sealSecret(token, key, CONTEXT, keyFingerprint(key)),
     updatedAt: now.getTime(),
   });
 
   const tx = redis.multi();
-  tx.set(KEYS.apiToken, document);
-  tx.lpush(KEYS.apiTokenAudit, await auditRecord(action, now));
-  tx.ltrim(KEYS.apiTokenAudit, 0, AUDIT_LIMIT - 1);
+  tx.set(store.keys.apiToken, document);
+  tx.lpush(store.keys.apiTokenAudit, await auditRecord(action, now));
+  tx.ltrim(store.keys.apiTokenAudit, 0, AUDIT_LIMIT - 1);
   await tx.exec();
 
   return {
@@ -237,25 +240,26 @@ export async function saveApiToken(
  * on the audit trail first: if that write fails, the token is not handed out.
  */
 export async function revealApiToken(
+  store: TenantStore,
   key: Buffer,
   now: Date,
 ): Promise<{ state: "empty" } | { state: "unreadable" } | { state: "stored"; token: string }> {
   const keys = mergeKeys(key);
-  const stored = await loadToken(keys);
+  const stored = await loadToken(store, keys);
   if (stored.state === "empty") return { state: "empty" };
   if (stored.state === "unreadable") return { state: "unreadable" };
-  if (stored.needsReseal) scheduleReseal(stored.token, keys, stored.updatedAt);
+  if (stored.needsReseal) scheduleReseal(store, stored.token, keys, stored.updatedAt);
 
-  const tx = getRedis().multi();
-  tx.lpush(KEYS.apiTokenAudit, await auditRecord("revealed", now));
-  tx.ltrim(KEYS.apiTokenAudit, 0, AUDIT_LIMIT - 1);
+  const tx = store.redis.multi();
+  tx.lpush(store.keys.apiTokenAudit, await auditRecord("revealed", now));
+  tx.ltrim(store.keys.apiTokenAudit, 0, AUDIT_LIMIT - 1);
   await tx.exec();
   return { state: "stored", token: stored.token };
 }
 
 /** The audit trail, newest first. Entries that do not parse are left out. */
-export async function loadAuditTrail(): Promise<AuditEntry[]> {
-  const raw = await getRedis().lrange<string>(KEYS.apiTokenAudit, 0, AUDIT_LIMIT - 1);
+export async function loadAuditTrail(store: TenantStore): Promise<AuditEntry[]> {
+  const raw = await store.redis.lrange<string>(store.keys.apiTokenAudit, 0, AUDIT_LIMIT - 1);
   return raw.flatMap((item) => {
     const record = parseAuditRecord(String(item));
     return record ? [toAuditEntry(record)] : [];

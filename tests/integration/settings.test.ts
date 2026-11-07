@@ -3,6 +3,7 @@ import { GET, PUT } from "@/app/api/settings/route";
 import { ingestReport } from "@/lib/ingest";
 import { useRedis } from "../helpers/redis-fixture";
 import { seedSession } from "../helpers/session";
+import { tenant } from "../helpers/tenant";
 
 const URL = "http://localhost/api/settings";
 const ORIGIN = { origin: "http://localhost", host: "localhost" };
@@ -91,6 +92,7 @@ describe("PUT|GET /api/settings", () => {
   it("PUT answers 409 and saves nothing when a removed group still has stored reports", async () => {
     const cookie = await seedSession(PIN);
     const ingested = await ingestReport(
+      tenant,
       { machineId: "mac", groupId: "Work", providers: { claude: 100 }, timestamp: new Date().toISOString() },
       new Date(),
     );

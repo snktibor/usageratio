@@ -1,4 +1,4 @@
-import { json, requireSession, withApiHandler } from "@/lib/api";
+import { json, requireTenantSession, withApiHandler } from "@/lib/api";
 import { loadIndexes } from "@/lib/usage-store";
 
 /**
@@ -11,10 +11,11 @@ import { loadIndexes } from "@/lib/usage-store";
  * 200 ok · 401 no session · 503 Redis down
  */
 export const GET = withApiHandler("api/machines", async () => {
-  const unauthorized = await requireSession();
-  if (unauthorized) return unauthorized;
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
+  const { store } = tenant;
 
-  const indexes = await loadIndexes();
+  const indexes = await loadIndexes(store);
   return json(
     {
       machines: indexes.machines.map((machine) => ({

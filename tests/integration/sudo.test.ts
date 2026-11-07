@@ -5,6 +5,7 @@ import { attemptLogin } from "@/lib/auth";
 import { encryptionKey, loadAuditTrail, saveApiToken } from "@/lib/token-vault";
 import { useRedis } from "../helpers/redis-fixture";
 import { type FakeCookieJar, fakeCookieJar, withRequest } from "../helpers/request";
+import { tenant } from "../helpers/tenant";
 
 /**
  * /api/auth/sudo and /api/api-token/reveal together: the reveal endpoint
@@ -55,7 +56,7 @@ describe("sudo mode: /api/auth/sudo + /api/api-token/reveal", () => {
     if (!result.ok) throw new Error(`login failed: ${JSON.stringify(result)}`);
     const key = encryptionKey();
     if (!key) throw new Error("the test encryption key did not parse");
-    await withRequest(() => saveApiToken(SERVER_TOKEN, key, new Date()));
+    await withRequest(() => saveApiToken(tenant, SERVER_TOKEN, key, new Date()));
     return jar;
   }
 
@@ -73,7 +74,7 @@ describe("sudo mode: /api/auth/sudo + /api/api-token/reveal", () => {
     expect(revealed.status).toBe(200);
     expect((await revealed.json()).token).toBe(SERVER_TOKEN);
 
-    const audit = await loadAuditTrail();
+    const audit = await loadAuditTrail(tenant);
     expect(audit[0]).toMatchObject({ action: "revealed" });
   });
 

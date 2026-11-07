@@ -1,4 +1,4 @@
-import { apiError, json, readJsonBody, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { hasSudo } from "@/lib/auth";
 import { demoReadOnly } from "@/lib/demo/mode";
 import {
@@ -73,10 +73,11 @@ function parseCreateBody(
 }
 
 export const GET = withApiHandler("api/tokens", async () => {
-  const unauthorized = await requireSession();
-  if (unauthorized) return unauthorized;
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
+  const { store } = tenant;
 
-  const tokens = await listTokens();
+  const tokens = await listTokens(store);
   return json(
     {
       tokens: tokens.map((token) => ({
@@ -98,8 +99,9 @@ export const POST = withApiHandler("api/tokens", async ({ request }) => {
   if (origin) return origin;
   const readOnly = demoReadOnly();
   if (readOnly) return readOnly;
-  const unauthorized = await requireSession();
-  if (unauthorized) return unauthorized;
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
+  const { store } = tenant;
   if (!(await hasSudo())) return apiError("sudo_required", 403);
 
   const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES });
@@ -107,7 +109,7 @@ export const POST = withApiHandler("api/tokens", async ({ request }) => {
   const parsed = parseCreateBody(body.value);
   if ("errors" in parsed) return apiError("invalid_payload", 400, { details: parsed.errors });
 
-  const result = await createToken(parsed.label, parsed.machineId, new Date(), parsed.scope);
+  const result = await createToken(store, parsed.label, parsed.machineId, new Date(), parsed.scope);
   if (!result.ok) return apiError("too_many_tokens", 422, { limit: MAX_TOKENS });
   return json({ id: result.id, token: result.token }, 201);
 });

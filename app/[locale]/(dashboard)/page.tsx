@@ -7,7 +7,6 @@ import { StorageProblem } from "@/components/storage-problem";
 import { routing } from "@/i18n/routing";
 import { type AllTimeSummary, allTimeCycles, summarizeAllTime } from "@/lib/all-time";
 import { archiveDueCycles, summarizeProviderCycle } from "@/lib/archive";
-import { isAuthenticated } from "@/lib/auth";
 import { currentTime } from "@/lib/clock";
 import { getConfig } from "@/lib/config";
 import { getCycle, getPreviousCycle } from "@/lib/cycle";
@@ -39,6 +38,8 @@ import {
   storedProviderIds,
   visibleProviderIds,
 } from "@/lib/settings";
+import type { TenantStore } from "@/lib/tenant";
+import { currentTenant } from "@/lib/tenant-context";
 import { loadAllTime, loadEvents, loadHistory, loadIndexes, loadOldestReportTime } from "@/lib/usage-store";
 
 // Rendered per request: the page depends on the session cookie and on live data.
@@ -71,13 +72,14 @@ interface DashboardData {
  * lie anywhere inside the retention.
  */
 async function loadDashboard(
+  store: TenantStore,
   requestedStartMs: number | null,
   cookieProviderId: string | undefined,
 ): Promise<DashboardData> {
   const now = currentTime();
   // Demo mode only: reseeds the synthetic data once it has gone stale.
-  await ensureDemoData(now);
-  const indexes = await loadIndexes();
+  await ensureDemoData(store, now);
+  const indexes = await loadIndexes(store);
   const providerIds = mergeProviderIds(
     indexes.providers.map((provider) => provider.providerId),
     storedProviderIds(indexes.settings),
@@ -96,14 +98,14 @@ async function loadDashboard(
     requestedStartMs === null
       ? earliestPrevious
       : Math.min(earliestPrevious, now.getTime() - config.retentionDays * DAY_MS);
-  const { eventsByProvider, groups } = await loadEvents(providerIds, indexes.groups, since, indexes.resets);
+  const { eventsByProvider, groups } = await loadEvents(store, providerIds, indexes.groups, since, indexes.resets);
   // Each provider's stored ground-truth figure applies while its current segment runs (lib/resets.ts).
   const officialUsage = currentOfficialEntries(indexes.officialUsage, (providerId) =>
     currentSegmentStartMs(now, config, providerId, resetEventsFor(providerId)),
   );
 
   // Lazy archiving of the cycle that just ended (the daily housekeeping run does the same; see lib/archive.ts).
-  await archiveDueCycles({
+  await archiveDueCycles(store, {
     providerIds,
     config,
     now,
@@ -112,9 +114,9 @@ async function loadDashboard(
     resets: indexes.resets,
   });
   const [historyByProvider, ledgerByProvider, oldestReportMs] = await Promise.all([
-    loadHistory(providerIds),
-    loadAllTime(visible),
-    loadOldestReportTime(providerIds, indexes.groups),
+    loadHistory(store, providerIds),
+    loadAllTime(store, visible),
+    loadOldestReportTime(store, providerIds, indexes.groups),
   ]);
   // The current cycle counts so far, summarized as it will be archived once it ends.
   const allTimeByProvider = Object.fromEntries(
@@ -153,13 +155,13 @@ async function loadDashboard(
   const { selected } = selection;
   const isPrevious =
     selected.startMs === previousCycle.start.getTime() && selected.endMs === previousCycle.end.getTime();
-  const store = { eventsByProvider, groups, machines: indexes.machines, resets: indexes.resets };
+  const loaded = { eventsByProvider, groups, machines: indexes.machines, resets: indexes.resets };
   const colors = resolveGroupColors(groups);
 
   let providers: ProviderDashboardModel[] = [];
   let summaries: PastSummary[] = [];
   if (selected.kind === "current") {
-    providers = buildProviderDashboards(now, config, providerIds, store, officialUsage);
+    providers = buildProviderDashboards(now, config, providerIds, loaded, officialUsage);
   } else if (selected.kind === "detail") {
     const window = {
       cycle: asCycle(selected),
@@ -173,7 +175,7 @@ async function loadDashboard(
       { ...config, reset: { ...config.reset, period: periodOfCycle(selected) } },
       providerIds,
       // Only the machines that reported in it: which ones have gone quiet since is today's story.
-      { ...store, machines: [], history: historyByProvider },
+      { ...loaded, machines: [], history: historyByProvider },
       archivedOfficialEntries(historyByProvider, selected),
       window,
     );
@@ -227,8 +229,9 @@ export default async function Page({
 
   try {
     // Usage data and settings are only ever read after the session check passed.
-    if (await isAuthenticated())
-      data = await loadDashboard(parseCycleParam((await searchParams).cycle), selectedProviderId);
+    const tenant = await currentTenant();
+    if (tenant)
+      data = await loadDashboard(tenant.store, parseCycleParam((await searchParams).cycle), selectedProviderId);
   } catch (error) {
     storageError = error;
     log.error("dashboard.load_failed", { err: error });

@@ -1,4 +1,6 @@
 import { getRedis, toStringRecord } from "@/lib/redis";
+import { LEGACY_KEYS, tenantKeys } from "@/lib/redis-keys";
+import { DEFAULT_TENANT } from "@/lib/tenant-id";
 
 /**
  * One-off migration of the pre-provider ("DeepSeek only") key layout into the
@@ -14,12 +16,14 @@ import { getRedis, toStringRecord } from "@/lib/redis";
  * nothing (`renamed: 0, merged: 0, machinesMoved: 0`).
  */
 
-const GROUPS_KEY = "usage:groups";
-const MACHINES_KEY = "usage:machines";
+/** The pre-provider layout only ever existed on a single-tenant instance: the default tenant. */
+const DEFAULT_KEYS = tenantKeys(DEFAULT_TENANT);
+const GROUPS_KEY = DEFAULT_KEYS.groups;
+const MACHINES_KEY = DEFAULT_KEYS.machines;
 const LEGACY_PROVIDER_ID = "deepseek";
 
-const legacyEventsKey = (groupId: string): string => `usage:events:${groupId}`;
-const migratedEventsKey = (groupId: string): string => `usage:events:${LEGACY_PROVIDER_ID}:${groupId}`;
+const legacyEventsKey = (groupId: string): string => LEGACY_KEYS.events(groupId);
+const migratedEventsKey = (groupId: string): string => DEFAULT_KEYS.events(LEGACY_PROVIDER_ID, groupId);
 
 export interface EventMigrationStep {
   groupId: string;

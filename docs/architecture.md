@@ -58,6 +58,7 @@ alerts only ever fire from a usage report or an official-percentage update.
 | `components/ui/` | small shared primitives (confirm dialog, toast, segmented control) |
 | `lib/` — auth/tokens/vault | `auth.ts`, `tokens.ts`, `api-token.ts`, `token-vault.ts`, `secret-box.ts`, `security.ts` |
 | `lib/` — storage | `redis.ts`, `redis-keys.ts`, `redis-memory.ts`, `redis-tx.ts`, `usage-store.ts`, `settings.ts`, `manage-store.ts` — see [data-model.md](data-model.md) |
+| `lib/` — tenants | `tenant-id.ts`, `tenant.ts` (the tenant-bound store every storage function takes first), `tenant-context.ts` (the tenant of a signed-in request) |
 | `lib/` — intake | `validation.ts`, `ingest.ts` |
 | `lib/` — presentation math | `aggregate.ts`, `dashboard.ts`, `quota.ts`, `sub-limits.ts`, `timeline.ts`, `models.ts`, `chart.ts`, `ground-truth.ts`, `official-usage.ts`, `cycle.ts`, `week.ts`, `days.ts`, `format.ts` |
 | `lib/` — cross-cutting | `csp.ts`, `rate-limit.ts`, `log.ts`, `request-context.ts`, `request-locale.ts`, `http.ts`, `i18n.ts`, `config.ts`, `api.ts`, `clock.ts`, `error-reporter.ts`, `instrumentation-node.ts`, `preferences.ts` |

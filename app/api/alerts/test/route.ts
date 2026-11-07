@@ -1,10 +1,11 @@
 import { hasLocale } from "next-intl";
 import { routing } from "@/i18n/routing";
 import { sendTestAlert } from "@/lib/alerts";
-import { apiError, json, readJsonBody, requireSameOrigin, requireSession, withApiHandler } from "@/lib/api";
+import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import type { AlertsFormat } from "@/lib/config";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { hit } from "@/lib/rate-limit";
+import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { ALERT_FORMATS } from "@/lib/settings";
 import { isAllowedWebhookUrl, MAX_WEBHOOK_URL_LENGTH } from "@/lib/webhook";
 
@@ -69,10 +70,10 @@ export const POST = withApiHandler("api/alerts/test", async ({ request }) => {
   const readOnly = demoReadOnly();
   if (readOnly) return readOnly;
 
-  const unauthorized = await requireSession();
-  if (unauthorized) return unauthorized;
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
 
-  const limited = await hit("usage:rl:alerts-test", 1, 10);
+  const limited = await hit(GLOBAL_KEYS.rateLimit.alertsTest, 1, 10);
   if (!limited.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: limited.retryAfterSeconds });
 
   const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES });

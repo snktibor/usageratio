@@ -4,6 +4,7 @@ import type { CycleSummary } from "@/lib/history";
 import { archiveCycle, loadHistory } from "@/lib/usage-store";
 import { useRedis } from "../helpers/redis-fixture";
 import { seedSession } from "../helpers/session";
+import { tenant } from "../helpers/tenant";
 
 const URL = "http://localhost/api/official-usage/archived";
 const ORIGIN = { origin: "http://localhost", host: "localhost" };
@@ -68,17 +69,17 @@ describe("PUT /api/official-usage/archived", () => {
   });
 
   it("corrects the archived figure: 82% → 100%", async () => {
-    await archiveCycle("claude", SUMMARY);
+    await archiveCycle(tenant, "claude", SUMMARY);
     const cookie = await seedSession(PIN);
     const response = await PUT(put({ providerId: "claude", raw: "100", cycleStartMs: START }, { ...ORIGIN, cookie }));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
-    expect((await loadHistory(["claude"])).claude).toEqual([{ ...SUMMARY, official: 100 }]);
+    expect((await loadHistory(tenant, ["claude"])).claude).toEqual([{ ...SUMMARY, official: 100 }]);
   });
 
   it("corrects one segment of a cycle with keep resets, and answers 404 for a segment it does not have", async () => {
     const MID = START + 3 * 86_400_000;
-    await archiveCycle("claude", {
+    await archiveCycle(tenant, "claude", {
       ...SUMMARY,
       official: 100,
       segments: [
@@ -92,7 +93,7 @@ describe("PUT /api/official-usage/archived", () => {
       put({ providerId: "claude", raw: "44", cycleStartMs: START, segmentStartMs: MID }, { ...ORIGIN, cookie }),
     );
     expect(ok.status).toBe(200);
-    const [stored] = (await loadHistory(["claude"])).claude ?? [];
+    const [stored] = (await loadHistory(tenant, ["claude"])).claude ?? [];
     expect(stored?.official).toBe(124);
     expect(stored?.segments?.map((segment) => segment.official)).toEqual([80, 44]);
 

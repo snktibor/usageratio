@@ -1,4 +1,4 @@
-import { json, requireSession, withApiHandler } from "@/lib/api";
+import { json, requireTenantSession, withApiHandler } from "@/lib/api";
 import { sessionTag } from "@/lib/auth";
 import { loadAuditTrail } from "@/lib/token-vault";
 
@@ -14,7 +14,8 @@ import { loadAuditTrail } from "@/lib/token-vault";
  * 200 ok · 401 no session · 503 Redis down
  */
 export const GET = withApiHandler("api/api-token/audit", async () => {
-  const unauthorized = await requireSession();
-  if (unauthorized) return unauthorized;
-  return json({ entries: await loadAuditTrail(), currentSession: await sessionTag() }, 200);
+  const tenant = await requireTenantSession();
+  if (tenant instanceof Response) return tenant;
+  const { store } = tenant;
+  return json({ entries: await loadAuditTrail(store), currentSession: await sessionTag() }, 200);
 });
