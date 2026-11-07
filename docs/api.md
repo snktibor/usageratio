@@ -22,6 +22,7 @@ All source: `app/api/**/route.ts`, shared helpers in `lib/api.ts`.
 - [`DELETE /api/providers/[provider]`](#providers)
 - [`POST /api/alerts/test`](#alerts-test)
 - [`GET`/`POST /api/auth/sudo`](#sudo)
+- [`POST /api/auth/github/start`, `GET /api/auth/github/callback`](#github-sign-in)
 - [`GET /api/cron/housekeeping`, `POST /api/housekeeping`](#housekeeping)
 - [`GET /api/export`](#export)
 - [`POST /api/csp-report`](#csp-report)
@@ -530,13 +531,32 @@ never again. See [clients.md](clients.md#per-machine-tokens-vs-the-master-token)
 
 ## Sudo
 
-- **`GET /api/auth/sudo`** (session) → `{ "numeric": true|false }` — whether the PIN is digits-only,
-  for a numeric keypad. `401` no session.
-- **`POST /api/auth/sudo`** (session, same-origin) `{ "pin": "…" }` → `204` granted (5 minutes).
+- **`GET /api/auth/sudo`** (session) → `{ "mode": "pin"|"github", "numeric": true|false }` — how
+  sudo is confirmed here, and whether the PIN is digits-only, for a numeric keypad. `401` no session.
+- **`POST /api/auth/sudo`** (session, same-origin, PIN mode only: `404` in multi-tenant mode, where
+  sudo is a GitHub sign-in, see below) `{ "pin": "…" }` → `204` granted (5 minutes).
   `401 { "error": "sudo_invalid", "attemptsLeft"? }` · `403` foreign origin · `413`/`415`/`400` bad
   body · `429 { "error": "rate_limited", "retryAfterSeconds" }` (shares the login IP limiter — see
   [security.md](security.md)) · `500 server_misconfigured` (no valid `DASHBOARD_PIN`) · `503` Redis
   down.
+
+## GitHub sign-in
+
+Multi-tenant mode only (`REGISTRATION=invite|open`); both answer `404` on a single-user instance.
+
+- **`POST /api/auth/github/start`** (same-origin)
+  `{ "purpose": "login"|"signup"|"sudo", "returnTo"?: "/settings", "locale"?: "hu", "code"?: "…" }` →
+  `200 { "url": "https://github.com/login/oauth/authorize?…" }`, with the attempt's nonce cookie
+  (`__Host-ur_oauth`, 10 minutes). The page navigates to `url` itself. `returnTo` is one of `/`,
+  `/setup`, `/settings` (anything else means `/`); `code` is a sign-up code (`purpose: "signup"`);
+  `"sudo"` needs a session. `400 invalid_payload` / `signup_code_invalid` · `401` sudo without a
+  session · `403 forbidden_origin` / `registration_closed` · `429 rate_limited` (20 per 10 minutes
+  per address, shared with the callback) · `500 server_misconfigured` (no OAuth App configured).
+- **`GET /api/auth/github/callback?code&state`** — where GitHub sends the browser back. Always
+  `303` to a page of this site: the requested one on success (with the session cookie,
+  `__Host-ur_session`), or `/{locale}?signin_error=<code>`: `state_invalid` (expired, used, or started in
+  another browser), `github_denied`, `github_failed`, `registration_closed`, `signup_code_invalid`,
+  `sudo_mismatch` (a different GitHub account than the signed-in one), `misconfigured`.
 
 ## Housekeeping
 

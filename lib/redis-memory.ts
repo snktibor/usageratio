@@ -239,6 +239,13 @@ export function createMemoryRequester(options: { now?: () => number } = {}): {
       data.set(key, { type: "string", value, expiresAt: keepTtl ? (existing?.expiresAt ?? null) : expiresAt });
       return get ? previous : "OK";
     },
+    GETDEL: (args) => {
+      const key = asString(args[0]);
+      const entry = typed(key, "string");
+      if (!entry) return null;
+      data.delete(key);
+      return entry.value;
+    },
     DEL: (args) => args.filter((key) => live(asString(key)) !== undefined && data.delete(asString(key))).length,
     UNLINK: (args) => commands.DEL!(args),
     EXISTS: (args) => args.filter((key) => live(asString(key)) !== undefined).length,

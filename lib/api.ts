@@ -72,7 +72,9 @@ export type ApiErrorCode =
   | "group_exists"
   | "group_has_events"
   | "provider_has_events"
-  | "webhook_failed";
+  | "webhook_failed"
+  | "registration_closed"
+  | "signup_code_invalid";
 
 export const MIN_API_TOKEN_LENGTH = 16;
 

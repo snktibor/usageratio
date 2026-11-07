@@ -1,7 +1,9 @@
 import { scanAll } from "@/lib/redis";
 import { dynamicTenantKeyPatterns, GLOBAL_KEYS } from "@/lib/redis-keys";
 import { defaultTenantStore, type TenantStore } from "@/lib/tenant";
+import { DEFAULT_TENANT } from "@/lib/tenant-id";
 import { parseTenantRecord, serializeTenantRecord } from "@/lib/tenants";
+import { addOwner, findOrCreateGithubUser, membershipRole, userForGithub } from "@/lib/users";
 
 /**
  * Prepares a single-tenant store for more tenants (`npm run migrate:tenant`,
@@ -13,7 +15,10 @@ import { parseTenantRecord, serializeTenantRecord } from "@/lib/tenants";
  *   2. a `usage:tokenindex` entry for every per-machine token in
  *      `usage:tokens` (HSETNX: an entry already there is never changed);
  *   3. the default tenant's key registry, `usage:keys`, backfilled with every
- *      dynamic key it already has (a one-off SCAN: the only one there is).
+ *      dynamic key it already has (a one-off SCAN: the only one there is);
+ *   4. with `ownerGithubId`: the user for that GitHub account (its login is
+ *      filled in at its first sign-in), as the default tenant's owner, so the
+ *      maintainer lands in the existing data on switching to multi-tenant mode.
  *
  * A dry run (the default) reports what it would add; `apply` adds it. Running
  * it again finds nothing left to add. A single-tenant instance never needs it:
@@ -28,9 +33,14 @@ export interface TenantMigrationPlan {
   tokensToIndex: string[];
   /** Dynamic keys the registry does not name yet. */
   keysToRegister: string[];
+  /** With `ownerGithubId`: whether that account still has to be made the default tenant's owner. */
+  addOwner: boolean;
 }
 
-export async function planTenantMigration(store: TenantStore = defaultTenantStore()): Promise<TenantMigrationPlan> {
+export async function planTenantMigration(
+  store: TenantStore = defaultTenantStore(),
+  ownerGithubId?: number,
+): Promise<TenantMigrationPlan> {
   const redis = store.redis;
   const [record, tokenFields, indexFields, registered] = await Promise.all([
     redis.get(GLOBAL_KEYS.tenantRecord(store.tenantId)),
@@ -43,7 +53,10 @@ export async function planTenantMigration(store: TenantStore = defaultTenantStor
   const dynamic = (
     await Promise.all(dynamicTenantKeyPatterns(store.keys).map((pattern) => scanAll(store.redis, pattern)))
   ).flat();
+  const ownerUserId = ownerGithubId === undefined ? null : await userForGithub(ownerGithubId);
+  const ownerIsSet = ownerUserId !== null && (await membershipRole(store.tenantId, ownerUserId)) === "owner";
   return {
+    addOwner: ownerGithubId !== undefined && !ownerIsSet,
     createTenantRecord: parseTenantRecord(record) === null,
     tokensToIndex: (tokenFields as unknown[]).map(String).filter((hash) => !indexed.has(hash)),
     keysToRegister: [...new Set(dynamic)].filter((key) => !inRegistry.has(key)).sort(),
@@ -54,9 +67,14 @@ export async function migrateToTenants(options: {
   apply: boolean;
   now: Date;
   store?: TenantStore;
+  /** The numeric id of the GitHub account to make the default tenant's owner. */
+  ownerGithubId?: number;
 }): Promise<{ plan: TenantMigrationPlan; applied: boolean }> {
   const store = options.store ?? defaultTenantStore();
-  const plan = await planTenantMigration(store);
+  if (options.ownerGithubId !== undefined && store.tenantId !== DEFAULT_TENANT) {
+    throw new Error("an owner is only ever set for the default tenant");
+  }
+  const plan = await planTenantMigration(store, options.ownerGithubId);
   if (!options.apply) return { plan, applied: false };
 
   const tx = store.redis.multi();
@@ -76,5 +94,9 @@ export async function migrateToTenants(options: {
     writes += 1;
   }
   if (writes > 0) await tx.exec();
+  if (plan.addOwner && options.ownerGithubId !== undefined) {
+    const { userId } = await findOrCreateGithubUser({ id: options.ownerGithubId, login: "" }, options.now);
+    await addOwner(store.tenantId, userId, options.now);
+  }
   return { plan, applied: true };
 }

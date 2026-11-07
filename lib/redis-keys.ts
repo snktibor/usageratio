@@ -137,6 +137,32 @@
  *                                       always exists (lib/tenants.ts `listTenantIds`)
  *   usage:tenants:housekept      ZSET   tenantId → last housekeeping run ms: the cron run takes the
  *                                       tenants oldest first, so one it did not reach is first next time
+ *   Users and sign-in (multi-tenant mode only, REGISTRATION=invite|open; see lib/users.ts):
+ *
+ *   usage:user:{userId}              STRING {"v": 1, "login", "createdAt", "lastLoginAt"}: a person
+ *                                           (userId: "u_" + 22 base64url characters). No e-mail,
+ *                                           no avatar, no GitHub token is ever stored.
+ *   usage:user:{userId}:identities   SET    "github:{numericId}": how this user signs in
+ *   usage:user:{userId}:tenants      HASH   tenantId → role ("owner" | "member"): the mirror of
+ *                                           each tenant's members hash, for listing a user's tenants
+ *   usage:user:{userId}:sessions     ZSET   sha256(sessionId) → created ms: the user's sessions,
+ *                                           for "sign out everywhere"
+ *   usage:identity:github:{id}       STRING userId (SET NX: one user per GitHub account, by its
+ *                                           numeric id, never by the login, which can be renamed)
+ *   usage:tenant:{tenantId}:members  HASH   userId → {"role", "joinedAt"}
+ *   usage:session2:{sha256(sid)}     STRING {"v": 2, "u": userId, "t": tenantId | null, "c": created
+ *                                           ms, "s": last seen ms, "a": last GitHub sign-in ms,
+ *                                           "ua": browser/OS label} EX = the session's maximum
+ *                                           lifetime (lib/user-session.ts). Its own prefix: a PIN
+ *                                           session can never be read as one, nor the other way.
+ *   usage:oauth:{sha256(state)}      STRING one sign-in attempt's state (lib/oauth-state.ts):
+ *                                           {"nonceHash", "verifier", "purpose", "returnTo",
+ *                                           "locale", "signup"?, "sid"?} EX 600, GETDEL in the callback
+ *   usage:signup:{sha256(code)}      STRING {"codeId"} EX = expiry: an instance admin's sign-up
+ *                                           code (lib/signup-codes.ts), GETDEL when it is used
+ *   usage:signups                    HASH   codeId → {"hash", "createdAt", "expiresAt", "createdBy",
+ *                                           "usedAt"?, "usedBy"?}: the codes, for listing and revoking
+ *
  *   usage:tokenindex             HASH   sha256(token) → tenantId: which tenant a per-machine token
  *                                       belongs to (lib/tokens.ts `tokenTenant`). The token's record
  *                                       stays in that tenant's `tokens` hash; a token missing here is
@@ -250,8 +276,19 @@ export const GLOBAL_KEYS = {
     status: (tokenId: string) => `usage:rl:status:${tokenId}`,
     official: (tokenId: string) => `usage:rl:official:${tokenId}`,
     alertsTest: "usage:rl:alerts-test",
+    oauth: (ipHash: string) => `usage:rl:oauth:${ipHash}`,
   },
   tenantRecord: (tenantId: string) => `usage:tenant:${tenantId}`,
+  tenantMembers: (tenantId: string) => `usage:tenant:${tenantId}:members`,
+  user: (userId: string) => `usage:user:${userId}`,
+  userIdentities: (userId: string) => `usage:user:${userId}:identities`,
+  userTenants: (userId: string) => `usage:user:${userId}:tenants`,
+  userSessions: (userId: string) => `usage:user:${userId}:sessions`,
+  githubIdentity: (githubId: number) => `usage:identity:github:${githubId}`,
+  userSession: (hash: string) => `usage:session2:${hash}`,
+  oauthState: (hash: string) => `usage:oauth:${hash}`,
+  signupCode: (hash: string) => `usage:signup:${hash}`,
+  signupCodes: "usage:signups",
   tenants: "usage:tenants",
   tenantsHousekept: "usage:tenants:housekept",
   tokenIndex: "usage:tokenindex",

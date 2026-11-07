@@ -88,7 +88,12 @@ describe("migrate:tenant", () => {
       expect(keysBefore.filter((key) => !after.includes(key))).toEqual([]);
     }
 
-    expect(await planTenantMigration()).toEqual({ createTenantRecord: false, tokensToIndex: [], keysToRegister: [] });
+    expect(await planTenantMigration()).toEqual({
+      addOwner: false,
+      createTenantRecord: false,
+      tokensToIndex: [],
+      keysToRegister: [],
+    });
     const again = getMemoryStoreForTests()?.dump();
     await migrateToTenants({ apply: true, now: new Date(NOW.getTime() + 60_000) });
     if (again) expect(getMemoryStoreForTests()?.dump()).toEqual(again);

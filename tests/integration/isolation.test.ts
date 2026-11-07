@@ -126,6 +126,11 @@ function cases(world: World): Record<string, Case[]> {
       { method: "GET", path: "/api/auth/sudo", auth: "session" },
       { method: "POST", path: "/api/auth/sudo", auth: "session", body: { pin: PIN } },
     ],
+    // Multi-tenant mode only: on this single-user instance both answer 404 and touch nothing.
+    "auth/github/start": [
+      { method: "POST", path: "/api/auth/github/start", auth: "session", body: { purpose: "login" } },
+    ],
+    "auth/github/callback": [{ method: "GET", path: "/api/auth/github/callback?code=x&state=y", auth: "none" }],
     "cron/housekeeping": [{ method: "GET", path: "/api/cron/housekeeping", auth: "cron", touchesEveryTenant: true }],
     "csp-report": [
       { method: "POST", path: "/api/csp-report", auth: "none", body: { "csp-report": { "document-uri": "x" } } },

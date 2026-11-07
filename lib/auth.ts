@@ -3,8 +3,10 @@ import { isDemoMode } from "@/lib/demo/mode";
 import { log } from "@/lib/log";
 import { getRedis } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
+import { isMultiTenant } from "@/lib/registration";
 import { clientIp, currentCookies, defer, isHttpsRequest } from "@/lib/request-context";
 import { safeEqual, sha256Hex } from "@/lib/security";
+import { currentUserSession, endUserSession, sessionCookieName, sessionHasSudo } from "@/lib/user-session";
 
 /**
  * Dashboard access: a PIN or passphrase (5-64 characters) checked on the
@@ -277,8 +279,15 @@ export async function grantSudo(pin: string): Promise<LoginResult> {
   return { ok: true };
 }
 
-/** Whether the current session has sudo, granted by `grantSudo` within the last 5 minutes. */
+/**
+ * Whether the current session has sudo: granted by `grantSudo` (the PIN) within the last 5
+ * minutes, or in multi-tenant mode a GitHub sign-in on this session within the last 5 minutes.
+ */
 export async function hasSudo(): Promise<boolean> {
+  if (isMultiTenant()) {
+    const session = await currentUserSession();
+    return session !== null && sessionHasSudo(session);
+  }
   const pin = configuredPin();
   if (!pin) return false;
   const sessionId = (await currentCookies()).get(SESSION_COOKIE)?.value;
@@ -367,6 +376,13 @@ export async function sessionTag(): Promise<string | null> {
 export async function endSession(): Promise<void> {
   if (isDemoMode()) return;
   const store = await currentCookies();
+  if (isMultiTenant()) {
+    const name = await sessionCookieName();
+    await endUserSession();
+    store.delete(name);
+    log.info("auth.logout", {});
+    return;
+  }
   const sessionId = store.get(SESSION_COOKIE)?.value;
   store.delete(SESSION_COOKIE);
   const pin = configuredPin();

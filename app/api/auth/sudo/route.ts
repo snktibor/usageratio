@@ -1,13 +1,16 @@
 import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { grantSudo, pinShape } from "@/lib/auth";
+import { isMultiTenant } from "@/lib/registration";
 
 /**
  * GET/POST /api/auth/sudo — sudo mode: a 5-minute grant on top of the
  * dashboard's PIN session, required before /api/api-token/reveal hands out
  * the stored API token in plaintext.
  *
- *   GET  → { "numeric": true | false }   whether the field should show a numeric keypad
- *   POST { "pin": "…" } → 204 granted
+ *   GET  → { "mode": "pin" | "github", "numeric": true | false }   how sudo is confirmed here, and
+ *        whether the PIN field should show a numeric keypad
+ *   POST { "pin": "…" } → 204 granted (PIN mode only: in multi-tenant mode sudo is a GitHub
+ *        round trip, POST /api/auth/github/start { "purpose": "sudo" }, and this answers 404)
  *
  * 204 granted · 401 no session, or { "error": "sudo_invalid", attemptsLeft? } · 403 foreign origin ·
  * 415/413/400 bad body · 429 { "error": "rate_limited", retryAfterSeconds } · 500 server misconfigured ·
@@ -22,7 +25,8 @@ function sudoInvalid(attemptsLeft?: number): Response {
 export const GET = withApiHandler("api/auth/sudo", async () => {
   const tenant = await requireTenantSession();
   if (tenant instanceof Response) return tenant;
-  return json({ numeric: pinShape().numeric }, 200);
+  if (isMultiTenant()) return json({ mode: "github", numeric: false }, 200);
+  return json({ mode: "pin", numeric: pinShape().numeric }, 200);
 });
 
 export const POST = withApiHandler("api/auth/sudo", async ({ request }) => {
@@ -30,6 +34,7 @@ export const POST = withApiHandler("api/auth/sudo", async ({ request }) => {
   if (origin) return origin;
   const tenant = await requireTenantSession();
   if (tenant instanceof Response) return tenant;
+  if (isMultiTenant()) return apiError("not_found", 404);
 
   const body = await readJsonBody(request, { maxBytes: 1024 });
   if (!body.ok) return body.response;

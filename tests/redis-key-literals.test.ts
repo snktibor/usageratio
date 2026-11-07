@@ -39,6 +39,11 @@ const RAW_CLIENT_USERS = new Set([
   "lib/rate-limit.ts",
   "lib/tenants.ts",
   "lib/tokens.ts", // the global token index
+  "lib/users.ts", // users, identities, memberships
+  "lib/user-session.ts",
+  "lib/oauth-state.ts",
+  "lib/signup-codes.ts",
+  "lib/tenant-context.ts", // the membership check
   "lib/migrate-legacy.ts",
   "lib/demo/seed.ts",
   "app/api/health/route.ts",

@@ -1,6 +1,6 @@
 import { hasLocale } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
-import { PinGate } from "@/components/pin-gate";
+import { SignInGate } from "@/components/auth/sign-in-gate";
 import { SettingsPage } from "@/components/settings/settings-page";
 import { StorageProblem } from "@/components/storage-problem";
 import { routing } from "@/i18n/routing";
@@ -73,7 +73,7 @@ export default async function Page({ params }: { params: Promise<{ locale: strin
   if (storageError) {
     return <StorageProblem notConfigured={storageError instanceof StorageNotConfiguredError} />;
   }
-  if (!view) return <PinGate next="/settings" />;
+  if (!view) return <SignInGate next="/settings" />;
 
   return <SettingsPage view={view} />;
 }

@@ -8,6 +8,7 @@ vulnerability, supported versions) and links here for the detail.
 - [Dashboard login](#dashboard-login)
 - [Sessions](#sessions)
 - [Sudo](#sudo)
+- [GitHub sign-in (multi-tenant mode)](#github-sign-in-multi-tenant-mode)
 - [Content-Security-Policy](#content-security-policy)
 - [Other security headers](#other-security-headers)
 - [Rate limits](#rate-limits)
@@ -89,6 +90,35 @@ wrong PIN on the sudo prompt itself returns `401 sudo_invalid`.
 Plain settings changes (`PUT /api/settings`), saving/updating the API token copy
 (`PUT /api/api-token`), and a dry-run housekeeping check do **not** need sudo — only actions that
 either show a secret in full or are hard to undo.
+
+## GitHub sign-in (multi-tenant mode)
+
+With `REGISTRATION=invite` or `open`, the PIN is replaced by GitHub sign-in (`lib/github.ts`,
+`lib/oauth-state.ts`, `lib/sign-in.ts`, `lib/user-session.ts`):
+
+- **The flow.** An OAuth App's web flow with PKCE (S256) and no scopes. The `state` names a
+  server-side record (by its hash) holding the PKCE verifier and what the attempt is for; a second
+  random nonce goes into a 10-minute `__Host-ur_oauth` cookie, and the record holds only its hash.
+  The callback needs both and takes the record with `GETDEL`, so a state works once, in the browser
+  that started it (no login CSRF, no replayed callback). The callback URL is fixed
+  (`NEXT_PUBLIC_SITE_URL` + `/api/auth/github/callback`); after sign-in the browser only ever
+  returns to `/`, `/setup` or `/settings`. GitHub's access token is used once for `GET /user` and
+  dropped; GitHub's error text is never echoed.
+- **Identity.** A user is found by the GitHub account's numeric id, never by its login (which can
+  be renamed and reused). Only the id and the login are stored: no e-mail, no avatar, no token.
+- **Who gets in.** `invite`: a new user needs an instance admin's single-use sign-up code (only its
+  hash stored, 14-day expiry, revocable, taken with `GETDEL`), and the code is checked before any
+  user is created. `open`: any GitHub account.
+- **Sessions.** A random 256-bit id in `__Host-ur_session` (`HttpOnly`, `Secure`, `SameSite=Lax`,
+  `Path=/`, no `Domain`: a sibling host such as `demo.` never receives it), stored only as a hash
+  under its own key prefix (`usage:session2:*`), so a PIN session can never pass for one. Idle and
+  absolute expiry are `SESSION_IDLE_DAYS` and `SESSION_MAX_DAYS`. Every request re-reads the
+  tenant's members hash: a removed member, or a tenant that is gone, gets nothing at once.
+- **Sudo** is a fresh GitHub sign-in on the same session that must return the same account
+  (`sudo_mismatch` otherwise), valid for 5 minutes. If the browser is already signed in to GitHub,
+  GitHub may not ask for a password again: sudo then proves that the browser holds a live GitHub
+  session for that account, which a stolen usageratio cookie alone does not.
+- **Throttling.** 20 sign-in requests per 10 minutes per address (`usage:rl:oauth:*`).
 
 ## Content-Security-Policy
 
