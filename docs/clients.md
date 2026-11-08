@@ -122,8 +122,13 @@ to date (or use the `npx` runner, which takes the pinned version).
 
 ## Per-machine tokens vs. the master token
 
-Every install route above uses the one shared `USAGE_API_TOKEN` — the Setup page has no notion of
-issuing a separate token per machine. Per-machine tokens are a **separate mechanism**, managed from the
+On a single-user instance every install route above uses the one shared `USAGE_API_TOKEN`. In
+multi-tenant mode there is none: the Setup page gives each machine its own token instead (the
+machine has to be named, since the token is bound to it). The ZIP then carries it in its config, so
+the installer asks for nothing (and the package is a secret: delete it after installing); the
+one-off command creates it in the click that copies it; the by-hand route has a button for it. The
+installers use a token found in the package's config instead of asking (an explicit
+`USAGERATIO_API_TOKEN` still wins). Per-machine tokens are a **separate mechanism**, managed from the
 dashboard's settings panel (**Settings → Tokens**, `POST /api/tokens`; see
 [configuration.md](configuration.md)): create one there (with an optional label and an optional bound
 machine id), then paste it into a client's config file (`API_TOKEN=`/`apiToken`) in place of the master

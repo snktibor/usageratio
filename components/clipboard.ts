@@ -9,6 +9,7 @@ export type CopyErrorCode =
   | "storage_unavailable"
   | "insecure_context"
   | "permission_denied"
+  | "too_many_tokens"
   | "generic";
 
 /** A copy that failed for a reason worth telling apart. */
@@ -22,30 +23,31 @@ export class CopyError extends Error {
   }
 }
 
-/** The API token from the server; every call is one entry on the audit trail. */
-export async function fetchApiToken(): Promise<string> {
+/**
+ * Posts to an endpoint that answers with a token (`{ "token" }`), and turns a refusal into a
+ * CopyError: the statuses every such endpoint shares, then `byStatus` for its own.
+ */
+export async function postForToken(
+  url: string,
+  init: RequestInit,
+  byStatus: Partial<Record<number, CopyErrorCode>> = {},
+): Promise<string> {
   let response: Response;
   try {
-    response = await fetch("/api/api-token/reveal", { method: "POST", cache: "no-store" });
+    response = await fetch(url, { method: "POST", cache: "no-store", ...init });
   } catch {
     throw new CopyError("no_response");
   }
   const payload = (await response.json().catch(() => null)) as { token?: unknown; error?: unknown } | null;
   if (response.ok && typeof payload?.token === "string") return payload.token;
-  switch (response.status) {
-    case 401:
-      throw new CopyError("session_expired");
-    case 403:
-      throw new CopyError(payload?.error === "sudo_required" ? "sudo_required" : "storage_unavailable");
-    case 404:
-      throw new CopyError("no_token");
-    case 409:
-      throw new CopyError("token_unreadable");
-    case 500:
-      throw new CopyError("no_key");
-    default:
-      throw new CopyError("storage_unavailable");
-  }
+  if (response.status === 401) throw new CopyError("session_expired");
+  if (response.status === 403 && payload?.error === "sudo_required") throw new CopyError("sudo_required");
+  throw new CopyError(byStatus[response.status] ?? "storage_unavailable");
+}
+
+/** The API token from the server; every call is one entry on the audit trail. */
+export function fetchApiToken(): Promise<string> {
+  return postForToken("/api/api-token/reveal", {}, { 404: "no_token", 409: "token_unreadable", 500: "no_key" });
 }
 
 /**

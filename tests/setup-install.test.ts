@@ -137,8 +137,9 @@ describe.skipIf(process.platform === "win32").each(OS_CASES)(
     }
 
     /** Unpacks a freshly built package into its own folder, as a file manager would. */
-    async function unpack(mode: SetupMode, groupId: string, machineId = ""): Promise<string> {
-      const { bytes } = buildSetupZip(os, mode, { apiUrl: stub.url, groupId, machineId }, await loadClientSources(), t);
+    async function unpack(mode: SetupMode, groupId: string, machineId = "", token?: string): Promise<string> {
+      const settings = { apiUrl: stub.url, groupId, machineId, ...(token && { token }) };
+      const { bytes } = buildSetupZip(os, mode, settings, await loadClientSources(), t);
       const folder = mkdtempSync(path.join(scratch, `package-${mode}-`));
       for (const entry of readZip(bytes))
         writeFileSync(path.join(folder, entry.name), entry.data, { mode: entry.mode });
@@ -267,6 +268,20 @@ describe.skipIf(process.platform === "win32").each(OS_CASES)(
       expect(result.stderr).toContain("rejected");
       expect(existsSync(path.join(home, ".usageratio"))).toBe(false);
       expect(stub.reports).toEqual([]);
+    });
+
+    it("installs with the package's own token (a multi-user instance's package), asking for nothing", async () => {
+      const result = await run(await unpack("auto", "Work", "studio", TOKEN), env());
+      expect(result.code).toBe(0);
+      expect(readFileSync(path.join(home, ".config/usageratio/config"), "utf8")).toContain(`API_TOKEN='${TOKEN}'`);
+      expect(stub.reports).toEqual([expect.objectContaining({ machineId: "studio", groupId: "Work" })]);
+    });
+
+    it("says so when the package's own token is refused, and installs nothing", async () => {
+      const result = await run(await unpack("auto", "Work", "studio", "ur_live_revoked-revoked-revoked"), env());
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("the token in this package");
+      expect(existsSync(path.join(home, ".usageratio"))).toBe(false);
     });
 
     it("refuses to ask for a token without a terminal", async () => {

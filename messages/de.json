@@ -690,7 +690,22 @@
     "file_not_installed": "wird nicht installiert, läuft nur einmal",
     "file_content_aria": "Inhalt von {name}",
     "token_placeholder": "‹Token: wird von der Kopieren-Schaltfläche eingefügt›",
-    "packed_note": "‹{name}, gepackt: {lines} Zeilen Base64›"
+    "packed_note": "‹{name}, gepackt: {lines} Zeilen Base64›",
+    "readme_secret_warning": "Dieses Paket enthält ein Geheimnis: das API-Token dieses Geräts, in {file}. Gib das Paket nicht weiter und lösche es, sobald der Client installiert ist. Falls es nach außen gelangt, widerrufe das Token unter Einstellungen → Tokens.",
+    "readme_step_token_included": "2. Nichts einzugeben: Das Paket enthält bereits das eigene Token dieses Geräts.",
+    "machine_problem_missing": "Benenne das Gerät: Sein Token ist daran gebunden.",
+    "copy_issues_token": "Das Kopieren erstellt das eigene Token dieses Geräts (daran gebunden, unter Einstellungen → Tokens aufgeführt), einmal pro Besuch.",
+    "zip_token_included": "Nichts einzugeben: Das Paket enthält ein neues, eigenes Token dieses Geräts, daher fragt das Installationsprogramm nach keinem. Das Paket ist damit ein Geheimnis: Lösche es, sobald der Client installiert ist.",
+    "machine_token_note": "Wenn das Installationsprogramm nach dem API-Token fragt, gib das eigene Token dieses Geräts an: Erstelle es hier (es ist an das Gerät gebunden und unter Einstellungen → Tokens aufgeführt).",
+    "machine_token_button": "Token für dieses Gerät erstellen",
+    "machine_token_label": "Token dieses Geräts",
+    "machine_token_once": "Kopiere es jetzt: Es wird nicht noch einmal angezeigt.",
+    "package_download_failed": "Das Paket konnte nicht erstellt werden. Versuche es gleich noch einmal.",
+    "copy_problem_too_many_tokens": "Dieser Workspace hat bereits so viele Tokens wie erlaubt. Widerrufe zuerst eines unter Einstellungen → Tokens.",
+    "machine_label_required": "Geräte-ID",
+    "machine_hint_required": "Das Token dieses Geräts ist an diesen Namen gebunden; nutze den Namen, unter dem es bereits meldet, falls es das tut.",
+    "zip_desc_multi": "Fertiges Paket mit Installationsprogramm, mit den Einstellungen oben und einem neuen, eigenen Token dieses Geräts darin: Das Installationsprogramm fragt nichts.",
+    "token_desc_multi": "Jedes Gerät meldet mit einem eigenen, daran gebundenen Token: Das ZIP enthält es, die anderen beiden Wege erstellen es für dich. Alle sind unter Einstellungen → Tokens aufgeführt und können dort widerrufen werden. Auf einem eingerichteten Gerät steht es in <Code>{mac}</Code> (macOS und Linux) oder <Code><BreakablePath></BreakablePath></Code> (Windows)."
   },
   "Auth": {
     "pin_malformed": "Der PIN-Code oder das Passwort muss 5 bis 64 Zeichen haben.",

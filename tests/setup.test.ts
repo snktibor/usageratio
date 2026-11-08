@@ -123,6 +123,25 @@ describe("renderConfig", () => {
     }
   });
 });
+describe("a package with the machine's own token (multi-tenant mode)", () => {
+  const token = "ur_live_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcdefg";
+
+  it("carries it in the config, for the installer to use instead of asking", () => {
+    expect(renderConfig("macos", { ...SETTINGS, machineId: "studio", token })).toContain(`API_TOKEN="${token}"\n`);
+    expect(JSON.parse(renderConfig("windows", { ...SETTINGS, machineId: "studio", token })).apiToken).toBe(token);
+    expect(renderConfig("macos", SETTINGS)).not.toContain("API_TOKEN");
+    expect(() => renderConfig("linux", { ...SETTINGS, token: 'x"; rm -rf ~; "' })).toThrow();
+  });
+
+  it("says in the README that the package is a secret now, and that nothing needs typing", () => {
+    const t = createTranslator({ locale: "en", messages: en, namespace: "Setup" });
+    const withToken = renderReadme("linux", "auto", { ...SETTINGS, machineId: "studio", token }, t);
+    expect(withToken).toContain("This package holds a secret");
+    expect(withToken).toContain("Nothing to type");
+    expect(withToken).not.toContain(token);
+    expect(renderReadme("linux", "auto", SETTINGS, t)).not.toContain("holds a secret");
+  });
+});
 
 describe("checkMachineSettings", () => {
   it("accepts a group and an empty machine id, trimmed", () => {

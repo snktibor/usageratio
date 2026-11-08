@@ -4,6 +4,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
 import { ArrowLeftIcon } from "@/components/icons";
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { forgetIssuedTokens } from "@/components/setup/machine-token";
 import { ManualRoute } from "@/components/setup/manual-route";
 import { OneShotRoute } from "@/components/setup/one-shot-route";
 import { PackageSettings } from "@/components/setup/package-settings";
@@ -22,6 +23,7 @@ import {
   packageName,
   parseRoute,
   SETUP_OSES,
+  type SettingsCheck,
   type SetupMode,
   type SetupOs,
 } from "@/lib/setup";
@@ -45,6 +47,7 @@ export function SetupView({
   sources,
   oneShot,
   tokenStatus,
+  multiTenant = false,
 }: {
   initialOs: SetupOs;
   initialMode: SetupMode;
@@ -54,6 +57,11 @@ export function SetupView({
   sources: ClientSources;
   oneShot: OneShotBlobs;
   tokenStatus: ApiTokenStatus;
+  /**
+   * Multi-tenant mode: no shared token. Each route gets this machine's own instead, so the machine
+   * has to be named: the token is bound to it.
+   */
+  multiTenant?: boolean;
 }) {
   const t = useTranslations("Setup");
   const locale = useLocale();
@@ -71,6 +79,9 @@ export function SetupView({
     tabs: useId(),
     notes: useId(),
   };
+
+  // Every visit issues machine tokens afresh (machine-token.ts): the cache outlives client-side navigation.
+  useEffect(() => forgetIssuedTokens(), []);
 
   // Restores the client's last group/machine/tab choice, and its last os when the URL didn't ask for one explicitly.
   // Runs before the effect below rewrites the address, so it still sees the address the page was opened with.
@@ -103,10 +114,14 @@ export function SetupView({
     writeSetupPrefs({ os, route, group, machine });
   }, [os, route, group, machine]);
 
-  const check = checkMachineSettings(group, machine);
+  const parsed = checkMachineSettings(group, machine);
+  const check: SettingsCheck =
+    multiTenant && parsed.ok && parsed.machineId === "" ? { ok: false, group: null, machine: "missing" } : parsed;
   const settings = check.ok ? { apiUrl, groupId: check.groupId, machineId: check.machineId } : null;
   const files = packageFiles(os, mode).filter((file) => !file.zipOnly);
   const name = packageName(os, mode);
+  const packageRequest =
+    settings && multiTenant ? { os, mode, group: settings.groupId, machine: settings.machineId, locale } : null;
   const zipHref = settings
     ? `/api/setup?${new URLSearchParams({
         os,
@@ -152,6 +167,7 @@ export function SetupView({
         groups={groups}
         check={check}
         ids={ids}
+        machineRequired={multiTenant}
       />
 
       <div className="mt-14">
@@ -165,6 +181,8 @@ export function SetupView({
           name={name}
           zipHref={zipHref}
           tokenStatus={tokenStatus}
+          packageRequest={packageRequest}
+          multiTenant={multiTenant}
         />
         <ManualRoute
           tabsId={ids.tabs}
@@ -175,6 +193,7 @@ export function SetupView({
           sources={sources}
           settings={settings}
           tokenStatus={tokenStatus}
+          multiTenant={multiTenant}
         />
         <OneShotRoute
           tabsId={ids.tabs}
@@ -184,10 +203,11 @@ export function SetupView({
           draft={{ apiUrl, groupId: group.trim(), machineId: machine.trim() }}
           tokenStatus={tokenStatus}
           blobs={oneShot}
+          multiTenant={multiTenant}
         />
       </div>
 
-      <SetupNotes os={os} mode={mode} notesId={ids.notes} />
+      <SetupNotes os={os} mode={mode} notesId={ids.notes} multiTenant={multiTenant} />
     </main>
   );
 }

@@ -20,7 +20,9 @@
   there with the API token asked for here, and a first report is sent. Running
   it again updates the scripts and keeps the machine id already in use.
 
-  The token prompt is skipped when $env:USAGERATIO_API_TOKEN is set.
+  The token prompt is skipped when $env:USAGERATIO_API_TOKEN is set, or when
+  the package's config.json carries the machine's own token (a multi-user
+  instance's package does).
   Works on Windows PowerShell 5.1 and PowerShell 7+.
   Exit codes: 0 installed, 1 installation failed, 2 incomplete package
 
@@ -113,6 +115,8 @@ try {
 $apiUrl = ([string]$package.apiUrl).Trim()
 $groupId = ([string]$package.groupId).Trim()
 $machineId = ([string]$package.machineId).Trim()
+$packageToken = ''
+if ($package.PSObject.Properties['apiToken']) { $packageToken = ([string]$package.apiToken) -replace '\s', '' }
 if (-not $groupId) { Exit-InstallError 'groupId is empty in config.json.' 2 }
 if ($apiUrl -notmatch '^https?://') { Exit-InstallError "apiUrl in config.json must be the server's /api/usage address." 2 }
 
@@ -171,12 +175,17 @@ function Read-Token {
 }
 
 $token = ([string]$env:USAGERATIO_API_TOKEN) -replace '\s', ''
+$tokenSource = '$env:USAGERATIO_API_TOKEN'
+if (-not $token -and $packageToken) {
+  $token = $packageToken
+  $tokenSource = 'the token in this package (revoked, or the package is old? Download a new one)'
+}
 if ($token) {
   $status = Test-Token $token
-  if ($status -eq 401) { Exit-InstallError 'The server rejected $env:USAGERATIO_API_TOKEN (HTTP 401).' }
+  if ($status -eq 401) { Exit-InstallError "The server rejected $tokenSource (HTTP 401)." }
   if ($status -ne 200) { Write-Caution "The token could not be checked (HTTP $status from $apiUrl); the first report will tell." }
 } else {
-  Write-Host "The API token is the server's USAGE_API_TOKEN, the same on every machine. Typing is hidden."
+  Write-Host "The API token is the server's USAGE_API_TOKEN, or this machine's own token from Settings -> Tokens. Typing is hidden."
   $attempt = 0
   while ($true) {
     $attempt++
