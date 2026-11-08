@@ -118,6 +118,52 @@ describe("the setup package in multi-tenant mode", () => {
     expect((await post(alice, { ...PACKAGE, machine: "", token: forStudio })).status).toBe(400);
   });
 
+  it("refuses a request that is not a package request", async () => {
+    const alice = await person();
+    const token = await issue(alice, "studio");
+    const send = (headers: Record<string, string>, body: string) =>
+      postSetup(new Request("http://localhost/api/setup", { method: "POST", headers, body }));
+    const own = {
+      ...ORIGIN,
+      cookie: alice.cookie,
+      "x-usageratio-tenant": alice.tenantId,
+      "content-type": "application/json",
+    };
+    const json = JSON.stringify({ ...PACKAGE, token });
+
+    expect((await send({ ...own, origin: "https://evil.example" }, json)).status).toBe(403);
+    expect((await send({ ...ORIGIN, "content-type": "application/json" }, json)).status).toBe(401);
+    expect((await send({ ...own, "x-usageratio-tenant": "t_someone-else" }, json)).status).toBe(412);
+    expect((await send(own, "{not json")).status).toBe(400);
+    expect((await send(own, "null")).status).toBe(400);
+    for (const missing of ["os", "mode", "token"]) {
+      const { [missing as keyof typeof PACKAGE]: _, ...rest } = { ...PACKAGE, token };
+      expect([missing, (await post(alice, rest)).status]).toEqual([missing, 400]);
+    }
+  });
+
+  it("writes the package in the browser's language when the page names none", async () => {
+    const alice = await person();
+    const token = await issue(alice, "studio");
+    const { locale: _, ...unnamed } = PACKAGE;
+    const response = await postSetup(
+      new Request("http://localhost/api/setup", {
+        method: "POST",
+        headers: {
+          ...ORIGIN,
+          cookie: alice.cookie,
+          "x-usageratio-tenant": alice.tenantId,
+          "content-type": "application/json",
+          "accept-language": "en-US,en;q=0.9",
+        },
+        body: JSON.stringify({ ...unnamed, locale: "xx", token }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    const files = readZip(new Uint8Array(await response.arrayBuffer())).map((entry) => entry.name);
+    expect(files).toContain("README.txt");
+  });
+
   it("is only a POST here, and not there on a single-user instance", async () => {
     const alice = await person();
     const get = await getSetup(

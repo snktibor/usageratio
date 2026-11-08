@@ -2,7 +2,9 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forgetIssuedTokens } from "@/components/setup/machine-token";
 import { MachineTokenNote } from "@/components/setup/machine-token-note";
+import { SetupView } from "@/components/setup/setup-view";
 import { ZipRoute } from "@/components/setup/zip-route";
+import type { ClientSources } from "@/lib/setup";
 import { renderWithIntl } from "../helpers/render";
 
 /**
@@ -130,5 +132,55 @@ describe("the setup page in multi-tenant mode", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create this machine's token" }));
     expect(await screen.findByText("ur_live_studio-token")).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("says why the machine's token was not issued", async () => {
+    fetchMock.mockResolvedValue(answer(401, { error: "unauthorized" }));
+    renderWithIntl(<MachineTokenNote machineId="studio" />);
+    fireEvent.click(screen.getByRole("button", { name: "Create this machine's token" }));
+    expect(await screen.findByText(/session expired/i)).toBeTruthy();
+
+    fetchMock.mockResolvedValue(answer(500, { error: "storage_unavailable" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create this machine's token" }));
+    expect(await screen.findByText(/data store is not available/i)).toBeTruthy();
+
+    fetchMock.mockImplementation(async (url: string) =>
+      url === "/api/auth/sudo"
+        ? answer(200, { mode: "github", numeric: false })
+        : answer(403, { error: "sudo_required" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Create this machine's token" }));
+    expect(await screen.findByRole("button", { name: "Confirm with GitHub" })).toBeTruthy();
+  });
+
+  it("wants the machine named, and copies a one-time command with the machine's own token", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    fetchMock.mockResolvedValue(answer(201, { id: "tk_AAAAAAAA", token: "ur_live_studio-token" }));
+    const sources = new Proxy({}, { get: () => "" }) as ClientSources;
+    renderWithIntl(
+      <SetupView
+        initialOs="linux"
+        initialMode="auto"
+        initialRoute="oneShot"
+        apiUrl="https://app.example.test/api/usage"
+        groups={[{ id: "Work", color: "#336699" }]}
+        sources={sources}
+        oneShot={{ parser: "", unixCore: "", windowsCore: "" }}
+        tokenStatus={{ state: "empty" }}
+        multiTenant
+      />,
+    );
+    expect(screen.getByText("Name the machine: its token is bound to it.")).toBeTruthy();
+    const copy = screen.getByRole("button", { name: "Copy The one-time command" }) as HTMLButtonElement;
+    expect(copy.disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Machine ID"), { target: { value: "studio" } });
+    expect(screen.queryByText("Name the machine: its token is bound to it.")).toBeNull();
+    expect(copy.disabled).toBe(false);
+    fireEvent.click(copy);
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(writeText.mock.calls[0]![0]).toContain("ur_live_studio-token");
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toMatchObject({ machineId: "studio", scope: "ingest" });
   });
 });
