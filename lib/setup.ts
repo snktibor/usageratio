@@ -43,7 +43,7 @@ export const DEFAULT_API_URL = "https://your-domain.example/api/usage";
  * workflow (.github/workflows/ccusage-update.yml, scripts/ccusage-update.mjs) moves all three to a
  * newer release once it has checked that release still reads usage the same way.
  */
-export const CCUSAGE_VERSION = "20.0.24";
+export const CCUSAGE_VERSION = "20.0.48";
 
 /** Every file a package ships from the repository, as is. */
 export const CLIENT_SOURCES = [
