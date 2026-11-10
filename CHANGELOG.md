@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.13.0](https://github.com/snktibor/usageratio/compare/v0.12.1...v0.13.0) (2026-11-10)
+
+
+### Features
+
+* add the account page and the instance admin ([#63](https://github.com/snktibor/usageratio/issues/63)) ([477e0d7](https://github.com/snktibor/usageratio/commit/477e0d7513409485874e341961a4ca4d34fe1758))
+* give every workspace its own tokens and retire the shared one there ([#66](https://github.com/snktibor/usageratio/issues/66)) ([cba7539](https://github.com/snktibor/usageratio/commit/cba7539286d44531f274a8c88cd7e997cc74c3fd))
+* let several people share a workspace through invites ([#64](https://github.com/snktibor/usageratio/issues/64)) ([fe47157](https://github.com/snktibor/usageratio/commit/fe471575805abc96264135c69c166b42c4a42560))
+* **macos:** read Claude limits from T3 Code's provider log ([#56](https://github.com/snktibor/usageratio/issues/56)) ([46ed7fc](https://github.com/snktibor/usageratio/commit/46ed7fccaa36bfd7efa46705a255c0139dd7e070))
+* never read the alert webhook URL back in a shared workspace ([#65](https://github.com/snktibor/usageratio/issues/65)) ([98cac56](https://github.com/snktibor/usageratio/commit/98cac56bf5eaf632ddd38ceb1d8fa26d22665d91))
+* put a fresh machine token in the setup package in multi-tenant mode ([#67](https://github.com/snktibor/usageratio/issues/67)) ([b670d4e](https://github.com/snktibor/usageratio/commit/b670d4e85ec5bd65dbdfd010d1d067cbd6d97b07))
+* sign in with GitHub and give each user a workspace ([#62](https://github.com/snktibor/usageratio/issues/62)) ([cf12dea](https://github.com/snktibor/usageratio/commit/cf12dea991241faab976ebce35cfe77659ec5055))
+* walk every tenant in housekeeping, index tokens by tenant, add migrate:tenant ([#61](https://github.com/snktibor/usageratio/issues/61)) ([346b021](https://github.com/snktibor/usageratio/commit/346b0217ee234caec29d9f6a1a21d16920b9f439))
+
+
+### Bug Fixes
+
+* point setup packages at NEXT_PUBLIC_SITE_URL when it is set ([#58](https://github.com/snktibor/usageratio/issues/58)) ([754e44b](https://github.com/snktibor/usageratio/commit/754e44b3fef92f9f8811b05a29c28ce17a662f02))
+
+
+### Code Refactoring
+
+* reach every tenant key through a tenant-bound store ([#60](https://github.com/snktibor/usageratio/issues/60)) ([7d1c1f8](https://github.com/snktibor/usageratio/commit/7d1c1f830ce28a7def049a2ac45e94e3b9d0cefb))
+
+
+### Documentation
+
+* design multi-tenant workspaces, GitHub sign-in and registration ([#59](https://github.com/snktibor/usageratio/issues/59)) ([23e278f](https://github.com/snktibor/usageratio/commit/23e278f41647e5f86a1fad3827a4672207e55be0))
+
 ## [0.12.1](https://github.com/snktibor/usageratio/compare/v0.12.0...v0.12.1) (2026-11-01)
 
 
