@@ -39,7 +39,9 @@ export const DEFAULT_API_URL = "https://your-domain.example/api/usage";
  * The ccusage version the clients pin themselves to (`npx --yes ccusage@$CCUSAGE_VERSION`),
  * overridable per machine with USAGERATIO_CCUSAGE_VERSION ("latest" is an explicit opt-in).
  * Kept equal to the same constant in clients/shared/report-usage-core.sh and
- * report-usage-core.ps1; tests/setup.test.ts checks all three stay in sync.
+ * report-usage-core.ps1; tests/setup.test.ts checks all three stay in sync. The ccusage update
+ * workflow (.github/workflows/ccusage-update.yml, scripts/ccusage-update.mjs) moves all three to a
+ * newer release once it has checked that release still reads usage the same way.
  */
 export const CCUSAGE_VERSION = "20.0.24";
 

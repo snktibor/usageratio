@@ -1,0 +1,127 @@
+name: ccusage update
+
+# Keeps the ccusage version the clients pin (lib/setup.ts, clients/shared/report-usage-core.sh
+# and .ps1) current. Once a newer release has been out for three days (the same cooldown as
+# .github/dependabot.yml), it runs that release on synthetic Claude Code and Codex logs with the
+# clients' own arguments and parser, and compares the result with the pinned version's
+# (scripts/ccusage-update.mjs smoke). Only a release that reads the logs the same way gets a PR;
+# the PR runs the full CI and is squash-merged when CI passes.
+#
+# A failed smoke test fails this run and leaves the pin as it is; a PR whose CI failed stays
+# open for a look, and is not opened again for the same version.
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "A specific ccusage version to try (default: the newest one past the cooldown)"
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ccusage-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      # The default GITHUB_TOKEN can neither open a PR here nor trigger CI with its push, so the
+      # branch, the PR and the merge all go through the release-please PAT (contents and pull
+      # requests: read/write; see release-please.yml).
+      BOT_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Look for a newer ccusage
+        id: find
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          current="$(node scripts/ccusage-update.mjs current)"
+          candidate="${REQUESTED:-$(node scripts/ccusage-update.mjs candidate 3)}"
+          if [ -z "$candidate" ] || [ "$candidate" = "$current" ]; then
+            echo "ccusage $current is the newest release past the cooldown."
+            exit 0
+          fi
+          branch="chore/ccusage-$candidate"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "$branch already exists: its PR is open, or still waiting for a look."
+            exit 0
+          fi
+          echo "ccusage $current -> $candidate"
+          {
+            echo "current=$current"
+            echo "candidate=$candidate"
+            echo "branch=$branch"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Smoke test the new version
+        if: steps.find.outputs.candidate
+        env:
+          CURRENT: ${{ steps.find.outputs.current }}
+          CANDIDATE: ${{ steps.find.outputs.candidate }}
+        run: node scripts/ccusage-update.mjs smoke "$CANDIDATE" "$CURRENT"
+
+      - name: Open the PR
+        if: steps.find.outputs.candidate
+        id: pr
+        env:
+          GH_TOKEN: ${{ env.BOT_TOKEN }}
+          CURRENT: ${{ steps.find.outputs.current }}
+          CANDIDATE: ${{ steps.find.outputs.candidate }}
+          BRANCH: ${{ steps.find.outputs.branch }}
+        run: |
+          node scripts/ccusage-update.mjs bump "$CANDIDATE"
+          title="chore(deps): bump ccusage from $CURRENT to $CANDIDATE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git commit -am "$title"
+          git push origin "$BRANCH"
+          gh pr create --base main --head "$BRANCH" --title "$title" --body "$(cat <<EOF
+          Moves the clients' pinned ccusage from \`$CURRENT\` to [\`$CANDIDATE\`](https://www.npmjs.com/package/ccusage/v/$CANDIDATE).
+
+          \`scripts/ccusage-update.mjs smoke\` ran \`ccusage@$CANDIDATE\` on synthetic Claude Code and Codex logs, with the clients' arguments and parser, and it read them the same way as \`ccusage@$CURRENT\`. The [ccusage update]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/main/.github/workflows/ccusage-update.yml) workflow squash-merges this PR once CI passes.
+          EOF
+          )"
+          echo "sha=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+
+      - name: Wait for CI
+        if: steps.find.outputs.candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.pr.outputs.sha }}
+        run: |
+          run_id=""
+          for _ in $(seq 1 30); do
+            run_id="$(gh run list --workflow ci.yml --event pull_request --commit "$SHA" --json databaseId --jq '.[0].databaseId // empty')"
+            [ -n "$run_id" ] && break
+            sleep 10
+          done
+          if [ -z "$run_id" ]; then
+            echo "CI did not start for $SHA."
+            exit 1
+          fi
+          gh run watch "$run_id" --exit-status --interval 30
+
+      - name: Merge
+        if: steps.find.outputs.candidate
+        env:
+          GH_TOKEN: ${{ env.BOT_TOKEN }}
+          BRANCH: ${{ steps.find.outputs.branch }}
+          SHA: ${{ steps.pr.outputs.sha }}
+        run: |
+          gh pr merge "$BRANCH" --squash --match-head-commit "$SHA"
+          git push origin --delete "$BRANCH"

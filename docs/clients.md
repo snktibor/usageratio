@@ -32,9 +32,12 @@ Every client — automatic or manual, macOS/Linux or Windows — runs the same c
    `ccusage` runs from the earliest provider's start; the parser then trims each provider to its own
    (`cycle.providers` of the response), days by date and Claude Code's hours by hour.
    `ccusage` itself runs from a globally installed copy if present, otherwise via `npx --yes
-   ccusage@<version>` — the version is pinned (`20.0.24` at the time of writing) in
-   `clients/shared/report-usage-core.sh`, `report-usage-core.ps1`, and `lib/setup.ts` together (a test
-   checks the three stay in sync); `USAGERATIO_CCUSAGE_VERSION` overrides it (`latest` is an explicit
+   ccusage@<version>` — the version is pinned in `clients/shared/report-usage-core.sh`,
+   `report-usage-core.ps1`, and `lib/setup.ts` together (a test checks the three stay in sync). The
+   [ccusage update](../.github/workflows/ccusage-update.yml) workflow moves the pin daily to the newest
+   release that has been out for three days, once it reads synthetic Claude Code and Codex logs the
+   same way as the pinned one (`node scripts/ccusage-update.mjs smoke <version> <pinned>`); its PR is
+   squash-merged when CI passes. `USAGERATIO_CCUSAGE_VERSION` overrides the pin per machine (`latest` is an explicit
    opt-in), and `USAGERATIO_CCUSAGE=global|npx` forces one path over the other.
 3. **Building the payload:** the parser (`clients/shared/ccusage-providers.cjs`) turns `ccusage`'s
    output into `providers` (running total per provider for the cycle, in `snapshot` mode — the
