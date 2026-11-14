@@ -49,7 +49,7 @@ $parserPath = Join-Path $PSScriptRoot 'ccusage-providers.cjs'
 # The ccusage version npx runs; keep equal to lib/setup.ts CCUSAGE_VERSION (tests/setup.test.ts
 # checks it). USAGERATIO_CCUSAGE_VERSION overrides it; "latest" is an explicit opt-in.
 $ccusageVersion = $env:USAGERATIO_CCUSAGE_VERSION
-if (-not $ccusageVersion) { $ccusageVersion = '20.0.48' }
+if (-not $ccusageVersion) { $ccusageVersion = '20.0.49' }
 
 # The ccusage command(s) to try, in order, for USAGERATIO_CCUSAGE: "global" only the
 # installed command, "npx" only the current package through npx, anything else (the

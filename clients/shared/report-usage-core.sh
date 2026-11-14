@@ -38,7 +38,7 @@ OUTPUT_MODE="${USAGERATIO_OUTPUT_MODE:-silent}"
 CCUSAGE_RUNNER="${USAGERATIO_CCUSAGE:-auto}"
 # The ccusage version npx runs; keep equal to lib/setup.ts CCUSAGE_VERSION (tests/setup.test.ts
 # checks it). USAGERATIO_CCUSAGE_VERSION overrides it; "latest" is an explicit opt-in.
-CCUSAGE_VERSION="${USAGERATIO_CCUSAGE_VERSION:-20.0.48}"
+CCUSAGE_VERSION="${USAGERATIO_CCUSAGE_VERSION:-20.0.49}"
 
 case "$OUTPUT_MODE" in
   silent | manual) ;;
