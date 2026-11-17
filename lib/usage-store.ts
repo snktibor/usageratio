@@ -133,19 +133,19 @@ export function eventMember(
  * missing field as "auto"/null, the same way it must for entries written
  * before these fields existed.
  */
-function machineEntry(
+export function machineEntry(
   groupId: string,
   timestampMs: number,
   tokens: number,
-  mode: ReportMode,
-  intervalMinutes: number | null,
+  mode: ReportMode | undefined,
+  intervalMinutes: number | null | undefined,
 ): string {
   return JSON.stringify({
     g: groupId,
     ts: timestampMs,
     t: tokens,
-    ...(mode !== "auto" && { md: mode }),
-    ...(intervalMinutes !== null && { iv: intervalMinutes }),
+    ...(mode === "manual" && { md: mode }),
+    ...(intervalMinutes != null && { iv: intervalMinutes }),
   });
 }
 
