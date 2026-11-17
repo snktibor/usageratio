@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { summarizeUsage } from "@/lib/aggregate";
+import { archiveBeforeChange } from "@/lib/archive";
 import { DEFAULT_RESET, INACTIVE_MACHINE_DAYS } from "@/lib/config";
 import { ingestReport } from "@/lib/ingest";
 import {
@@ -12,7 +13,7 @@ import {
 } from "@/lib/manage-store";
 import { officialUsageField } from "@/lib/official-usage";
 import { getRedis } from "@/lib/redis";
-import { loadEvents, loadIndexes, saveResets } from "@/lib/usage-store";
+import { loadEvents, loadHistory, loadIndexes, saveResets } from "@/lib/usage-store";
 import { useRedis } from "./helpers/redis-fixture";
 import { KEYS, tenant } from "./helpers/tenant";
 
@@ -542,5 +543,111 @@ describe("deleteProvider", () => {
 
   it("answers not_found for a provider that does not exist", async () => {
     expect(await deleteProvider(tenant, "ghost", true, NOW)).toEqual({ ok: false, reason: "not_found" });
+  });
+});
+
+describe("archiving before a destructive change", () => {
+  const useRedisHandle = useRedis();
+
+  /** Inside the previous weekly cycle, [Mon 09-14, Mon 09-21), which has ended at NOW and is not archived yet. */
+  const PREVIOUS = new Date("2026-09-16T10:00:00Z");
+  const previous = (body: Record<string, unknown>) => ingest({ timestamp: PREVIOUS.toISOString(), ...body }, PREVIOUS);
+  const historyOf = async (providerId = "claude") => (await loadHistory(tenant, [providerId]))[providerId] ?? [];
+
+  it("keeps the deleted group in the summary of the cycle that just ended (deleteGroup)", async () => {
+    await previous({ groupId: "Work", machineId: "w", providers: { claude: 300 } });
+    await previous({ groupId: "Personal", machineId: "p", providers: { claude: 100 } });
+    expect(await historyOf()).toEqual([]);
+
+    const result = await deleteGroup(tenant, "Work", true, NOW);
+    expect(result.ok).toBe(true);
+
+    const [summary] = await historyOf();
+    expect(summary?.start).toBe(Date.parse("2026-09-14T00:00:00Z"));
+    expect(Object.keys(summary!.groups).sort()).toEqual(["Personal", "Work"]);
+    expect(await getRedis().exists(KEYS.events("claude", "Work"))).toBe(0);
+  });
+
+  it("archives only the providers the deleted group has events for", async () => {
+    await previous({ groupId: "Work", machineId: "w", providers: { claude: 300 } });
+    await previous({ groupId: "Personal", machineId: "p", providers: { openai: 100 } });
+
+    await deleteGroup(tenant, "Work", true, NOW);
+
+    expect(await historyOf("claude")).toHaveLength(1);
+    expect(await historyOf("openai")).toEqual([]);
+  });
+
+  it("keeps the deleted provider's groups in its own summary (deleteProvider)", async () => {
+    await previous({ groupId: "Work", machineId: "w", providers: { claude: 300, openai: 50 } });
+    await previous({ groupId: "Personal", machineId: "p", providers: { claude: 100 } });
+
+    const result = await deleteProvider(tenant, "claude", true, NOW);
+    expect(result.ok).toBe(true);
+
+    const [summary] = await historyOf();
+    expect(Object.keys(summary!.groups).sort()).toEqual(["Personal", "Work"]);
+    // Only the deleted provider is archived; the other waits for the housekeeping run as usual.
+    expect(await historyOf("openai")).toEqual([]);
+    expect(await getRedis().hexists(KEYS.providers, "claude")).toBe(0);
+  });
+
+  it("keeps both groups' split in the summary of a merge", async () => {
+    await previous({ groupId: "Work", machineId: "w", providers: { claude: 300 } });
+    await previous({ groupId: "Team", machineId: "t", providers: { claude: 100 } });
+
+    const result = await renameOrMergeGroup(tenant, "Work", "Team", true, NOW);
+    expect(result.ok).toBe(true);
+
+    const [summary] = await historyOf();
+    expect(Object.keys(summary!.groups).sort()).toEqual(["Team", "Work"]);
+    expect(await getRedis().exists(KEYS.events("claude", "Work"))).toBe(0);
+  });
+
+  it("writes no history for a refused delete, a plain rename, or a delete with nothing stored", async () => {
+    await previous({ groupId: "Work", machineId: "w", providers: { claude: 300 } });
+    await ingest({ groupId: "Empty", providers: {} });
+    await ingest({ groupId: "Quiet", providers: {} });
+
+    expect(await deleteGroup(tenant, "Work", false, NOW)).toEqual({ ok: false, reason: "has_events" });
+    expect(await deleteProvider(tenant, "claude", false, NOW)).toEqual({ ok: false, reason: "has_events" });
+    expect((await renameOrMergeGroup(tenant, "Work", "Renamed", false, NOW)).ok).toBe(true);
+    // A forced delete and a merge of groups that hold no events have nothing to archive either.
+    expect((await deleteGroup(tenant, "Empty", true, NOW)).ok).toBe(true);
+    expect((await renameOrMergeGroup(tenant, "Quiet", "Renamed", true, NOW)).ok).toBe(true);
+
+    expect(await historyOf()).toEqual([]);
+  });
+
+  it("goes ahead with the delete when writing the summary fails, but not when the read fails", async () => {
+    const redis = useRedisHandle;
+    if (!redis.store) return; // the failure is injected into the in-memory store
+    await previous({ groupId: "Work", machineId: "w", providers: { claude: 300 } });
+
+    // Writing the summary fails: logged per provider, the delete still happens.
+    redis.store.failNext("ZADD");
+    expect((await deleteGroup(tenant, "Work", true, NOW)).ok).toBe(true);
+    expect(await getRedis().exists(KEYS.events("claude", "Work"))).toBe(0);
+    expect(await historyOf()).toEqual([]);
+
+    // Reading the indexes fails: the error reaches the caller, and nothing is deleted.
+    await previous({ groupId: "Personal", machineId: "p", providers: { claude: 100 } });
+    redis.store.failNext("HGETALL");
+    await expect(deleteGroup(tenant, "Personal", true, NOW)).rejects.toThrow();
+    expect(await getRedis().exists(KEYS.events("claude", "Personal"))).toBe(1);
+  });
+
+  it("archiveBeforeChange archives every provider by default, or only the ones named", async () => {
+    await previous({ groupId: "Work", machineId: "w", providers: { claude: 300, openai: 50 } });
+
+    expect(await archiveBeforeChange(tenant, NOW, { providerIds: ["ghost"] })).toEqual([]);
+    expect(await archiveBeforeChange(tenant, NOW, { providerIds: ["openai"] })).toEqual(["openai"]);
+    expect(await archiveBeforeChange(tenant, NOW, { indexes: await loadIndexes(tenant) })).toEqual(["claude"]);
+    // Already archived: nothing is due any more.
+    expect(await archiveBeforeChange(tenant, NOW)).toEqual([]);
+  });
+
+  it("archiveBeforeChange on a store with no providers returns [] without reading events", async () => {
+    expect(await archiveBeforeChange(tenant, NOW)).toEqual([]);
   });
 });

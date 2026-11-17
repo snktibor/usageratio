@@ -1,4 +1,5 @@
 import type { UsageEvent } from "@/lib/aggregate";
+import { archiveBeforeChange } from "@/lib/archive";
 import { RETENTION_DAYS, type ResetConfig, type TokenMode } from "@/lib/config";
 import { getCycle, getDaySegments } from "@/lib/cycle";
 import { carryOver, type MergeCycle, type MergeUnit } from "@/lib/machine-merge";
@@ -373,6 +374,16 @@ export async function renameOrMergeGroup(
     eventsTouched = counts.reduce((sum, count) => sum + count, 0);
   }
 
+  // A merge moves the source's reports into the destination's: the just-ended cycle's summary must
+  // be written while the two groups' split is still readable. A plain rename moves nothing between
+  // groups, so its summary would read the same.
+  if (destinationExists && activeIndexes.length > 0) {
+    await archiveBeforeChange(store, now, {
+      indexes,
+      providerIds: activeIndexes.map((index) => providerIds[index]!),
+    });
+  }
+
   const tx = redis.multi();
   for (const index of activeIndexes) {
     const srcKey = srcKeys[index]!;
@@ -464,6 +475,13 @@ export async function deleteGroup(
   }
   const activeKeys = keys.filter((_, index) => existsFlags[index] === 1);
   if (activeKeys.length > 0 && !force) return { ok: false, reason: "has_events" };
+  // The events go with the group: archive the just-ended cycle first, while they can still be read.
+  if (activeKeys.length > 0) {
+    await archiveBeforeChange(store, now, {
+      indexes,
+      providerIds: providerIds.filter((_, index) => existsFlags[index] === 1),
+    });
+  }
 
   let eventsTouched = 0;
   if (activeKeys.length > 0) {
@@ -570,6 +588,8 @@ export async function deleteProvider(
   const activeKeys = keys.filter((_, index) => existsFlags[index] === 1);
   const activeGroupCount = existsFlags.filter((flag) => flag === 1).length;
   if (activeKeys.length > 0 && !force) return { ok: false, reason: "has_events" };
+  // The events go with the provider: archive the just-ended cycle first, while they can still be read.
+  if (activeKeys.length > 0) await archiveBeforeChange(store, now, { indexes, providerIds: [providerId] });
 
   let eventsTouched = 0;
   if (activeKeys.length > 0) {

@@ -38,7 +38,7 @@ local development and tests.
 | `usage:tokens:lastused` | HASH | `sha256(token) → last authenticated request (ms)`, refreshed at most hourly; apart from the record, so the refresh can never write back a token revoked meanwhile | With its token | A token's authenticated request |
 | `usage:housekeeping:last` | STRING | JSON `{"at": ms, "report": HousekeepingReport}` | Forever (overwritten each run) | `runHousekeeping` (non-dry-run) |
 | `usage:alert:{providerId}:{segmentStartMs}:{threshold}` | STRING | `"1"`, `SET NX` | 70 days TTL | `lib/alerts.ts` `evaluateAlerts` — the guard that makes a threshold fire once per provider per segment of a cycle (the cycle's start while it has no keep reset) |
-| `usage:history:{providerId}` | ZSET | score = cycle start (epoch ms); member = JSON `CycleSummary` (see [History](#history-archived-cycles)) | Newest 24 entries per provider (`HISTORY_RETENTION`), trimmed on write | The first dashboard render after a cycle ends, or the daily housekeeping run's `history` step — whichever comes first (`archiveCycle` via `archiveDueCycles`); also `npm run seed`'s pre-archived entries |
+| `usage:history:{providerId}` | ZSET | score = cycle start (epoch ms); member = JSON `CycleSummary` (see [History](#history-archived-cycles)) | Newest 24 entries per provider (`HISTORY_RETENTION`), trimmed on write | The first dashboard render after a cycle ends, the daily housekeeping run's `history` step, or a destructive change (a group or provider force-delete, a group merge, a new restart; `archiveBeforeChange`) — whichever comes first (`archiveCycle` via `archiveDueCycles`); also `npm run seed`'s pre-archived entries |
 | `usage:keys` | SET | the name of every dynamic key the tenant has written (`events:*`, `history:*`, `alltime:*`, `alert:*`) | A name may outlive its key (an events set that pruned itself to nothing); harmless, and re-added by the next write. Housekeeping drops only the names of alert guards whose segment started more than a month plus their 70-day expiry ago: certainly gone, and never written again | The same transaction as the write that creates the key. With the fixed keys (`fixedTenantKeys`) it lists every key of a tenant without a `SCAN` |
 | `usage:alltime:{providerId}` | HASH | field = cycle start (epoch ms); value = JSON `CycleSummary` without `models`/`subLimits` (see [All-time totals](#all-time-totals)) | Never trimmed: one small entry per cycle | `archiveCycle`, together with the history entry (`HSETNX`, also for every summary still in the history); rewritten by `PUT /api/official-usage/archived`, deleted with the history entry when a restart is moved or deleted |
 | `usage:session:{sha256(sessionId:pin)}` | STRING | JSON `{"c": createdAtMs, "s": lastSeenMs}` (a bare `"1"` for a legacy pre-rolling session) | Ends after `SESSION_IDLE_DAYS` (default 7) without use, and `SESSION_MAX_DAYS` (default 30) after creation at the latest; the key's TTL is the remaining maximum lifetime | Login (`attemptLogin`); `s` refreshed at most hourly by `isAuthenticated` |
@@ -177,12 +177,15 @@ sum of the known figures and can exceed 100. A cycle a restart-type reset (Codex
 correction of a segmented cycle (`PUT /api/official-usage/archived`) rewrites one segment's figure and sums
 them again.
 
-**Archived from two places, whichever runs first.** For every provider, if the newest archived cycle
+**Archived from three places, whichever runs first.** For every provider, if the newest archived cycle
 is older than the *previous* cycle's start, and that previous cycle actually has events, the previous
-cycle is summarized from data still in Redis and written with `ZADD NX`. Two callers share this
-(`lib/archive.ts` `archiveDueCycles`): the first dashboard render after a cycle ends, and the daily
+cycle is summarized from data still in Redis and written with `ZADD NX`. Three callers share this
+(`lib/archive.ts` `archiveDueCycles`): the first dashboard render after a cycle ends, the daily
 housekeeping run's `history` step (`GET /api/cron/housekeeping`, run before its official-usage-pruning
-step so that cycle's typed-in percentage still makes it into the summary). Racing callers still write
+step so that cycle's typed-in percentage still makes it into the summary), and a destructive change
+(`archiveBeforeChange`): a group or provider force-delete, a group merge or a newly recorded restart
+archives the just-ended cycle first, because afterwards its summary would miss the deleted or merged
+group (or, after a restart, could never be written at all). Racing callers still write
 exactly one entry — `archivedAt` is the cycle's own end time, not wall-clock time, so every caller
 computes byte-identical summary JSON. Only the cycle right **before** the current one can ever be
 archived this way — by the time a later cycle would need to archive an older one, that older cycle's
