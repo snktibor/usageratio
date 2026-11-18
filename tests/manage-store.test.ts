@@ -462,7 +462,7 @@ describe("deleteGroup", () => {
     await ingest({ groupId: "Work", machineId: "mac1" });
 
     const result = await deleteGroup(tenant, "Work", true, NOW);
-    expect(result).toEqual({ ok: true, affected: { events: 1, machines: 1, groups: 1 } });
+    expect(result).toMatchObject({ ok: true, affected: { events: 1, machines: 1, groups: 1 } });
 
     expect(await getRedis().exists(KEYS.events("claude", "Work"))).toBe(0);
     expect(await getRedis().hexists(KEYS.machines, "claude:mac1")).toBe(0);
@@ -473,6 +473,50 @@ describe("deleteGroup", () => {
 
   it("answers not_found for a group that does not exist", async () => {
     expect(await deleteGroup(tenant, "Ghost", true, NOW)).toEqual({ ok: false, reason: "not_found" });
+  });
+  describe("dry run", () => {
+    const HOUR = 3_600_000;
+    /** Every key and its raw content, to prove a dry run wrote nothing. */
+    async function snapshot(): Promise<Record<string, unknown>> {
+      const redis = getRedis();
+      const out: Record<string, unknown> = {};
+      for (const key of (await redis.keys("*")).sort()) {
+        const type = await redis.type(key);
+        if (type === "zset") out[key] = await redis.zrange(key, 0, -1, { withScores: true });
+        else if (type === "hash") out[key] = await redis.hgetall(key);
+        else if (type === "string") out[key] = await redis.get(key);
+        else out[key] = type;
+      }
+      return out;
+    }
+
+    it("counts what a forced delete would remove, the newest report and the recent machines, and writes nothing", async () => {
+      await ingest({ groupId: "Work", machineId: "recent" }, new Date(NOW.getTime() - HOUR));
+      await ingest({ groupId: "Work", machineId: "old" }, new Date(NOW.getTime() - 3 * 24 * HOUR));
+      const before = await snapshot();
+
+      const result = await deleteGroup(tenant, "Work", false, NOW, { dryRun: true });
+      expect(result).toEqual({
+        ok: true,
+        affected: { events: 2, machines: 2, groups: 1 },
+        impact: { events: 2, machines: 2, groups: 1, lastReportAt: NOW.getTime() - HOUR, recentMachines: 1 },
+      });
+      expect(await snapshot()).toEqual(before);
+    });
+
+    it("answers not_found for an unknown group", async () => {
+      expect(await deleteGroup(tenant, "Ghost", true, NOW, { dryRun: true })).toEqual({
+        ok: false,
+        reason: "not_found",
+      });
+    });
+
+    it("reports zeros and no last report for a group without stored events", async () => {
+      await ingest({ groupId: "Quiet", providers: {} });
+      const result = await deleteGroup(tenant, "Quiet", false, NOW, { dryRun: true });
+      expect(result).toMatchObject({ ok: true, impact: { events: 0, lastReportAt: null } });
+      expect(await getRedis().hexists(KEYS.groups, "Quiet")).toBe(1);
+    });
   });
 });
 
@@ -522,7 +566,7 @@ describe("deleteProvider", () => {
     await saveResets(tenant, "openai", { v: 1, events: [], autoOffCycleStartMs: CYCLE_START_MS });
 
     const result = await deleteProvider(tenant, "claude", true, NOW);
-    expect(result).toEqual({ ok: true, affected: { events: 2, machines: 2, groups: 2 } });
+    expect(result).toMatchObject({ ok: true, affected: { events: 2, machines: 2, groups: 2 } });
 
     expect(await getRedis().exists(KEYS.events("claude", "Work"))).toBe(0);
     expect(await getRedis().exists(KEYS.events("claude", "Solo"))).toBe(0);
@@ -543,6 +587,40 @@ describe("deleteProvider", () => {
 
   it("answers not_found for a provider that does not exist", async () => {
     expect(await deleteProvider(tenant, "ghost", true, NOW)).toEqual({ ok: false, reason: "not_found" });
+  });
+  describe("dry run", () => {
+    const HOUR = 3_600_000;
+
+    it("counts the provider's reports across groups and its recent machines, and writes nothing", async () => {
+      await ingest({ groupId: "Work", machineId: "recent" }, new Date(NOW.getTime() - HOUR));
+      await ingest({ groupId: "Solo", machineId: "old" }, new Date(NOW.getTime() - 3 * 24 * HOUR));
+
+      const result = await deleteProvider(tenant, "claude", false, NOW, { dryRun: true });
+      expect(result).toEqual({
+        ok: true,
+        affected: { events: 2, machines: 2, groups: 2 },
+        impact: { events: 2, machines: 2, groups: 2, lastReportAt: NOW.getTime() - HOUR, recentMachines: 1 },
+      });
+      expect(await getRedis().exists(KEYS.events("claude", "Work"))).toBe(1);
+      expect(await getRedis().exists(KEYS.events("claude", "Solo"))).toBe(1);
+      expect(await getRedis().hexists(KEYS.providers, "claude")).toBe(1);
+      expect(await getRedis().hlen(KEYS.machines)).toBe(2);
+      expect(await getRedis().exists(KEYS.history("claude"))).toBe(0);
+    });
+
+    it("answers not_found for an unknown provider", async () => {
+      expect(await deleteProvider(tenant, "ghost", true, NOW, { dryRun: true })).toEqual({
+        ok: false,
+        reason: "not_found",
+      });
+    });
+
+    it("reports zeros and no last report for a provider without stored events", async () => {
+      await ingest({ providers: { claude: 100 } });
+      await getRedis().del(KEYS.events("claude", "Personal"));
+      const result = await deleteProvider(tenant, "claude", false, NOW, { dryRun: true });
+      expect(result).toMatchObject({ ok: true, impact: { events: 0, groups: 0, lastReportAt: null } });
+    });
   });
 });
 

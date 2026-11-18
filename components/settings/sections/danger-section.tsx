@@ -3,16 +3,18 @@
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import type { DraftProvider } from "@/components/settings/draft";
+import { ForceDeleteDialog, useDeleteImpact } from "@/components/settings/force-delete-dialog";
 import { SudoUnlock } from "@/components/setup/sudo-unlock";
 import { StatusLine } from "@/components/status-line";
 import { QUIET_BUTTON } from "@/components/ui/classes";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Toast } from "@/components/ui/toast";
 
-/** How long the force-delete confirm button stays disabled after opening. */
+/** How long the plain delete confirm button stays disabled after opening. */
 const CONFIRM_DELAY_SECONDS = 3;
 
-type Confirm = { id: string; label: string; force: boolean };
+/** `typed`: the plain confirmation is not enough (the server said the provider has reports after all). */
+type Confirm = { id: string; label: string; typed: boolean };
 type SudoRetry = { id: string; label: string; force: boolean };
 
 async function errorCode(response: Response): Promise<string | null> {
@@ -24,7 +26,8 @@ async function errorCode(response: Response): Promise<string | null> {
  * The bottom of the settings panel: actions that cannot be undone. For now
  * that is deleting a provider, offered only for one switched off in the
  * Providers section (accounts-section.tsx). A provider with stored reports
- * needs a second, forced confirmation, and every delete a fresh PIN (sudo).
+ * needs its name typed, next to a line saying what it deletes, and every
+ * delete a fresh PIN (sudo).
  */
 export function DangerSection({
   titleId,
@@ -42,6 +45,9 @@ export function DangerSection({
   const t = useTranslations("Settings");
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [sudoRetry, setSudoRetry] = useState<SudoRetry | null>(null);
+  const deleteImpact = useDeleteImpact(
+    confirm ? `/api/providers/${encodeURIComponent(confirm.id)}?force=1&dryRun=1` : null,
+  );
   const [problem, setProblem] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -61,7 +67,7 @@ export function DangerSection({
       return;
     }
     if (error === "provider_has_events" && !force) {
-      setConfirm({ id, label, force: true });
+      setConfirm({ id, label, typed: true });
       return;
     }
     setProblem(t("manage_provider_delete_failed"));
@@ -87,7 +93,7 @@ export function DangerSection({
               <span className="min-w-0 wrap-anywhere">{provider.label}</span>
               <button
                 type="button"
-                onClick={() => setConfirm({ id: provider.id, label: provider.label, force: false })}
+                onClick={() => setConfirm({ id: provider.id, label: provider.label, typed: false })}
                 aria-label={t("manage_provider_delete_aria", { label: provider.label })}
                 className={`shrink-0 text-sm ${QUIET_BUTTON}`}
               >
@@ -116,28 +122,40 @@ export function DangerSection({
         </Toast>
       )}
 
-      {confirm && (
-        <ConfirmDialog
-          title={t("manage_provider_delete_title")}
-          body={
-            confirm.force
-              ? t("manage_provider_delete_force_body", { label: confirm.label })
-              : t("manage_provider_delete_body", { label: confirm.label })
-          }
-          cancelLabel={t("cancel")}
-          confirmLabel={(secondsLeft) =>
-            secondsLeft > 0 ? t("confirm_yes_countdown", { seconds: secondsLeft }) : t("confirm_yes")
-          }
-          danger
-          countdownSeconds={CONFIRM_DELAY_SECONDS}
-          onCancel={() => setConfirm(null)}
-          onConfirm={() => {
-            const { id, label, force } = confirm;
-            setConfirm(null);
-            void performDelete(id, label, force);
-          }}
-        />
-      )}
+      {confirm &&
+        // Until the count says the provider has no reports, the typed dialog is the safe default.
+        (confirm.typed || deleteImpact.phase !== "ready" || deleteImpact.impact.events > 0 ? (
+          <ForceDeleteDialog
+            kind="provider"
+            name={confirm.id}
+            title={t("manage_provider_delete_title")}
+            body={t("manage_provider_delete_force_body", { label: confirm.label })}
+            impact={deleteImpact}
+            onCancel={() => setConfirm(null)}
+            onConfirm={() => {
+              const { id, label } = confirm;
+              setConfirm(null);
+              void performDelete(id, label, true);
+            }}
+          />
+        ) : (
+          <ConfirmDialog
+            title={t("manage_provider_delete_title")}
+            body={t("manage_provider_delete_body", { label: confirm.label })}
+            cancelLabel={t("cancel")}
+            confirmLabel={(secondsLeft) =>
+              secondsLeft > 0 ? t("confirm_yes_countdown", { seconds: secondsLeft }) : t("confirm_yes")
+            }
+            danger
+            countdownSeconds={CONFIRM_DELAY_SECONDS}
+            onCancel={() => setConfirm(null)}
+            onConfirm={() => {
+              const { id, label } = confirm;
+              setConfirm(null);
+              void performDelete(id, label, false);
+            }}
+          />
+        ))}
     </section>
   );
 }

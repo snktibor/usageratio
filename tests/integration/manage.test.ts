@@ -413,6 +413,64 @@ describe("DELETE /api/groups/[group]", () => {
     expect(await getRedis().hexists(KEYS.groups, "Work")).toBe(0);
     expect(await getRedis().exists(KEYS.events("claude", "Work"))).toBe(0);
   });
+
+  describe("?dryRun=1", () => {
+    const dryRun = (
+      cookie?: string,
+      headers: Record<string, string> = {},
+      url = "http://localhost/api/groups/Work?dryRun=1",
+    ) =>
+      deleteGroupRoute(request(url, { method: "DELETE", headers: { ...(cookie && { cookie }), ...headers } }), {
+        params,
+      });
+
+    it("answers 200 with the impact without a sudo grant, and deletes nothing", async () => {
+      const cookie = await seedSession(PIN);
+      await ingest({ groupId: "Work" });
+      const response = await dryRun(cookie);
+      expect(response.status).toBe(200);
+      // The route reads the real clock, so a report stamped NOW is long past the 24 hours.
+      expect(await response.json()).toMatchObject({
+        ok: true,
+        dryRun: true,
+        affected: { events: 1, machines: 1, groups: 1 },
+        impact: { events: 1, machines: 1, groups: 1, lastReportAt: NOW.getTime(), recentMachines: 0 },
+      });
+      expect(await getRedis().exists(KEYS.events("claude", "Work"))).toBe(1);
+      expect(await getRedis().hexists(KEYS.groups, "Work")).toBe(1);
+    });
+
+    it("answers 401 without a session", async () => {
+      expect((await dryRun()).status).toBe(401);
+    });
+
+    it("answers 403 for a foreign origin", async () => {
+      const cookie = await seedSession(PIN);
+      expect((await dryRun(cookie, { origin: "https://evil.example" })).status).toBe(403);
+    });
+
+    it("answers 400 for an invalid id", async () => {
+      const cookie = await seedSession(PIN);
+      const response = await deleteGroupRoute(
+        request("http://localhost/api/groups/x?dryRun=1", { method: "DELETE", headers: { cookie } }),
+        { params: Promise.resolve({ group: "bad id!" }) },
+      );
+      expect(response.status).toBe(400);
+    });
+
+    it("answers 404 for an unknown group", async () => {
+      const cookie = await seedSession(PIN);
+      expect((await dryRun(cookie)).status).toBe(404);
+    });
+
+    it("leaves a real delete behind sudo: ?force=1 alone still answers 403", async () => {
+      const cookie = await seedSession(PIN);
+      await ingest({ groupId: "Work" });
+      const response = await dryRun(cookie, {}, "http://localhost/api/groups/Work?force=1");
+      expect(response.status).toBe(403);
+      expect((await response.json()).error).toBe("sudo_required");
+    });
+  });
 });
 
 describe("DELETE /api/providers/[provider]", () => {
@@ -464,5 +522,66 @@ describe("DELETE /api/providers/[provider]", () => {
       { params: Promise.resolve({ provider: "ghost" }) },
     );
     expect(response.status).toBe(404);
+  });
+
+  describe("?dryRun=1", () => {
+    const dryRun = (
+      cookie?: string,
+      headers: Record<string, string> = {},
+      url = "http://localhost/api/providers/claude?dryRun=1",
+    ) =>
+      deleteProviderRoute(request(url, { method: "DELETE", headers: { ...(cookie && { cookie }), ...headers } }), {
+        params,
+      });
+
+    it("answers 200 with the impact without a sudo grant, and deletes nothing", async () => {
+      const cookie = await seedSession(PIN);
+      await ingest({});
+      const response = await dryRun(cookie);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        ok: true,
+        dryRun: true,
+        affected: { events: 1, machines: 1, groups: 1 },
+        impact: { events: 1, machines: 1, groups: 1, lastReportAt: NOW.getTime(), recentMachines: 0 },
+      });
+      expect(await getRedis().hexists(KEYS.providers, "claude")).toBe(1);
+      expect(await getRedis().exists(KEYS.events("claude", "Personal"))).toBe(1);
+    });
+
+    it("answers 401 without a session", async () => {
+      expect((await dryRun()).status).toBe(401);
+    });
+
+    it("answers 403 for a foreign origin", async () => {
+      const cookie = await seedSession(PIN);
+      expect((await dryRun(cookie, { origin: "https://evil.example" })).status).toBe(403);
+    });
+
+    it("answers 400 for an invalid provider id", async () => {
+      const cookie = await seedSession(PIN);
+      const response = await deleteProviderRoute(
+        request("http://localhost/api/providers/x?dryRun=1", { method: "DELETE", headers: { cookie } }),
+        { params: Promise.resolve({ provider: "bad id!" }) },
+      );
+      expect(response.status).toBe(400);
+    });
+
+    it("answers 404 for an unknown provider", async () => {
+      const cookie = await seedSession(PIN);
+      const response = await deleteProviderRoute(
+        request("http://localhost/api/providers/ghost?dryRun=1", { method: "DELETE", headers: { cookie } }),
+        { params: Promise.resolve({ provider: "ghost" }) },
+      );
+      expect(response.status).toBe(404);
+    });
+
+    it("leaves a real delete behind sudo: ?force=1 alone still answers 403", async () => {
+      const cookie = await seedSession(PIN);
+      await ingest({});
+      const response = await dryRun(cookie, {}, "http://localhost/api/providers/claude?force=1");
+      expect(response.status).toBe(403);
+      expect((await response.json()).error).toBe("sudo_required");
+    });
   });
 });

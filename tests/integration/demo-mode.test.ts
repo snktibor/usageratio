@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DELETE as deleteGroup } from "@/app/api/groups/[group]/route";
 import { PUT as putOfficialUsage } from "@/app/api/official-usage/route";
 import { PUT as putSettings } from "@/app/api/settings/route";
 import { POST as postUsage } from "@/app/api/usage/route";
@@ -40,5 +41,14 @@ describe("demo mode", () => {
     );
     expect(usage.status).toBe(403);
     expect((await usage.json()).error).toBe("demo_read_only");
+  });
+
+  it("refuses a delete dry run too", async () => {
+    const dryRun = await deleteGroup(
+      new Request("http://localhost/api/groups/Work?dryRun=1", { method: "DELETE", headers: ORIGIN }),
+      { params: Promise.resolve({ group: "Work" }) },
+    );
+    expect(dryRun.status).toBe(403);
+    expect((await dryRun.json()).error).toBe("demo_read_only");
   });
 });
