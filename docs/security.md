@@ -310,9 +310,14 @@ saving or revealing fails with `500 encryption_key_missing`.
 
 ## Audit trail privacy
 
-Every store, update, and reveal of the API token is recorded in `usage:api-token:audit`
-(`lib/api-token.ts`) with a timestamp, action, session tag (a hash of the session id, never the id
-itself), User-Agent, and the requesting address:
+There are three audit trails, and all carry the same request details: `usage:api-token:audit` (every
+store, update, and reveal of the shared API token, `lib/api-token.ts`), `usage:tokens:audit` (per-machine
+tokens created, revoked and rotated) and `usage:manage:audit` (groups, providers and machines deleted
+or merged, and usage restarts recorded, edited or deleted: `lib/manage-audit.ts`, written in the same
+transaction as the change, so a change cannot happen without its entry). The last two are shown to a
+workspace's owner only (`GET /api/tokens/audit`, `GET /api/manage/audit`; a member gets `403
+owner_only`), since they carry other people's network details. Each entry has a timestamp, action,
+session tag (a hash of the session id, never the id itself), User-Agent, and the requesting address:
 
 - **By default**, the address is hashed with a per-deployment salt and truncated to a network
   prefix: `sha256(salt + ip).slice(0, 12)` alongside a `/24` prefix for IPv4 or `/48` for IPv6 —
@@ -340,7 +345,8 @@ manual `POST /api/housekeeping` (settings panel, sudo-gated unless `?dryRun=1`) 
   once it is older than `RETENTION_DAYS` (70 days, while its raw reports exist), and a reverted
   reset's detection switch once its cycle is over;
 - `usage:tokens` entries revoked more than 90 days ago (`REVOKED_RETENTION_DAYS`);
-- `usage:api-token:audit` entries older than `AUDIT_RETENTION_DAYS`;
+- the entries of all three audit trails (`usage:api-token:audit`, `usage:tokens:audit`,
+  `usage:manage:audit`) older than `AUDIT_RETENTION_DAYS`;
 - the key registry's (`usage:keys`) names of alert guards whose segment started more than a month plus their 70-day expiry ago (certainly gone, and never written again).
 
 The cron route does this for every tenant (`runScheduledHousekeeping`): the one housekept longest

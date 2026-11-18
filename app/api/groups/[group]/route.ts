@@ -1,6 +1,7 @@
 import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { hasSudo } from "@/lib/auth";
 import { demoReadOnly } from "@/lib/demo/mode";
+import { manageAudit } from "@/lib/manage-audit";
 import { deleteGroup, renameOrMergeGroup } from "@/lib/manage-store";
 import { parseId } from "@/lib/validation";
 
@@ -9,7 +10,8 @@ import { parseId } from "@/lib/validation";
  * dashboard's session; a merge (`{"merge": true}`, onto a group that already
  * exists) and a delete both need a fresh sudo grant, since either can lose
  * data (a merge combines two histories, a delete drops them). A plain rename
- * onto an unused id needs neither.
+ * onto an unused id needs neither. A merge and a delete go on the manage audit trail (GET
+ * /api/manage/audit), in the same transaction; a rename and a dry run do not.
  *
  *   PATCH { "id": "new-name" }              → 409 group_exists unless the id is free
  *   PATCH { "id": "existing", "merge": true } → unions the two groups' history (needs sudo)
@@ -50,6 +52,7 @@ export async function PATCH(request: Request, context: { params: Promise<Params>
     const tenant = await requireTenantSession();
     if (tenant instanceof Response) return tenant;
     const { store } = tenant;
+    const now = new Date();
 
     const idErrors: string[] = [];
     const groupId = parseId(group, "group", idErrors);
@@ -62,7 +65,9 @@ export async function PATCH(request: Request, context: { params: Promise<Params>
 
     if (parsed.merge && !(await hasSudo())) return apiError("sudo_required", 403);
 
-    const result = await renameOrMergeGroup(store, groupId, parsed.id, parsed.merge, new Date());
+    const result = await renameOrMergeGroup(store, groupId, parsed.id, parsed.merge, now, {
+      audit: manageAudit(tenant, now),
+    });
     if (!result.ok)
       return apiError(
         result.reason === "exists" ? "group_exists" : "not_found",
@@ -82,6 +87,7 @@ export async function DELETE(request: Request, context: { params: Promise<Params
     const tenant = await requireTenantSession();
     if (tenant instanceof Response) return tenant;
     const { store } = tenant;
+    const now = new Date();
 
     const idErrors: string[] = [];
     const groupId = parseId(group, "group", idErrors);
@@ -92,7 +98,10 @@ export async function DELETE(request: Request, context: { params: Promise<Params
     if (!dryRun && !(await hasSudo())) return apiError("sudo_required", 403);
 
     const force = url.searchParams.get("force") === "1";
-    const result = await deleteGroup(store, groupId, force, new Date(), { dryRun });
+    const result = await deleteGroup(store, groupId, force, now, {
+      dryRun,
+      ...(!dryRun && { audit: manageAudit(tenant, now) }),
+    });
     if (!result.ok) {
       return apiError(
         result.reason === "has_events" ? "group_has_events" : "not_found",

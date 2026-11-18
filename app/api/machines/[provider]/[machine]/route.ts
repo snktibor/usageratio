@@ -2,6 +2,7 @@ import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, 
 import { hasSudo } from "@/lib/auth";
 import { getConfig } from "@/lib/config";
 import { demoReadOnly } from "@/lib/demo/mode";
+import { manageAudit } from "@/lib/manage-audit";
 import { deleteMachine, moveMachine } from "@/lib/manage-store";
 import { normalizeProviderId } from "@/lib/providers";
 import { resetFor, resolveConfig } from "@/lib/settings";
@@ -15,7 +16,8 @@ import { parseId } from "@/lib/validation";
  * /api/auth/sudo within the last 5 minutes), since both drop reports for
  * good. A move onto an id this provider already uses is refused unless
  * `merge` is set; the merge then combines the two histories day by day (see
- * lib/manage-store.ts `moveMachine`).
+ * lib/manage-store.ts `moveMachine`). A merge and a DELETE go on the manage audit trail (GET
+ * /api/manage/audit), in the same transaction; a plain rename or regroup does not.
  *
  *   PATCH { "id"?: "new-machine-id", "group"?: "group-id", "merge"?: true }
  *         → { "ok": true, "affected": { events, machines, groups } }
@@ -72,6 +74,7 @@ export async function PATCH(request: Request, context: { params: Promise<Params>
     if ("errors" in parsed) return apiError("invalid_payload", 400, { details: parsed.errors });
     if (parsed.merge && !(await hasSudo())) return apiError("sudo_required", 403);
 
+    const now = new Date();
     const config = resolveConfig(getConfig(), await loadRawSettings(store));
     const result = await moveMachine(
       store,
@@ -83,7 +86,8 @@ export async function PATCH(request: Request, context: { params: Promise<Params>
         mode: config.tokenMode,
         reset: resetFor(config, segments.providerId),
         retentionDays: config.retentionDays,
-        now: new Date(),
+        now,
+        audit: manageAudit(tenant, now),
       },
     );
     if (!result.ok) {
@@ -110,7 +114,9 @@ export async function DELETE(request: Request, context: { params: Promise<Params
     const segments = parseSegments(raw);
     if (!segments) return apiError("invalid_payload", 400, { details: ["invalid provider or machine id"] });
 
-    const result = await deleteMachine(store, segments.providerId, segments.machineId);
+    const result = await deleteMachine(store, segments.providerId, segments.machineId, {
+      audit: manageAudit(tenant, new Date()),
+    });
     if (!result.ok) return apiError("not_found", 404);
     return json({ ok: true, affected: result.affected }, 200);
   })(request);

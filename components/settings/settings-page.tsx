@@ -278,6 +278,8 @@ export function SettingsPage({ view }: { view: SettingsView }) {
               <DangerSection
                 titleId={titleId}
                 providers={listedProviders}
+                timeZone={view.timeZone}
+                history={view.manageHistory !== false}
                 onDeleted={(id) => setDeletedProviderIds((current) => [...current, id])}
                 onManaged={actions.refresh}
               />

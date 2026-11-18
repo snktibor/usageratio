@@ -93,6 +93,12 @@ export interface AuditRecord {
   by: string | null;
 }
 
+/** The request's part of an audit record: the same fields on every trail (the token trails and the manage trail). */
+export type AuditRequestFields = Pick<
+  AuditRecord,
+  "at" | "userAgent" | "brands" | "platform" | "session" | "ip" | "ipHash" | "ipPrefix"
+>;
+
 /** One entry as the audit popup gets it. */
 export interface AuditEntry {
   at: number;
@@ -135,10 +141,9 @@ export function apiTokenProblem(value: string): TokenProblemCode | null {
 
 // ── Audit records ────────────────────────────────────────────────────────────
 
-export function serializeAuditRecord(record: AuditRecord): string {
-  return JSON.stringify({
-    at: record.at,
-    a: record.action,
+/** The short-keyed request fields every audit trail stores (`ua`, `ch`, `pf`, the address, `s`), after `at` and the action. */
+export function serializeRequestFields(record: AuditRequestFields) {
+  return {
     ua: record.userAgent,
     ch: record.brands,
     pf: record.platform,
@@ -146,6 +151,37 @@ export function serializeAuditRecord(record: AuditRecord): string {
     ...(record.ipHash !== null && { iph: record.ipHash }),
     ...(record.ipPrefix !== null && { ipp: record.ipPrefix }),
     s: record.session,
+  };
+}
+
+/** The request fields of one parsed list item, `at` aside (the caller has checked it). */
+export function parseRequestFields(entry: Record<string, unknown>): Omit<AuditRequestFields, "at"> {
+  return {
+    userAgent: text(entry.ua),
+    brands: text(entry.ch),
+    platform: text(entry.pf),
+    ip: optionalText(entry.ip),
+    ipHash: optionalText(entry.iph),
+    ipPrefix: optionalText(entry.ipp),
+    session: optionalText(entry.s),
+  };
+}
+
+/** A string, else "": how a text field is read back. */
+function text(field: unknown): string {
+  return typeof field === "string" ? field : "";
+}
+
+/** A non-empty string, else null: how an optional field is read back. */
+export function optionalText(field: unknown): string | null {
+  return typeof field === "string" && field !== "" ? field : null;
+}
+
+export function serializeAuditRecord(record: AuditRecord): string {
+  return JSON.stringify({
+    at: record.at,
+    a: record.action,
+    ...serializeRequestFields(record),
     ...(record.token && { tk: record.token.id, tl: record.token.label }),
     ...(record.token?.replacement && { tn: record.token.replacement }),
     ...(record.by !== null && { by: record.by }),
@@ -164,28 +200,24 @@ export function parseAuditRecord(raw: string): AuditRecord | null {
   const entry = value as Record<string, unknown>;
   if (typeof entry.at !== "number" || !Number.isFinite(entry.at)) return null;
   if (!(AUDIT_ACTIONS as readonly unknown[]).includes(entry.a)) return null;
-  const text = (field: unknown) => (typeof field === "string" ? field : "");
-  const optionalText = (field: unknown): string | null => (typeof field === "string" && field !== "" ? field : null);
   return {
     at: entry.at,
     action: entry.a as AuditAction,
-    userAgent: text(entry.ua),
-    brands: text(entry.ch),
-    platform: text(entry.pf),
-    ip: optionalText(entry.ip),
-    ipHash: optionalText(entry.iph),
-    ipPrefix: optionalText(entry.ipp),
-    session: optionalText(entry.s),
+    ...parseRequestFields(entry),
     token:
       typeof entry.tk === "string"
-        ? { id: entry.tk, label: text(entry.tl), ...(typeof entry.tn === "string" && { replacement: entry.tn }) }
+        ? {
+            id: entry.tk,
+            label: text(entry.tl),
+            ...(typeof entry.tn === "string" && { replacement: entry.tn }),
+          }
         : null,
     by: optionalText(entry.by),
   };
 }
 
 /** The address as the audit popup shows it: the raw one when kept, else its hash/prefix pair, else "unknown". */
-function displayIp(record: Pick<AuditRecord, "ip" | "ipHash" | "ipPrefix">): string {
+export function displayIp(record: Pick<AuditRecord, "ip" | "ipHash" | "ipPrefix">): string {
   if (record.ip !== null) return record.ip;
   if (record.ipPrefix !== null && record.ipHash !== null) return `${record.ipPrefix} · ${record.ipHash}`;
   return record.ipPrefix ?? record.ipHash ?? "unknown";

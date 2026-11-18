@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DELETE as deleteAccountRoute } from "@/app/api/account/route";
 import { GET as getExport } from "@/app/api/export/route";
+import { DELETE as deleteGroupRoute } from "@/app/api/groups/[group]/route";
 import { GET as getMachines } from "@/app/api/machines/route";
+import { GET as getManageAudit } from "@/app/api/manage/audit/route";
 import { POST as switchTenant } from "@/app/api/session/tenant/route";
 import { POST as createTokenRoute } from "@/app/api/tokens/route";
 import { DELETE as revokeInviteRoute } from "@/app/api/workspace/invites/[id]/route";
@@ -244,6 +246,29 @@ describe("workspace members and invites", () => {
     expect(await members(alice)).toContainEqual({ login: "alice", role: "owner" });
   });
 
+  it("records who deleted a group on the workspace's manage trail, and shows it to the owner only", async () => {
+    const alice = await owner("alice");
+    const bob = asPerson(await join("bob", (await invite(alice)).code));
+    await report(alice.tenantId, "mac");
+    await setSudo(bob, true);
+
+    const deleted = await call(deleteGroupRoute as Handler, "/api/groups/Personal?force=1", {
+      method: "DELETE",
+      as: bob,
+      params: { group: "Personal" },
+    });
+    expect(deleted.status).toBe(200);
+
+    const trail = (await (await call(getManageAudit as Handler, "/api/manage/audit", { as: alice })).json()) as {
+      entries: { action: string; by: string | null; subject: { id: string }; affected: { events: number } }[];
+    };
+    expect(trail.entries).toMatchObject([
+      { action: "group_deleted", by: "bob-dev", subject: { id: "Personal" }, affected: { events: 1 } },
+    ]);
+    expect(await getRedis().llen(tenantStore(alice.tenantId).keys.manageAudit)).toBe(1);
+    expect((await call(getManageAudit as Handler, "/api/manage/audit", { as: bob })).status).toBe(403);
+  });
+
   it("refuses an invite into a switched-off workspace, without spending it", async () => {
     const alice = await owner("alice");
     const { code } = await invite(alice);
@@ -277,6 +302,7 @@ describe("workspace members and invites", () => {
         body: { userId: bob.userId },
       }),
       export: await call(getExport as Handler, "/api/export?format=json&cycle=current", { as: bob }),
+      audit: await call(getManageAudit as Handler, "/api/manage/audit", { as: bob }),
     };
     for (const [action, response] of Object.entries(asBob)) {
       expect([action, response.status, await errorOf(response)]).toEqual([action, 403, "owner_only"]);
@@ -287,6 +313,7 @@ describe("workspace members and invites", () => {
     };
     expect(view.workspace).toMatchObject({ role: "member", invites: [] });
     expect((await call(getExport as Handler, "/api/export?format=json&cycle=current", { as: alice })).status).toBe(200);
+    expect((await call(getManageAudit as Handler, "/api/manage/audit", { as: alice })).status).toBe(200);
 
     // Carol owns a workspace of her own: alice's is nowhere to be found from there.
     const carol = await owner("carol");

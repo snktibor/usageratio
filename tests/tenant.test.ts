@@ -20,6 +20,7 @@ import {
   saveResets,
 } from "@/lib/usage-store";
 import en from "@/messages/en.json";
+import { stubAudit } from "./helpers/manage-audit";
 import { useRedis } from "./helpers/redis-fixture";
 
 vi.mock("next-intl/server", () => ({
@@ -69,6 +70,7 @@ describe("tenantKeys", () => {
       keys.allTime("claude"),
       keys.apiToken,
       keys.apiTokenAudit,
+      keys.manageAudit,
       keys.housekeepingLast,
       keys.tokens,
       keys.alert("claude", 1000, 80),
@@ -84,6 +86,7 @@ describe("tenantKeys", () => {
       "usage:alltime:claude",
       "usage:api-token",
       "usage:api-token:audit",
+      "usage:manage:audit",
       "usage:housekeeping:last",
       "usage:tokens",
       "usage:alert:claude:1000:80",
@@ -153,6 +156,10 @@ async function exerciseEverything(store: TenantStore, marker: string): Promise<v
   );
   expect(moved).toMatchObject({ ok: true });
   expect(await renameOrMergeGroup(store, "Work", `${marker}-team`, false, NOW)).toMatchObject({ ok: true });
+  // An audited delete: its entry lands in the tenant's own `manage:audit`, a fixed key.
+  expect(await deleteMachine(store, "claude", `${marker}-pc2`, { audit: stubAudit().audit })).toMatchObject({
+    ok: true,
+  });
   expect(await archiveCycle(store, "claude", summary(CYCLE_START_MS - 7 * 86_400_000))).toBe(true);
   expect(await saveArchivedOfficial(store, "claude", CYCLE_START_MS - 7 * 86_400_000, 42)).toBe(true);
   await saveOfficialUsage(
@@ -208,6 +215,7 @@ describe("a tenant's keys", () => {
     expect(registry).toContain(store.keys.history("claude"));
     expect(registry).toContain(store.keys.allTime("claude"));
     expect(registry).toContain(store.keys.alert("claude", CYCLE_START_MS, 80));
+    expect(keys).toContain(store.keys.manageAudit);
   });
 
   it("are invisible to every other tenant, and untouched by its writes", async () => {

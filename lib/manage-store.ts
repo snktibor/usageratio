@@ -3,6 +3,7 @@ import { archiveBeforeChange } from "@/lib/archive";
 import { RETENTION_DAYS, type ResetConfig, type TokenMode } from "@/lib/config";
 import { getCycle, getDaySegments } from "@/lib/cycle";
 import { carryOver, type MergeCycle, type MergeUnit } from "@/lib/machine-merge";
+import { type ManageAuditWriter, queueManageAudit } from "@/lib/manage-audit";
 import { randomGroupColor, serializeGroupEntry } from "@/lib/settings";
 import type { TenantStore } from "@/lib/tenant";
 import { eventMember, loadIndexes, loadRawSettings, machineEntry, parseEvent } from "@/lib/usage-store";
@@ -46,6 +47,8 @@ export interface MoveMachineOptions {
   reset: ResetConfig;
   retentionDays: number;
   now: Date;
+  /** Records a merge (a move onto an id in use) in the same transaction; a plain move writes nothing. */
+  audit?: ManageAuditWriter;
 }
 
 interface MoveUnit {
@@ -72,6 +75,8 @@ export interface DeleteImpact extends Affected {
 export interface DeleteOptions {
   /** Count what a forced delete would remove, and write nothing: no refusal, no archive. */
   dryRun?: boolean;
+  /** Records the delete in the same transaction as the change; a dry run and a refused delete write nothing. */
+  audit?: ManageAuditWriter;
 }
 
 export type DeleteWithEventsResult =
@@ -219,11 +224,22 @@ export async function moveMachine(
     }
   }
 
+  const eventsTouched = removals.reduce((sum, removal) => sum + removal.members.length, 0);
+  const groupsLeft = new Set(units.map((unit) => unit.groupId).filter((groupId) => groupId !== newGroupId));
+  if (source.groupId !== newGroupId) groupsLeft.add(source.groupId);
+  const affected = { events: eventsTouched, machines: existing ? 2 : 1, groups: groupsLeft.size };
+  const audit =
+    targetTaken && options.audit
+      ? await options.audit({
+          action: "machine_merged",
+          subject: { kind: "machine", id: machineId, providerId, target: newMachineId },
+          affected,
+        })
+      : null;
+
   const tx = store.redis.multi();
-  let eventsTouched = 0;
   for (const removal of removals) {
     if (removal.members.length === 0) continue;
-    eventsTouched += removal.members.length;
     const [first, ...rest] = removal.members.map(({ member }) => member.raw) as [string, ...string[]];
     tx.zrem(removal.key, first, ...rest);
   }
@@ -246,14 +262,10 @@ export async function moveMachine(
       newest.intervalMinutes,
     ),
   });
+  if (audit) queueManageAudit(tx, store, audit);
   await tx.exec();
 
-  const groupsLeft = new Set(units.map((unit) => unit.groupId).filter((groupId) => groupId !== newGroupId));
-  if (source.groupId !== newGroupId) groupsLeft.add(source.groupId);
-  return {
-    ok: true,
-    affected: { events: eventsTouched, machines: existing ? 2 : 1, groups: groupsLeft.size },
-  };
+  return { ok: true, affected };
 }
 
 /** Every cycle (under the current reset settings) from the one holding `earliestMs` to the running one. */
@@ -273,7 +285,12 @@ function mergeCycles(earliestMs: number, { reset, now }: MoveMachineOptions): Me
 }
 
 /** Deletes one machine (one provider): its `usage:machines` field and every member naming it, in every group's events key of this provider. */
-export async function deleteMachine(store: TenantStore, providerId: string, machineId: string): Promise<DeleteResult> {
+export async function deleteMachine(
+  store: TenantStore,
+  providerId: string,
+  machineId: string,
+  options: { audit?: ManageAuditWriter } = {},
+): Promise<DeleteResult> {
   const indexes = await loadIndexes(store);
   const machine = indexes.machines.find((m) => m.providerId === providerId && m.machineId === machineId);
   if (!machine) return { ok: false, reason: "not_found" };
@@ -282,18 +299,32 @@ export async function deleteMachine(store: TenantStore, providerId: string, mach
   const keys = groupIds.map((groupId) => store.keys.events(providerId, groupId));
   const membersByKey = await readMembersForKeys(store, keys);
 
+  const matchesByKey = keys.map((key) => ({
+    key,
+    matches: (membersByKey.get(key) ?? []).filter((entry) => entry.machineId === machineId),
+  }));
+  const affected = {
+    events: matchesByKey.reduce((sum, { matches }) => sum + matches.length, 0),
+    machines: 1,
+    groups: 0,
+  };
+  const audit = options.audit
+    ? await options.audit({
+        action: "machine_deleted",
+        subject: { kind: "machine", id: machineId, providerId },
+        affected,
+      })
+    : null;
+
   const tx = store.redis.multi();
-  let eventsTouched = 0;
-  for (const key of keys) {
-    const matches = (membersByKey.get(key) ?? []).filter((entry) => entry.machineId === machineId);
-    if (matches.length === 0) continue;
-    eventsTouched += matches.length;
-    tx.zrem(key, ...matches.map((entry) => entry.raw));
+  for (const { key, matches } of matchesByKey) {
+    if (matches.length > 0) tx.zrem(key, ...matches.map((entry) => entry.raw));
   }
   tx.hdel(store.keys.machines, `${providerId}:${machineId}`);
+  if (audit) queueManageAudit(tx, store, audit);
   await tx.exec();
 
-  return { ok: true, affected: { events: eventsTouched, machines: 1, groups: 0 } };
+  return { ok: true, affected };
 }
 
 /** Silent machines dropped from the index (not their stored reports), across every provider. Mirrors lib/housekeeping.ts's own machine step, triggered on demand. */
@@ -357,6 +388,7 @@ export async function renameOrMergeGroup(
   newGroupId: string,
   merge: boolean,
   now: Date,
+  options: { audit?: ManageAuditWriter } = {},
 ): Promise<RenameGroupResult> {
   const indexes = await loadIndexes(store);
   const groupsById = new Map(indexes.groups.map((group) => [group.groupId, group]));
@@ -401,6 +433,18 @@ export async function renameOrMergeGroup(
     });
   }
 
+  const movedMachines = indexes.machines.filter((machine) => machine.groupId === groupId);
+  const affected = { events: eventsTouched, machines: movedMachines.length, groups: 1 };
+  // Only a merge is audited: a rename onto an unused id loses nothing.
+  const audit =
+    destinationExists && options.audit
+      ? await options.audit({
+          action: "group_merged",
+          subject: { kind: "group", id: groupId, target: newGroupId },
+          affected,
+        })
+      : null;
+
   const tx = redis.multi();
   for (const index of activeIndexes) {
     const srcKey = srcKeys[index]!;
@@ -416,7 +460,6 @@ export async function renameOrMergeGroup(
     tx.sadd(store.keys.registry, destKey);
   }
 
-  const movedMachines = indexes.machines.filter((machine) => machine.groupId === groupId);
   if (movedMachines.length > 0) {
     const machineEntries: Record<string, string> = {};
     for (const machine of movedMachines) {
@@ -437,11 +480,12 @@ export async function renameOrMergeGroup(
     });
   }
   tx.hdel(store.keys.groups, groupId);
+  if (audit) queueManageAudit(tx, store, audit);
   await tx.exec();
 
   await moveExclusionsInSettings(store, groupId, newGroupId, merge, now);
 
-  return { ok: true, affected: { events: eventsTouched, machines: movedMachines.length, groups: 1 } };
+  return { ok: true, affected };
 }
 
 /** Counts the reports in `activeKeys` and finds the newest one, for the delete impact. */
@@ -552,11 +596,19 @@ export async function deleteGroup(
   }
 
   const machineFields = machinesInGroup.map((machine) => `${machine.providerId}:${machine.machineId}`);
+  const audit = options.audit
+    ? await options.audit({
+        action: "group_deleted",
+        subject: { kind: "group", id: groupId },
+        affected: { events: impact.events, machines: impact.machines, groups: 1 },
+      })
+    : null;
 
   const tx = redis.multi();
   for (const key of activeKeys) tx.del(key);
   if (machineFields.length > 0) tx.hdel(store.keys.machines, ...machineFields);
   tx.hdel(store.keys.groups, groupId);
+  if (audit) queueManageAudit(tx, store, audit);
   await tx.exec();
 
   await removeExclusionsInSettings(store, groupId, now);
@@ -669,12 +721,21 @@ export async function deleteProvider(
     (field) => field === providerId || field.startsWith(`${providerId}:`),
   );
 
+  const audit = options.audit
+    ? await options.audit({
+        action: "provider_deleted",
+        subject: { kind: "provider", id: providerId },
+        affected: { events: impact.events, machines: impact.machines, groups: activeGroupCount },
+      })
+    : null;
+
   const tx = redis.multi();
   for (const key of activeKeys) tx.del(key);
   if (machineFields.length > 0) tx.hdel(store.keys.machines, ...machineFields);
   tx.hdel(store.keys.providers, providerId);
   if (officialFields.length > 0) tx.hdel(store.keys.officialUsage, ...officialFields);
   tx.hdel(store.keys.resets, providerId);
+  if (audit) queueManageAudit(tx, store, audit);
   await tx.exec();
 
   await scrubProviderInSettings(store, providerId, now);

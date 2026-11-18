@@ -57,6 +57,15 @@
  *                                   shape plus "tk"+"tl" (the token's id and label), "tn"? (a
  *                                   rotation's replacement id) and "by"? (the login, multi-tenant
  *                                   mode); written in the same transaction as the change
+ *   usage:manage:audit       LIST   newest first, at most AUDIT_LIMIT entries: the audit trail of
+ *                                   destructive actions (groups, providers and machines deleted or
+ *                                   merged; usage restarts recorded, edited or deleted): the same
+ *                                   request fields as the token trails plus "a" (the action), "k"+"id"
+ *                                   (what it was done to: group, provider or machine, and its id),
+ *                                   "p"? (a machine's provider), "to"? (a merge's destination),
+ *                                   "n"? {"e","m","g"} (reports, machines, groups affected), "tr"?
+ *                                   (a trash entry id) and "by"? (the login, multi-tenant mode);
+ *                                   written in the same transaction as the change (lib/manage-audit.ts)
  *   usage:tokens:lock        STRING a random holder id, SET NX EX 10 — held while a token is
  *                                   revoked or rotated, so two of them cannot interleave
  *   usage:tokens:lastused    HASH   sha256(token) → last authenticated request (ms), refreshed at
@@ -221,6 +230,7 @@ export interface TenantKeys {
   tokens: string;
   tokensLastUsed: string;
   tokensAudit: string;
+  manageAudit: string;
   tokensLock: string;
   alert: (providerId: string, segmentStartMs: number, threshold: number) => string;
   registry: string;
@@ -251,6 +261,7 @@ export function tenantKeys(tenantId: TenantId): TenantKeys {
     tokens: `${p}tokens`,
     tokensLastUsed: `${p}tokens:lastused`,
     tokensAudit: `${p}tokens:audit`,
+    manageAudit: `${p}manage:audit`,
     tokensLock: `${p}tokens:lock`,
     alert: (providerId, segmentStartMs, threshold) => `${p}alert:${providerId}:${segmentStartMs}:${threshold}`,
     registry: `${p}keys`,
@@ -277,6 +288,7 @@ export function fixedTenantKeys(keys: TenantKeys): string[] {
     keys.tokens,
     keys.tokensLastUsed,
     keys.tokensAudit,
+    keys.manageAudit,
     keys.tokensLock,
     keys.registry,
   ];

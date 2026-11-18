@@ -10,6 +10,7 @@ import {
   serializeCycleSummary,
   withCorrectedOfficial,
 } from "@/lib/history";
+import { queueManageAudit } from "@/lib/manage-audit";
 import { type OfficialUsageUpdate, officialUsageField, storedEntryFor } from "@/lib/official-usage";
 import { MAX_PROVIDERS, mergeProviderIds, normalizeProviderId } from "@/lib/providers";
 import { toStringRecord } from "@/lib/redis";
@@ -789,7 +790,7 @@ export async function saveResetOverride(
  * summary of the cycle starting at `deleteArchivedStartMs` (and its ledger entry), which a restart
  * that was moved or deleted no longer cuts short where it did (the next
  * archiving run writes it again, lib/archive.ts); and the official fields to
- * write (a retag, lib/reset-recording.ts). All or nothing, so a failed write
+ * write (a retag, lib/reset-recording.ts); and the `audit` entry of a restart, if any. All or nothing, so a failed write
  * leaves the change to be repeated rather than half of it stored. The settings
  * document is changed from `rawSettings`, the one read with the rest of the
  * request, so a panel save in between loses: the same last-writer-wins race as
@@ -806,6 +807,8 @@ export async function saveResetChange(
     now: Date;
     deleteArchivedStartMs?: number;
     officialFields: Record<string, string>;
+    /** A serialized manage-trail entry (lib/manage-audit.ts), queued in the same transaction. */
+    audit?: string;
   },
 ): Promise<void> {
   const { providerId, override, deleteArchivedStartMs, officialFields } = change;
@@ -824,6 +827,7 @@ export async function saveResetChange(
     tx.hdel(store.keys.allTime(providerId), String(deleteArchivedStartMs));
   }
   if (Object.keys(officialFields).length > 0) tx.hset(store.keys.officialUsage, officialFields);
+  if (change.audit !== undefined) queueManageAudit(tx, store, change.audit);
   await tx.exec();
 }
 

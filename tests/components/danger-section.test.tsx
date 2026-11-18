@@ -27,11 +27,31 @@ const OPENAI: DraftProvider = {
 const answer = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
 const DRY = "/api/providers/openai?force=1&dryRun=1";
 
-function renderDanger() {
+function renderDanger(history = true) {
   const handlers = { onDeleted: vi.fn(), onManaged: vi.fn() };
-  renderWithIntl(<DangerSection titleId="settings" providers={[OPENAI]} {...handlers} />);
+  renderWithIntl(
+    <DangerSection
+      titleId="settings"
+      providers={[OPENAI]}
+      timeZone="Europe/Budapest"
+      history={history}
+      {...handlers}
+    />,
+  );
   return handlers;
 }
+
+describe("DangerSection history", () => {
+  it("shows the history of destructive actions, closed", () => {
+    renderDanger();
+    expect(screen.getByText("Show the history of deletions and merges")).not.toBeNull();
+  });
+
+  it("leaves it out when history is false (a workspace member)", () => {
+    renderDanger(false);
+    expect(screen.queryByText("Show the history of deletions and merges")).toBeNull();
+  });
+});
 
 describe("DangerSection provider delete", () => {
   afterEach(() => {
