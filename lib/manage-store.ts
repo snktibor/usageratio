@@ -1,10 +1,10 @@
 import type { UsageEvent } from "@/lib/aggregate";
-import type { ResetConfig, TokenMode } from "@/lib/config";
+import { RETENTION_DAYS, type ResetConfig, type TokenMode } from "@/lib/config";
 import { getCycle, getDaySegments } from "@/lib/cycle";
 import { carryOver, type MergeCycle, type MergeUnit } from "@/lib/machine-merge";
 import { randomGroupColor, serializeGroupEntry } from "@/lib/settings";
 import type { TenantStore } from "@/lib/tenant";
-import { eventMember, loadIndexes, loadRawSettings, parseEvent } from "@/lib/usage-store";
+import { eventMember, loadIndexes, loadRawSettings, machineEntry, parseEvent } from "@/lib/usage-store";
 
 /**
  * Renaming, moving, merging and deleting the things the dashboard auto-registers:
@@ -220,13 +220,13 @@ export async function moveMachine(
   const newest = existing && existing.lastSeenAt > source.lastSeenAt ? existing : source;
   if (renamed) tx.hdel(store.keys.machines, `${providerId}:${machineId}`);
   tx.hset(store.keys.machines, {
-    [`${providerId}:${newMachineId}`]: JSON.stringify({
-      g: newGroupId,
-      ts: newest.lastSeenAt,
-      t: newest.lastTokens,
-      ...(newest.mode === "manual" && { md: "manual" }),
-      ...(newest.intervalMinutes != null && { iv: newest.intervalMinutes }),
-    }),
+    [`${providerId}:${newMachineId}`]: machineEntry(
+      newGroupId,
+      newest.lastSeenAt,
+      newest.lastTokens,
+      newest.mode,
+      newest.intervalMinutes,
+    ),
   });
   await tx.exec();
 
@@ -379,6 +379,8 @@ export async function renameOrMergeGroup(
     const destKey = destKeys[index]!;
     if (destExists[index] === 1) {
       tx.zunionstore(destKey, 2, [destKey, srcKey], { aggregate: "max" });
+      // ZUNIONSTORE stores the union without an expiry: re-arm it like storeReport does.
+      tx.expire(destKey, (RETENTION_DAYS + 1) * 86_400);
       tx.del(srcKey);
     } else {
       tx.rename(srcKey, destKey);
@@ -390,11 +392,13 @@ export async function renameOrMergeGroup(
   if (movedMachines.length > 0) {
     const machineEntries: Record<string, string> = {};
     for (const machine of movedMachines) {
-      machineEntries[`${machine.providerId}:${machine.machineId}`] = JSON.stringify({
-        g: newGroupId,
-        ts: machine.lastSeenAt,
-        t: machine.lastTokens,
-      });
+      machineEntries[`${machine.providerId}:${machine.machineId}`] = machineEntry(
+        newGroupId,
+        machine.lastSeenAt,
+        machine.lastTokens,
+        machine.mode,
+        machine.intervalMinutes,
+      );
     }
     tx.hset(store.keys.machines, machineEntries);
   }

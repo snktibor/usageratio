@@ -325,6 +325,19 @@ describe("renameOrMergeGroup — rename", () => {
     expect(settings.excludedProviders).toEqual({ Team: ["claude"] });
   });
 
+  it("keeps a manual machine's mode and an auto one's interval in its index entry", async () => {
+    await ingest({ machineId: "mac-1", groupId: "Work", mode: "manual" });
+    await ingest({ machineId: "mac-2", groupId: "Work", intervalMinutes: 30 });
+
+    await renameOrMergeGroup(tenant, "Work", "Team", false, NOW);
+
+    const manual = JSON.parse((await getRedis().hget<string>(KEYS.machines, "claude:mac-1"))!);
+    expect(manual).toMatchObject({ g: "Team", md: "manual" });
+    const auto = JSON.parse((await getRedis().hget<string>(KEYS.machines, "claude:mac-2"))!);
+    expect(auto).toMatchObject({ g: "Team", iv: 30 });
+    expect(auto.md).toBeUndefined();
+  });
+
   it("refuses (exists) onto a group that already exists, without merge", async () => {
     await ingest({ groupId: "Work", providers: {} });
     await ingest({ groupId: "Team", providers: {} });
@@ -380,6 +393,30 @@ describe("renameOrMergeGroup — merge", () => {
     expect(await getRedis().exists(KEYS.events("claude", "Work"))).toBe(0);
     expect(await getRedis().hexists(KEYS.groups, "Work")).toBe(0);
     expect(await getRedis().hexists(KEYS.groups, "Team")).toBe(1);
+  });
+
+  it("keeps a moved machine's mode and interval in its index entry", async () => {
+    await ingest({ machineId: "mac-1", groupId: "Work", mode: "manual" });
+    await ingest({ machineId: "mac-2", groupId: "Work", intervalMinutes: 30 });
+    await ingest({ machineId: "mac-3", groupId: "Team" });
+
+    await renameOrMergeGroup(tenant, "Work", "Team", true, NOW);
+
+    const manual = JSON.parse((await getRedis().hget<string>(KEYS.machines, "claude:mac-1"))!);
+    expect(manual).toMatchObject({ g: "Team", md: "manual" });
+    const auto = JSON.parse((await getRedis().hget<string>(KEYS.machines, "claude:mac-2"))!);
+    expect(auto).toMatchObject({ g: "Team", iv: 30 });
+  });
+
+  it("re-arms the destination's expiry, which the union drops", async () => {
+    await ingest({ machineId: "mac-1", groupId: "Work" });
+    await ingest({ machineId: "mac-2", groupId: "Team" });
+
+    await renameOrMergeGroup(tenant, "Work", "Team", true, NOW);
+
+    const ttl = await getRedis().ttl(KEYS.events("claude", "Team"));
+    expect(ttl).toBeGreaterThan(70 * 86_400);
+    expect(ttl).toBeLessThanOrEqual(71 * 86_400);
   });
 
   it("keeps the destination's own colour and first-seen rather than the source's", async () => {
