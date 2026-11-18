@@ -14,11 +14,14 @@ import { normalizeProviderId } from "@/lib/providers";
  *
  *   DELETE          → 409 provider_has_events unless it has none
  *   DELETE?force=1  → deletes its reports too
+ *   DELETE?dryRun=1 → what a forced delete would remove; writes nothing, needs no sudo
  *
- *   → { "ok": true, "affected": { events, machines, groups } }
+ *   → { "ok": true, "affected": { events, machines, groups },
+ *       "impact": { events, machines, groups, "lastReportAt": ms | null, "recentMachines": n } }
+ *     (a dry run adds "dryRun": true)
  *
- * 200 ok · 400 invalid provider id · 401 no session · 403 foreign origin, demo mode, or no sudo grant ·
- * 404 no such provider · 409 provider_has_events (without force) · 503 Redis down
+ * 200 ok · 400 invalid provider id · 401 no session · 403 foreign origin, demo mode, or no sudo grant
+ * (not for a dry run) · 404 no such provider · 409 provider_has_events (without force) · 503 Redis down
  */
 
 type Params = { provider: string };
@@ -33,19 +36,22 @@ export async function DELETE(request: Request, context: { params: Promise<Params
     const tenant = await requireTenantSession();
     if (tenant instanceof Response) return tenant;
     const { store } = tenant;
-    if (!(await hasSudo())) return apiError("sudo_required", 403);
 
     const providerId = normalizeProviderId(provider);
     if (!providerId) return apiError("invalid_payload", 400, { details: ["invalid provider id"] });
 
+    // A dry run only counts: it needs the session, not a sudo grant.
+    const dryRun = url.searchParams.get("dryRun") === "1";
+    if (!dryRun && !(await hasSudo())) return apiError("sudo_required", 403);
+
     const force = url.searchParams.get("force") === "1";
-    const result = await deleteProvider(store, providerId, force, new Date());
+    const result = await deleteProvider(store, providerId, force, new Date(), { dryRun });
     if (!result.ok) {
       return apiError(
         result.reason === "has_events" ? "provider_has_events" : "not_found",
         result.reason === "has_events" ? 409 : 404,
       );
     }
-    return json({ ok: true, affected: result.affected }, 200);
+    return json({ ok: true, ...(dryRun && { dryRun: true }), affected: result.affected, impact: result.impact }, 200);
   })(request);
 }

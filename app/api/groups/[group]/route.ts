@@ -15,12 +15,16 @@ import { parseId } from "@/lib/validation";
  *   PATCH { "id": "existing", "merge": true } → unions the two groups' history (needs sudo)
  *   DELETE                                    → 409 group_has_events unless ?force=1
  *   DELETE?force=1                            → deletes its reports too (needs sudo)
+ *   DELETE?dryRun=1                           → what a forced delete would remove; writes nothing,
+ *                                               needs no sudo
  *
- *   → { "ok": true, "affected": { events, machines, groups } }
+ *   → { "ok": true, "affected": { events, machines, groups },
+ *       "impact": { events, machines, groups, "lastReportAt": ms | null, "recentMachines": n } }
+ *     (a dry run adds "dryRun": true)
  *
- * 200 ok · 400 invalid id/body · 401 no session · 403 foreign origin, demo mode, or no sudo grant ·
- * 404 no such group · 409 group_exists (PATCH) / group_has_events (DELETE without force) ·
- * 413/415 bad body (PATCH) · 503 Redis down
+ * 200 ok · 400 invalid id/body · 401 no session · 403 foreign origin, demo mode, or no sudo grant
+ * (not for a dry run) · 404 no such group · 409 group_exists (PATCH) / group_has_events (DELETE without
+ * force) · 413/415 bad body (PATCH) · 503 Redis down
  */
 
 type Params = { group: string };
@@ -78,20 +82,23 @@ export async function DELETE(request: Request, context: { params: Promise<Params
     const tenant = await requireTenantSession();
     if (tenant instanceof Response) return tenant;
     const { store } = tenant;
-    if (!(await hasSudo())) return apiError("sudo_required", 403);
 
     const idErrors: string[] = [];
     const groupId = parseId(group, "group", idErrors);
     if (idErrors.length > 0) return apiError("invalid_payload", 400, { details: idErrors });
 
+    // A dry run only counts: it needs the session, not a sudo grant.
+    const dryRun = url.searchParams.get("dryRun") === "1";
+    if (!dryRun && !(await hasSudo())) return apiError("sudo_required", 403);
+
     const force = url.searchParams.get("force") === "1";
-    const result = await deleteGroup(store, groupId, force, new Date());
+    const result = await deleteGroup(store, groupId, force, new Date(), { dryRun });
     if (!result.ok) {
       return apiError(
         result.reason === "has_events" ? "group_has_events" : "not_found",
         result.reason === "has_events" ? 409 : 404,
       );
     }
-    return json({ ok: true, affected: result.affected }, 200);
+    return json({ ok: true, ...(dryRun && { dryRun: true }), affected: result.affected, impact: result.impact }, 200);
   })(request);
 }

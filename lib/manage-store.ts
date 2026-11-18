@@ -57,8 +57,25 @@ interface MoveUnit {
 }
 export type DeleteResult = { ok: true; affected: Affected } | { ok: false; reason: "not_found" };
 export type RenameGroupResult = { ok: true; affected: Affected } | { ok: false; reason: "not_found" | "exists" };
+
+/** A machine that reported within this long ago re-creates what a delete removes with its next report. */
+export const RECENT_REPORT_MS = 24 * 3_600_000;
+
+/** What a (forced) delete removes, as the delete dialog shows it before anything is deleted. */
+export interface DeleteImpact extends Affected {
+  /** Newest stored report among the keys it would delete (ms); null without any. */
+  lastReportAt: number | null;
+  /** Its machines whose last report is under RECENT_REPORT_MS old: they re-create it with their next one. */
+  recentMachines: number;
+}
+
+export interface DeleteOptions {
+  /** Count what a forced delete would remove, and write nothing: no refusal, no archive. */
+  dryRun?: boolean;
+}
+
 export type DeleteWithEventsResult =
-  | { ok: true; affected: Affected }
+  | { ok: true; affected: Affected; impact: DeleteImpact }
   | { ok: false; reason: "not_found" | "has_events" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -427,6 +444,48 @@ export async function renameOrMergeGroup(
   return { ok: true, affected: { events: eventsTouched, machines: movedMachines.length, groups: 1 } };
 }
 
+/** Counts the reports in `activeKeys` and finds the newest one, for the delete impact. */
+async function countReports(
+  store: TenantStore,
+  activeKeys: string[],
+): Promise<{ events: number; lastReportAt: number | null }> {
+  if (activeKeys.length === 0) return { events: 0, lastReportAt: null };
+  const pipeline = store.redis.pipeline();
+  for (const key of activeKeys) {
+    pipeline.zcard(key);
+    pipeline.zrange(key, -1, -1, { withScores: true });
+  }
+  const results = (await pipeline.exec()) as unknown[];
+  let events = 0;
+  let lastReportAt: number | null = null;
+  for (let index = 0; index < activeKeys.length; index++) {
+    events += Number(results[index * 2]);
+    // [member, score] of the newest member.
+    const score = Number((results[index * 2 + 1] as unknown[])[1]);
+    if (Number.isFinite(score) && (lastReportAt === null || score > lastReportAt)) lastReportAt = score;
+  }
+  return { events, lastReportAt };
+}
+
+/** What deleting `activeKeys` (their reports) and `machines` would remove, and how fresh both are. */
+async function deleteImpact(
+  store: TenantStore,
+  activeKeys: string[],
+  machines: { lastSeenAt: number }[],
+  groups: number,
+  now: Date,
+): Promise<DeleteImpact> {
+  const { events, lastReportAt } = await countReports(store, activeKeys);
+  const recentSince = now.getTime() - RECENT_REPORT_MS;
+  return {
+    events,
+    machines: machines.length,
+    groups,
+    lastReportAt,
+    recentMachines: machines.filter((machine) => machine.lastSeenAt >= recentSince).length,
+  };
+}
+
 /** Removes a group's `excludedProviders` entry outright (used by `deleteGroup`); a no-op without one. */
 async function removeExclusionsInSettings(store: TenantStore, groupId: string, now: Date): Promise<void> {
   const raw = await loadRawSettings(store);
@@ -451,13 +510,16 @@ async function removeExclusionsInSettings(store: TenantStore, groupId: string, n
  * provider still has stored events for it — the same rule PUT /api/settings
  * already applies to a group taken off the panel's list. With `force`,
  * deletes every provider's events key for it, its `usage:groups` entry, its
- * machines' `usage:machines` fields, and its `excludedProviders` entry.
+ * machines' `usage:machines` fields, and its `excludedProviders` entry. With
+ * `options.dryRun` it only reports what that would remove: it neither refuses
+ * nor archives nor writes.
  */
 export async function deleteGroup(
   store: TenantStore,
   groupId: string,
   force: boolean,
   now: Date,
+  options: DeleteOptions = {},
 ): Promise<DeleteWithEventsResult> {
   const indexes = await loadIndexes(store);
   const group = indexes.groups.find((candidate) => candidate.groupId === groupId);
@@ -474,7 +536,13 @@ export async function deleteGroup(
     existsFlags = ((await pipeline.exec()) as unknown[]).map(Number);
   }
   const activeKeys = keys.filter((_, index) => existsFlags[index] === 1);
+  const machinesInGroup = indexes.machines.filter((machine) => machine.groupId === groupId);
+  if (options.dryRun) {
+    const impact = await deleteImpact(store, activeKeys, machinesInGroup, 1, now);
+    return { ok: true, affected: { events: impact.events, machines: impact.machines, groups: 1 }, impact };
+  }
   if (activeKeys.length > 0 && !force) return { ok: false, reason: "has_events" };
+  const impact = await deleteImpact(store, activeKeys, machinesInGroup, 1, now);
   // The events go with the group: archive the just-ended cycle first, while they can still be read.
   if (activeKeys.length > 0) {
     await archiveBeforeChange(store, now, {
@@ -483,14 +551,6 @@ export async function deleteGroup(
     });
   }
 
-  let eventsTouched = 0;
-  if (activeKeys.length > 0) {
-    const cards = redis.pipeline();
-    for (const key of activeKeys) cards.zcard(key);
-    eventsTouched = ((await cards.exec()) as unknown[]).map(Number).reduce((sum, count) => sum + count, 0);
-  }
-
-  const machinesInGroup = indexes.machines.filter((machine) => machine.groupId === groupId);
   const machineFields = machinesInGroup.map((machine) => `${machine.providerId}:${machine.machineId}`);
 
   const tx = redis.multi();
@@ -501,7 +561,7 @@ export async function deleteGroup(
 
   await removeExclusionsInSettings(store, groupId, now);
 
-  return { ok: true, affected: { events: eventsTouched, machines: machineFields.length, groups: 1 } };
+  return { ok: true, affected: { events: impact.events, machines: impact.machines, groups: 1 }, impact };
 }
 
 /** Strips `providerId` from `limits`, `subLimits`, `hiddenProviders` and every `excludedProviders` entry of the settings document; a no-op without a stored document or reference. */
@@ -563,13 +623,16 @@ async function scrubProviderInSettings(store: TenantStore, providerId: string, n
  * any of its groups still has stored events. With `force`, deletes its
  * events key in every group, its `usage:providers` entry, its machines'
  * `usage:machines` fields, its `usage:official` fields (its own and every
- * sub-limit's), and scrubs it from the settings document.
+ * sub-limit's), and scrubs it from the settings document. With
+ * `options.dryRun` it only reports what that would remove: it neither refuses
+ * nor archives nor writes.
  */
 export async function deleteProvider(
   store: TenantStore,
   providerId: string,
   force: boolean,
   now: Date,
+  options: DeleteOptions = {},
 ): Promise<DeleteWithEventsResult> {
   const indexes = await loadIndexes(store);
   const known = indexes.providers.some((provider) => provider.providerId === providerId);
@@ -586,19 +649,21 @@ export async function deleteProvider(
     existsFlags = ((await pipeline.exec()) as unknown[]).map(Number);
   }
   const activeKeys = keys.filter((_, index) => existsFlags[index] === 1);
-  const activeGroupCount = existsFlags.filter((flag) => flag === 1).length;
+  const activeGroupCount = activeKeys.length;
+  const machinesOfProvider = indexes.machines.filter((machine) => machine.providerId === providerId);
+  if (options.dryRun) {
+    const impact = await deleteImpact(store, activeKeys, machinesOfProvider, activeGroupCount, now);
+    return {
+      ok: true,
+      affected: { events: impact.events, machines: impact.machines, groups: activeGroupCount },
+      impact,
+    };
+  }
   if (activeKeys.length > 0 && !force) return { ok: false, reason: "has_events" };
+  const impact = await deleteImpact(store, activeKeys, machinesOfProvider, activeGroupCount, now);
   // The events go with the provider: archive the just-ended cycle first, while they can still be read.
   if (activeKeys.length > 0) await archiveBeforeChange(store, now, { indexes, providerIds: [providerId] });
 
-  let eventsTouched = 0;
-  if (activeKeys.length > 0) {
-    const cards = redis.pipeline();
-    for (const key of activeKeys) cards.zcard(key);
-    eventsTouched = ((await cards.exec()) as unknown[]).map(Number).reduce((sum, count) => sum + count, 0);
-  }
-
-  const machinesOfProvider = indexes.machines.filter((machine) => machine.providerId === providerId);
   const machineFields = machinesOfProvider.map((machine) => `${machine.providerId}:${machine.machineId}`);
   const officialFields = Object.keys(indexes.officialUsage).filter(
     (field) => field === providerId || field.startsWith(`${providerId}:`),
@@ -614,5 +679,5 @@ export async function deleteProvider(
 
   await scrubProviderInSettings(store, providerId, now);
 
-  return { ok: true, affected: { events: eventsTouched, machines: machineFields.length, groups: activeGroupCount } };
+  return { ok: true, affected: { events: impact.events, machines: impact.machines, groups: activeGroupCount }, impact };
 }

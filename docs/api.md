@@ -545,16 +545,26 @@ Up to 100 live tokens per workspace (`422 too_many_tokens` with `limit` past tha
   `403` foreign origin, demo mode, or (merge) no sudo · `404` no such group · `409 group_exists` ·
   `413`/`415` bad body · `503` Redis down.
 - **`DELETE /api/groups/[group]`** (session + sudo, same-origin) `?force=1` required once it has
-  stored reports (`409 group_has_events` otherwise). Same response shape.
+  stored reports (`409 group_has_events` otherwise). Same response shape, plus `"impact": { "events",
+  "machines", "groups", "lastReportAt": ms | null, "recentMachines": n }`: what it removed, the newest
+  stored report among it, and how many of its machines reported in the last 24 hours (they re-create
+  the group with their next report).
+- **`DELETE /api/groups/[group]?dryRun=1`** (session, same-origin, **no sudo**) — what a forced delete
+  would remove, as `200 { "ok": true, "dryRun": true, "affected": {...}, "impact": {...} }`. It
+  writes nothing, archives nothing and never answers `409`; the settings panel asks it before showing
+  the type-the-name confirmation. `403` also covers demo mode (dry runs included) · `404` no such group.
 
 ## Providers
 
 - **`DELETE /api/providers/[provider]`** (session + sudo, same-origin) — removes a provider outright:
   its events in every group, its machines, its official-usage figures, and every trace of it in the
   settings document. The panel only offers this once a provider is already hidden. `?force=1` required
-  once it has stored events (`409 provider_has_events` otherwise). `200 { "ok": true, "affected": {...} }` ·
-  `400` invalid provider id · `401` no session · `403` foreign origin, demo mode, or no sudo · `404`
-  no such provider · `503` Redis down.
+  once it has stored events (`409 provider_has_events` otherwise). `200 { "ok": true, "affected": {...},
+  "impact": {...} }` (`impact` as for a group) · `400` invalid provider id · `401` no session · `403`
+  foreign origin, demo mode, or no sudo · `404` no such provider · `503` Redis down.
+- **`DELETE /api/providers/[provider]?dryRun=1`** (session, same-origin, **no sudo**) — what a forced
+  delete would remove: `200 { "ok": true, "dryRun": true, "affected": {...}, "impact": {...} }`, with
+  nothing written or archived and no `409`. Demo mode refuses it like every other delete.
 
 ## Alerts test
 

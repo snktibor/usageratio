@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { useId, useState } from "react";
 import { PlusIcon, XIcon } from "@/components/icons";
 import type { DraftGroup, DraftProvider } from "@/components/settings/draft";
+import { ForceDeleteDialog, useDeleteImpact } from "@/components/settings/force-delete-dialog";
 import { SudoUnlock } from "@/components/setup/sudo-unlock";
 import { StatusLine } from "@/components/status-line";
 import { FIELD, QUIET_BUTTON } from "@/components/ui/classes";
@@ -76,6 +77,9 @@ export function GroupsSection({
   const [mergeConfirm, setMergeConfirm] = useState<MergeConfirm | null>(null);
   const [forceDeleteConfirm, setForceDeleteConfirm] = useState<ForceDeleteConfirm | null>(null);
   const [sudoRetry, setSudoRetry] = useState<SudoRetry | null>(null);
+  const deleteImpact = useDeleteImpact(
+    forceDeleteConfirm ? `/api/groups/${encodeURIComponent(forceDeleteConfirm.id)}?force=1&dryRun=1` : null,
+  );
   const [problem, setProblem] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -350,15 +354,12 @@ export function GroupsSection({
       )}
 
       {forceDeleteConfirm && (
-        <ConfirmDialog
+        <ForceDeleteDialog
+          kind="group"
+          name={forceDeleteConfirm.id}
           title={t("group_force_delete_title")}
           body={t("group_force_delete_body", { id: forceDeleteConfirm.id })}
-          cancelLabel={t("cancel")}
-          confirmLabel={(secondsLeft) =>
-            secondsLeft > 0 ? t("confirm_yes_countdown", { seconds: secondsLeft }) : t("confirm_yes")
-          }
-          danger
-          countdownSeconds={CONFIRM_DELAY_SECONDS}
+          impact={deleteImpact}
           onCancel={() => setForceDeleteConfirm(null)}
           onConfirm={() => {
             const { id } = forceDeleteConfirm;
