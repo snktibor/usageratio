@@ -5,6 +5,7 @@ import { archiveDueCycles } from "@/lib/archive";
 import { getConfig, RETENTION_DAYS } from "@/lib/config";
 import { pruneExpiredInvites } from "@/lib/invites";
 import { log } from "@/lib/log";
+import { parseManageAuditRecord } from "@/lib/manage-audit";
 import { providerOfOfficialField } from "@/lib/official-usage";
 import { currentSegmentStartMs, earliestStartMs, providerCycle } from "@/lib/provider-cycles";
 import { alertGuardSegmentMs } from "@/lib/redis-keys";
@@ -188,15 +189,21 @@ export async function runHousekeeping(
     resetPrunes.push({ providerId, cycle: window, previousStartMs });
   }
 
-  // Step 6: audit entries past their retention window, in both trails (the shared token's and the
-  // per-machine tokens'). A list is newest first, so the first entry (from the head) that is too
-  // old marks where the still-current ones end: that many are cut from the tail.
+  // Step 6: audit entries past their retention window, in all three trails (the shared token's, the
+  // per-machine tokens' and the destructive actions'). A list is newest first, so the first entry
+  // (from the head) that is too old marks where the still-current ones end: that many are cut from
+  // the tail.
   const auditCutoffMs = now.getTime() - auditRetentionDays() * DAY_MS;
   const auditPrunes: { key: string; removed: number }[] = [];
-  for (const key of [store.keys.apiTokenAudit, store.keys.tokensAudit]) {
+  const trails: [string, (raw: string) => { at: number } | null][] = [
+    [store.keys.apiTokenAudit, parseAuditRecord],
+    [store.keys.tokensAudit, parseAuditRecord],
+    [store.keys.manageAudit, parseManageAuditRecord],
+  ];
+  for (const [key, parse] of trails) {
     const raw = await redis.lrange<string>(key, 0, -1);
     const firstOld = raw.findIndex((item) => {
-      const record = parseAuditRecord(String(item));
+      const record = parse(String(item));
       return record !== null && record.at < auditCutoffMs;
     });
     if (firstOld >= 0) auditPrunes.push({ key, removed: raw.length - firstOld });

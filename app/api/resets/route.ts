@@ -1,6 +1,7 @@
 import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { currentTime } from "@/lib/clock";
 import { demoReadOnly } from "@/lib/demo/mode";
+import { manageAudit } from "@/lib/manage-audit";
 import { parseResetDelete, parseResetPost, parseResetPut } from "@/lib/reset-recording";
 import { applyResetAction, type ResetAction } from "@/lib/reset-store";
 
@@ -19,7 +20,8 @@ import { applyResetAction, type ResetAction } from "@/lib/reset-store";
  *                                                         before-figure back, detection stops this cycle
  *
  * The kind is the provider's mode (lib/settings.ts `resetModeOf`); a restart
- * moves the provider's own reset to atMs.
+ * moves the provider's own reset to atMs. A restart recorded, changed or deleted goes on the manage
+ * audit trail (GET /api/manage/audit), in the same transaction; a keep reset does not.
  *
  * 200 { ok, events, cycle: { startMs, endMs } } · 400 bad JSON/payload · 401 no session ·
  * 403 foreign origin, or demo mode (demo_read_only) · 404 not_found (provider or reset) ·
@@ -47,7 +49,8 @@ function resetHandler(parse: (body: unknown) => ParsedAction) {
     const parsed = parse(body.value);
     if (!parsed.ok) return apiError("invalid_payload", 400, { details: parsed.errors });
 
-    const result = await applyResetAction(store, parsed.action, currentTime());
+    const now = currentTime();
+    const result = await applyResetAction(store, parsed.action, now, { audit: manageAudit(tenant, now) });
     if (!result.ok) return apiError(result.refused, result.refused === "not_found" ? 404 : 409);
     return json({ ok: true, events: result.events, cycle: result.cycle }, 200);
   });

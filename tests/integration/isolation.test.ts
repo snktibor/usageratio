@@ -259,6 +259,7 @@ function cases(world: World): Record<string, Case[]> {
     ],
     "machines/prune": [{ method: "POST", path: "/api/machines/prune", auth: "sudo" }],
     machines: [{ method: "GET", path: "/api/machines", auth: "session" }],
+    "manage/audit": [{ method: "GET", path: "/api/manage/audit", auth: "session" }],
     "official-usage/archived": [
       {
         method: "PUT",

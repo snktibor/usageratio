@@ -4,6 +4,7 @@ import {
   type AuditAction,
   type AuditEntry,
   type AuditRecord,
+  type AuditRequestFields,
   type AuditToken,
   networkPrefix,
   parseAuditRecord,
@@ -206,21 +207,23 @@ export async function auditRecord(
   });
 }
 
-/** The request's part of an audit record (browser, address, session): the same for every entry one request writes. */
-export async function auditFields(action: AuditAction, now: Date): Promise<AuditRecord> {
+/** The request's part of an audit record (browser, address, session): the same for every entry one request writes, on every trail. */
+export async function requestAuditFields(now: Date): Promise<AuditRequestFields> {
   const requestHeaders = await currentHeaders();
   const header = (name: string, max: number) => (requestHeaders.get(name) ?? "").slice(0, max);
   return {
     at: now.getTime(),
-    action,
     userAgent: header("user-agent", 256),
     brands: header("sec-ch-ua", 256),
     platform: header("sec-ch-ua-platform", 64),
     session: await sessionTag(),
     ...auditIpFields((await clientIp()).slice(0, 64)),
-    token: null,
-    by: null,
   };
+}
+
+/** An audit record of `action` for the request being served, without a token or a login. */
+export async function auditFields(action: AuditAction, now: Date): Promise<AuditRecord> {
+  return { ...(await requestAuditFields(now)), action, token: null, by: null };
 }
 
 /** Encrypts and stores `token`, in one transaction with its audit entry. */

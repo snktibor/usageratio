@@ -17,6 +17,7 @@ All source: `app/api/**/route.ts`, shared helpers in `lib/api.ts`.
 - [`GET`/`POST /api/setup`](#get-apisetup)
 - [`GET`/`PUT /api/api-token`, `POST /api/api-token/reveal`, `GET /api/api-token/audit`](#the-stored-api-token)
 - [`GET`/`POST /api/tokens`, `DELETE /api/tokens/[id]`, `POST /api/tokens/[id]/rotate`, `GET /api/tokens/audit`](#per-machine-tokens)
+- [`GET /api/manage/audit`](#manage-audit)
 - [`GET /api/machines`, `PATCH`/`DELETE /api/machines/[provider]/[machine]`, `POST /api/machines/prune`](#machines)
 - [`PATCH`/`DELETE /api/groups/[group]`](#groups)
 - [`DELETE /api/providers/[provider]`](#providers)
@@ -518,6 +519,22 @@ Up to 100 live tokens per workspace (`422 too_many_tokens` with `limit` past tha
   "token": { "id", "label", "replacement"? }, "by": login | null }], "currentSession" }`: the
   per-machine tokens' audit trail, newest first. `by` is the GitHub login in multi-tenant mode.
   `403 owner_only` for a workspace member: the trail carries other people's network details.
+
+## Manage audit
+
+- **`GET /api/manage/audit`** (session, the owner's) → `{ "entries": [{ "at", "action":
+  "group_deleted" | "group_merged" | "provider_deleted" | "machine_deleted" | "machine_merged" |
+  "restart_recorded" | "restart_edited" | "restart_deleted", "subject": { "kind":
+  "group" | "provider" | "machine", "id", "providerId"?, "target"? }, "affected": { "events",
+  "machines", "groups" } | null, "trashId": string | null, "browser", "os", "userAgent", "ip",
+  "session", "by": login | null }], "currentSession" }`: the audit trail of destructive actions,
+  newest first (the last 500). `subject.providerId` is a machine's provider and `subject.target` a
+  merge's destination; a restart is about its provider. The entry is written in the same transaction as
+  the change by `DELETE /api/groups/[group]`, `PATCH /api/groups/[group]` (a merge, not a plain rename),
+  `DELETE /api/providers/[provider]`, `PATCH` (a merge) and `DELETE /api/machines/[provider]/[machine]`,
+  and `POST`/`PUT`/`DELETE /api/resets` (a restart); a dry run, a refused delete and a `keep` reset write
+  nothing. `by` is the GitHub login in multi-tenant mode. `401` no session · `403 owner_only` for a
+  workspace member: the trail carries other people's network details · `503` Redis down.
 
 ## Machines
 

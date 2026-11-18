@@ -14,6 +14,7 @@ import {
 import { officialUsageField } from "@/lib/official-usage";
 import { getRedis } from "@/lib/redis";
 import { loadEvents, loadHistory, loadIndexes, saveResets } from "@/lib/usage-store";
+import { manageTrail, stubAudit } from "./helpers/manage-audit";
 import { useRedis } from "./helpers/redis-fixture";
 import { KEYS, tenant } from "./helpers/tenant";
 
@@ -727,5 +728,147 @@ describe("archiving before a destructive change", () => {
 
   it("archiveBeforeChange on a store with no providers returns [] without reading events", async () => {
     expect(await archiveBeforeChange(tenant, NOW)).toEqual([]);
+  });
+});
+
+describe("the manage audit trail", () => {
+  useRedis();
+
+  it("deleteGroup writes one group_deleted entry, with the counts, in the same change", async () => {
+    await ingest({ groupId: "Work", machineId: "mac1" });
+    const { audit, calls } = stubAudit();
+
+    const result = await deleteGroup(tenant, "Work", true, NOW, { audit });
+    expect(result).toMatchObject({ ok: true, affected: { events: 1, machines: 1, groups: 1 } });
+
+    expect(calls).toHaveLength(1);
+    expect(await manageTrail()).toMatchObject([
+      {
+        action: "group_deleted",
+        subject: { kind: "group", id: "Work" },
+        affected: { events: 1, machines: 1, groups: 1 },
+      },
+    ]);
+    expect(await getRedis().hexists(KEYS.groups, "Work")).toBe(0);
+  });
+
+  it("deleteGroup audits a group without stored events too, and writes nothing for a refused or dry run delete", async () => {
+    await ingest({ groupId: "Work" });
+    await ingest({ groupId: "Quiet", providers: {} });
+    const { audit, calls } = stubAudit();
+
+    expect(await deleteGroup(tenant, "Work", false, NOW, { audit })).toEqual({ ok: false, reason: "has_events" });
+    expect(await deleteGroup(tenant, "Work", true, NOW, { audit, dryRun: true })).toMatchObject({ ok: true });
+    expect(await deleteGroup(tenant, "Ghost", true, NOW, { audit })).toEqual({ ok: false, reason: "not_found" });
+    expect(calls).toEqual([]);
+    expect(await manageTrail()).toEqual([]);
+
+    expect(await deleteGroup(tenant, "Quiet", false, NOW, { audit })).toMatchObject({ ok: true });
+    expect(await manageTrail()).toMatchObject([
+      { action: "group_deleted", subject: { id: "Quiet" }, affected: { events: 0, machines: 0, groups: 1 } },
+    ]);
+  });
+
+  it("deleteProvider writes one provider_deleted entry, and none for a refused or dry run delete", async () => {
+    await ingest({ groupId: "Work" });
+    await ingest({ groupId: "Home", machineId: "mac2" });
+    const { audit, calls } = stubAudit();
+
+    expect(await deleteProvider(tenant, "claude", false, NOW, { audit })).toEqual({ ok: false, reason: "has_events" });
+    expect(await deleteProvider(tenant, "claude", true, NOW, { audit, dryRun: true })).toMatchObject({ ok: true });
+    expect(await deleteProvider(tenant, "ghost", true, NOW, { audit })).toEqual({ ok: false, reason: "not_found" });
+    expect(calls).toEqual([]);
+
+    expect(await deleteProvider(tenant, "claude", true, NOW, { audit })).toMatchObject({ ok: true });
+    expect(await manageTrail()).toMatchObject([
+      {
+        action: "provider_deleted",
+        subject: { kind: "provider", id: "claude" },
+        affected: { events: 2, machines: 2, groups: 2 },
+      },
+    ]);
+  });
+
+  it("renameOrMergeGroup audits a merge (with its destination), never a plain rename", async () => {
+    await ingest({ groupId: "Work", machineId: "a" });
+    await ingest({ groupId: "Team", machineId: "b" });
+    const { audit, calls } = stubAudit();
+
+    expect(await renameOrMergeGroup(tenant, "Work", "Team", false, NOW, { audit })).toEqual({
+      ok: false,
+      reason: "exists",
+    });
+    expect(await renameOrMergeGroup(tenant, "Work", "Renamed", false, NOW, { audit })).toMatchObject({ ok: true });
+    expect(await renameOrMergeGroup(tenant, "Renamed", "Renamed", true, NOW, { audit })).toMatchObject({ ok: true });
+    expect(calls).toEqual([]);
+    expect(await manageTrail()).toEqual([]);
+
+    expect(await renameOrMergeGroup(tenant, "Renamed", "Team", true, NOW, { audit })).toMatchObject({ ok: true });
+    expect(await manageTrail()).toMatchObject([
+      {
+        action: "group_merged",
+        subject: { kind: "group", id: "Renamed", target: "Team" },
+        affected: { events: 1, machines: 1, groups: 1 },
+      },
+    ]);
+  });
+
+  it("deleteMachine writes one machine_deleted entry, and none for an unknown machine", async () => {
+    await ingest({ machineId: "mac-1" });
+    await ingest({ machineId: "mac-2", providers: { claude: 250 } });
+    const { audit, calls } = stubAudit();
+
+    expect(await deleteMachine(tenant, "claude", "ghost", { audit })).toEqual({ ok: false, reason: "not_found" });
+    expect(calls).toEqual([]);
+
+    expect(await deleteMachine(tenant, "claude", "mac-1", { audit })).toEqual({
+      ok: true,
+      affected: { events: 1, machines: 1, groups: 0 },
+    });
+    expect(await manageTrail()).toMatchObject([
+      {
+        action: "machine_deleted",
+        subject: { kind: "machine", id: "mac-1", providerId: "claude" },
+        affected: { events: 1, machines: 1, groups: 0 },
+      },
+    ]);
+  });
+
+  it("moveMachine audits a merge only: a rename, a regroup, a refusal and a no-op write nothing", async () => {
+    await ingest({ machineId: "mac-1", groupId: "Personal" });
+    await ingest({ machineId: "mac-2", groupId: "Personal", providers: { claude: 250 } });
+    await ingest({ machineId: "mac-3", groupId: "Work" });
+    const { audit, calls } = stubAudit();
+    const options = { ...MOVE, audit };
+
+    expect(await moveMachine(tenant, "claude", "mac-1", { machineId: "mac-2" }, options)).toEqual({
+      ok: false,
+      reason: "exists",
+    });
+    expect(await moveMachine(tenant, "claude", "mac-1", { machineId: "mac-1" }, options)).toMatchObject({ ok: true });
+    expect(await moveMachine(tenant, "claude", "mac-3", { machineId: "mac-4" }, options)).toMatchObject({ ok: true });
+    expect(await moveMachine(tenant, "claude", "mac-4", { groupId: "Personal" }, options)).toMatchObject({ ok: true });
+    expect(calls).toEqual([]);
+    expect(await manageTrail()).toEqual([]);
+
+    const merged = await moveMachine(tenant, "claude", "mac-1", { machineId: "mac-2" }, { ...options, merge: true });
+    expect(merged).toMatchObject({ ok: true });
+    expect(await manageTrail()).toMatchObject([
+      {
+        action: "machine_merged",
+        subject: { kind: "machine", id: "mac-1", providerId: "claude", target: "mac-2" },
+        affected: { machines: 2 },
+      },
+    ]);
+  });
+
+  it("writes nothing without a writer", async () => {
+    await ingest({ groupId: "Work" });
+    await ingest({ machineId: "x", groupId: "Team" });
+    await renameOrMergeGroup(tenant, "Work", "Team", true, NOW);
+    await deleteMachine(tenant, "claude", "x");
+    await deleteGroup(tenant, "Team", true, NOW);
+    await deleteProvider(tenant, "claude", true, NOW);
+    expect(await manageTrail()).toEqual([]);
   });
 });

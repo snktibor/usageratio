@@ -3,6 +3,7 @@ import type { TimeWindow } from "@/lib/aggregate";
 import { archiveBeforeChange } from "@/lib/archive";
 import { type AppConfig, getConfig, type ResetOverride } from "@/lib/config";
 import type { Cycle } from "@/lib/cycle";
+import type { ManageAction, ManageAuditWriter } from "@/lib/manage-audit";
 import { officialUsageField, parseStoredOfficialEntry, serializeOfficialEntry } from "@/lib/official-usage";
 import { officialTagAt, providerCycle } from "@/lib/provider-cycles";
 import { mergeProviderIds } from "@/lib/providers";
@@ -78,7 +79,18 @@ function extraFigure(action: ResetAction, event: ResetEvent): { raw: string; ent
   return null;
 }
 
-export async function applyResetAction(store: TenantStore, action: ResetAction, now: Date): Promise<ResetActionResult> {
+const RESTART_ACTIONS: Record<ResetAction["kind"], ManageAction> = {
+  record: "restart_recorded",
+  edit: "restart_edited",
+  delete: "restart_deleted",
+};
+
+export async function applyResetAction(
+  store: TenantStore,
+  action: ResetAction,
+  now: Date,
+  options: { audit?: ManageAuditWriter } = {},
+): Promise<ResetActionResult> {
   const { providerId } = action.request;
   const indexes = await loadIndexes(store);
   const providerIds = mergeProviderIds(
@@ -119,6 +131,12 @@ export async function applyResetAction(store: TenantStore, action: ResetAction, 
     await archiveBeforeChange(store, now, { indexes, providerIds: [providerId] });
   }
 
+  // Only a restart is audited: it can strand or replace a cycle's summary; a keep reset loses nothing.
+  const audit =
+    options.audit && change.event.kind === "restart"
+      ? await options.audit({ action: RESTART_ACTIONS[action.kind], subject: { kind: "provider", id: providerId } })
+      : undefined;
+
   const after = change.override === undefined ? config : withResetOverride(config, providerId, change.override);
   await saveResetChange(store, {
     providerId,
@@ -127,6 +145,7 @@ export async function applyResetAction(store: TenantStore, action: ResetAction, 
     rawSettings: indexes.settings,
     providerIds,
     now,
+    ...(audit !== undefined && { audit }),
     // The summary archived of the cycle a restart cut short no longer holds once the restart is edited
     // or gone; the next archiving run writes it again from the events (lib/archive.ts).
     ...(action.kind !== "record" &&

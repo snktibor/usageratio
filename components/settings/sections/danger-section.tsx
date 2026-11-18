@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { useState } from "react";
 import type { DraftProvider } from "@/components/settings/draft";
 import { ForceDeleteDialog, useDeleteImpact } from "@/components/settings/force-delete-dialog";
+import { ManageHistory } from "@/components/settings/sections/manage-history";
 import { SudoUnlock } from "@/components/setup/sudo-unlock";
 import { StatusLine } from "@/components/status-line";
 import { QUIET_BUTTON } from "@/components/ui/classes";
@@ -32,11 +33,16 @@ async function errorCode(response: Response): Promise<string | null> {
 export function DangerSection({
   titleId,
   providers,
+  timeZone,
+  history,
   onDeleted,
   onManaged,
 }: {
   titleId: string;
   providers: DraftProvider[];
+  timeZone: string;
+  /** Whether to show the history of destructive actions: the owner's (false for a workspace member). */
+  history: boolean;
   /** Takes the provider off the panel's lists. */
   onDeleted: (id: string) => void;
   /** After a provider is deleted, so the rest of the dashboard (outside this dialog) catches up. */
@@ -121,6 +127,8 @@ export function DangerSection({
           <StatusLine tone="good">{toast}</StatusLine>
         </Toast>
       )}
+
+      {history && <ManageHistory timeZone={timeZone} />}
 
       {confirm &&
         // Until the count says the provider has no reports, the typed dialog is the safe default.

@@ -1,6 +1,7 @@
 import { apiError, json, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
 import { hasSudo } from "@/lib/auth";
 import { demoReadOnly } from "@/lib/demo/mode";
+import { manageAudit } from "@/lib/manage-audit";
 import { deleteProvider } from "@/lib/manage-store";
 import { normalizeProviderId } from "@/lib/providers";
 
@@ -10,7 +11,8 @@ import { normalizeProviderId } from "@/lib/providers";
  * of it in the settings document (limits, sub-limits, hiddenProviders,
  * excludedProviders). The settings panel only offers this for a provider
  * already hidden. Needs a fresh sudo grant; `?force=1` is required when it
- * still has stored events, so a click cannot lose history by accident.
+ * still has stored events, so a click cannot lose history by accident. A delete goes on the manage
+ * audit trail (GET /api/manage/audit), in the same transaction; a dry run does not.
  *
  *   DELETE          → 409 provider_has_events unless it has none
  *   DELETE?force=1  → deletes its reports too
@@ -36,6 +38,7 @@ export async function DELETE(request: Request, context: { params: Promise<Params
     const tenant = await requireTenantSession();
     if (tenant instanceof Response) return tenant;
     const { store } = tenant;
+    const now = new Date();
 
     const providerId = normalizeProviderId(provider);
     if (!providerId) return apiError("invalid_payload", 400, { details: ["invalid provider id"] });
@@ -45,7 +48,10 @@ export async function DELETE(request: Request, context: { params: Promise<Params
     if (!dryRun && !(await hasSudo())) return apiError("sudo_required", 403);
 
     const force = url.searchParams.get("force") === "1";
-    const result = await deleteProvider(store, providerId, force, new Date(), { dryRun });
+    const result = await deleteProvider(store, providerId, force, now, {
+      dryRun,
+      ...(!dryRun && { audit: manageAudit(tenant, now) }),
+    });
     if (!result.ok) {
       return apiError(
         result.reason === "has_events" ? "provider_has_events" : "not_found",

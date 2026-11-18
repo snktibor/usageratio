@@ -4,6 +4,7 @@ import { getConfig } from "@/lib/config";
 import { getCycle, getPreviousCycle } from "@/lib/cycle";
 import { runHousekeeping } from "@/lib/housekeeping";
 import { ingestReport } from "@/lib/ingest";
+import { serializeManageAuditRecord } from "@/lib/manage-audit";
 import { getRedis } from "@/lib/redis";
 import { restartOverride } from "@/lib/resets";
 import { serializeGroupEntry, serializeSettings, settingsFromConfig } from "@/lib/settings";
@@ -245,6 +246,37 @@ describe("runHousekeeping", () => {
     const report = await runHousekeeping(tenant, NOW, { dryRun: false });
     expect(report.audit.removed).toBe(2);
     expect(await redis.exists("usage:tokens:audit")).toBe(0);
+  });
+
+  it("prunes the manage trail past AUDIT_RETENTION_DAYS too", async () => {
+    vi.stubEnv("AUDIT_RETENTION_DAYS", "10");
+    const redis = getRedis();
+    const record = (at: number) =>
+      serializeManageAuditRecord({
+        at,
+        action: "group_deleted",
+        subject: { kind: "group", id: "Work" },
+        affected: { events: 1, machines: 1, groups: 1 },
+        trashId: null,
+        userAgent: "",
+        brands: "",
+        platform: "",
+        ip: null,
+        ipHash: null,
+        ipPrefix: null,
+        session: null,
+        by: null,
+      });
+    await redis.lpush("usage:manage:audit", record(NOW.getTime()));
+    await redis.rpush("usage:manage:audit", record(NOW.getTime() - 20 * DAY_MS), record(NOW.getTime() - 30 * DAY_MS));
+
+    const dry = await runHousekeeping(tenant, NOW, { dryRun: true });
+    expect(dry.audit.removed).toBe(2);
+    expect(await redis.llen("usage:manage:audit")).toBe(3);
+
+    const report = await runHousekeeping(tenant, NOW, { dryRun: false });
+    expect(report.audit.removed).toBe(2);
+    expect(await redis.llen("usage:manage:audit")).toBe(1);
   });
 
   it("does nothing on a bare store", async () => {

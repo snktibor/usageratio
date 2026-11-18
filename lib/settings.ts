@@ -143,6 +143,8 @@ export interface SettingsView {
   sharedToken?: boolean;
   /** False for a workspace member: the token history carries other people's network details, and is the owner's. */
   tokenHistory?: boolean;
+  /** False for a workspace member: the history of destructive actions carries network details too, and is the owner's. */
+  manageHistory?: boolean;
   timeZone: string;
   /** `models`: this cycle's model ids of the provider (without their dates), for picking a sub-limit's. */
   providers: { id: string; label: string; models: string[] }[];
@@ -967,7 +969,7 @@ export function buildSettingsView(
   /**
    * Every caller decides. `multiTenant`: the webhook URL never reaches a browser (lib/webhook.ts
    * `maskWebhookUrl`), and there is no shared token. `owner`: whether the viewer may see the token
-   * history (a single-user instance's PIN always may).
+   * and the manage history (a single-user instance's PIN always may).
    */
   options: { multiTenant: boolean; owner?: boolean },
   providerIds: string[] = Object.keys(config.providerLimits),
@@ -979,7 +981,7 @@ export function buildSettingsView(
   return {
     settings: options.multiTenant ? withMaskedWebhook(settings) : settings,
     ...(options.multiTenant && { webhookMasked: true, sharedToken: false }),
-    ...(options.owner === false && { tokenHistory: false }),
+    ...(options.owner === false && { tokenHistory: false, manageHistory: false }),
     timeZone: config.reset.timeZone,
     providers: providers.map((id) => ({
       id,
