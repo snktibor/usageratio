@@ -11,6 +11,7 @@ import { FIELD, QUIET_BUTTON } from "@/components/ui/classes";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Toast } from "@/components/ui/toast";
 import { ToggleChip } from "@/components/ui/toggle-chip";
+import { TRASH_RETENTION_DAYS } from "@/lib/config";
 import { normalizeHexColor, PRESET_COLORS } from "@/lib/settings";
 
 /** How long the force-delete/merge confirm buttons stay disabled after opening. */
@@ -358,7 +359,7 @@ export function GroupsSection({
           kind="group"
           name={forceDeleteConfirm.id}
           title={t("group_force_delete_title")}
-          body={t("group_force_delete_body", { id: forceDeleteConfirm.id })}
+          body={t("group_force_delete_body", { id: forceDeleteConfirm.id, days: TRASH_RETENTION_DAYS })}
           impact={deleteImpact}
           onCancel={() => setForceDeleteConfirm(null)}
           onConfirm={() => {

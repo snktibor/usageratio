@@ -2,14 +2,16 @@
 
 import { useTranslations } from "next-intl";
 import { useState } from "react";
-import type { DraftProvider } from "@/components/settings/draft";
+import type { DraftGroup, DraftProvider } from "@/components/settings/draft";
 import { ForceDeleteDialog, useDeleteImpact } from "@/components/settings/force-delete-dialog";
 import { ManageHistory } from "@/components/settings/sections/manage-history";
+import { RecentlyDeleted } from "@/components/settings/sections/recently-deleted";
 import { SudoUnlock } from "@/components/setup/sudo-unlock";
 import { StatusLine } from "@/components/status-line";
 import { QUIET_BUTTON } from "@/components/ui/classes";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Toast } from "@/components/ui/toast";
+import { TRASH_RETENTION_DAYS } from "@/lib/config";
 
 /** How long the plain delete confirm button stays disabled after opening. */
 const CONFIRM_DELAY_SECONDS = 3;
@@ -24,18 +26,23 @@ async function errorCode(response: Response): Promise<string | null> {
 }
 
 /**
- * The bottom of the settings panel: actions that cannot be undone. For now
- * that is deleting a provider, offered only for one switched off in the
- * Providers section (accounts-section.tsx). A provider with stored reports
- * needs its name typed, next to a line saying what it deletes, and every
- * delete a fresh PIN (sudo).
+ * The bottom of the settings panel: what was deleted and can still be
+ * restored (Recently deleted), and deleting a provider, offered only for one
+ * switched off in the Providers section (accounts-section.tsx). A provider
+ * with stored reports needs its name typed, next to a line saying what it
+ * deletes, and every delete a fresh PIN (sudo). A forced delete stays in
+ * Recently deleted for TRASH_RETENTION_DAYS.
  */
 export function DangerSection({
   titleId,
   providers,
   timeZone,
   history,
+  canPurge,
+  trashVersion,
   onDeleted,
+  onGroupRestored,
+  onProviderRestored,
   onManaged,
 }: {
   titleId: string;
@@ -43,8 +50,16 @@ export function DangerSection({
   timeZone: string;
   /** Whether to show the history of destructive actions: the owner's (false for a workspace member). */
   history: boolean;
+  /** Whether Recently deleted offers Delete permanently: the owner's (false for a workspace member). */
+  canPurge: boolean;
+  /** Changes when something was deleted elsewhere on the panel (a group): Recently deleted loads again. */
+  trashVersion: number;
   /** Takes the provider off the panel's lists. */
   onDeleted: (id: string) => void;
+  /** A restored group goes back on the panel's lists. */
+  onGroupRestored: (group: DraftGroup) => void;
+  /** A restored provider goes back on the panel's lists. */
+  onProviderRestored: (id: string) => void;
   /** After a provider is deleted, so the rest of the dashboard (outside this dialog) catches up. */
   onManaged: () => void;
 }) {
@@ -87,7 +102,18 @@ export function DangerSection({
         {t("danger_heading")}
       </h3>
 
-      <h4 className="mt-3 text-sm font-medium">{t("provider_delete_heading")}</h4>
+      <div className="mt-3">
+        <RecentlyDeleted
+          timeZone={timeZone}
+          canPurge={canPurge}
+          reloadKey={trashVersion}
+          onGroupRestored={onGroupRestored}
+          onProviderRestored={onProviderRestored}
+          onManaged={onManaged}
+        />
+      </div>
+
+      <h4 className="mt-6 text-sm font-medium">{t("provider_delete_heading")}</h4>
       <p className="mt-1 text-sm text-ink-3">{t("provider_delete_explanation")}</p>
       {hidden.length === 0 ? (
         <p className="mt-3 text-sm text-ink-3">{t("provider_delete_none")}</p>
@@ -137,7 +163,7 @@ export function DangerSection({
             kind="provider"
             name={confirm.id}
             title={t("manage_provider_delete_title")}
-            body={t("manage_provider_delete_force_body", { label: confirm.label })}
+            body={t("manage_provider_delete_force_body", { label: confirm.label, days: TRASH_RETENTION_DAYS })}
             impact={deleteImpact}
             onCancel={() => setConfirm(null)}
             onConfirm={() => {

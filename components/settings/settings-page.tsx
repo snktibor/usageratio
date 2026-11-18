@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { ArrowLeftIcon, StopCircleIcon } from "@/components/icons";
+import { withRestoredGroup } from "@/components/settings/draft";
 import { AccountsSection } from "@/components/settings/sections/accounts-section";
 import { AlertsSection } from "@/components/settings/sections/alerts-section";
 import { BudgetSection } from "@/components/settings/sections/budget-section";
@@ -118,6 +119,12 @@ export function SettingsPage({ view }: { view: SettingsView }) {
   const [active, jumpTo] = useActiveSection();
   const [deletedProviderIds, setDeletedProviderIds] = useState<string[]>([]);
   const [machineIds, setMachineIds] = useState<string[]>([]);
+  // A forced delete puts an entry into Recently deleted, which loaded when the page did: this makes it load again.
+  const [trashVersion, setTrashVersion] = useState(0);
+  const managedTrash = () => {
+    setTrashVersion((version) => version + 1);
+    actions.refresh();
+  };
   const listedProviders = draft.providers.filter((provider) => !deletedProviderIds.includes(provider.id));
   const visibleProviders = draft.providers.filter((provider) => provider.visible);
 
@@ -232,7 +239,7 @@ export function SettingsPage({ view }: { view: SettingsView }) {
                 onGroupsChanged={actions.setGroups}
                 onAddGroup={actions.addGroup}
                 onNewGroupNameChange={(newGroupName) => actions.patch({ newGroupName })}
-                onManaged={actions.refresh}
+                onManaged={managedTrash}
               />
             </SettingsGroup>
 
@@ -280,8 +287,12 @@ export function SettingsPage({ view }: { view: SettingsView }) {
                 providers={listedProviders}
                 timeZone={view.timeZone}
                 history={view.manageHistory !== false}
+                canPurge={view.manageHistory !== false}
+                trashVersion={trashVersion}
                 onDeleted={(id) => setDeletedProviderIds((current) => [...current, id])}
-                onManaged={actions.refresh}
+                onGroupRestored={(restored) => actions.setGroups((groups) => withRestoredGroup(groups, restored))}
+                onProviderRestored={(id) => setDeletedProviderIds((current) => current.filter((i) => i !== id))}
+                onManaged={managedTrash}
               />
             </SettingsGroup>
           </div>

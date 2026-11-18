@@ -117,6 +117,9 @@ export const REPORT_INTERVAL_MINUTES = 60;
  */
 export const RETENTION_DAYS = 70;
 
+/** How long a force-deleted group or provider stays restorable (lib/trash.ts); the settings copy quotes it. */
+export const TRASH_RETENTION_DAYS = 30;
+
 /** A machine silent for longer than this drops off the dashboard. */
 export const INACTIVE_MACHINE_DAYS = 35;
 

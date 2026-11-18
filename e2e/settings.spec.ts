@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { REAL_API_TOKEN } from "./env";
+import { REAL_API_TOKEN, REAL_PIN } from "./env";
 import { expect, test } from "./fixtures";
 
 /**
@@ -76,6 +76,60 @@ test("leaving with unsaved changes asks first, and staying keeps them", async ({
   await page.getByRole("alertdialog").getByRole("button", { name: "Leave" }).click();
   await expect(page).toHaveURL(/\/en$/);
   await expect(page.getByRole("button", { name: "Log out" })).toBeVisible();
+});
+
+test.describe("own session", () => {
+  // The PIN grant (sudo) lives on the server for the session: on the shared one it would still be
+  // there for setup.spec.ts, which expects to be asked for the PIN. So this logs in by itself.
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test("a force-deleted group shows in Recently deleted and comes back with its reports", async ({ page }) => {
+    await page.goto("/en");
+    await page.locator("#pin").fill(REAL_PIN);
+    await page.locator("form button[type=submit]").click();
+    await expect(page.locator("#pin")).toHaveCount(0);
+
+    const report = await page.request.post("/api/usage", {
+      headers: { Authorization: `Bearer ${REAL_API_TOKEN}` },
+      data: {
+        machineId: "e2e-lab",
+        groupId: "Lab",
+        providers: { claude: 500 },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    expect(report.ok()).toBe(true);
+    // The PIN grant (sudo) rides along as a cookie on the page's requests too; the PIN prompt itself is a component test.
+    const sudo = await page.request.post("/api/auth/sudo", { data: { pin: REAL_PIN } });
+    expect(sudo.status()).toBe(204);
+
+    await page.goto("/en/settings");
+    await untilLive(page);
+
+    await page.getByRole("button", { name: "Delete “Lab”", exact: true }).click();
+    const dialog = page.getByRole("alertdialog");
+    await dialog.getByLabel("Name to confirm the deletion").fill("Lab");
+    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(page.getByText("Deleted “Lab”.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Delete “Lab”", exact: true })).toHaveCount(0);
+
+    // The list loaded with the page: it picks the new entry up without a reload, folded under its count.
+    await page.getByText("Show the 1 deleted item").click();
+    await expect(page.getByRole("button", { name: "Restore “Lab”" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Restore “Lab”" }).click();
+    await expect(page.getByText("Restored “Lab”.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Restore “Lab”" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Delete “Lab”", exact: true })).toBeVisible();
+
+    // Leave the shared store as it was: delete the group again and the trash entry with it.
+    expect((await page.request.delete("/api/groups/Lab?force=1")).ok()).toBe(true);
+    const listed = await page.request.get("/api/trash");
+    const { entries } = (await listed.json()) as { entries: { id: string; name: string }[] };
+    for (const entry of entries.filter((item) => item.name === "Lab")) {
+      expect((await page.request.delete(`/api/trash/${entry.id}`)).ok()).toBe(true);
+    }
+  });
 });
 
 test.describe("logged out", () => {

@@ -12,6 +12,7 @@ import {
   toRequest,
   withAlertThreshold,
   withOwnReset,
+  withRestoredGroup,
 } from "@/components/settings/draft";
 import { getConfig } from "@/lib/config";
 import { buildSettingsView, MAX_ALERT_THRESHOLDS, MAX_GROUPS, MAX_LIMIT, parseSettingsUpdate } from "@/lib/settings";
@@ -444,5 +445,30 @@ describe("a report's own reset with its instant", () => {
       monthDay: 1,
       time: "13:00",
     });
+  });
+});
+
+describe("withRestoredGroup", () => {
+  const group = (id: string, extra: Partial<DraftGroup> = {}): DraftGroup => ({
+    id,
+    color: "#111111",
+    colorText: "#111111",
+    hasReports: false,
+    excluded: [],
+    ...extra,
+  });
+
+  it("adds a restored group the list does not have", () => {
+    const restored = group("Lab", { color: "#3987e5", colorText: "#3987e5", hasReports: true });
+    expect(withRestoredGroup([group("Work")], restored)).toEqual([group("Work"), restored]);
+  });
+
+  it("keeps a group a report re-created, with its colour, and takes the restored exclusions", () => {
+    const live = group("Lab", { color: "#222222", colorText: "#222222" });
+    const restored = group("Lab", { color: "#3987e5", hasReports: true, excluded: ["openai"] });
+    expect(withRestoredGroup([group("Work"), live], restored)).toEqual([
+      group("Work"),
+      { ...live, hasReports: true, excluded: ["openai"] },
+    ]);
   });
 });
