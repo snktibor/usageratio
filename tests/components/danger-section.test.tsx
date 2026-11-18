@@ -28,18 +28,75 @@ const answer = (status: number, body: unknown) => new Response(JSON.stringify(bo
 const DRY = "/api/providers/openai?force=1&dryRun=1";
 
 function renderDanger(history = true) {
-  const handlers = { onDeleted: vi.fn(), onManaged: vi.fn() };
+  const handlers = {
+    onDeleted: vi.fn(),
+    onGroupRestored: vi.fn(),
+    onProviderRestored: vi.fn(),
+    onManaged: vi.fn(),
+  };
   renderWithIntl(
     <DangerSection
       titleId="settings"
       providers={[OPENAI]}
       timeZone="Europe/Budapest"
       history={history}
+      canPurge={history}
+      trashVersion={0}
       {...handlers}
     />,
   );
   return handlers;
 }
+
+describe("DangerSection recently deleted", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("renders the Recently deleted list above the provider delete", async () => {
+    const entry = {
+      id: "AAAAAAAAAAAAAAAA",
+      kind: "group",
+      name: "Lab",
+      deletedAt: Date.now() - 3_600_000,
+      expiresAt: Date.now() + 29 * 86_400_000,
+      by: null,
+      affected: { events: 3, machines: 1, groups: 1 },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => answer(200, { entries: [entry], retentionDays: 30 })),
+    );
+    renderDanger();
+    expect(await screen.findByText("Lab")).not.toBeNull();
+    const heading = screen.getByRole("heading", { name: "Recently deleted" });
+    const providers = screen.getByRole("heading", { name: "Delete a provider" });
+    expect(heading.compareDocumentPosition(providers) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete “Lab” permanently" })).not.toBeNull();
+  });
+
+  it("offers no permanent delete without canPurge", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        answer(200, {
+          entries: [
+            {
+              id: "AAAAAAAAAAAAAAAA",
+              kind: "group",
+              name: "Lab",
+              deletedAt: Date.now(),
+              expiresAt: Date.now() + 86_400_000,
+              by: null,
+              affected: { events: 3, machines: 1, groups: 1 },
+            },
+          ],
+        }),
+      ),
+    );
+    renderDanger(false);
+    expect(await screen.findByText("Lab")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete “Lab” permanently" })).toBeNull();
+  });
+});
 
 describe("DangerSection history", () => {
   it("shows the history of destructive actions, closed", () => {

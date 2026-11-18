@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { rederiveArchivedCycles } from "@/lib/archive";
-import { MAX_MACHINES, RETENTION_DAYS } from "@/lib/config";
+import { MAX_MACHINES, RETENTION_DAYS, TRASH_RETENTION_DAYS } from "@/lib/config";
 import { log } from "@/lib/log";
 import { type ManageAuditWriter, queueManageAudit } from "@/lib/manage-audit";
 import type { Affected } from "@/lib/manage-store";
@@ -28,7 +28,7 @@ import { loadIndexes } from "@/lib/usage-store";
  * The key layout is in lib/redis-keys.ts.
  */
 
-export const TRASH_RETENTION_DAYS = 30;
+export { TRASH_RETENTION_DAYS };
 /** The most entries the list returns, newest first. */
 export const TRASH_LIST_LIMIT = 100;
 /** `newTrashId`: 12 random bytes, base64url. */

@@ -341,6 +341,18 @@ export function withAlertThreshold(
   return { thresholds: [...thresholds, value].sort((a, b) => a - b) };
 }
 
+/**
+ * The groups after one comes back from Recently deleted: a group a report re-created meanwhile is
+ * kept (its colour wins) and takes the restored exclusions; otherwise the restored group is added.
+ */
+export function withRestoredGroup(groups: DraftGroup[], restored: DraftGroup): DraftGroup[] {
+  return groups.some((group) => group.id === restored.id)
+    ? groups.map((group) =>
+        group.id === restored.id ? { ...group, hasReports: true, excluded: restored.excluded } : group,
+      )
+    : [...groups, restored];
+}
+
 /** Why `name` cannot be added as a group; null when it can. */
 export function groupNameProblem(name: string, groups: DraftGroup[]): DraftProblem | null {
   const errors: string[] = [];
