@@ -6,6 +6,8 @@ import { GET as getMachines } from "@/app/api/machines/route";
 import { GET as getManageAudit } from "@/app/api/manage/audit/route";
 import { POST as switchTenant } from "@/app/api/session/tenant/route";
 import { POST as createTokenRoute } from "@/app/api/tokens/route";
+import { POST as restoreTrashRoute } from "@/app/api/trash/[id]/restore/route";
+import { DELETE as purgeTrashRoute } from "@/app/api/trash/[id]/route";
 import { DELETE as revokeInviteRoute } from "@/app/api/workspace/invites/[id]/route";
 import { POST as createInviteRoute } from "@/app/api/workspace/invites/route";
 import { POST as leave } from "@/app/api/workspace/leave/route";
@@ -14,6 +16,7 @@ import { GET as getWorkspace } from "@/app/api/workspace/route";
 import { POST as transfer } from "@/app/api/workspace/transfer/route";
 import { ingestReport } from "@/lib/ingest";
 import { listInvites, pruneExpiredInvites } from "@/lib/invites";
+import { deleteGroup } from "@/lib/manage-store";
 import { addMember, type Member } from "@/lib/members";
 import { getMemoryStoreForTests, getRedis } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
@@ -303,6 +306,11 @@ describe("workspace members and invites", () => {
       }),
       export: await call(getExport as Handler, "/api/export?format=json&cycle=current", { as: bob }),
       audit: await call(getManageAudit as Handler, "/api/manage/audit", { as: bob }),
+      purge: await call(purgeTrashRoute as Handler, "/api/trash/x", {
+        method: "DELETE",
+        as: bob,
+        params: { id: "AAAAAAAAAAAAAAAA" },
+      }),
     };
     for (const [action, response] of Object.entries(asBob)) {
       expect([action, response.status, await errorOf(response)]).toEqual([action, 403, "owner_only"]);
@@ -314,6 +322,19 @@ describe("workspace members and invites", () => {
     expect(view.workspace).toMatchObject({ role: "member", invites: [] });
     expect((await call(getExport as Handler, "/api/export?format=json&cycle=current", { as: alice })).status).toBe(200);
     expect((await call(getManageAudit as Handler, "/api/manage/audit", { as: alice })).status).toBe(200);
+    // Restoring is open to a member (an unknown entry is a 404, not a 403); permanently deleting is the owner's.
+    const restoreUnknown = await call(restoreTrashRoute as Handler, "/api/trash/x/restore", {
+      method: "POST",
+      as: bob,
+      params: { id: "AAAAAAAAAAAAAAAA" },
+    });
+    expect(restoreUnknown.status).toBe(404);
+    const purgeUnknown = await call(purgeTrashRoute as Handler, "/api/trash/x", {
+      method: "DELETE",
+      as: alice,
+      params: { id: "AAAAAAAAAAAAAAAA" },
+    });
+    expect(purgeUnknown.status).toBe(404);
 
     // Carol owns a workspace of her own: alice's is nowhere to be found from there.
     const carol = await owner("carol");
@@ -506,6 +527,18 @@ describe("workspace members and invites", () => {
     ]) {
       expect(response.status).toBe(404);
     }
+  });
+
+  it("deletes a workspace's recently deleted entries with it: no key is left under its prefix", async () => {
+    const alice = await owner("alice");
+    await report(alice.tenantId, "mac");
+    const deleted = await deleteGroup(tenantStore(alice.tenantId), "Personal", true, new Date());
+    expect(deleted).toMatchObject({ ok: true, trashId: expect.any(String) });
+    const memory = getMemoryStoreForTests();
+    if (memory) expect(memory.keys().filter((key) => key.includes(":usage:trash"))).not.toEqual([]);
+
+    expect((await deleteTenant(alice.tenantId, new Date())).ok).toBe(true);
+    if (memory) expect(memory.keys().filter((key) => key.includes(alice.tenantId))).toEqual([]);
   });
 
   it("deletes a workspace's invites with it", async () => {

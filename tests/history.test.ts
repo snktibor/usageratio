@@ -13,6 +13,7 @@ import {
   summarizeCycle,
   sumOfFigures,
   withCorrectedOfficial,
+  withRederivedTokens,
 } from "@/lib/history";
 import { serializeOfficialEntry } from "@/lib/official-usage";
 import { getRedis } from "@/lib/redis";
@@ -334,6 +335,120 @@ describe("withCorrectedOfficial", () => {
 
   it("is null for a start that is no segment's", () => {
     expect(withCorrectedOfficial(SEGMENTED, 50, 71 * HOUR)).toBeNull();
+  });
+});
+
+describe("withRederivedTokens", () => {
+  const OLD: CycleSummary = {
+    v: 1,
+    start: WINDOW.startMs,
+    end: WINDOW.endMs,
+    total: 100,
+    limit: 5_000,
+    official: 61.5,
+    groups: { Personal: 100 },
+    machines: 1,
+    models: { opus: 100 },
+    subLimits: { fable: 10 },
+    archivedAt: WINDOW.endMs,
+  };
+  const FRESH: CycleSummary = {
+    ...OLD,
+    total: 400,
+    limit: 9_999,
+    official: null,
+    groups: { Work: 300, Personal: 100 },
+    machines: 2,
+    models: { opus: 100, sonnet: 300 },
+    subLimits: { fable: 30 },
+    archivedAt: 1,
+  };
+
+  it("takes the tokens of the fresh summary and keeps what cannot be worked out again", () => {
+    expect(withRederivedTokens(OLD, FRESH)).toEqual({
+      ...OLD,
+      total: 400,
+      groups: { Work: 300, Personal: 100 },
+      machines: 2,
+      models: { sonnet: 300, opus: 100 },
+      subLimits: { fable: 30 },
+    });
+  });
+
+  it("orders groups and models with the same tokens by name", () => {
+    const tied: CycleSummary = { ...OLD, groups: { Work: 100, Personal: 100 }, models: { sonnet: 50, opus: 50 } };
+    const next = withRederivedTokens(OLD, tied);
+    expect(Object.keys(next.groups)).toEqual(["Personal", "Work"]);
+    expect(Object.keys(next.models)).toEqual(["opus", "sonnet"]);
+  });
+
+  it("is the summary itself when nothing new came back, byte for byte", () => {
+    expect(serializeCycleSummary(withRederivedTokens(OLD, OLD))).toBe(serializeCycleSummary(OLD));
+    // As summarizeCycle writes one: the groups heaviest first, in the cycle and in each segment.
+    const written: CycleSummary = {
+      ...SEGMENTED,
+      segments: SEGMENTED.segments!.map((segment) => ({
+        ...segment,
+        groups: Object.fromEntries(Object.entries(segment.groups).sort(([, a], [, b]) => b - a)),
+      })),
+    };
+    expect(serializeCycleSummary(withRederivedTokens(written, written))).toBe(serializeCycleSummary(written));
+  });
+
+  it("only adds: a group, model or sub-limit the fresh summary lacks stays, the totals are the groups' sums", () => {
+    const fewer: CycleSummary = { ...FRESH, groups: { Work: 300 }, models: {}, subLimits: {}, machines: 1, total: 300 };
+    expect(withRederivedTokens(OLD, fewer)).toMatchObject({
+      total: 400,
+      groups: { Work: 300, Personal: 100 },
+      models: { opus: 100 },
+      subLimits: { fable: 10 },
+      machines: 1,
+    });
+    // A group the stored reports now hold less of keeps its larger archived figure.
+    expect(withRederivedTokens(OLD, { ...FRESH, groups: { Personal: 40 } }).groups).toEqual({ Personal: 100 });
+  });
+
+  it("keeps only the heaviest models, and the cost where either side has one", () => {
+    const many = Object.fromEntries(Array.from({ length: HISTORY_TOP_MODELS + 3 }, (_, i) => [`m${i}`, 1_000 - i]));
+    expect(Object.keys(withRederivedTokens(OLD, { ...FRESH, models: many }).models)).toHaveLength(HISTORY_TOP_MODELS);
+    expect(withRederivedTokens(OLD, FRESH)).not.toHaveProperty("cost");
+    expect(withRederivedTokens({ ...OLD, cost: 2 }, FRESH).cost).toBe(2);
+    expect(withRederivedTokens(OLD, { ...FRESH, cost: 3.5 }).cost).toBe(3.5);
+    expect(withRederivedTokens({ ...OLD, cost: 4 }, { ...FRESH, cost: 3.5 }).cost).toBe(4);
+  });
+
+  it("re-derives each segment by its start and keeps their figures and bounds, even corrected ones", () => {
+    const corrected = withCorrectedOfficial(SEGMENTED, 50)!;
+    const fresh: CycleSummary = {
+      ...SEGMENTED,
+      official: null,
+      groups: { Work: 700, Personal: 400, Home: 90 },
+      total: 1_190,
+      segments: [
+        { start: WINDOW.startMs, end: 72 * HOUR, official: null, total: 590, groups: { Work: 500, Home: 90 } },
+        { start: 72 * HOUR, end: WINDOW.endMs, official: null, total: 600, groups: { Work: 200, Personal: 400 } },
+      ],
+    };
+    const merged = withRederivedTokens(corrected, fresh);
+    expect(merged.official).toBe(corrected.official);
+    expect(merged.segments).toEqual([
+      { start: WINDOW.startMs, end: 72 * HOUR, official: 80, total: 590, groups: { Work: 500, Home: 90 } },
+      { start: 72 * HOUR, end: WINDOW.endMs, official: 50, total: 600, groups: { Personal: 400, Work: 200 } },
+    ]);
+    expect(merged.total).toBe(1_190);
+  });
+
+  it("leaves a segment the fresh summary lacks, ignores one the old summary lacks, and keeps endedByReset", () => {
+    const cut: CycleSummary = { ...SEGMENTED, endedByReset: true };
+    const merged = withRederivedTokens(cut, {
+      ...SEGMENTED,
+      segments: [{ start: 99, end: 100, official: null, total: 5, groups: { Work: 5 } }],
+    });
+    expect(merged.segments).toEqual(SEGMENTED.segments);
+    expect(merged.endedByReset).toBe(true);
+    // Without segments in the old summary, the fresh ones are not taken over.
+    expect(withRederivedTokens(OLD, { ...FRESH, segments: SEGMENTED.segments })).not.toHaveProperty("segments");
+    expect(withRederivedTokens(OLD, FRESH)).not.toHaveProperty("endedByReset");
   });
 });
 

@@ -64,8 +64,21 @@
  *                                   (what it was done to: group, provider or machine, and its id),
  *                                   "p"? (a machine's provider), "to"? (a merge's destination),
  *                                   "n"? {"e","m","g"} (reports, machines, groups affected), "tr"?
- *                                   (a trash entry id) and "by"? (the login, multi-tenant mode);
+ *                                   (a trash entry id; a restore's or purge's own), "rc"? (a restore:
+ *                                   archived cycle summaries rewritten) and "by"? (the login, multi-tenant mode);
  *                                   written in the same transaction as the change (lib/manage-audit.ts)
+ *   usage:trash              ZSET   trash id → deleted at (ms): the tenant's recently deleted groups and
+ *                                   providers (lib/trash.ts). Housekeeping drops ids older than
+ *                                   TRASH_RETENTION_DAYS, with their registry names.
+ *   usage:trash:{id}         STRING EX 30d, what a force-delete removed besides its events:
+ *                                   {"v":1,"kind":"group"|"provider","id": the trash id,"name": the
+ *                                    group's or provider's id,"at","by"?,"n":{e,m,g},
+ *                                    "keys":[{"p","g","n"}],"machines":{field: raw entry},
+ *                                    group: "group": raw groups entry, "excluded"?: [providerId];
+ *                                    provider: "firstSeen", "official":{field: raw}, "resets": raw|null,
+ *                                    "limit"?, "subLimits"?, "hidden", "excludedIn":[groupId]}
+ *   usage:trash:{id}:events:{providerId}:{groupId}
+ *                            ZSET   EX 30d: the events key as it was deleted (RENAMEd, members unchanged)
  *   usage:tokens:lock        STRING a random holder id, SET NX EX 10 — held while a token is
  *                                   revoked or rotated, so two of them cannot interleave
  *   usage:tokens:lastused    HASH   sha256(token) → last authenticated request (ms), refreshed at
@@ -76,7 +89,7 @@
  *                                   lib/housekeeping.ts (see app/api/cron/housekeeping/route.ts)
  *
  *   usage:keys               SET    the tenant's key registry: the name of every dynamic key
- *                                   (events, history, all-time, alert guards) it has written,
+ *                                   (events, history, all-time, alert guards, trash:*) it has written,
  *                                   added in the same transaction as the write that creates the
  *                                   key. With the fixed keys (`fixedTenantKeys`) it lists every
  *                                   key the tenant owns without a SCAN, which deleting a tenant
@@ -85,7 +98,9 @@
  *                                   Housekeeping only drops the names of alert guards whose segment
  *                                   started more than a month plus their 70-day expiry ago: those are
  *                                   gone and can never be written again, so dropping them cannot race
- *                                   a write (lib/housekeeping.ts).
+ *                                   a write, and the names of trash entries older than
+ *                                   TRASH_RETENTION_DAYS, whose random id is never written again
+ *                                   (lib/housekeeping.ts).
  *
  *   usage:alert:{providerId}:{segmentStartMs}:{threshold}
  *                             STRING "1", SET NX EX 70d — the guard that makes a threshold
@@ -232,6 +247,12 @@ export interface TenantKeys {
   tokensAudit: string;
   manageAudit: string;
   tokensLock: string;
+  /** The trash index: trash id → deleted at (ms). */
+  trash: string;
+  /** One trash entry's meta (lib/trash.ts). */
+  trashEntry: (trashId: string) => string;
+  /** The events key a trash entry moved out of `events(providerId, groupId)`. */
+  trashEvents: (trashId: string, providerId: string, groupId: string) => string;
   alert: (providerId: string, segmentStartMs: number, threshold: number) => string;
   registry: string;
 }
@@ -263,6 +284,9 @@ export function tenantKeys(tenantId: TenantId): TenantKeys {
     tokensAudit: `${p}tokens:audit`,
     manageAudit: `${p}manage:audit`,
     tokensLock: `${p}tokens:lock`,
+    trash: `${p}trash`,
+    trashEntry: (trashId) => `${p}trash:${trashId}`,
+    trashEvents: (trashId, providerId, groupId) => `${p}trash:${trashId}:events:${providerId}:${groupId}`,
     alert: (providerId, segmentStartMs, threshold) => `${p}alert:${providerId}:${segmentStartMs}:${threshold}`,
     registry: `${p}keys`,
   };
@@ -290,6 +314,7 @@ export function fixedTenantKeys(keys: TenantKeys): string[] {
     keys.tokensAudit,
     keys.manageAudit,
     keys.tokensLock,
+    keys.trash,
     keys.registry,
   ];
 }
@@ -297,7 +322,7 @@ export function fixedTenantKeys(keys: TenantKeys): string[] {
 /** Glob patterns matching a tenant's dynamic keys: only for scripts that may SCAN (the demo seed's wipe, migrations). */
 export function dynamicTenantKeyPatterns(keys: TenantKeys): string[] {
   const p = keys.prefix;
-  return [`${p}events:*`, `${p}history:*`, `${p}alltime:*`, `${p}alert:*`];
+  return [`${p}events:*`, `${p}history:*`, `${p}alltime:*`, `${p}alert:*`, `${p}trash:*`];
 }
 
 /**

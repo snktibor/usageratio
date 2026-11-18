@@ -3,6 +3,7 @@ import path from "node:path";
 import { createTranslator } from "next-intl";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ingestReport } from "@/lib/ingest";
+import { deleteGroup } from "@/lib/manage-store";
 import { getMemoryStoreForTests, getRedis } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { sha256Hex } from "@/lib/security";
@@ -87,6 +88,8 @@ interface World {
   cookie: string;
   aTokens: Record<TokenScope, string>;
   bTokens: Record<TokenScope, string> & { id: string };
+  /** The trash entry of a group B force-deleted. */
+  bTrashId: string;
 }
 
 const now = () => new Date();
@@ -318,6 +321,19 @@ function cases(world: World): Record<string, Case[]> {
       },
     ],
     "tokens/audit": [{ method: "GET", path: "/api/tokens/audit", auth: "session" }],
+    trash: [{ method: "GET", path: "/api/trash", auth: "session" }],
+    "trash/[id]": [
+      { method: "DELETE", path: "/api/trash/x", auth: "sudo", params: { id: world.bTrashId }, expectNotFound: true },
+    ],
+    "trash/[id]/restore": [
+      {
+        method: "POST",
+        path: "/api/trash/x/restore",
+        auth: "sudo",
+        params: { id: world.bTrashId },
+        expectNotFound: true,
+      },
+    ],
     tokens: [
       { method: "GET", path: "/api/tokens", auth: "session" },
       { method: "POST", path: "/api/tokens", auth: "sudo", body: { label: "new", machineId: "a-host" } },
@@ -444,6 +460,11 @@ async function buildWorld(mode: Mode): Promise<World> {
   const b = tenantStore(B);
   const aTokens = await seedTenant(a, "a");
   const bTokens = await seedTenant(b, MARKER);
+  // B has something in its trash too: a group it force-deleted, named so that a leak shows in a response.
+  const at = now();
+  await ingestReport(b, usageBody(`${MARKER}-box-pc`, `${MARKER}-box-trashed`), at);
+  const trashed = await deleteGroup(b, `${MARKER}-box-trashed`, true, at);
+  if (!trashed.ok || !trashed.trashId) throw new Error("B's group was not trashed");
   await getRedis().set(
     b.keys.settings,
     JSON.stringify({ v: 1, alerts: { webhookUrl: `https://hooks.example.com/${MARKER}` } }),
@@ -465,15 +486,14 @@ async function buildWorld(mode: Mode): Promise<World> {
     await getRedis().set(`${GLOBAL_KEYS.pinSession(sha256Hex(`${cookie.split("=")[1]}:${PIN}`))}:sudo`, "1", {
       ex: 300,
     });
-    return { mode, a, b, cookie, aTokens, bTokens };
+    return { mode, a, b, cookie, aTokens, bTokens, bTrashId: trashed.trashId };
   }
-  const at = now();
   const { userId } = await findOrCreateGithubUser({ id: 1001, login: "alice" }, at);
   await getRedis().set(GLOBAL_KEYS.tenantRecord(A), record("a"));
   await addOwner(A, userId, at);
   // A fresh session is a fresh GitHub sign-in: sudo for the next five minutes.
   const header = await withRequest(() => startUserSession(userId, A, at));
-  return { mode, a, b, cookie: header.split(";")[0]!, aTokens, bTokens };
+  return { mode, a, b, cookie: header.split(";")[0]!, aTokens, bTokens, bTrashId: trashed.trashId };
 }
 
 describe.each<Mode>(["closed", "multi"])("tenant isolation, route by route (%s mode)", (mode) => {

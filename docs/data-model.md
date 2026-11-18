@@ -33,14 +33,17 @@ local development and tests.
 | `usage:api-token` | STRING | JSON `{"v":1, "kid"?, "iv", "ct", "tag", "updatedAt"}` — AES-256-GCM, see [security.md](security.md) | Forever (one document, until overwritten) | `PUT /api/api-token` |
 | `usage:api-token:audit` | LIST | Newest first, JSON per entry: `{"at","a","ua","ch","pf","s", "ip"\|"iph"+"ipp"}` | Capped at 500 entries (`LTRIM` on write); older-than-`AUDIT_RETENTION_DAYS` entries pruned by housekeeping | `PUT`/`POST /api/api-token(/reveal)` |
 | `usage:tokens:audit` | LIST | The per-machine tokens' trail, newest first: the same entry plus `"tk"`+`"tl"` (the token's id and label), `"tn"` (a rotation's replacement) and `"by"` (the login, multi-tenant mode) | As above | Creating, revoking and rotating per-machine tokens, in the same transaction as the change |
-| `usage:manage:audit` | LIST | The destructive-actions trail, newest first: the same request fields plus `"a"` (`group_deleted`, `group_merged`, `provider_deleted`, `machine_deleted`, `machine_merged`, `restart_recorded`, `restart_edited`, `restart_deleted`), `"k"`+`"id"` (group, provider or machine, and its id), `"p"` (a machine's provider), `"to"` (a merge's destination), `"n"` `{"e","m","g"}` (reports, machines and groups affected), `"tr"` (a trash entry id) and `"by"` (the login, multi-tenant mode) | As above | Deleting or merging groups, providers and machines, and recording, editing or deleting a restart, in the same transaction as the change. A dry run, a refused delete, a plain rename and an automatically detected reset write nothing |
+| `usage:manage:audit` | LIST | The destructive-actions trail, newest first: the same request fields plus `"a"` (`group_deleted`, `group_merged`, `provider_deleted`, `machine_deleted`, `machine_merged`, `restart_recorded`, `restart_edited`, `restart_deleted`, `trash_restored`, `trash_purged`), `"k"`+`"id"` (group, provider or machine, and its id), `"p"` (a machine's provider), `"to"` (a merge's destination), `"n"` `{"e","m","g"}` (reports, machines and groups affected), `"tr"` (a trash entry id; a restore's or purge's own), `"rc"` (a restore: archived cycle summaries rewritten) and `"by"` (the login, multi-tenant mode) | As above | Deleting or merging groups, providers and machines, recording, editing or deleting a restart, and restoring or permanently deleting a recently deleted entry, in the same transaction as the change. A dry run, a refused delete, a plain rename and an automatically detected reset write nothing |
+| `usage:trash` | ZSET | `trash id → deleted at (ms)`: the recently deleted groups and providers (`lib/trash.ts`), newest listed first | Housekeeping drops ids older than `TRASH_RETENTION_DAYS` (30), with their registry names | A force-delete of a group or provider that has stored reports, in the same transaction as the move; a restore or a permanent delete removes the id |
+| `usage:trash:{id}` | STRING | JSON `{"v":1, "kind": "group"\|"provider", "id": the trash id, "name": the group's or provider's id, "at": ms, "by"?, "n": {"e","m","g"}, "keys": [{"p","g","n"}], "machines": {field: raw entry}, …}`; a group adds `"group"` (its raw `usage:groups` entry) and `"excluded"?`; a provider adds `"firstSeen"`, `"official"` (field → raw entry), `"resets"` (its raw document, or null), `"limit"?`, `"subLimits"?`, `"hidden"`, `"excludedIn"` (the groups that excluded it) | 30 days TTL (`EX`) | A force-delete, with the entry's events keys |
+| `usage:trash:{id}:events:{providerId}:{groupId}` | ZSET | The events key as it was deleted: `RENAME`d, members and scores unchanged | 30 days TTL (`EXPIRE` after the `RENAME`, which would carry the key's own, up to 71 days) | A force-delete. A restore unions it into the live key (`AGGREGATE MAX`, never `RENAME` back) and deletes it |
 | `usage:tokens:lock` | STRING | A random holder id while a token is revoked or rotated | 10 seconds | `lib/tokens.ts` |
 | `usage:tokens` | HASH | `sha256(token) → JSON {"id","label","machineId","scope","createdAt","lastUsedAt","revokedAt","createdBy"}` — the field is the token's own hash, the plaintext is never stored; written only on creation and revocation (`lastUsedAt` here is from before `usage:tokens:lastused`) | Up to `MAX_TOKENS` (100) live; a revoked entry is dropped entirely 90 days after `revokedAt` (housekeeping) | `POST`/`DELETE /api/tokens*`; removing a member with their tokens |
 | `usage:tokens:lastused` | HASH | `sha256(token) → last authenticated request (ms)`, refreshed at most hourly; apart from the record, so the refresh can never write back a token revoked meanwhile | With its token | A token's authenticated request |
 | `usage:housekeeping:last` | STRING | JSON `{"at": ms, "report": HousekeepingReport}` | Forever (overwritten each run) | `runHousekeeping` (non-dry-run) |
 | `usage:alert:{providerId}:{segmentStartMs}:{threshold}` | STRING | `"1"`, `SET NX` | 70 days TTL | `lib/alerts.ts` `evaluateAlerts` — the guard that makes a threshold fire once per provider per segment of a cycle (the cycle's start while it has no keep reset) |
 | `usage:history:{providerId}` | ZSET | score = cycle start (epoch ms); member = JSON `CycleSummary` (see [History](#history-archived-cycles)) | Newest 24 entries per provider (`HISTORY_RETENTION`), trimmed on write | The first dashboard render after a cycle ends, the daily housekeeping run's `history` step, or a destructive change (a group or provider force-delete, a group merge, a new restart; `archiveBeforeChange`) — whichever comes first (`archiveCycle` via `archiveDueCycles`); also `npm run seed`'s pre-archived entries |
-| `usage:keys` | SET | the name of every dynamic key the tenant has written (`events:*`, `history:*`, `alltime:*`, `alert:*`) | A name may outlive its key (an events set that pruned itself to nothing); harmless, and re-added by the next write. Housekeeping drops only the names of alert guards whose segment started more than a month plus their 70-day expiry ago: certainly gone, and never written again | The same transaction as the write that creates the key. With the fixed keys (`fixedTenantKeys`) it lists every key of a tenant without a `SCAN` |
+| `usage:keys` | SET | the name of every dynamic key the tenant has written (`events:*`, `history:*`, `alltime:*`, `alert:*`, `trash:*`) | A name may outlive its key (an events set that pruned itself to nothing); harmless, and re-added by the next write. Housekeeping drops only the names of alert guards whose segment started more than a month plus their 70-day expiry ago, and those of trash entries older than 30 days: certainly gone, and never written again | The same transaction as the write that creates the key. With the fixed keys (`fixedTenantKeys`) it lists every key of a tenant without a `SCAN` |
 | `usage:alltime:{providerId}` | HASH | field = cycle start (epoch ms); value = JSON `CycleSummary` without `models`/`subLimits` (see [All-time totals](#all-time-totals)) | Never trimmed: one small entry per cycle | `archiveCycle`, together with the history entry (`HSETNX`, also for every summary still in the history); rewritten by `PUT /api/official-usage/archived`, deleted with the history entry when a restart is moved or deleted |
 | `usage:session:{sha256(sessionId:pin)}` | STRING | JSON `{"c": createdAtMs, "s": lastSeenMs}` (a bare `"1"` for a legacy pre-rolling session) | Ends after `SESSION_IDLE_DAYS` (default 7) without use, and `SESSION_MAX_DAYS` (default 30) after creation at the latest; the key's TTL is the remaining maximum lifetime | Login (`attemptLogin`); `s` refreshed at most hourly by `isAuthenticated` |
 | `usage:session:{...}:sudo` | STRING | `"1"` | 5 minutes | `POST /api/auth/sudo` |
@@ -196,6 +199,39 @@ the cron configured (see [getting-started.md](getting-started.md) and
 [self-hosting.md](self-hosting.md)), history no longer depends on anyone opening the dashboard. The
 housekeeping report lists the archived providers under `history: { archived, ids }`; a dry run
 names the providers that are due and writes nothing.
+
+**Restoring from the trash re-derives the summaries written while the entry was away.** A cycle that
+ends while a force-deleted group or provider sits in the trash is archived without it, and the archive is
+`ZADD NX` / `HSETNX`: restoring the reports alone would leave the history and the all-time ledger wrong for
+good. So `restoreTrash` summarizes again every archived cycle that ended after the delete
+(`lib/archive.ts` `rederiveArchivedCycles`, best effort: a failure is logged as `trash.rederive_failed` and
+does not undo the restore) and rewrites the summary and its ledger entry in one transaction when the bytes
+differ. It only adds (`withRederivedTokens` takes the larger figure, group by group), and keeps what cannot
+be worked out again: the official figures, corrected ones included, the limit and `archivedAt`. A summary
+of a cycle that ended before the delete is never touched. A restored provider also gets the cycles that
+ended during its absence and were never archived (nothing archives a provider without events), with the
+official figure of the restored `usage:official` entry when it belongs to the window, else none.
+
+## Recently deleted
+
+A force-delete of a group or provider that has stored reports (`DELETE /api/groups/[group]?force=1`,
+`DELETE /api/providers/[provider]?force=1`) moves its data into the trash for `TRASH_RETENTION_DAYS` (30)
+instead of deleting it (`lib/trash.ts`): each events key is `RENAME`d to
+`usage:trash:{id}:events:{providerId}:{groupId}` with its members untouched and an `EXPIRE` of 30 days, and
+what else the delete removed (the index entries, the machines' entries, the provider's official figures and
+resets, the settings parts) is kept in `usage:trash:{id}`. A delete without stored reports, and one that is
+refused, is not trashed: there is nothing to restore.
+
+A restore (`POST /api/trash/[id]/restore`) never overwrites what is live. Reports are unioned into the live
+events key (`ZUNIONSTORE … AGGREGATE MAX`, the rule a group merge reads by, so a report present in both
+collapses and the ones that arrived since stay), pruned to `RETENTION_DAYS` like any report, and given the
+usual expiry again; index entries, machines, official figures and resets come back with `HSETNX`, so a live
+entry wins; a group's exclusions are unioned, and a provider's limit and sub-limits come back only where it
+has none now. A provider is hidden again only if it was not live (one that was re-created and switched on
+stays on), and excluded again only from groups that still exist. A group restore leaves the machine entries of
+a provider that is gone. It refuses (`409`) past `MAX_GROUPS`, `MAX_PROVIDERS` or `MAX_MACHINES`, as a report
+would. The entry leaves the trash in a second transaction, together with its audit entry, so a restore that
+fails half way is simply run again (everything it writes is idempotent).
 
 ## All-time totals
 

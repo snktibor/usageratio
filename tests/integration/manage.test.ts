@@ -410,8 +410,12 @@ describe("DELETE /api/groups/[group]", () => {
       { params },
     );
     expect(response.status).toBe(200);
+    const { trashId } = (await response.json()) as { trashId: string };
+    expect(trashId).toMatch(/^[A-Za-z0-9_-]{16}$/);
     expect(await getRedis().hexists(KEYS.groups, "Work")).toBe(0);
     expect(await getRedis().exists(KEYS.events("claude", "Work"))).toBe(0);
+    // The reports are in the trash, not gone.
+    expect(await getRedis().exists(KEYS.trashEvents(trashId, "claude", "Work"))).toBe(1);
   });
 
   describe("?dryRun=1", () => {
@@ -511,7 +515,9 @@ describe("DELETE /api/providers/[provider]", () => {
       { params },
     );
     expect(response.status).toBe(200);
+    const { trashId } = (await response.json()) as { trashId: string };
     expect(await getRedis().hexists(KEYS.providers, "claude")).toBe(0);
+    expect(await getRedis().exists(KEYS.trashEvents(trashId, "claude", "Personal"))).toBe(1);
   });
 
   it("answers 404 for a provider that does not exist", async () => {

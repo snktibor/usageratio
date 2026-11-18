@@ -29,7 +29,9 @@ export type ManageAction =
   | "machine_merged"
   | "restart_recorded"
   | "restart_edited"
-  | "restart_deleted";
+  | "restart_deleted"
+  | "trash_restored"
+  | "trash_purged";
 
 export const MANAGE_ACTIONS: readonly ManageAction[] = [
   "group_deleted",
@@ -40,6 +42,8 @@ export const MANAGE_ACTIONS: readonly ManageAction[] = [
   "restart_recorded",
   "restart_edited",
   "restart_deleted",
+  "trash_restored",
+  "trash_purged",
 ];
 
 export type ManageSubjectKind = "group" | "provider" | "machine";
@@ -57,8 +61,10 @@ export interface ManageAuditDetail {
   action: ManageAction;
   subject: ManageSubject;
   affected?: Affected;
-  /** The trash entry that holds what a delete removed (a later change keeps it restorable). */
+  /** The trash entry that holds what a delete removed (a restore or a permanent delete names the one it acts on). */
   trashId?: string;
+  /** A restore: how many archived cycle summaries it rewrote (lib/archive.ts `rederiveArchivedCycles`). */
+  rederived?: number;
 }
 
 /** One stored entry. */
@@ -67,6 +73,8 @@ export interface ManageAuditRecord extends AuditRequestFields {
   subject: ManageSubject;
   affected: Affected | null;
   trashId: string | null;
+  /** A restore: archived cycle summaries rewritten; absent on any other entry. */
+  rederived?: number;
   /** Multi-tenant mode: the GitHub login of the user who did it (display only); null on a single-user instance. */
   by: string | null;
 }
@@ -109,13 +117,14 @@ export function manageAudit(actor: { userId: string | null }, now: Date): Manage
       subject: detail.subject,
       affected: detail.affected ?? null,
       trashId: detail.trashId ?? null,
+      ...(detail.rederived !== undefined && { rederived: detail.rederived }),
       by,
     });
   };
 }
 
 export function serializeManageAuditRecord(record: ManageAuditRecord): string {
-  const { subject, affected, trashId } = record;
+  const { subject, affected, trashId, rederived } = record;
   return JSON.stringify({
     at: record.at,
     a: record.action,
@@ -127,6 +136,7 @@ export function serializeManageAuditRecord(record: ManageAuditRecord): string {
     ...(subject.target !== undefined && { to: subject.target }),
     ...(affected && { n: { e: affected.events, m: affected.machines, g: affected.groups } }),
     ...(trashId !== null && { tr: trashId }),
+    ...(rederived !== undefined && { rc: rederived }),
   });
 }
 
@@ -154,6 +164,7 @@ export function parseManageAuditRecord(raw: string): ManageAuditRecord | null {
   if (!SUBJECT_KINDS.includes(entry.k) || typeof entry.id !== "string") return null;
   const providerId = optionalText(entry.p);
   const target = optionalText(entry.to);
+  const rederived = typeof entry.rc === "number" && Number.isFinite(entry.rc) ? entry.rc : undefined;
   return {
     at: entry.at,
     action: entry.a as ManageAction,
@@ -166,6 +177,7 @@ export function parseManageAuditRecord(raw: string): ManageAuditRecord | null {
     },
     affected: parseAffected(entry.n),
     trashId: optionalText(entry.tr),
+    ...(rederived !== undefined && { rederived }),
     by: optionalText(entry.by),
   };
 }

@@ -112,6 +112,21 @@ describe("the memory store under the real @upstash/redis client", () => {
     await expect(redis.rename("nope", "x")).rejects.toThrow(/no such key/);
   });
 
+  it("pins what the trash relies on: RENAME carries the TTL, ZUNIONSTORE stores no TTL and takes the larger score", async () => {
+    await redis.zadd("live", { score: 1, member: "a" }, { score: 9, member: "b" });
+    await redis.expire("live", 100);
+    await redis.rename("live", "trash");
+    expect(await redis.ttl("trash")).toBe(100);
+    expect(await redis.expire("trash", 50)).toBe(1);
+    expect(await redis.ttl("trash")).toBe(50);
+
+    await redis.zadd("fresh", { score: 5, member: "a" }, { score: 2, member: "b" }, { score: 3, member: "c" });
+    await redis.expire("fresh", 10);
+    expect(await redis.zunionstore("fresh", 2, ["fresh", "trash"], { aggregate: "max" })).toBe(3);
+    expect(await redis.ttl("fresh")).toBe(-1);
+    expect(await redis.zrange("fresh", 0, -1, { withScores: true })).toEqual(["c", "3", "a", "5", "b", "9"]);
+  });
+
   it("keeps sets: SADD counts new members, SREM drops the key with its last one", async () => {
     expect(await redis.sadd("s", "b", "a")).toBe(2);
     expect(await redis.sadd("s", "a", "c")).toBe(1);

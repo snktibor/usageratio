@@ -32,6 +32,7 @@ const FULL: ManageAuditRecord = {
   subject: { kind: "machine", id: "mac", providerId: "claude", target: "laptop" },
   affected: { events: 12, machines: 2, groups: 1 },
   trashId: "t1",
+  rederived: 2,
   by: "octocat",
 };
 
@@ -93,6 +94,9 @@ describe("the manage audit record", () => {
     expect(parseManageAuditRecord(JSON.stringify({ ...base, n: { e: 1, m: "x", g: 0 } }))?.affected).toBeNull();
     expect(parseManageAuditRecord(JSON.stringify({ ...base, n: [1] }))?.affected).toBeNull();
     expect(parseManageAuditRecord(JSON.stringify(base))).toMatchObject({ userAgent: "", ip: null, session: null });
+    // A restore's count of rewritten summaries: kept when it is a number, dropped when it is not.
+    expect(parseManageAuditRecord(JSON.stringify({ ...base, rc: 3 }))?.rederived).toBe(3);
+    expect(parseManageAuditRecord(JSON.stringify({ ...base, rc: "3" }))).not.toHaveProperty("rederived");
   });
 });
 
@@ -152,7 +156,12 @@ describe("manageAudit", () => {
           subject: { kind: "group", id: "Work" },
           affected: { events: 3, machines: 1, groups: 1 },
         }),
-        await write({ action: "machine_deleted", subject: { kind: "machine", id: "mac", providerId: "claude" } }),
+        await write({
+          action: "trash_restored",
+          subject: { kind: "group", id: "Work" },
+          trashId: "tr1",
+          rederived: 2,
+        }),
       ],
       { headers },
     );
@@ -166,7 +175,7 @@ describe("manageAudit", () => {
     });
     expect(one.userAgent).toBe(CHROME_UA);
     expect(one.ipPrefix).toBe("203.0.113.0/24");
-    expect(two).toMatchObject({ action: "machine_deleted", affected: null, subject: { providerId: "claude" } });
+    expect(two).toMatchObject({ action: "trash_restored", affected: null, trashId: "tr1", rederived: 2 });
     expect(two.ipHash).toBe(one.ipHash);
   });
 

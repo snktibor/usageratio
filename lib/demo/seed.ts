@@ -25,7 +25,16 @@ export const DEMO_STALE_MS = 30 * 60_000;
 /** Only the usage data. Sessions, login counters and the stored API token are never touched. */
 function dataKeys(store: TenantStore): string[] {
   const { keys } = store;
-  return [keys.settings, keys.providers, keys.groups, keys.machines, keys.officialUsage, keys.resets, keys.registry];
+  return [
+    keys.settings,
+    keys.providers,
+    keys.groups,
+    keys.machines,
+    keys.officialUsage,
+    keys.resets,
+    keys.trash,
+    keys.registry,
+  ];
 }
 
 function dataKeyPatterns(store: TenantStore): string[] {

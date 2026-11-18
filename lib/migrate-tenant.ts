@@ -15,7 +15,8 @@ import { addOwner, findOrCreateGithubUser, membershipRole, userForGithub } from 
  *   2. a `usage:tokenindex` entry for every per-machine token in
  *      `usage:tokens` (HSETNX: an entry already there is never changed);
  *   3. the default tenant's key registry, `usage:keys`, backfilled with every
- *      dynamic key it already has (a one-off SCAN: the only one there is);
+ *      dynamic key it already has (events, history, all-time, alert guards, trash;
+ *      a one-off SCAN: the only one there is);
  *   4. with `ownerGithubId`: the user for that GitHub account (its login is
  *      filled in at its first sign-in), as the default tenant's owner, so the
  *      maintainer lands in the existing data on switching to multi-tenant mode.
