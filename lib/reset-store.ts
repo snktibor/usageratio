@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { TimeWindow } from "@/lib/aggregate";
+import { archiveBeforeChange } from "@/lib/archive";
 import { type AppConfig, getConfig, type ResetOverride } from "@/lib/config";
 import type { Cycle } from "@/lib/cycle";
 import { officialUsageField, parseStoredOfficialEntry, serializeOfficialEntry } from "@/lib/official-usage";
@@ -112,6 +113,11 @@ export async function applyResetAction(store: TenantStore, action: ResetAction, 
     change = deleteReset(ctx, action.request);
   }
   if (!change.ok) return change;
+  // A new restart makes the cycle before the current one a different window, so the ended cycle that
+  // is due now could never be archived: write it, with the configuration as it is before the change.
+  if (action.kind === "record" && change.event.kind === "restart") {
+    await archiveBeforeChange(store, now, { indexes, providerIds: [providerId] });
+  }
 
   const after = change.override === undefined ? config : withResetOverride(config, providerId, change.override);
   await saveResetChange(store, {
@@ -163,6 +169,7 @@ export async function saveDetectedReset(
 ): Promise<ResetEvent> {
   const { providerId, config, resets, reset, override, rawSettings, providerIds, rawOfficialUsage, now } = params;
   const event: ResetEvent = { id: randomUUID(), ...reset };
+  if (reset.kind === "restart") await archiveBeforeChange(store, now, { providerIds: [providerId] });
   const updated = addReset(resets, event);
   const after = override ? withResetOverride(config, providerId, override) : config;
   await saveResetChange(store, {

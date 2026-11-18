@@ -87,8 +87,9 @@
  *                                       (JSON, see lib/history.ts), kept for the newest
  *                                       HISTORY_RETENTION cycles. The cycle right before the
  *                                       current one is written once it has ended, by the first
- *                                       dashboard render or the daily housekeeping run, whichever
- *                                       comes first (lib/archive.ts). Its official figure can be
+ *                                       dashboard render, the daily housekeeping run, or a
+ *                                       destructive change (a force-delete, a group merge, a new
+ *                                       restart), whichever comes first (lib/archive.ts). Its official figure can be
  *                                       corrected later; the summary is then rewritten in place
  *                                       (`saveArchivedOfficial` in lib/usage-store.ts).
  *   usage:alltime:{providerId}   HASH  cycle start (epoch ms) → the same CycleSummary without its

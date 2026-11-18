@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/official-usage/report/route";
 import { GET as getStatus } from "@/app/api/status/route";
 import { getConfig } from "@/lib/config";
+import { ingestReport } from "@/lib/ingest";
 import { parseStoredOfficialEntry } from "@/lib/official-usage";
 import { getRedis } from "@/lib/redis";
 import { serializeSettings, settingsFromConfig, type UsageSettings } from "@/lib/settings";
 import type { StatusPayload } from "@/lib/status";
 import { createToken, type TokenScope } from "@/lib/tokens";
-import { loadIndexes, loadResets, registerProviders, saveResets } from "@/lib/usage-store";
+import { loadHistory, loadIndexes, loadResets, registerProviders, saveResets } from "@/lib/usage-store";
 import { useRedis } from "../helpers/redis-fixture";
 import { KEYS, tenant } from "../helpers/tenant";
 
@@ -218,6 +219,44 @@ describe("POST /api/official-usage/report", () => {
     ]);
     const stored = parseStoredOfficialEntry((await loadIndexes(tenant)).officialUsage.openai!);
     expect(stored).toMatchObject({ view: { raw: "1", enteredAt: observedAtMs }, cycleStartMs: R });
+  });
+
+  it("archives the cycle before the one a detected restart cuts short", async () => {
+    await seedSettings("weekly");
+    const token = await tokenOf("official");
+    // Openai reported during [P, S), the week before NOW's, which is not archived yet.
+    const reportedAt = new Date("2026-09-17T10:00:00Z");
+    const stored = await ingestReport(
+      tenant,
+      { machineId: "m", groupId: "Work", providers: { openai: 100 }, timestamp: reportedAt.toISOString() },
+      reportedAt,
+    );
+    expect(stored.ok).toBe(true);
+    const E = Date.parse("2026-09-28T00:00:00Z");
+    const R = Date.parse("2026-09-23T08:00:00Z");
+    const first = body({
+      providerId: "openai",
+      usedPercent: 90,
+      resetsAtMs: E,
+      observedAtMs: Date.parse("2026-09-22T12:00:00Z"),
+    });
+    await POST(post(first, token));
+    expect((await loadHistory(tenant, ["openai"])).openai).toEqual([]);
+
+    const jumped = body({
+      providerId: "openai",
+      usedPercent: 1,
+      resetsAtMs: R + 7 * 86_400_000,
+      observedAtMs: Date.parse("2026-09-23T11:55:00Z"),
+    });
+    expect((await (await POST(post(jumped, token))).json()).detectedReset).toMatchObject({ kind: "restart" });
+
+    const [summary] = (await loadHistory(tenant, ["openai"])).openai!;
+    expect(summary).toMatchObject({
+      start: Date.parse("2026-09-14T00:00:00Z"),
+      end: Date.parse("2026-09-21T00:00:00Z"),
+      groups: { Work: expect.any(Number) },
+    });
   });
 
   it("ignores a reading whose window ends elsewhere while detection is off for the cycle, and moves nothing", async () => {

@@ -12,10 +12,12 @@ import { type SubLimit, splitBySubLimits } from "@/lib/sub-limits";
  * cycles Redis still holds raw events for (events are pruned after
  * RETENTION_DAYS; see lib/config.ts and lib/usage-store.ts `storeReport`).
  *
- * Archiving (lib/archive.ts `archiveDueCycles`) runs from two places: every
- * dashboard read (app/[locale]/(dashboard)/page.tsx) and the daily
- * housekeeping run (lib/housekeeping.ts, `history` step), whichever comes
- * first after a cycle ends. For every provider, if the newest archived cycle
+ * Archiving (lib/archive.ts `archiveDueCycles`) runs from three places: every
+ * dashboard read (app/[locale]/(dashboard)/page.tsx), the daily
+ * housekeeping run (lib/housekeeping.ts, `history` step), and a destructive
+ * change (`archiveBeforeChange`: a group or provider force-delete, a group
+ * merge, a newly recorded restart), whichever comes first after a cycle ends.
+ * For every provider, if the newest archived cycle
  * is older than the previous cycle's start, and that previous cycle actually
  * has events (both callers read events from its start), the previous cycle
  * is summarized from data still in hand and written with `ZADD NX`, so two

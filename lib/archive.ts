@@ -1,12 +1,12 @@
 import type { UsageEvent } from "@/lib/aggregate";
-import type { AppConfig } from "@/lib/config";
+import { type AppConfig, getConfig } from "@/lib/config";
 import { type CycleSummary, officialPercentForCycle, summarizeCycle } from "@/lib/history";
 import { log } from "@/lib/log";
-import { providerCycle } from "@/lib/provider-cycles";
+import { earliestStartMs, providerCycle } from "@/lib/provider-cycles";
 import { keepResetsOf, type ProviderResets, type ResetEvent, resetEventsOf, restartStarting } from "@/lib/resets";
-import { configForProvider, countsForProvider, subLimitsOf } from "@/lib/settings";
+import { configForProvider, countsForProvider, resolveConfig, subLimitsOf } from "@/lib/settings";
 import type { TenantStore } from "@/lib/tenant";
-import { archiveCycle, loadNewestArchivedStarts } from "@/lib/usage-store";
+import { archiveCycle, loadEvents, loadIndexes, loadNewestArchivedStarts, type StoreIndexes } from "@/lib/usage-store";
 
 export interface ArchiveInput {
   providerIds: string[];
@@ -125,4 +125,44 @@ export async function archiveDueCycles(
     }),
   );
   return archived.filter((providerId): providerId is string => providerId !== null);
+}
+
+/**
+ * Archives the just-ended cycle now, before a change that would leave its summary without part of
+ * its data: a group or provider force-delete, a group merge, or a new restart (which makes the
+ * cycle before the current one a different window, so the one that is archived-next today can
+ * never be archived at all). Reads like the housekeeping step and is best effort per provider like
+ * `archiveDueCycles`; a provider already archived, or without events in that cycle, is left alone.
+ *
+ * `providerIds` narrows it to the providers the change touches (default: every provider the store
+ * knows); `indexes` reuses a read the caller already made. A read that fails throws, so a route
+ * answers 503 before anything is changed. Returns the ids of the providers it archived.
+ */
+export async function archiveBeforeChange(
+  store: TenantStore,
+  now: Date,
+  options: { providerIds?: string[]; indexes?: StoreIndexes } = {},
+): Promise<string[]> {
+  const indexes = options.indexes ?? (await loadIndexes(store));
+  const allProviderIds = indexes.providers.map((provider) => provider.providerId);
+  const wanted = options.providerIds;
+  const providerIds = wanted ? allProviderIds.filter((providerId) => wanted.includes(providerId)) : allProviderIds;
+  if (providerIds.length === 0) return [];
+
+  const config = resolveConfig(getConfig(), indexes.settings, allProviderIds);
+  const { eventsByProvider } = await loadEvents(
+    store,
+    providerIds,
+    indexes.groups,
+    earliestStartMs(now, config, providerIds, "previous"),
+    indexes.resets,
+  );
+  return archiveDueCycles(store, {
+    providerIds,
+    config,
+    now,
+    eventsByProvider,
+    rawOfficialUsage: indexes.officialUsage,
+    resets: indexes.resets,
+  });
 }

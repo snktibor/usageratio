@@ -2,12 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DELETE, POST, PUT } from "@/app/api/resets/route";
 import { getConfig } from "@/lib/config";
 import { type CycleSummary, serializeCycleSummary } from "@/lib/history";
+import { ingestReport } from "@/lib/ingest";
 import { parseStoredOfficialEntry } from "@/lib/official-usage";
 import { getRedis } from "@/lib/redis";
 import { saveDetectedReset } from "@/lib/reset-store";
 import { emptyResets, restartOverride } from "@/lib/resets";
 import { ownResetOf, resolveConfig, serializeSettings, settingsFromConfig } from "@/lib/settings";
-import { loadIndexes, loadRawSettings, loadResets, registerProviders, saveResets } from "@/lib/usage-store";
+import {
+  loadHistory,
+  loadIndexes,
+  loadRawSettings,
+  loadResets,
+  registerProviders,
+  saveResets,
+} from "@/lib/usage-store";
 import { useRedis } from "../helpers/redis-fixture";
 import { seedSession } from "../helpers/session";
 import { KEYS, tenant } from "../helpers/tenant";
@@ -158,6 +166,27 @@ describe("/api/resets", () => {
 
     await call("DELETE", { providerId: "openai", id: recorded.body.events[0].id }, cookie);
     expect(await getRedis().zcard(KEYS.history("openai"))).toBe(0);
+  });
+
+  it("recording a restart archives the cycle before the one it cuts short; a keep reset archives nothing", async () => {
+    // [P, S) = the week before NOW's: ended, not archived yet. The restart at R turns [S, R) into the
+    // "previous" cycle, so [P, S) could never be archived afterwards.
+    const reportedAt = new Date("2026-09-17T10:00:00Z");
+    for (const providerId of ["claude", "openai"]) {
+      const result = await ingestReport(
+        tenant,
+        { machineId: "m", groupId: "Work", providers: { [providerId]: 100 }, timestamp: reportedAt.toISOString() },
+        reportedAt,
+      );
+      expect(result.ok).toBe(true);
+    }
+
+    await call("POST", { providerId: "claude", atMs: R, before: 80 }, cookie);
+    expect((await loadHistory(tenant, ["claude"])).claude).toEqual([]);
+
+    await call("POST", { providerId: "openai", atMs: R, before: 90 }, cookie);
+    const [summary] = (await loadHistory(tenant, ["openai"])).openai!;
+    expect(summary).toMatchObject({ start: S - WEEK, end: S, groups: { Work: expect.any(Number) } });
   });
 
   it("retags a figure entered after the reset into the new segment", async () => {
