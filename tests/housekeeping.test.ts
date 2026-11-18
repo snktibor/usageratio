@@ -5,6 +5,7 @@ import { getCycle, getPreviousCycle } from "@/lib/cycle";
 import { runHousekeeping } from "@/lib/housekeeping";
 import { ingestReport } from "@/lib/ingest";
 import { serializeManageAuditRecord } from "@/lib/manage-audit";
+import { deleteGroup } from "@/lib/manage-store";
 import { getRedis } from "@/lib/redis";
 import { restartOverride } from "@/lib/resets";
 import { serializeGroupEntry, serializeSettings, settingsFromConfig } from "@/lib/settings";
@@ -291,8 +292,44 @@ describe("runHousekeeping", () => {
       audit: { removed: 0 },
       history: { archived: 0, ids: [] },
       registry: { removed: 0 },
+      trash: { removed: 0, ids: [] },
       dryRun: false,
     });
+  });
+
+  it("trims trash entries past their 30 days, with their registry names; fresh ones stay, and a dry run trims nothing", async () => {
+    const redis = getRedis();
+    for (const groupId of ["old", "fresh"]) {
+      const at = NOW;
+      const result = await ingestReport(
+        tenant,
+        { machineId: "mac", groupId, providers: { claude: 5 }, timestamp: at.toISOString() },
+        at,
+      );
+      expect(result.ok).toBe(true);
+    }
+    const trash = async (groupId: string, at: Date) => {
+      const result = await deleteGroup(tenant, groupId, true, at);
+      if (!result.ok || !result.trashId) throw new Error("not trashed");
+      return result.trashId;
+    };
+    const oldId = await trash("old", new Date(NOW.getTime() - 31 * DAY_MS));
+    const freshId = await trash("fresh", NOW);
+
+    const dry = await runHousekeeping(tenant, NOW, { dryRun: true });
+    expect(dry.trash).toEqual({ removed: 1, ids: [oldId] });
+    expect(await redis.zscore(KEYS.trash, oldId)).not.toBeNull();
+    expect(await redis.sismember(KEYS.registry, KEYS.trashEntry(oldId))).toBe(1);
+
+    const report = await runHousekeeping(tenant, NOW, { dryRun: false });
+    expect(report.trash).toEqual({ removed: 1, ids: [oldId] });
+    expect(await redis.zscore(KEYS.trash, oldId)).toBeNull();
+    expect(await redis.sismember(KEYS.registry, KEYS.trashEntry(oldId))).toBe(0);
+    expect(await redis.sismember(KEYS.registry, KEYS.trashEvents(oldId, "claude", "old"))).toBe(0);
+    expect(await redis.exists(KEYS.trashEntry(oldId), KEYS.trashEvents(oldId, "claude", "old"))).toBe(0);
+    expect(await redis.zscore(KEYS.trash, freshId)).not.toBeNull();
+    expect(await redis.sismember(KEYS.registry, KEYS.trashEvents(freshId, "claude", "fresh"))).toBe(1);
+    expect(await redis.exists(KEYS.trashEvents(freshId, "claude", "fresh"))).toBe(1);
   });
 
   it("prunes reset events whose cycle is archived by now, and a revert's switch once its cycle is over", async () => {

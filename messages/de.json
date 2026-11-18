@@ -176,6 +176,8 @@
     "manage_history_action_restart_recorded": "Neustart aufgezeichnet",
     "manage_history_action_restart_edited": "Neustart geändert",
     "manage_history_action_restart_deleted": "Neustart gelöscht",
+    "manage_history_action_trash_restored": "Aus dem Papierkorb wiederhergestellt",
+    "manage_history_action_trash_purged": "Endgültig gelöscht",
     "budget": "Budget",
     "type": "Typ",
     "weekly": "Wöchentlich",

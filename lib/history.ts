@@ -28,6 +28,9 @@ import { type SubLimit, splitBySubLimits } from "@/lib/sub-limits";
  * anyone opening the dashboard; a host that runs neither the cron nor the
  * dashboard for a whole cycle still loses that cycle's summary.
  *
+ * A summary written while a force-deleted group or provider sat in the trash lacks it: a restore
+ * summarizes those cycles again (`rederiveArchivedCycles`, `withRederivedTokens` below).
+ *
  * Pure; the Redis side (`archiveCycle`, `loadHistory`, `loadNewestArchivedStarts`)
  * lives in lib/usage-store.ts.
  */
@@ -259,6 +262,61 @@ export function withCorrectedOfficial(
   if (index < 0) return null;
   const corrected = segments.map((segment, at) => (at === index ? { ...segment, official } : segment));
   return { ...summary, segments: corrected, official: sumOfFigures(corrected.map((segment) => segment.official)) };
+}
+
+/** Per key, the larger of two token maps; every key of either stays. */
+function maxByKey(a: Record<string, number>, b: Record<string, number>): Record<string, number> {
+  const merged: Record<string, number> = { ...a };
+  for (const [key, tokens] of Object.entries(b)) merged[key] = Math.max(merged[key] ?? 0, tokens);
+  return merged;
+}
+
+/** A token map in the order a summary stores it: the heaviest first, ties by name (lib/aggregate.ts `summarizeUsage`). */
+function heaviestFirst(tokens: Record<string, number>): [string, number][] {
+  return Object.entries(tokens).sort(([a, x], [b, y]) => y - x || a.localeCompare(b));
+}
+
+function sumOfTokens(tokens: Record<string, number>): number {
+  return Object.values(tokens).reduce((sum, amount) => sum + amount, 0);
+}
+
+/**
+ * `old`, an archived summary, with the measured tokens of `fresh`, the same cycle summarized again
+ * from the reports stored now (lib/archive.ts `rederiveArchivedCycles`, after a restore from the
+ * trash put back reports the archive was written without). It only ever adds: every figure is the
+ * larger of the two, group by group, model by model, sub-limit by sub-limit and segment by segment,
+ * and the totals are the groups' sums, so a part of `old` that the stored reports no longer hold
+ * (another trash entry's, say) stays in it. What cannot be worked out again is kept as archived:
+ * the official figures (the whole cycle's and every segment's, which may have been corrected), the
+ * limit, `archivedAt`, `endedByReset`, and the segments' bounds. A segment `fresh` lacks stays as
+ * it was. Pure.
+ */
+export function withRederivedTokens(old: CycleSummary, fresh: CycleSummary): CycleSummary {
+  const groups = maxByKey(old.groups, fresh.groups);
+  const freshSegments = new Map((fresh.segments ?? []).map((segment) => [segment.start, segment]));
+  const segments = old.segments?.map((segment) => {
+    const again = freshSegments.get(segment.start);
+    if (!again) return segment;
+    const segmentGroups = Object.fromEntries(heaviestFirst(maxByKey(segment.groups, again.groups)));
+    return { ...segment, total: sumOfTokens(segmentGroups), groups: segmentGroups };
+  });
+  const hasCost = old.cost !== undefined || fresh.cost !== undefined;
+  return {
+    v: 1,
+    start: old.start,
+    end: old.end,
+    total: sumOfTokens(groups),
+    ...(hasCost && { cost: Math.max(old.cost ?? 0, fresh.cost ?? 0) }),
+    limit: old.limit,
+    official: old.official,
+    groups: Object.fromEntries(heaviestFirst(groups)),
+    machines: Math.max(old.machines, fresh.machines),
+    models: Object.fromEntries(heaviestFirst(maxByKey(old.models, fresh.models)).slice(0, HISTORY_TOP_MODELS)),
+    subLimits: maxByKey(old.subLimits, fresh.subLimits),
+    archivedAt: old.archivedAt,
+    ...(segments && { segments }),
+    ...(old.endedByReset && { endedByReset: true as const }),
+  };
 }
 
 /**

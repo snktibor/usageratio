@@ -34,6 +34,10 @@ async function seedPreTenantStore(): Promise<string> {
     archivedAt: NOW.getTime(),
   });
   await getRedis().set(KEYS.alert("claude", NOW.getTime(), 80), "1", { ex: 3600 });
+  // A recently deleted group from before the registry existed (its entry and its events key).
+  await getRedis().set(KEYS.trashEntry("AAAAAAAAAAAAAAAA"), "{}", { ex: 3600 });
+  await getRedis().zadd(KEYS.trashEvents("AAAAAAAAAAAAAAAA", "claude", "Old"), { score: 1, member: "x" });
+  await getRedis().zadd(KEYS.trash, { score: 1, member: "AAAAAAAAAAAAAAAA" });
   const created = await createToken(tenant, "laptop", null, NOW);
   if (!created.ok) throw new Error("unreachable");
   await getRedis().del(GLOBAL_KEYS.tokenIndex, KEYS.registry);
@@ -57,6 +61,8 @@ describe("migrate:tenant", () => {
         KEYS.allTime("claude"),
         KEYS.events("claude", "Work"),
         KEYS.history("claude"),
+        KEYS.trashEntry("AAAAAAAAAAAAAAAA"),
+        KEYS.trashEvents("AAAAAAAAAAAAAAAA", "claude", "Old"),
       ].sort(),
     );
     if (before) expect(getMemoryStoreForTests()?.dump()).toEqual(before);
@@ -77,6 +83,8 @@ describe("migrate:tenant", () => {
         KEYS.allTime("claude"),
         KEYS.events("claude", "Work"),
         KEYS.history("claude"),
+        KEYS.trashEntry("AAAAAAAAAAAAAAAA"),
+        KEYS.trashEvents("AAAAAAAAAAAAAAAA", "claude", "Old"),
       ].sort(),
     );
     // Every key that was there is still there; only the three new ones were added.

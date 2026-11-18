@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DELETE as deleteGroup } from "@/app/api/groups/[group]/route";
 import { PUT as putOfficialUsage } from "@/app/api/official-usage/route";
 import { PUT as putSettings } from "@/app/api/settings/route";
+import { POST as restoreTrash } from "@/app/api/trash/[id]/restore/route";
+import { DELETE as purgeTrash } from "@/app/api/trash/[id]/route";
 import { POST as postUsage } from "@/app/api/usage/route";
 import { useRedis } from "../helpers/redis-fixture";
 
@@ -50,5 +52,21 @@ describe("demo mode", () => {
     );
     expect(dryRun.status).toBe(403);
     expect((await dryRun.json()).error).toBe("demo_read_only");
+  });
+
+  it("refuses to restore or purge a recently deleted entry", async () => {
+    const id = { params: Promise.resolve({ id: "AAAAAAAAAAAAAAAA" }) };
+    const restore = await restoreTrash(
+      new Request("http://localhost/api/trash/x/restore", { method: "POST", headers: ORIGIN }),
+      id,
+    );
+    expect(restore.status).toBe(403);
+    expect((await restore.json()).error).toBe("demo_read_only");
+    const purge = await purgeTrash(
+      new Request("http://localhost/api/trash/x", { method: "DELETE", headers: ORIGIN }),
+      id,
+    );
+    expect(purge.status).toBe(403);
+    expect((await purge.json()).error).toBe("demo_read_only");
   });
 });

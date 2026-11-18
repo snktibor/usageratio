@@ -176,6 +176,8 @@
     "manage_history_action_restart_recorded": "Restart recorded",
     "manage_history_action_restart_edited": "Restart changed",
     "manage_history_action_restart_deleted": "Restart deleted",
+    "manage_history_action_trash_restored": "Restored from the trash",
+    "manage_history_action_trash_purged": "Deleted permanently",
     "budget": "Budget",
     "type": "Type",
     "weekly": "Weekly",

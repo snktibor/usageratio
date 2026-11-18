@@ -18,6 +18,7 @@ export function stubAudit(at = 1_000): { audit: ManageAuditWriter; calls: Parame
       subject: detail.subject,
       affected: detail.affected ?? null,
       trashId: detail.trashId ?? null,
+      ...(detail.rederived !== undefined && { rederived: detail.rederived }),
       userAgent: "",
       brands: "",
       platform: "",

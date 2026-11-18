@@ -14,6 +14,7 @@ vulnerability, supported versions) and links here for the detail.
 - [Rate limits](#rate-limits)
 - [Per-machine tokens](#per-machine-tokens)
 - [The token vault and key rotation](#the-token-vault-and-key-rotation)
+- [Recently deleted](#recently-deleted)
 - [Audit trail privacy](#audit-trail-privacy)
 - [Housekeeping](#housekeeping)
 - [Logging](#logging)
@@ -78,14 +79,17 @@ immediately; there is no separate revocation list because deletion *is* revocati
 ## Sudo
 
 Revealing the stored API token in full, and every destructive "manage" action (deleting a
-machine, group, or provider; merging groups; creating or revoking a per-machine token; pruning
-machines; running housekeeping for real rather than as a dry run) requires a short-lived **sudo**
+machine, group, or provider; merging groups; restoring or permanently deleting a recently deleted
+group or provider; creating or revoking a per-machine token; pruning machines; running housekeeping
+for real rather than as a dry run) requires a short-lived **sudo**
 grant on top of an already-live session: `POST /api/auth/sudo` with the PIN re-entered, which sets
 `usage:session:{...}:sudo = "1"` for **5 minutes** (`SUDO_TTL_SECONDS`). It shares the same per-IP
 attempt limiter as login (guessing the PIN spends the same budget whichever door it's aimed at),
 but never touches the device cookie or the global budget, since a live session is already
 required to call it. A missing or expired grant fails the gated action with `403 sudo_required`; a
-wrong PIN on the sudo prompt itself returns `401 sudo_invalid`.
+wrong PIN on the sudo prompt itself returns `401 sudo_invalid`. Restoring a recently deleted entry
+needs sudo like the delete it undoes (any member of a workspace may); deleting it permanently needs
+sudo and is the workspace owner's only (a single-user instance's PIN always is).
 
 Plain settings changes (`PUT /api/settings`), saving/updating the API token copy
 (`PUT /api/api-token`), and a dry-run housekeeping check do **not** need sudo — only actions that
@@ -156,8 +160,9 @@ With `REGISTRATION=invite` or `open`, the PIN is replaced by GitHub sign-in (`li
   workspace is marked "deleting" first (nothing can be read or reported meanwhile), then every key
   of it goes, listed from its fixed keys and its key registry (no SCAN), then its tokens' entries in
   the token index, its members' links and its record (`lib/tenant-deletion.ts`; each step can run
-  again). An owner of a workspace others belong to is refused until they hand it over, and the
-  default workspace (a single-user instance's data) is never deleted this way.
+  again). Every key includes the workspace's recently deleted entries (see below). An owner of a
+  workspace others belong to is refused until they hand it over, and the default workspace (a
+  single-user instance's data) is never deleted this way.
 
 ## Content-Security-Policy
 
@@ -308,13 +313,24 @@ both. `GET /api/api-token`'s `needsReseal` field reflects whether a stored value
 with the current key. Without `TOKEN_ENCRYPTION_KEY` at all, the token status is `no_key` and
 saving or revealing fails with `500 encryption_key_missing`.
 
+## Recently deleted
+
+A force-delete of a group or provider is **no longer immediate erasure**: its stored reports, index
+entries and settings parts stay in the workspace's trash (`usage:trash*`, `lib/trash.ts`) for 30 days,
+restorable by any member with a sudo grant, unless the owner deletes them permanently first
+(`DELETE /api/trash/[id]`, sudo). After 30 days they expire on their own, and housekeeping drops the
+index entry and the key registry names. The trash is part of the workspace's data: deleting the
+workspace or the account deletes it with every other key. A delete of something with no stored reports,
+and one that is refused, is not kept. Both a restore and a permanent delete are on the manage audit
+trail.
+
 ## Audit trail privacy
 
 There are three audit trails, and all carry the same request details: `usage:api-token:audit` (every
 store, update, and reveal of the shared API token, `lib/api-token.ts`), `usage:tokens:audit` (per-machine
 tokens created, revoked and rotated) and `usage:manage:audit` (groups, providers and machines deleted
-or merged, and usage restarts recorded, edited or deleted: `lib/manage-audit.ts`, written in the same
-transaction as the change, so a change cannot happen without its entry). The last two are shown to a
+or merged, usage restarts recorded, edited or deleted, and recently deleted entries restored or
+permanently deleted: `lib/manage-audit.ts`, written in the same transaction as the change, so a change cannot happen without its entry). The last two are shown to a
 workspace's owner only (`GET /api/tokens/audit`, `GET /api/manage/audit`; a member gets `403
 owner_only`), since they carry other people's network details. Each entry has a timestamp, action,
 session tag (a hash of the session id, never the id itself), User-Agent, and the requesting address:
@@ -347,6 +363,7 @@ manual `POST /api/housekeeping` (settings panel, sudo-gated unless `?dryRun=1`) 
 - `usage:tokens` entries revoked more than 90 days ago (`REVOKED_RETENTION_DAYS`);
 - the entries of all three audit trails (`usage:api-token:audit`, `usage:tokens:audit`,
   `usage:manage:audit`) older than `AUDIT_RETENTION_DAYS`;
+- the recently deleted entries (`usage:trash`) older than `TRASH_RETENTION_DAYS` (30 days), with their key registry names (their keys have expired on their own);
 - the key registry's (`usage:keys`) names of alert guards whose segment started more than a month plus their 70-day expiry ago (certainly gone, and never written again).
 
 The cron route does this for every tenant (`runScheduledHousekeeping`): the one housekept longest

@@ -4,7 +4,7 @@ import { evaluateAlerts } from "@/lib/alerts";
 import { DEFAULT_RESET } from "@/lib/config";
 import type { CycleSummary } from "@/lib/history";
 import { ingestReport } from "@/lib/ingest";
-import { deleteMachine, moveMachine, renameOrMergeGroup } from "@/lib/manage-store";
+import { deleteGroup, deleteMachine, moveMachine, renameOrMergeGroup } from "@/lib/manage-store";
 import { getMemoryStoreForTests } from "@/lib/redis";
 import { fixedTenantKeys, GLOBAL_KEYS, tenantKeys } from "@/lib/redis-keys";
 import { type TenantStore, tenantStore } from "@/lib/tenant";
@@ -73,6 +73,9 @@ describe("tenantKeys", () => {
       keys.manageAudit,
       keys.housekeepingLast,
       keys.tokens,
+      keys.trash,
+      keys.trashEntry("AAAAAAAAAAAAAAAA"),
+      keys.trashEvents("AAAAAAAAAAAAAAAA", "claude", "Work"),
       keys.alert("claude", 1000, 80),
     ]).toEqual([
       "usage:settings",
@@ -89,6 +92,9 @@ describe("tenantKeys", () => {
       "usage:manage:audit",
       "usage:housekeeping:last",
       "usage:tokens",
+      "usage:trash",
+      "usage:trash:AAAAAAAAAAAAAAAA",
+      "usage:trash:AAAAAAAAAAAAAAAA:events:claude:Work",
       "usage:alert:claude:1000:80",
     ]);
   });
@@ -132,8 +138,8 @@ function summary(startMs: number): CycleSummary {
   };
 }
 
-/** Everything a tenant can write through lib/: reports, moves, merges, history, official figures, resets, tokens, an alert. */
-async function exerciseEverything(store: TenantStore, marker: string): Promise<void> {
+/** Everything a tenant can write through lib/: reports, moves, merges, a trashed group, history, official figures, resets, tokens, an alert. Returns the trash id. */
+async function exerciseEverything(store: TenantStore, marker: string): Promise<string> {
   await ingest(store, {
     machineId: `${marker}-mac`,
     groupId: `${marker}-group`,
@@ -160,6 +166,10 @@ async function exerciseEverything(store: TenantStore, marker: string): Promise<v
   expect(await deleteMachine(store, "claude", `${marker}-pc2`, { audit: stubAudit().audit })).toMatchObject({
     ok: true,
   });
+  // A forced delete moves a group's reports into the trash: its keys are the tenant's, and registered.
+  await ingest(store, { machineId: `${marker}-tmp`, groupId: `${marker}-gone`, providers: { claude: 10 } });
+  const trashed = await deleteGroup(store, `${marker}-gone`, true, NOW);
+  if (!trashed.ok || !trashed.trashId) throw new Error("not trashed");
   expect(await archiveCycle(store, "claude", summary(CYCLE_START_MS - 7 * 86_400_000))).toBe(true);
   expect(await saveArchivedOfficial(store, "claude", CYCLE_START_MS - 7 * 86_400_000, 42)).toBe(true);
   await saveOfficialUsage(
@@ -185,6 +195,7 @@ async function exerciseEverything(store: TenantStore, marker: string): Promise<v
     },
     now: NOW,
   });
+  return trashed.trashId;
 }
 
 describe("a tenant's keys", () => {
@@ -197,7 +208,7 @@ describe("a tenant's keys", () => {
     const memory = getMemoryStoreForTests();
     if (!memory) return; // the registry check reads the memory store's own key list
     const store = tenantStore(OTHER);
-    await exerciseEverything(store, "b");
+    const trashId = await exerciseEverything(store, "b");
 
     const keys = memory.keys();
     expect(keys.length).toBeGreaterThan(5);
@@ -215,6 +226,9 @@ describe("a tenant's keys", () => {
     expect(registry).toContain(store.keys.history("claude"));
     expect(registry).toContain(store.keys.allTime("claude"));
     expect(registry).toContain(store.keys.alert("claude", CYCLE_START_MS, 80));
+    expect(registry).toContain(store.keys.trashEntry(trashId));
+    expect(registry).toContain(store.keys.trashEvents(trashId, "claude", "b-gone"));
+    expect(keys).toContain(store.keys.trash);
     expect(keys).toContain(store.keys.manageAudit);
   });
 

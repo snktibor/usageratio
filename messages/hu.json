@@ -176,6 +176,8 @@
     "manage_history_action_restart_recorded": "Újraindítás rögzítve",
     "manage_history_action_restart_edited": "Újraindítás módosítva",
     "manage_history_action_restart_deleted": "Újraindítás törölve",
+    "manage_history_action_trash_restored": "Visszaállítva a kukából",
+    "manage_history_action_trash_purged": "Véglegesen törölve",
     "budget": "Keret",
     "type": "Típus",
     "weekly": "Heti",

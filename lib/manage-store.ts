@@ -3,9 +3,10 @@ import { archiveBeforeChange } from "@/lib/archive";
 import { RETENTION_DAYS, type ResetConfig, type TokenMode } from "@/lib/config";
 import { getCycle, getDaySegments } from "@/lib/cycle";
 import { carryOver, type MergeCycle, type MergeUnit } from "@/lib/machine-merge";
-import { type ManageAuditWriter, queueManageAudit } from "@/lib/manage-audit";
+import { type ManageAuditWriter, parseManageAuditRecord, queueManageAudit } from "@/lib/manage-audit";
 import { randomGroupColor, serializeGroupEntry } from "@/lib/settings";
 import type { TenantStore } from "@/lib/tenant";
+import { groupSettingsParts, newTrashId, providerSettingsParts, queueTrash, type TrashKeyRef } from "@/lib/trash";
 import { eventMember, loadIndexes, loadRawSettings, machineEntry, parseEvent } from "@/lib/usage-store";
 
 /**
@@ -80,7 +81,13 @@ export interface DeleteOptions {
 }
 
 export type DeleteWithEventsResult =
-  | { ok: true; affected: Affected; impact: DeleteImpact }
+  | {
+      ok: true;
+      affected: Affected;
+      impact: DeleteImpact;
+      /** The trash entry a forced delete of stored reports moved them into (lib/trash.ts); absent when nothing was moved. */
+      trashId?: string;
+    }
   | { ok: false; reason: "not_found" | "has_events" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -488,12 +495,12 @@ export async function renameOrMergeGroup(
   return { ok: true, affected };
 }
 
-/** Counts the reports in `activeKeys` and finds the newest one, for the delete impact. */
+/** Counts the reports in `activeKeys` (in total and key by key) and finds the newest one, for the delete impact. */
 async function countReports(
   store: TenantStore,
   activeKeys: string[],
-): Promise<{ events: number; lastReportAt: number | null }> {
-  if (activeKeys.length === 0) return { events: 0, lastReportAt: null };
+): Promise<{ events: number; lastReportAt: number | null; counts: number[] }> {
+  if (activeKeys.length === 0) return { events: 0, lastReportAt: null, counts: [] };
   const pipeline = store.redis.pipeline();
   for (const key of activeKeys) {
     pipeline.zcard(key);
@@ -502,32 +509,56 @@ async function countReports(
   const results = (await pipeline.exec()) as unknown[];
   let events = 0;
   let lastReportAt: number | null = null;
+  const counts: number[] = [];
   for (let index = 0; index < activeKeys.length; index++) {
-    events += Number(results[index * 2]);
+    counts.push(Number(results[index * 2]));
+    events += counts[index]!;
     // [member, score] of the newest member.
     const score = Number((results[index * 2 + 1] as unknown[])[1]);
     if (Number.isFinite(score) && (lastReportAt === null || score > lastReportAt)) lastReportAt = score;
   }
-  return { events, lastReportAt };
+  return { events, lastReportAt, counts };
 }
 
-/** What deleting `activeKeys` (their reports) and `machines` would remove, and how fresh both are. */
+/** What deleting `activeKeys` (their reports) and `machines` would remove, and how fresh both are; `counts` is the reports of each key. */
 async function deleteImpact(
   store: TenantStore,
   activeKeys: string[],
   machines: { lastSeenAt: number }[],
   groups: number,
   now: Date,
-): Promise<DeleteImpact> {
-  const { events, lastReportAt } = await countReports(store, activeKeys);
+): Promise<{ impact: DeleteImpact; counts: number[] }> {
+  const { events, lastReportAt, counts } = await countReports(store, activeKeys);
   const recentSince = now.getTime() - RECENT_REPORT_MS;
   return {
-    events,
-    machines: machines.length,
-    groups,
-    lastReportAt,
-    recentMachines: machines.filter((machine) => machine.lastSeenAt >= recentSince).length,
+    impact: {
+      events,
+      machines: machines.length,
+      groups,
+      lastReportAt,
+      recentMachines: machines.filter((machine) => machine.lastSeenAt >= recentSince).length,
+    },
+    counts,
   };
+}
+
+/** The raw `usage:machines` entries of `fields` (the field's own bytes, for the trash to put back as they were); a field without one is left out. */
+async function readRawMachines(store: TenantStore, fields: string[]): Promise<Record<string, string>> {
+  if (fields.length === 0) return {};
+  const reads = store.redis.pipeline();
+  for (const field of fields) reads.hget(store.keys.machines, field);
+  const values = (await reads.exec()) as unknown[];
+  const raw: Record<string, string> = {};
+  fields.forEach((field, index) => {
+    const value = values[index];
+    if (typeof value === "string") raw[field] = value;
+  });
+  return raw;
+}
+
+/** The delete's own login, for the trash entry: the audit entry the writer made says who (multi-tenant mode). */
+function loginOf(audit: string | null): string | null {
+  return audit ? (parseManageAuditRecord(audit)?.by ?? null) : null;
 }
 
 /** Removes a group's `excludedProviders` entry outright (used by `deleteGroup`); a no-op without one. */
@@ -553,8 +584,10 @@ async function removeExclusionsInSettings(store: TenantStore, groupId: string, n
  * Deletes a group outright: without `force`, refuses (`has_events`) while any
  * provider still has stored events for it — the same rule PUT /api/settings
  * already applies to a group taken off the panel's list. With `force`,
- * deletes every provider's events key for it, its `usage:groups` entry, its
- * machines' `usage:machines` fields, and its `excludedProviders` entry. With
+ * moves every provider's events key for it into the trash (lib/trash.ts: kept 30
+ * days, restorable; `trashId` in the answer), and deletes its `usage:groups`
+ * entry, its machines' `usage:machines` fields, and its `excludedProviders`
+ * entry (the trash keeps their contents). With
  * `options.dryRun` it only reports what that would remove: it neither refuses
  * nor archives nor writes.
  */
@@ -582,11 +615,12 @@ export async function deleteGroup(
   const activeKeys = keys.filter((_, index) => existsFlags[index] === 1);
   const machinesInGroup = indexes.machines.filter((machine) => machine.groupId === groupId);
   if (options.dryRun) {
-    const impact = await deleteImpact(store, activeKeys, machinesInGroup, 1, now);
+    const { impact } = await deleteImpact(store, activeKeys, machinesInGroup, 1, now);
     return { ok: true, affected: { events: impact.events, machines: impact.machines, groups: 1 }, impact };
   }
   if (activeKeys.length > 0 && !force) return { ok: false, reason: "has_events" };
-  const impact = await deleteImpact(store, activeKeys, machinesInGroup, 1, now);
+  const { impact, counts } = await deleteImpact(store, activeKeys, machinesInGroup, 1, now);
+  const affected = { events: impact.events, machines: impact.machines, groups: 1 };
   // The events go with the group: archive the just-ended cycle first, while they can still be read.
   if (activeKeys.length > 0) {
     await archiveBeforeChange(store, now, {
@@ -596,16 +630,48 @@ export async function deleteGroup(
   }
 
   const machineFields = machinesInGroup.map((machine) => `${machine.providerId}:${machine.machineId}`);
+  // Stored reports are moved into the trash (lib/trash.ts), not deleted: a group without any has nothing to restore.
+  const trashId = activeKeys.length > 0 ? newTrashId() : null;
+  const [rawGroup, rawMachines] = trashId
+    ? await Promise.all([redis.hget(store.keys.groups, groupId), readRawMachines(store, machineFields)])
+    : [null, {}];
   const audit = options.audit
     ? await options.audit({
         action: "group_deleted",
         subject: { kind: "group", id: groupId },
-        affected: { events: impact.events, machines: impact.machines, groups: 1 },
+        affected,
+        ...(trashId && { trashId }),
       })
     : null;
 
   const tx = redis.multi();
-  for (const key of activeKeys) tx.del(key);
+  if (trashId) {
+    const refs: TrashKeyRef[] = [];
+    providerIds.forEach((providerId, index) => {
+      if (existsFlags[index] === 1) refs.push({ p: providerId, g: groupId, n: counts[refs.length]! });
+    });
+    queueTrash(
+      tx,
+      store,
+      {
+        v: 1,
+        kind: "group",
+        id: trashId,
+        name: groupId,
+        at: now.getTime(),
+        by: loginOf(audit),
+        n: affected,
+        keys: refs,
+        machines: rawMachines,
+        group:
+          typeof rawGroup === "string"
+            ? rawGroup
+            : serializeGroupEntry(group.color ?? randomGroupColor(), group.firstSeenAt),
+        excluded: groupSettingsParts(indexes.settings, groupId).excluded ?? [],
+      },
+      now.getTime(),
+    );
+  }
   if (machineFields.length > 0) tx.hdel(store.keys.machines, ...machineFields);
   tx.hdel(store.keys.groups, groupId);
   if (audit) queueManageAudit(tx, store, audit);
@@ -613,7 +679,7 @@ export async function deleteGroup(
 
   await removeExclusionsInSettings(store, groupId, now);
 
-  return { ok: true, affected: { events: impact.events, machines: impact.machines, groups: 1 }, impact };
+  return { ok: true, affected, impact, ...(trashId && { trashId }) };
 }
 
 /** Strips `providerId` from `limits`, `subLimits`, `hiddenProviders` and every `excludedProviders` entry of the settings document; a no-op without a stored document or reference. */
@@ -672,10 +738,12 @@ async function scrubProviderInSettings(store: TenantStore, providerId: string, n
 
 /**
  * Deletes a provider outright: without `force`, refuses (`has_events`) while
- * any of its groups still has stored events. With `force`, deletes its
- * events key in every group, its `usage:providers` entry, its machines'
- * `usage:machines` fields, its `usage:official` fields (its own and every
- * sub-limit's), and scrubs it from the settings document. With
+ * any of its groups still has stored events. With `force`, moves its events
+ * key in every group into the trash (lib/trash.ts: kept 30 days, restorable;
+ * `trashId` in the answer), and deletes its `usage:providers` entry, its
+ * machines' `usage:machines` fields, its `usage:official` fields (its own and
+ * every sub-limit's) and its resets, and scrubs it from the settings document
+ * (the trash keeps their contents). With
  * `options.dryRun` it only reports what that would remove: it neither refuses
  * nor archives nor writes.
  */
@@ -687,8 +755,8 @@ export async function deleteProvider(
   options: DeleteOptions = {},
 ): Promise<DeleteWithEventsResult> {
   const indexes = await loadIndexes(store);
-  const known = indexes.providers.some((provider) => provider.providerId === providerId);
-  if (!known) return { ok: false, reason: "not_found" };
+  const provider = indexes.providers.find((candidate) => candidate.providerId === providerId);
+  if (!provider) return { ok: false, reason: "not_found" };
 
   const redis = store.redis;
   const groupIds = indexes.groups.map((group) => group.groupId);
@@ -704,7 +772,7 @@ export async function deleteProvider(
   const activeGroupCount = activeKeys.length;
   const machinesOfProvider = indexes.machines.filter((machine) => machine.providerId === providerId);
   if (options.dryRun) {
-    const impact = await deleteImpact(store, activeKeys, machinesOfProvider, activeGroupCount, now);
+    const { impact } = await deleteImpact(store, activeKeys, machinesOfProvider, activeGroupCount, now);
     return {
       ok: true,
       affected: { events: impact.events, machines: impact.machines, groups: activeGroupCount },
@@ -712,7 +780,8 @@ export async function deleteProvider(
     };
   }
   if (activeKeys.length > 0 && !force) return { ok: false, reason: "has_events" };
-  const impact = await deleteImpact(store, activeKeys, machinesOfProvider, activeGroupCount, now);
+  const { impact, counts } = await deleteImpact(store, activeKeys, machinesOfProvider, activeGroupCount, now);
+  const affected = { events: impact.events, machines: impact.machines, groups: activeGroupCount };
   // The events go with the provider: archive the just-ended cycle first, while they can still be read.
   if (activeKeys.length > 0) await archiveBeforeChange(store, now, { indexes, providerIds: [providerId] });
 
@@ -721,16 +790,48 @@ export async function deleteProvider(
     (field) => field === providerId || field.startsWith(`${providerId}:`),
   );
 
+  // Stored reports are moved into the trash (lib/trash.ts), not deleted: a provider without any has nothing to restore.
+  const trashId = activeKeys.length > 0 ? newTrashId() : null;
+  const [rawResets, rawMachines] = trashId
+    ? await Promise.all([redis.hget(store.keys.resets, providerId), readRawMachines(store, machineFields)])
+    : [null, {}];
   const audit = options.audit
     ? await options.audit({
         action: "provider_deleted",
         subject: { kind: "provider", id: providerId },
-        affected: { events: impact.events, machines: impact.machines, groups: activeGroupCount },
+        affected,
+        ...(trashId && { trashId }),
       })
     : null;
 
   const tx = redis.multi();
-  for (const key of activeKeys) tx.del(key);
+  if (trashId) {
+    const refs: TrashKeyRef[] = [];
+    groupIds.forEach((groupId, index) => {
+      if (existsFlags[index] === 1) refs.push({ p: providerId, g: groupId, n: counts[refs.length]! });
+    });
+    const settingsParts = providerSettingsParts(indexes.settings, providerId);
+    queueTrash(
+      tx,
+      store,
+      {
+        v: 1,
+        kind: "provider",
+        id: trashId,
+        name: providerId,
+        at: now.getTime(),
+        by: loginOf(audit),
+        n: affected,
+        keys: refs,
+        machines: rawMachines,
+        firstSeen: provider.firstSeenAt,
+        official: Object.fromEntries(officialFields.map((field) => [field, indexes.officialUsage[field]!])),
+        resets: typeof rawResets === "string" ? rawResets : null,
+        ...settingsParts,
+      },
+      now.getTime(),
+    );
+  }
   if (machineFields.length > 0) tx.hdel(store.keys.machines, ...machineFields);
   tx.hdel(store.keys.providers, providerId);
   if (officialFields.length > 0) tx.hdel(store.keys.officialUsage, ...officialFields);
@@ -740,5 +841,5 @@ export async function deleteProvider(
 
   await scrubProviderInSettings(store, providerId, now);
 
-  return { ok: true, affected: { events: impact.events, machines: impact.machines, groups: activeGroupCount }, impact };
+  return { ok: true, affected, impact, ...(trashId && { trashId }) };
 }

@@ -21,6 +21,7 @@ All source: `app/api/**/route.ts`, shared helpers in `lib/api.ts`.
 - [`GET /api/machines`, `PATCH`/`DELETE /api/machines/[provider]/[machine]`, `POST /api/machines/prune`](#machines)
 - [`PATCH`/`DELETE /api/groups/[group]`](#groups)
 - [`DELETE /api/providers/[provider]`](#providers)
+- [`GET /api/trash`, `POST /api/trash/[id]/restore`, `DELETE /api/trash/[id]`](#recently-deleted)
 - [`POST /api/alerts/test`](#alerts-test)
 - [`GET`/`POST /api/auth/sudo`](#sudo)
 - [`POST /api/auth/github/start`, `GET /api/auth/github/callback`](#github-sign-in)
@@ -524,7 +525,8 @@ Up to 100 live tokens per workspace (`422 too_many_tokens` with `limit` past tha
 
 - **`GET /api/manage/audit`** (session, the owner's) → `{ "entries": [{ "at", "action":
   "group_deleted" | "group_merged" | "provider_deleted" | "machine_deleted" | "machine_merged" |
-  "restart_recorded" | "restart_edited" | "restart_deleted", "subject": { "kind":
+  "restart_recorded" | "restart_edited" | "restart_deleted" | "trash_restored" | "trash_purged",
+  "subject": { "kind":
   "group" | "provider" | "machine", "id", "providerId"?, "target"? }, "affected": { "events",
   "machines", "groups" } | null, "trashId": string | null, "browser", "os", "userAgent", "ip",
   "session", "by": login | null }], "currentSession" }`: the audit trail of destructive actions,
@@ -532,7 +534,8 @@ Up to 100 live tokens per workspace (`422 too_many_tokens` with `limit` past tha
   merge's destination; a restart is about its provider. The entry is written in the same transaction as
   the change by `DELETE /api/groups/[group]`, `PATCH /api/groups/[group]` (a merge, not a plain rename),
   `DELETE /api/providers/[provider]`, `PATCH` (a merge) and `DELETE /api/machines/[provider]/[machine]`,
-  and `POST`/`PUT`/`DELETE /api/resets` (a restart); a dry run, a refused delete and a `keep` reset write
+  and `POST`/`PUT`/`DELETE /api/resets` (a restart), and by `POST /api/trash/[id]/restore` and
+  `DELETE /api/trash/[id]` (`trashId` names the entry); a dry run, a refused delete and a `keep` reset write
   nothing. `by` is the GitHub login in multi-tenant mode. `401` no session · `403 owner_only` for a
   workspace member: the trail carries other people's network details · `503` Redis down.
 
@@ -565,7 +568,9 @@ Up to 100 live tokens per workspace (`422 too_many_tokens` with `limit` past tha
   stored reports (`409 group_has_events` otherwise). Same response shape, plus `"impact": { "events",
   "machines", "groups", "lastReportAt": ms | null, "recentMachines": n }`: what it removed, the newest
   stored report among it, and how many of its machines reported in the last 24 hours (they re-create
-  the group with their next report).
+  the group with their next report). The reports are not deleted but kept in the trash for 30 days
+  (see [Recently deleted](#recently-deleted)): `"trashId"` names the entry, and is absent when the
+  group had no stored reports (nothing to restore).
 - **`DELETE /api/groups/[group]?dryRun=1`** (session, same-origin, **no sudo**) — what a forced delete
   would remove, as `200 { "ok": true, "dryRun": true, "affected": {...}, "impact": {...} }`. It
   writes nothing, archives nothing and never answers `409`; the settings panel asks it before showing
@@ -574,14 +579,39 @@ Up to 100 live tokens per workspace (`422 too_many_tokens` with `limit` past tha
 ## Providers
 
 - **`DELETE /api/providers/[provider]`** (session + sudo, same-origin) — removes a provider outright:
-  its events in every group, its machines, its official-usage figures, and every trace of it in the
+  its events in every group (moved to the trash for 30 days), its machines, its official-usage figures, and every trace of it in the
   settings document. The panel only offers this once a provider is already hidden. `?force=1` required
   once it has stored events (`409 provider_has_events` otherwise). `200 { "ok": true, "affected": {...},
-  "impact": {...} }` (`impact` as for a group) · `400` invalid provider id · `401` no session · `403`
+  "impact": {...}, "trashId"? }` (`impact` and `trashId` as for a group) · `400` invalid provider id · `401` no session · `403`
   foreign origin, demo mode, or no sudo · `404` no such provider · `503` Redis down.
 - **`DELETE /api/providers/[provider]?dryRun=1`** (session, same-origin, **no sudo**) — what a forced
   delete would remove: `200 { "ok": true, "dryRun": true, "affected": {...}, "impact": {...} }`, with
   nothing written or archived and no `409`. Demo mode refuses it like every other delete.
+
+## Recently deleted
+
+A force-delete of a group or provider that has stored reports keeps its data for 30 days
+(`lib/trash.ts`, [data-model.md](data-model.md#recently-deleted)).
+
+- **`GET /api/trash`** (session; any member) → `{ "entries": [{ "id", "kind": "group" | "provider",
+  "name", "deletedAt": ms, "expiresAt": ms, "by": login | null, "affected": { events, machines,
+  groups } }], "retentionDays": 30 }`, newest first (at most 100). `401` no session · `503` Redis down.
+- **`POST /api/trash/[id]/restore`** (session **+ sudo**, same-origin; any member) puts the entry back:
+  its reports are unioned with any that arrived since (`AGGREGATE MAX`; reports past the retention are
+  dropped), its index entries come back where none has been re-created, and so do its settings parts;
+  the archived cycle summaries written while it was away are re-derived. → `200 { "ok": true, "kind",
+  "id", "restored": { "events", "machines" }, "merged": bool, "group"?: { "id", "color", "excluded":
+  [providerId] } }` (`merged`: the group or provider was live again, and the restore joined what had
+  arrived since; `group` is a group restore's effective colour and exclusions). `400` invalid id · `401`
+  no session · `403` foreign origin, demo mode, or no sudo grant · `404 not_found` (no such entry, or
+  it expired) · `409 too_many_groups` / `too_many_providers` / `too_many_machines` (the caps a report
+  is refused at; nothing is written) · `412 tenant_changed` · `503` Redis down.
+- **`DELETE /api/trash/[id]`** (session + sudo, same-origin; **the owner's only**) deletes the entry for
+  good before its 30 days run out → `200 { "ok": true, "affected": { events, machines, groups } }`.
+  `400` invalid id · `401` no session · `403` foreign origin, demo mode, `owner_only`, or no sudo
+  grant · `404 not_found` · `412 tenant_changed` · `503` Redis down.
+
+Both writes are on the manage audit trail (`trash_restored`, `trash_purged`).
 
 ## Alerts test
 

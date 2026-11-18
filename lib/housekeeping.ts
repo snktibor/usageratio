@@ -16,13 +16,15 @@ import { deleteTenant } from "@/lib/tenant-deletion";
 import { DEFAULT_TENANT } from "@/lib/tenant-id";
 import { loadTenantRecord, markHousekept, tenantsByHousekeepingAge } from "@/lib/tenants";
 import { pruneRevokedTokens } from "@/lib/tokens";
+import { trimTrash } from "@/lib/trash";
 import { loadEvents, loadIndexes, loadResets, saveResets } from "@/lib/usage-store";
 
 /**
  * Prunes the index hashes (`usage:machines`, `usage:providers`, `usage:groups`,
  * `usage:official`, `usage:resets`) of entries nothing still points to,
- * `usage:tokens` of tokens revoked long enough ago (lib/tokens.ts), and the
- * audit trail of entries older than its retention window. It never touches
+ * `usage:tokens` of tokens revoked long enough ago (lib/tokens.ts), the
+ * audit trail of entries older than its retention window, and the index entry
+ * and registry names of recently deleted entries past theirs (lib/trash.ts). It never touches
  * the raw event ZSETs (`usage:events:{provider}:{group}`), which already
  * self-prune on every report (`storeReport` in lib/usage-store.ts); this is
  * only about the indexes that would otherwise grow forever with dead ids.
@@ -60,6 +62,8 @@ export interface HousekeepingReport {
   history: { archived: number; ids: string[] };
   /** Names dropped from the tenant's key registry: alert guards past their expiry. */
   registry: { removed: number };
+  /** Recently deleted entries (lib/trash.ts) past their retention, trimmed from the index with their registry names. */
+  trash: { removed: number; ids: string[] };
   dryRun: boolean;
 }
 
@@ -226,6 +230,11 @@ export async function runHousekeeping(
     return segmentMs !== null && segmentMs < guardCutoffMs;
   });
 
+  // Step 9: trash entries past their retention. Their keys expired by themselves; the index ids and
+  // every registry name of theirs go now (a trash id is random and never written again, so this
+  // cannot race a write). Reuses the registry read of step 8.
+  const trashTrimmed = await trimTrash(store, now, registryNames, dryRun);
+
   if (!dryRun) {
     if (machineFields.length > 0) await redis.hdel(store.keys.machines, ...machineFields);
     if (staleProviders.length > 0)
@@ -253,6 +262,7 @@ export async function runHousekeeping(
     audit: { removed: auditRemoved },
     history: { archived: archived.length, ids: archived },
     registry: { removed: expiredGuards.length },
+    trash: trashTrimmed,
     dryRun,
   };
 
@@ -269,6 +279,7 @@ export async function runHousekeeping(
   if (auditRemoved > 0) log.info("housekeeping.audit_pruned", { removed: auditRemoved, dryRun });
   if (expiredGuards.length > 0)
     log.info("housekeeping.registry_pruned", { removed: expiredGuards.length, ids: expiredGuards, dryRun });
+  if (trashTrimmed.removed > 0) log.info("housekeeping.trash_trimmed", { ...trashTrimmed, dryRun });
   if (archived.length > 0)
     log.info("housekeeping.history_archived", { archived: archived.length, ids: archived, dryRun });
   log.info("housekeeping.run", {
@@ -282,6 +293,7 @@ export async function runHousekeeping(
     audit: report.audit.removed,
     archived: report.history.archived,
     registry: report.registry.removed,
+    trash: report.trash.removed,
   });
 
   if (!dryRun) await redis.set(store.keys.housekeepingLast, JSON.stringify({ at: now.getTime(), report }));
