@@ -48,6 +48,10 @@ Every client — automatic or manual, macOS/Linux or Windows — runs the same c
 4. **Sending it:** `POST /api/usage` with the same Bearer token. `201` means it was stored; `200` with
    `"duplicate": true` means the exact same report already existed (harmless, no double-counting); a
    non-2xx response is logged and the client exits non-zero (see [Exit codes](#flags-and-exit-codes)).
+   An error answer is logged as `code: message` when the server sends a message: a report refused
+   by a workspace quota, for example, logs `server answered HTTP 422: too_many_machines: This
+   workspace has reached its limit of 25 machines, …` (the manual clients and the menu bar app
+   show the same), and the next report goes through once there is room.
 
 The provider id comes from matching `ccusage`'s model/vendor text against the `PROVIDERS` list in
 `clients/shared/ccusage-providers.cjs` (`claude`, `deepseek`, `gemini`, `kimi`, `meta`, `mistral`,

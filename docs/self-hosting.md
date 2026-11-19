@@ -152,8 +152,9 @@ was.
    with GitHub: you land in your existing data.
 6. **Invite people:** `/admin` → "Create a sign-up link". Each link works once, for 14 days, and
    is shown only once. Whoever opens it signs in with GitHub and gets an empty workspace of their
-   own. The admin page shows counts per workspace and can disable one; it never shows a
-   workspace's data.
+   own. The admin page shows counts per workspace against its quotas (25 machines, 20 providers, 20
+   groups, 50 tokens, 10 members, 10 pending invites; see `docs/api.md`, Quotas) and can disable
+   one; it never shows a workspace's data.
 
 To share a workspace, its owner opens `/workspace` (the account page's "Members" link) and creates
 an invite link: it lets one person in as a member within 7 days, optionally only a named GitHub
