@@ -385,8 +385,17 @@ if ($result.Status -eq 200 -or $result.Status -eq 201) {
   exit 0
 }
 
-$text = ([string]$result.Text -replace '\s+', ' ')
-if ($text.Length -gt 300) { $text = $text.Substring(0, 300) }
+$text = [string]$result.Text
+# The error envelope as "code: message" (a quota refusal says what is full and what to do).
+try {
+  $envelope = $text | ConvertFrom-Json
+  if ($envelope -and $envelope.PSObject.Properties['error'] -and $envelope.error) {
+    $text = [string]$envelope.error
+    if ($envelope.PSObject.Properties['message'] -and $envelope.message) { $text = "${text}: $($envelope.message)" }
+  }
+} catch { Write-Verbose "Not every answer is JSON (a proxy's page, say); it is logged as it came. ($($_.Exception.Message))" }
+$text = ($text -replace '\s+', ' ').Trim()
+if ($text.Length -gt 500) { $text = $text.Substring(0, 500) }
 if ($result.Status -eq 0) {
   Write-UsageLog "ERROR: could not reach ${apiUrl}: $text"
 } else {
