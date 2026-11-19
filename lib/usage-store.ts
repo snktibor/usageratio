@@ -1,6 +1,6 @@
 import type { UsageEvent } from "@/lib/aggregate";
 import { ledgerEntryOf } from "@/lib/all-time";
-import { getConfig, MAX_MACHINES, type ResetOverride } from "@/lib/config";
+import { getConfig, type ResetOverride } from "@/lib/config";
 import type { KnownMachine } from "@/lib/dashboard";
 import { type CycleStart, countedFromMs, reportCheckpoints } from "@/lib/days";
 import {
@@ -12,7 +12,15 @@ import {
 } from "@/lib/history";
 import { queueManageAudit } from "@/lib/manage-audit";
 import { type OfficialUsageUpdate, officialUsageField, storedEntryFor } from "@/lib/official-usage";
-import { MAX_PROVIDERS, mergeProviderIds, normalizeProviderId } from "@/lib/providers";
+import { mergeProviderIds, normalizeProviderId } from "@/lib/providers";
+import {
+  growsPast,
+  type MachineCounting,
+  machineCounting,
+  machinesGrowPast,
+  type Quotas,
+  workspaceQuotas,
+} from "@/lib/quotas";
 import { toStringRecord } from "@/lib/redis";
 import { TxPlan } from "@/lib/redis-tx";
 import {
@@ -25,7 +33,6 @@ import {
 import {
   type IndexedGroup,
   type KnownGroup,
-  MAX_GROUPS,
   parseGroupEntry,
   parseStoredSettings,
   randomGroupColor,
@@ -170,18 +177,22 @@ export type StoreReportResult =
   | { ok: false; refused: StoreReportRefusal; limit: number };
 
 /**
- * The registry caps, checked in one pipeline before the write below: refuses
- * a report that would register a group, provider or machine past MAX_GROUPS,
- * MAX_PROVIDERS or MAX_MACHINES. Read here, not inside the write's MULTI, so
- * two first reports racing each other can each see room and both get
- * written — the caps bound runaway growth, they are not an exact invariant
- * (see lib/config.ts MAX_MACHINES). Also returns the report's group entry as
- * stored (null: a new group), which tells `storeReport` whether to unarchive it.
+ * The registry quotas (lib/quotas.ts), checked in one pipeline before the
+ * write below: refuses a report that would register a group, provider or
+ * machine past its limit. A report that adds nothing new always goes through,
+ * however far over a limit the workspace already is. Read here, not inside the
+ * write's MULTI, so two first reports racing each other can each see room and
+ * both get written — the quotas bound runaway growth, they are not an exact
+ * invariant (see lib/config.ts MAX_MACHINES). Also returns the report's group
+ * entry as stored (null: a new group), which tells `storeReport` whether to
+ * unarchive it.
  */
 async function checkRegistryCaps(
   store: TenantStore,
   report: UsageReport,
   heartbeat: boolean,
+  quotas: Quotas,
+  counting: MachineCounting,
 ): Promise<{ refused: StoreReportRefusal | null; group: IndexedGroup | null }> {
   const providers = Object.entries(report.providers);
   const redis = store.redis;
@@ -194,12 +205,7 @@ async function checkRegistryCaps(
     for (const [providerId] of providers) {
       plan.add(`providerExists:${providerId}`, () => caps.hexists(store.keys.providers, providerId));
     }
-    plan.add("machineCount", () => caps.hlen(store.keys.machines));
-    for (const [providerId] of providers) {
-      plan.add(`machineExists:${providerId}`, () =>
-        caps.hexists(store.keys.machines, `${providerId}:${report.machineId}`),
-      );
-    }
+    plan.add("machineFields", () => caps.hkeys(store.keys.machines));
   }
   const results: unknown[] = await caps.exec();
 
@@ -208,20 +214,18 @@ async function checkRegistryCaps(
 
   const refusal = (): StoreReportRefusal | null => {
     const groupCount = Number(plan.result(results, "groupCount"));
-    if (group === null && groupCount >= MAX_GROUPS) return "too_many_groups";
+    if (group === null && growsPast(groupCount, groupCount + 1, quotas.groups)) return "too_many_groups";
     if (heartbeat) return null;
 
     const providerCount = Number(plan.result(results, "providerCount"));
     const newProviderCount = providers.filter(
       ([providerId]) => Number(plan.result(results, `providerExists:${providerId}`)) === 0,
     ).length;
-    if (providerCount + newProviderCount > MAX_PROVIDERS) return "too_many_providers";
+    if (growsPast(providerCount, providerCount + newProviderCount, quotas.providers)) return "too_many_providers";
 
-    const machineCount = Number(plan.result(results, "machineCount"));
-    const newMachineCount = providers.filter(
-      ([providerId]) => Number(plan.result(results, `machineExists:${providerId}`)) === 0,
-    ).length;
-    if (machineCount + newMachineCount > MAX_MACHINES) return "too_many_machines";
+    const fields = (plan.result(results, "machineFields") as unknown[]).map(String);
+    const reported = providers.map(([providerId]) => `${providerId}:${report.machineId}`);
+    if (machinesGrowPast(fields, reported, quotas.machines, counting)) return "too_many_machines";
 
     return null;
   };
@@ -255,10 +259,11 @@ export async function storeReport(
   const providers = Object.entries(report.providers);
   const heartbeat = providers.length === 0;
 
-  const { refused, group } = await checkRegistryCaps(store, report, heartbeat);
-  if (refused === "too_many_groups") return { ok: false, refused, limit: MAX_GROUPS };
-  if (refused === "too_many_providers") return { ok: false, refused, limit: MAX_PROVIDERS };
-  if (refused === "too_many_machines") return { ok: false, refused, limit: MAX_MACHINES };
+  const quotas = workspaceQuotas();
+  const { refused, group } = await checkRegistryCaps(store, report, heartbeat, quotas, machineCounting());
+  if (refused === "too_many_groups") return { ok: false, refused, limit: quotas.groups };
+  if (refused === "too_many_providers") return { ok: false, refused, limit: quotas.providers };
+  if (refused === "too_many_machines") return { ok: false, refused, limit: quotas.machines };
 
   const oldestMs = now.getTime() - retentionDays * DAY_MS;
   const startOf = cycle && (typeof cycle.startMs === "number" ? () => cycle.startMs as number : cycle.startMs);
@@ -676,7 +681,10 @@ export async function loadGroupActivity(
   return groups.map((group) => ({ ...group, hasReports: active.has(group.groupId) }));
 }
 
-export type SaveSettingsResult = { ok: true } | { ok: false; groupsWithReports: string[] };
+export type SaveSettingsResult =
+  | { ok: true }
+  | { ok: false; groupsWithReports: string[] }
+  | { ok: false; refused: "too_many_groups"; limit: number };
 
 /**
  * Applies one save of the settings panel. Nothing is written when a group to
@@ -713,8 +721,17 @@ export async function saveSettings(
   ];
   if (groupsWithReports.length > 0) return { ok: false, groupsWithReports };
 
-  // A recoloured group keeps its first-seen time (it decides the order on the panel) and its archive mark.
+  // The group quota (lib/quotas.ts): only a save that adds groups past it is refused.
   const current = toStringRecord(rawGroups);
+  const before = Object.keys(current).length;
+  const removed = new Set(update.removedGroups);
+  const after = new Set(
+    [...Object.keys(current), ...update.groups.map((group) => group.id)].filter((id) => !removed.has(id)),
+  ).size;
+  const { groups: groupLimit } = workspaceQuotas();
+  if (growsPast(before, after, groupLimit)) return { ok: false, refused: "too_many_groups", limit: groupLimit };
+
+  // A recoloured group keeps its first-seen time (it decides the order on the panel) and its archive mark.
   const entries: Record<string, string> = {};
   for (const group of update.groups) {
     const existing = current[group.id];

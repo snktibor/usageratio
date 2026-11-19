@@ -26,10 +26,13 @@ interface RestoreAnswer {
   group?: { id: string; color: string; excluded: string[] };
 }
 
-async function errorCode(response: Response): Promise<string | null> {
-  const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-  return payload?.error ?? null;
-}
+/** A restore refused by a quota (lib/quotas.ts), by its code: the message names what is full and its limit. */
+const QUOTA_REFUSALS = {
+  too_many_groups: "trash_too_many_groups",
+  too_many_providers: "trash_too_many_providers",
+  too_many_machines: "trash_too_many_machines",
+} as const;
+type QuotaRefusalCode = keyof typeof QUOTA_REFUSALS;
 
 /**
  * The groups and providers that were force-deleted, kept for TRASH_RETENTION_DAYS (GET /api/trash,
@@ -126,7 +129,8 @@ export function RecentlyDeleted({
         await reload();
         return;
       }
-      const error = await errorCode(response);
+      const payload = (await response.json().catch(() => null)) as { error?: string; limit?: number } | null;
+      const error = payload?.error ?? null;
       if (error === "sudo_required") {
         setSudoRetry({ kind, entry });
         return;
@@ -137,7 +141,9 @@ export function RecentlyDeleted({
         return;
       }
       setProblem(
-        response.status === 409 && error?.startsWith("too_many_") ? t("trash_too_many") : t("trash_action_failed"),
+        response.status === 409 && error !== null && error in QUOTA_REFUSALS
+          ? t(QUOTA_REFUSALS[error as QuotaRefusalCode], { limit: Number(payload?.limit) })
+          : t("trash_action_failed"),
       );
     } catch {
       setProblem(t("trash_action_failed"));

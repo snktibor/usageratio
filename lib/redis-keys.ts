@@ -87,6 +87,13 @@
  *                                   most hourly: kept apart from the record, so that refresh can
  *                                   never write back a copy of a token revoked meanwhile
  *
+ *   usage:quota:refused      HASH   quota code ("too_many_machines" | "too_many_providers" |
+ *                                   "too_many_groups") → {"at": ms, "limit", "m": machineId, "g":
+ *                                   groupId}: the latest report each quota refused (multi-tenant
+ *                                   mode, lib/quota-refusals.ts), so the settings page can tell the
+ *                                   workspace why a machine is missing. The whole key expires
+ *                                   QUOTA_REFUSAL_DAYS after its latest write.
+ *
  *   usage:housekeeping:last  STRING {"at": ms, "report": HousekeepingReport} — the last run of
  *                                   lib/housekeeping.ts (see app/api/cron/housekeeping/route.ts)
  *
@@ -249,6 +256,8 @@ export interface TenantKeys {
   apiToken: string;
   apiTokenAudit: string;
   housekeepingLast: string;
+  /** The latest report each quota refused (lib/quota-refusals.ts). */
+  quotaRefusals: string;
   tokens: string;
   tokensLastUsed: string;
   tokensAudit: string;
@@ -286,6 +295,7 @@ export function tenantKeys(tenantId: TenantId): TenantKeys {
     apiToken: `${p}api-token`,
     apiTokenAudit: `${p}api-token:audit`,
     housekeepingLast: `${p}housekeeping:last`,
+    quotaRefusals: `${p}quota:refused`,
     tokens: `${p}tokens`,
     tokensLastUsed: `${p}tokens:lastused`,
     tokensAudit: `${p}tokens:audit`,
@@ -316,6 +326,7 @@ export function fixedTenantKeys(keys: TenantKeys): string[] {
     keys.apiToken,
     keys.apiTokenAudit,
     keys.housekeepingLast,
+    keys.quotaRefusals,
     keys.tokens,
     keys.tokensLastUsed,
     keys.tokensAudit,

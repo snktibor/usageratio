@@ -1,3 +1,4 @@
+import { loadQuotaUse, type WorkspaceQuotaUse } from "@/lib/quota-use";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { tenantStore } from "@/lib/tenant";
@@ -11,7 +12,8 @@ import { loadUser, parseRole } from "@/lib/users";
  * there are and how much each tenant uses, can disable a tenant and issue
  * sign-up codes; an admin never sees a tenant's data. Only counts leave
  * `adminOverview`: no machine, group or provider names, no usage figures, no
- * settings, no workspace names (those are the tenant's own).
+ * settings, no workspace names (those are the tenant's own). The counts come
+ * with the tenant's quotas (lib/quotas.ts), as "used of limit".
  */
 
 /** The admin accounts' numeric GitHub ids, from ADMIN_GITHUB_IDS ("123, 456"); anything else is ignored. */
@@ -38,10 +40,8 @@ export interface AdminTenantRow {
   status: TenantStatus;
   /** The owners' GitHub logins: account data, so the admin can tell whose tenant to disable. */
   owners: string[];
-  members: number;
-  machines: number;
-  providers: number;
-  tokens: number;
+  /** Its quota use (lib/quota-use.ts): members, machines, providers, groups, live tokens, pending invites. */
+  quota: WorkspaceQuotaUse;
   /** The latest report of any of its machines (ms); null before the first. */
   lastReportAt: number | null;
   /** How many dynamic keys it has (its key registry's size): a rough measure of its footprint. */
@@ -69,18 +69,17 @@ function latestReport(machines: Record<string, string>): number | null {
   return latest;
 }
 
-export async function adminOverview(): Promise<AdminOverview> {
+export async function adminOverview(now: Date = new Date()): Promise<AdminOverview> {
   const redis = getRedis();
   const memberIds = new Set<string>();
   const rows = await Promise.all(
     (await listTenantIds()).map(async (tenantId): Promise<AdminTenantRow> => {
       const store = tenantStore(tenantId);
-      const [record, membersRaw, machinesRaw, providers, tokens, keys] = await Promise.all([
+      const [record, membersRaw, machinesRaw, quota, keys] = await Promise.all([
         loadTenantRecord(tenantId),
         redis.hgetall(GLOBAL_KEYS.tenantMembers(tenantId)),
         redis.hgetall(store.keys.machines),
-        redis.hlen(store.keys.providers),
-        redis.hlen(store.keys.tokens),
+        loadQuotaUse(store, now),
         redis.scard(store.keys.registry),
       ]);
       const members = toStringRecord(membersRaw);
@@ -95,10 +94,7 @@ export async function adminOverview(): Promise<AdminOverview> {
         createdAt: record?.createdAt ?? null,
         status: record?.status ?? "active",
         owners: owners.sort(),
-        members: Object.keys(members).length,
-        machines: new Set(Object.keys(machines).map((field) => field.slice(field.indexOf(":") + 1))).size,
-        providers: Number(providers),
-        tokens: Number(tokens),
+        quota,
         lastReportAt: latestReport(machines),
         keys: Number(keys),
       };

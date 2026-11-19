@@ -7,8 +7,21 @@ import { FIELD, PRIMARY_BUTTON, QUIET_BUTTON } from "@/components/ui/classes";
 import { When } from "@/components/ui/when";
 import { Link } from "@/i18n/routing";
 import type { AdminOverview } from "@/lib/admin";
+import type { QuotaUse } from "@/lib/quotas";
 import type { SignupCodeEntry } from "@/lib/signup-codes";
 import { DEFAULT_TENANT } from "@/lib/tenant-id";
+
+/** One count against its quota, "used / limit", marked once the quota is reached. */
+function QuotaCell({ use }: { use: QuotaUse | null }) {
+  const t = useTranslations("Admin");
+  if (!use) return <td className="py-2 pr-3">—</td>;
+  const full = use.used >= use.limit;
+  return (
+    <td className={`py-2 pr-3 tabular-nums ${full ? "font-medium text-warning" : ""}`}>
+      {t("quota_use", { used: use.used, limit: use.limit })}
+    </td>
+  );
+}
 
 /**
  * The instance admin's page: counts per tenant (never a tenant's data), disabling a tenant, and
@@ -74,14 +87,17 @@ export function AdminView({ overview, codes }: { overview: AdminOverview; codes:
       </div>
 
       <section className="mt-8 overflow-x-auto">
-        <table className="w-full min-w-[48rem] text-left text-sm">
+        <table className="w-full min-w-[60rem] text-left text-sm">
           <thead className="text-ink-3">
             <tr>
               <th className="py-2 pr-3 font-normal">{t("col_tenant")}</th>
               <th className="py-2 pr-3 font-normal">{t("col_owners")}</th>
               <th className="py-2 pr-3 font-normal">{t("col_members")}</th>
               <th className="py-2 pr-3 font-normal">{t("col_machines")}</th>
+              <th className="py-2 pr-3 font-normal">{t("col_providers")}</th>
+              <th className="py-2 pr-3 font-normal">{t("col_groups")}</th>
               <th className="py-2 pr-3 font-normal">{t("col_tokens")}</th>
+              <th className="py-2 pr-3 font-normal">{t("col_invites")}</th>
               <th className="py-2 pr-3 font-normal">{t("col_keys")}</th>
               <th className="py-2 pr-3 font-normal">{t("col_last_report")}</th>
               <th className="py-2 font-normal">{t("col_status")}</th>
@@ -92,9 +108,12 @@ export function AdminView({ overview, codes }: { overview: AdminOverview; codes:
               <tr key={row.tenantId}>
                 <td className="py-2 pr-3 font-mono text-xs">{row.tenantId}</td>
                 <td className="py-2 pr-3">{row.owners.join(", ") || "—"}</td>
-                <td className="py-2 pr-3">{row.members}</td>
-                <td className="py-2 pr-3">{row.machines}</td>
-                <td className="py-2 pr-3">{row.tokens}</td>
+                <QuotaCell use={row.quota.members} />
+                <QuotaCell use={row.quota.machines} />
+                <QuotaCell use={row.quota.providers} />
+                <QuotaCell use={row.quota.groups} />
+                <QuotaCell use={row.quota.tokens} />
+                <QuotaCell use={row.quota.pendingInvites} />
                 <td className="py-2 pr-3">{row.keys}</td>
                 <td className="py-2 pr-3">
                   <When ms={row.lastReportAt} />

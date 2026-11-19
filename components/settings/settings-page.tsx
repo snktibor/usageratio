@@ -10,6 +10,7 @@ import { BudgetSection } from "@/components/settings/sections/budget-section";
 import { DangerSection } from "@/components/settings/sections/danger-section";
 import { GroupsSection } from "@/components/settings/sections/groups-section";
 import { LanguageSection } from "@/components/settings/sections/language-section";
+import { LimitsSection, type SettingsQuota } from "@/components/settings/sections/limits-section";
 import { MachinesSection } from "@/components/settings/sections/machines-section";
 import { ResetSection } from "@/components/settings/sections/reset-section";
 import { SubLimitsSection } from "@/components/settings/sections/sub-limits-section";
@@ -23,7 +24,17 @@ import { Link } from "@/i18n/routing";
 import type { SettingsView } from "@/lib/settings";
 
 /** The menu's entries, in page order; each is a `<section id="settings-…">` below. */
-const SECTIONS = ["general", "budgets", "providers", "groups", "machines", "alerts", "tokens", "danger"] as const;
+const SECTIONS = [
+  "general",
+  "budgets",
+  "providers",
+  "groups",
+  "machines",
+  "alerts",
+  "tokens",
+  "limits",
+  "danger",
+] as const;
 type SectionKey = (typeof SECTIONS)[number];
 
 const anchorId = (key: SectionKey) => `settings-${key}`;
@@ -110,7 +121,7 @@ function SettingsGroup({
  * form around one `useSettingsForm` draft, and a sticky bar with the one save
  * button. Leaving with unsaved changes asks first (use-leave-guard.ts).
  */
-export function SettingsPage({ view }: { view: SettingsView }) {
+export function SettingsPage({ view, quota }: { view: SettingsView; quota?: SettingsQuota }) {
   const t = useTranslations("Settings");
   const titleId = useId();
   const [justSaved, setJustSaved] = useState(false);
@@ -156,7 +167,8 @@ export function SettingsPage({ view }: { view: SettingsView }) {
       <div className="mt-8 lg:mt-12 lg:grid lg:grid-cols-[11rem_minmax(0,1fr)] lg:gap-12">
         <nav aria-label={t("sections_nav_aria")} className="lg:sticky lg:top-22 lg:self-start">
           <ul className="flex flex-wrap gap-2 lg:flex-col lg:gap-0.5">
-            {SECTIONS.map((key) => {
+            {/* The limits are a workspace's (multi-tenant mode): a single-user instance has no section for them. */}
+            {SECTIONS.filter((key) => key !== "limits" || quota).map((key) => {
               const current = key === active;
               return (
                 <li key={key}>
@@ -280,6 +292,12 @@ export function SettingsPage({ view }: { view: SettingsView }) {
                 tokenHistory={view.tokenHistory !== false}
               />
             </SettingsGroup>
+
+            {quota && (
+              <SettingsGroup sectionKey="limits" title={t("section_limits")} single>
+                <LimitsSection titleId={titleId} quota={quota} />
+              </SettingsGroup>
+            )}
 
             <SettingsGroup sectionKey="danger" title={t("section_danger")} single>
               <DangerSection

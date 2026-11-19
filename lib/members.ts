@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { growsPast, workspaceQuotas } from "@/lib/quotas";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import type { TenantStore } from "@/lib/tenant";
@@ -91,6 +92,25 @@ export async function addMember(
   return added === 1 ? "added" : "already";
 }
 
+/** How many members `tenantId` has, its owner included. */
+export async function memberCount(tenantId: TenantId): Promise<number> {
+  return Number(await getRedis().hlen(GLOBAL_KEYS.tenantMembers(tenantId)));
+}
+
+/** Whether one more member would take `tenantId` past its member quota (lib/quotas.ts); never in closed mode. */
+export async function membersFull(tenantId: TenantId): Promise<{ full: boolean; limit: number | null }> {
+  const { members: limit } = workspaceQuotas();
+  if (limit === null) return { full: false, limit };
+  const count = await memberCount(tenantId);
+  return { full: growsPast(count, count + 1, limit), limit };
+}
+
+/** How many workspaces `userId` owns, read from their own index (`usage:user:{userId}:tenants`). */
+export async function ownedWorkspaceCount(userId: string): Promise<number> {
+  const roles = toStringRecord(await getRedis().hgetall(GLOBAL_KEYS.userTenants(userId)));
+  return Object.values(roles).filter((role) => role === "owner").length;
+}
+
 const LOCK_SECONDS = 10;
 
 /** Runs `fn` holding the tenant's members lock; "busy" when another change holds it. */
@@ -159,7 +179,10 @@ export async function leaveWorkspace(tenantId: TenantId, userId: string): Promis
   return result === "busy" ? { ok: false, reason: "busy" } : result;
 }
 
-export type TransferResult = { ok: true } | { ok: false; reason: "not_owner" | "not_member" | "busy" };
+export type TransferResult =
+  | { ok: true }
+  | { ok: false; reason: "not_owner" | "not_member" | "busy" }
+  | { ok: false; reason: "too_many_workspaces"; limit: number };
 
 /**
  * The owner hands the workspace to one of its members: they become the owner
@@ -176,6 +199,12 @@ export async function transferOwnership(
     if (from?.role !== "owner") return { ok: false, reason: "not_owner" };
     const to = fromUserId === toUserId ? null : await membership(tenantId, toUserId);
     if (to?.role !== "member") return { ok: false, reason: "not_member" };
+    // The new owner's quota of owned workspaces (lib/quotas.ts): someone already at it cannot take one more.
+    const { ownedWorkspaces: limit } = workspaceQuotas();
+    if (limit !== null) {
+      const owned = await ownedWorkspaceCount(toUserId);
+      if (growsPast(owned, owned + 1, limit)) return { ok: false, reason: "too_many_workspaces", limit };
+    }
     const tx = getRedis().multi();
     tx.hset(GLOBAL_KEYS.tenantMembers(tenantId), {
       [toUserId]: JSON.stringify({ ...to, role: "owner" }),

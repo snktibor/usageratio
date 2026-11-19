@@ -16,6 +16,7 @@ const ERRORS = [
   "signup_code_invalid",
   "invite_invalid",
   "invite_wrong_account",
+  "workspace_full",
   "sudo_mismatch",
   "rate_limited",
   "registration_rate_limited",

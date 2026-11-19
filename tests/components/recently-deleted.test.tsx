@@ -226,14 +226,26 @@ describe("RecentlyDeleted restore", () => {
     expect(fn.mock.calls.filter(([url]) => url === "/api/trash")).toHaveLength(2);
   });
 
-  it("on 409 too_many_* says a limit is reached", async () => {
-    mockApi([LAB], (url) => (url === RESTORE_LAB ? answer(409, { error: "too_many_groups" }) : null));
+  it.each([
+    ["too_many_groups", "It cannot be restored: this workspace already has its 20 groups. Remove or merge one first."],
+    ["too_many_providers", "It cannot be restored: this workspace already has its 20 providers. Delete one first."],
+    [
+      "too_many_machines",
+      "It cannot be restored: its machines would take this workspace past its limit of 20 machines. Delete or merge machines first.",
+    ],
+  ])("on 409 %s says which limit is reached, with the workspace's own", async (error, text) => {
+    mockApi([LAB], (url) => (url === RESTORE_LAB ? answer(409, { error, limit: 20 }) : null));
     const handlers = renderList();
     fireEvent.click(await screen.findByRole("button", { name: "Restore “Lab”" }));
-    expect(
-      await screen.findByText("It cannot be restored: the limit of groups, providers or machines is reached."),
-    ).not.toBeNull();
+    expect(await screen.findByText(text)).not.toBeNull();
     expect(handlers.onManaged).not.toHaveBeenCalled();
+  });
+
+  it("on a 409 it does not know says it did not work", async () => {
+    mockApi([LAB], (url) => (url === RESTORE_LAB ? answer(409, { error: "too_many_cooks" }) : null));
+    renderList();
+    fireEvent.click(await screen.findByRole("button", { name: "Restore “Lab”" }));
+    expect(await screen.findByText(/did not work|could not/i)).not.toBeNull();
   });
 
   it("on any other error says it did not work, and the buttons work again", async () => {
