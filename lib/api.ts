@@ -17,6 +17,7 @@ import {
   runWithRequest,
 } from "@/lib/request-context";
 import { safeEqual, sha256Hex } from "@/lib/security";
+import { isStorageQuotaError, reportStorageQuota } from "@/lib/storage-quota";
 import { defaultTenantStore, type TenantStore, tenantStore } from "@/lib/tenant";
 import { currentTenant, type TenantContext } from "@/lib/tenant-context";
 import { TENANT_HEADER } from "@/lib/tenant-header";
@@ -415,7 +416,12 @@ export function withApiHandler(
           log.error("storage.not_configured", { route: name, err: error });
           response = apiError("storage_not_configured", 503);
         } else if (isStorageUnavailable(error)) {
-          log.error("storage.unavailable", { route: name, err: error });
+          // Over an Upstash limit or budget, it stays down until someone acts: that goes to the error webhook too.
+          if (isStorageQuotaError(error)) {
+            await reportStorageQuota(error, { path: new URL(request.url).pathname, requestId, route: name });
+          } else {
+            log.error("storage.unavailable", { route: name, err: error });
+          }
           response = apiError("storage_unavailable", 503);
         } else {
           log.error("api.unhandled", { route: name, err: error });

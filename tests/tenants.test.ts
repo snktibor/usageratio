@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { requireBearer } from "@/lib/api";
+import { resetErrorReporter, setErrorReporter } from "@/lib/error-reporter";
 import { runScheduledHousekeeping } from "@/lib/housekeeping";
 import { getMemoryStoreForTests, getRedis } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
+import { resetStorageQuotaReportsForTests } from "@/lib/storage-quota";
 import { tenantStore } from "@/lib/tenant";
 import { DEFAULT_TENANT, type TenantId } from "@/lib/tenant-id";
 import { listTenantIds, markHousekept, tenantsByHousekeepingAge } from "@/lib/tenants";
@@ -84,6 +86,23 @@ describe("runScheduledHousekeeping", () => {
     expect(Number(await getRedis().zscore(GLOBAL_KEYS.tenantsHousekept, B))).toBe(NOW.getTime());
     // Stamped all the same: a tenant that keeps failing goes to the back of the line, not the front.
     expect(Number(await getRedis().zscore(GLOBAL_KEYS.tenantsHousekept, DEFAULT_TENANT))).toBe(NOW.getTime());
+  });
+
+  it("reports a tenant that failed over an Upstash limit to the error webhook", async () => {
+    const memory = getMemoryStoreForTests();
+    if (!memory) return;
+    const reporter = vi.fn();
+    setErrorReporter(reporter);
+    try {
+      memory.failNext("HGETALL", "ERR max requests limit exceeded. Limit: 10000, Usage: 10000");
+      const { tenants } = await runScheduledHousekeeping(NOW, { dryRun: false });
+      expect(tenants.failed).toBe(1);
+      expect(reporter).toHaveBeenCalledTimes(1);
+      expect(reporter.mock.calls[0]![1]).toEqual({ route: "housekeeping", tenantId: DEFAULT_TENANT });
+    } finally {
+      resetErrorReporter();
+      resetStorageQuotaReportsForTests();
+    }
   });
 
   it("forgets expired alert guards in the key registry, and only those", async () => {
