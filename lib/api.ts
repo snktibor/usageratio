@@ -56,6 +56,8 @@ export type ApiErrorCode =
   | "too_many_providers"
   | "too_many_machines"
   | "too_many_tokens"
+  | "too_many_members"
+  | "too_many_workspaces"
   | "machine_mismatch"
   | "read_only_token"
   | "official_scope_required"

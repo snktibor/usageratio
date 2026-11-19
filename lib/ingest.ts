@@ -1,6 +1,8 @@
 import { getConfig, type TokenMode } from "@/lib/config";
 import { getCycle } from "@/lib/cycle";
 import { earliestCycle } from "@/lib/provider-cycles";
+import { recordQuotaRefusal } from "@/lib/quota-refusals";
+import { isMultiTenant } from "@/lib/registration";
 import { resetFor, resolveConfig } from "@/lib/settings";
 import type { TenantStore } from "@/lib/tenant";
 import { loadRawSettings, type StoreReportRefusal, storeReport } from "@/lib/usage-store";
@@ -23,7 +25,7 @@ import { parseUsageReport, type UsageReport } from "@/lib/validation";
 
 export type IngestResult =
   | { ok: false; errors: string[] }
-  /** Refused before writing anything: a registry cap (lib/usage-store.ts) would be exceeded. */
+  /** Refused before writing anything: a registry quota (lib/quotas.ts) would be exceeded. */
   | { ok: false; refused: StoreReportRefusal; limit: number }
   | {
       ok: true;
@@ -68,7 +70,20 @@ export async function ingestReport(store: TenantStore, body: unknown, now: Date)
   };
 
   const stored = await storeReport(store, parsed.report, now, config.retentionDays, reportCycle);
-  if (!stored.ok) return stored;
+  if (!stored.ok) {
+    // Kept for the workspace's settings page (lib/quota-refusals.ts): the client logs it, the owner sees it there.
+    if (isMultiTenant()) {
+      const { machineId, groupId } = parsed.report;
+      await recordQuotaRefusal(store, {
+        code: stored.refused,
+        at: now.getTime(),
+        limit: stored.limit,
+        machineId,
+        groupId,
+      });
+    }
+    return stored;
+  }
 
   // The earliest current cycle among the report's providers: what the client counted from.
   const cycle = resolved && earliestCycle(now, resolved, Object.keys(parsed.report.providers)).cycle;

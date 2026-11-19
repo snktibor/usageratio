@@ -45,6 +45,7 @@ import { loadGroupActivity, loadIndexes, loadRawSettings, saveSettings } from "@
  *
  * 200 ok · 400 bad JSON/payload, or every provider hidden · 401 no session · 403 foreign origin ·
  * 409 a group to remove still has reports (nothing was saved) · 413 body too large ·
+ * 422 too_many_groups: the save would add groups past the workspace's quota (lib/quotas.ts), with its `limit` ·
  * 415 not JSON · 503 Redis down
  */
 
@@ -117,7 +118,10 @@ export const PUT = withApiHandler("api/settings", async ({ request }) => {
     return apiError("invalid_payload", 400, { details: ["at least one provider must stay visible"] });
   }
   const saved = await saveSettings(store, parsed.update, new Date(), providerIds);
-  if (!saved.ok) return apiError("groups_have_reports", 409, { groups: saved.groupsWithReports });
+  if (!saved.ok) {
+    if ("refused" in saved) return apiError(saved.refused, 422, { limit: saved.limit });
+    return apiError("groups_have_reports", 409, { groups: saved.groupsWithReports });
+  }
 
   const { settings } = parsed.update;
   return json({ ok: true, settings: isMultiTenant() ? withMaskedWebhook(settings) : settings }, 200);

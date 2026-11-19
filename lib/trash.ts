@@ -1,11 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { rederiveArchivedCycles } from "@/lib/archive";
-import { MAX_MACHINES, RETENTION_DAYS, TRASH_RETENTION_DAYS } from "@/lib/config";
+import { RETENTION_DAYS, TRASH_RETENTION_DAYS } from "@/lib/config";
 import { log } from "@/lib/log";
 import { type ManageAuditWriter, queueManageAudit } from "@/lib/manage-audit";
 import type { Affected } from "@/lib/manage-store";
-import { MAX_PROVIDERS } from "@/lib/providers";
-import { MAX_GROUPS, PRESET_COLORS, parseGroupEntry } from "@/lib/settings";
+import { growsPast, machineCounting, machinesGrowPast, workspaceQuotas } from "@/lib/quotas";
+import { PRESET_COLORS, parseGroupEntry } from "@/lib/settings";
 import type { TenantStore } from "@/lib/tenant";
 import { loadIndexes } from "@/lib/usage-store";
 
@@ -369,7 +369,8 @@ export type RestoreResult =
       /** Group restores: the effective entry's colour and the exclusions after the union. */
       group?: { id: string; color: string; excluded: string[] };
     }
-  | { ok: false; reason: "not_found" | "too_many_groups" | "too_many_providers" | "too_many_machines" };
+  | { ok: false; reason: "not_found" }
+  | { ok: false; reason: "too_many_groups" | "too_many_providers" | "too_many_machines"; limit: number };
 
 /**
  * Puts a recently deleted group or provider back (see the header for how it meets what is live).
@@ -423,14 +424,17 @@ export async function restoreTrash(
   const liveMachineFields = new Set(indexes.machines.map((machine) => `${machine.providerId}:${machine.machineId}`));
   const newMachineFields = machineFields.filter((field) => !liveMachineFields.has(field));
 
-  if (meta.kind === "group" && !groupLive && indexes.groups.length >= MAX_GROUPS) {
-    return { ok: false, reason: "too_many_groups" };
+  const quotas = workspaceQuotas();
+  const groupCount = indexes.groups.length;
+  if (meta.kind === "group" && !groupLive && growsPast(groupCount, groupCount + 1, quotas.groups)) {
+    return { ok: false, reason: "too_many_groups", limit: quotas.groups };
   }
-  if (meta.kind === "provider" && !providerLive && indexes.providers.length >= MAX_PROVIDERS) {
-    return { ok: false, reason: "too_many_providers" };
+  const providerCount = indexes.providers.length;
+  if (meta.kind === "provider" && !providerLive && growsPast(providerCount, providerCount + 1, quotas.providers)) {
+    return { ok: false, reason: "too_many_providers", limit: quotas.providers };
   }
-  if (indexes.machines.length + newMachineFields.length > MAX_MACHINES) {
-    return { ok: false, reason: "too_many_machines" };
+  if (machinesGrowPast([...liveMachineFields], newMachineFields, quotas.machines, machineCounting())) {
+    return { ok: false, reason: "too_many_machines", limit: quotas.machines };
   }
 
   const nextSettings = withRestoredSettings(indexes.settings, meta, { providerLive, groupIds: liveGroupIds }, nowMs);

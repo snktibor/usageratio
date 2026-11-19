@@ -269,7 +269,6 @@
     "trash_restored_toast": "„{name}“ wiederhergestellt.",
     "trash_restored_merged_toast": "„{name}“ wiederhergestellt, zusammen mit den Berichten, die seit dem Löschen eingegangen sind.",
     "trash_gone": "Dieser Eintrag ist nicht mehr unter „Kürzlich gelöscht“.",
-    "trash_too_many": "Er kann nicht wiederhergestellt werden: Das Limit für Gruppen, Anbieter oder Maschinen ist erreicht.",
     "trash_action_failed": "Das hat nicht funktioniert. Versuche es gleich noch einmal.",
     "manage_clients_note": "Ein Client, der noch mit dem alten Namen oder der alten Gruppe eingerichtet ist, berichtet beim nächsten Lauf wieder dorthin: Ändere es auch auf der Maschine.",
     "manage_machines_heading": "Maschinen",
@@ -374,7 +373,12 @@
     "tokens_rotate_title": "Dieses Token ersetzen?",
     "tokens_rotate_body": "„{label}“ funktioniert ab sofort nicht mehr, und ein neues Token ersetzt es, das nur einmal angezeigt wird. Trage das neue in die Client-Konfiguration des Geräts ein, sonst meldet es nicht mehr.",
     "tokens_rotate_too_many": "Es werden noch zu viele widerrufene Tokens aufbewahrt (sie werden 90 Tage nach dem Widerruf vergessen). Versuche es später erneut.",
-    "tokens_rotate_lost": "Die Antwort kam nicht an. Prüfe die Liste: Wurde das Token ersetzt, ersetze es erneut, um ein neues Geheimnis zu erhalten."
+    "tokens_rotate_lost": "Die Antwort kam nicht an. Prüfe die Liste: Wurde das Token ersetzt, ersetze es erneut, um ein neues Geheimnis zu erhalten.",
+    "section_limits": "Limits",
+    "quota_groups_refused": "Dieser Arbeitsbereich darf höchstens {limit} Gruppen haben. Entferne eine Gruppe ohne Berichte oder führe zwei zusammen, bevor du eine weitere hinzufügst.",
+    "trash_too_many_groups": "Er kann nicht wiederhergestellt werden: Dieser Arbeitsbereich hat bereits seine {limit} Gruppen. Entferne oder führe zuerst eine zusammen.",
+    "trash_too_many_providers": "Er kann nicht wiederhergestellt werden: Dieser Arbeitsbereich hat bereits seine {limit} Anbieter. Lösche zuerst einen.",
+    "trash_too_many_machines": "Er kann nicht wiederhergestellt werden: Seine Maschinen würden das Limit dieses Arbeitsbereichs von {limit} Maschinen überschreiten. Lösche oder führe zuerst Maschinen zusammen."
   },
   "Alerts": {
     "threshold_text": "{label} hat {threshold}% seines Kontingents verbraucht (aktuell bei {used}%); der Zyklus endet am {end}."
@@ -804,7 +808,8 @@
     "join_missing_code": "Dieser Einladungslink ist unvollständig. Öffne den vollständigen Link, den du erhalten hast.",
     "no_workspace_account": "Dein Konto",
     "error_invite_invalid": "Diese Einladung ist nicht mehr gültig: Sie wurde verwendet, widerrufen oder ist abgelaufen. Bitte um eine neue.",
-    "error_invite_wrong_account": "Diese Einladung gilt für ein anderes GitHub-Konto. Melde dich mit dem genannten Konto an oder bitte um eine neue Einladung."
+    "error_invite_wrong_account": "Diese Einladung gilt für ein anderes GitHub-Konto. Melde dich mit dem genannten Konto an oder bitte um eine neue Einladung.",
+    "error_workspace_full": "Dieser Arbeitsbereich ist voll, daher kann die Einladung gerade nicht genutzt werden. Bitte die Person, der er gehört, Platz zu schaffen; die Einladung bleibt bis zu ihrem Ablauf gültig."
   },
   "Account": {
     "heading": "Konto",
@@ -861,7 +866,11 @@
     "code_expired": "abgelaufen",
     "code_expires": "gültig bis",
     "revoke": "Widerrufen",
-    "no_codes": "Noch keine Registrierungslinks."
+    "no_codes": "Noch keine Registrierungslinks.",
+    "col_providers": "Anbieter",
+    "col_groups": "Gruppen",
+    "col_invites": "Einladungen",
+    "quota_use": "{used} / {limit}"
   },
   "Errors": {
     "page_failed_title": "Die Seite konnte nicht geladen werden",
@@ -916,9 +925,31 @@
     "transfer_body": "Diese Person kann dann Personen einladen und entfernen, die Daten exportieren und den Workspace löschen. Du bleibst als Mitglied.",
     "transfer_sudo": "Für die Übergabe des Workspace ist eine frische Anmeldung nötig.",
     "cancel": "Abbrechen",
-    "error_too_many_invites": "Höchstens 10 Einladungen können gleichzeitig offen sein. Widerrufe zuerst eine.",
+    "error_too_many_invites": "Es können höchstens {limit} Einladungen gleichzeitig offen sein. Widerrufe zuerst eine.",
     "error_invalid_login": "Das ist kein GitHub-Login.",
     "error_busy": "Gerade läuft eine andere Änderung an den Mitgliedern. Versuche es gleich noch einmal.",
-    "error_failed": "Das hat nicht geklappt. Bitte versuche es erneut."
+    "error_failed": "Das hat nicht geklappt. Bitte versuche es erneut.",
+    "members_quota": "{used} von {limit} Mitgliedern",
+    "invites_quota": "{used} von {limit} offenen Einladungen",
+    "error_too_many_members": "Dieser Arbeitsbereich ist voll: Er hat seine {limit} Mitglieder. Entferne jemanden, bevor du eine weitere Person einlädst.",
+    "error_too_many_workspaces": "Dieses Mitglied besitzt bereits {limit} Arbeitsbereiche, mehr darf eine Person nicht besitzen. Wähle jemand anderen oder bitte die Person, zuerst einen abzugeben."
+  },
+  "Quota": {
+    "limits_heading": "Limits des Arbeitsbereichs",
+    "limits_explanation": "So viel darf dieser Arbeitsbereich enthalten. Ein erreichtes Limit löscht oder versteckt nie etwas: Nur neue Maschinen, Anbieter, Gruppen, Tokens oder Mitglieder werden abgelehnt, bis du Platz schaffst.",
+    "limits_row_machines": "Maschinen",
+    "limits_row_providers": "Anbieter",
+    "limits_row_groups": "Gruppen",
+    "limits_row_tokens": "Aktive Tokens",
+    "limits_row_members": "Mitglieder",
+    "limits_row_pendingInvites": "Offene Einladungen",
+    "limits_use": "{used} von {limit}",
+    "limits_use_full": "{used} von {limit} (voll)",
+    "refused_too_many_machines": "Ein Bericht der neuen Maschine „{machine}“ (Gruppe „{group}“) wurde abgelehnt: Dieser Arbeitsbereich hat sein Limit von {limit} Maschinen erreicht. Lösche oder führe nicht mehr genutzte Maschinen unter Maschinen zusammen, dann kommt ihr nächster Bericht an.",
+    "refused_too_many_providers": "Ein Bericht von „{machine}“ wurde abgelehnt: Er nannte einen neuen Anbieter, und dieser Arbeitsbereich hat sein Limit von {limit} Anbietern erreicht. Lösche einen nicht mehr genutzten Anbieter unter Gefahrenzone.",
+    "refused_too_many_groups": "Ein Bericht von „{machine}“ wurde abgelehnt: Er nannte die neue Gruppe „{group}“, und dieser Arbeitsbereich hat sein Limit von {limit} Gruppen erreicht. Entferne oder führe eine Gruppe unter Gruppen zusammen.",
+    "report_too_many_machines": "Dieser Arbeitsbereich hat sein Limit von {limit} Maschinen erreicht, daher wurde der Bericht dieser neuen Maschine nicht gespeichert. Lösche oder führe nicht mehr genutzte Maschinen unter Einstellungen → Maschinen zusammen und berichte dann erneut.",
+    "report_too_many_providers": "Dieser Arbeitsbereich hat sein Limit von {limit} Anbietern erreicht, daher wurde dieser Bericht mit einem neuen Anbieter nicht gespeichert. Lösche einen nicht mehr genutzten Anbieter unter Einstellungen → Gefahrenzone und berichte dann erneut.",
+    "report_too_many_groups": "Dieser Arbeitsbereich hat sein Limit von {limit} Gruppen erreicht, daher wurde dieser Bericht für eine neue Gruppe nicht gespeichert. Berichte in eine bestehende Gruppe oder entferne eine unter Einstellungen → Gruppen."
   }
 }

@@ -201,6 +201,9 @@ export function useSettingsForm(
         router.refresh();
       } else if (response.status === 403 && payload?.error === "demo_read_only") {
         setProblem(t("demo_read_only"));
+      } else if (response.status === 422 && payload?.error === "too_many_groups") {
+        // The workspace's group quota (lib/quotas.ts), which the draft's own check does not know.
+        setProblem(t("quota_groups_refused", { limit: Number(payload.limit) }));
       } else if (response.status === 409 && Array.isArray(payload?.groups)) {
         const refused = payload.groups.map(String);
         setDraft((current) => ({

@@ -36,6 +36,7 @@ const OWNER_VIEW: WorkspaceView = {
   invites: [
     { id: "iv_AAAAAAAA", createdAt: 1, expiresAt: Date.now() + 86_400_000, createdBy: "u_alice", login: "carol" },
   ],
+  quotas: { members: 10, pendingInvites: 10, ownedWorkspaces: 3 },
 };
 
 describe("WorkspaceMembers", () => {

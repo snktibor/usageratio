@@ -1,3 +1,4 @@
+import { WORKSPACE_QUOTAS } from "@/lib/config";
 import { type InviteEntry, listInvites } from "@/lib/invites";
 import { listMembers, type Member } from "@/lib/members";
 import type { TenantContext } from "@/lib/tenant-context";
@@ -18,6 +19,8 @@ export interface WorkspaceView {
   you: string | null;
   members: Member[];
   invites: InviteEntry[];
+  /** The workspace's quotas on people (lib/config.ts WORKSPACE_QUOTAS), for the page to show and explain a refusal. */
+  quotas: { members: number; pendingInvites: number; ownedWorkspaces: number };
 }
 
 export async function loadWorkspaceView(tenant: TenantContext, now: Date): Promise<WorkspaceView> {
@@ -27,5 +30,14 @@ export async function loadWorkspaceView(tenant: TenantContext, now: Date): Promi
     listMembers(tenantId),
     tenant.role === "owner" ? listInvites(tenantId, now) : Promise.resolve([]),
   ]);
-  return { tenantId, name: record?.name ?? tenantId, role: tenant.role, you: tenant.userId, members, invites };
+  const { members: memberLimit, pendingInvites, ownedWorkspaces } = WORKSPACE_QUOTAS;
+  return {
+    tenantId,
+    name: record?.name ?? tenantId,
+    role: tenant.role,
+    you: tenant.userId,
+    members,
+    invites,
+    quotas: { members: memberLimit, pendingInvites, ownedWorkspaces },
+  };
 }

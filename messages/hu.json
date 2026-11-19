@@ -269,7 +269,6 @@
     "trash_restored_toast": "Visszaállítva: „{name}”.",
     "trash_restored_merged_toast": "Visszaállítva: „{name}”, a törlése óta érkezett jelentésekkel együtt.",
     "trash_gone": "Ez az elem már nincs a Nemrég törölt listában.",
-    "trash_too_many": "Nem állítható vissza: elérted a csoportok, szolgáltatók vagy gépek korlátját.",
     "trash_action_failed": "Ez nem sikerült. Próbáld újra kicsit később.",
     "manage_clients_note": "Ha egy kliens még a régi névvel vagy csoporttal van beállítva, a következő jelentésekor újra oda jelent: a gépen is állítsd át.",
     "manage_machines_heading": "Gépek",
@@ -374,7 +373,12 @@
     "tokens_rotate_title": "Lecseréled ezt a tokent?",
     "tokens_rotate_body": "„{label}” azonnal érvénytelen lesz, és egy új token lép a helyére, amely csak egyszer jelenik meg. Írd be az újat a gép kliensbeállításába, különben a gép nem jelent tovább.",
     "tokens_rotate_too_many": "Túl sok visszavont token van még megőrizve (a visszavonás után 90 nappal törlődnek). Próbáld később.",
-    "tokens_rotate_lost": "A válasz nem érkezett meg. Nézd meg a listát: ha a token lecserélődött, cseréld újra, hogy új titkot kapj."
+    "tokens_rotate_lost": "A válasz nem érkezett meg. Nézd meg a listát: ha a token lecserélődött, cseréld újra, hogy új titkot kapj.",
+    "section_limits": "Korlátok",
+    "quota_groups_refused": "Ebben a munkaterületben legfeljebb {limit} csoport lehet. Új csoport előtt törölj egy riport nélküli csoportot, vagy vonj össze kettőt.",
+    "trash_too_many_groups": "Nem állítható vissza: a munkaterületnek már megvan a(z) {limit} csoportja. Előbb törölj vagy vonj össze egyet.",
+    "trash_too_many_providers": "Nem állítható vissza: a munkaterületnek már megvan a(z) {limit} szolgáltatója. Előbb törölj egyet.",
+    "trash_too_many_machines": "Nem állítható vissza: a gépeivel a munkaterület túllépné a(z) {limit} gépes korlátját. Előbb törölj vagy vonj össze gépeket."
   },
   "Alerts": {
     "threshold_text": "A(z) {label} elhasználta a kerete {threshold}%-át (jelenleg {used}%-nál tart); a ciklus itt ér véget: {end}."
@@ -804,7 +808,8 @@
     "join_missing_code": "Ez a meghívó link hiányos. Nyisd meg a teljes linket, amit kaptál.",
     "no_workspace_account": "A fiókod",
     "error_invite_invalid": "Ez a meghívó már nem érvényes: felhasználták, visszavonták, vagy lejárt. Kérj újat.",
-    "error_invite_wrong_account": "Ez a meghívó egy másik GitHub-fióknak szól. Lépj be azzal a fiókkal, vagy kérj új meghívót."
+    "error_invite_wrong_account": "Ez a meghívó egy másik GitHub-fióknak szól. Lépj be azzal a fiókkal, vagy kérj új meghívót.",
+    "error_workspace_full": "Ez a munkaterület megtelt, ezért a meghívó most nem használható. Kérd meg a tulajdonosát, hogy csináljon helyet; a meghívó a lejáratáig érvényes marad."
   },
   "Account": {
     "heading": "Fiók",
@@ -861,7 +866,11 @@
     "code_expired": "lejárt",
     "code_expires": "érvényes eddig:",
     "revoke": "Visszavonás",
-    "no_codes": "Még nincs regisztrációs link."
+    "no_codes": "Még nincs regisztrációs link.",
+    "col_providers": "Szolgáltatók",
+    "col_groups": "Csoportok",
+    "col_invites": "Meghívók",
+    "quota_use": "{used} / {limit}"
   },
   "Errors": {
     "page_failed_title": "Az oldal nem tudott betölteni",
@@ -916,9 +925,31 @@
     "transfer_body": "Ezután ő hívhat meg és távolíthat el embereket, exportálhatja az adatokat és törölheti a workspace-et. Te tagként maradsz.",
     "transfer_sudo": "A workspace átadásához friss belépés kell.",
     "cancel": "Mégse",
-    "error_too_many_invites": "Egyszerre legfeljebb 10 meghívó lehet függőben. Előbb vonj vissza egyet.",
+    "error_too_many_invites": "Egyszerre legfeljebb {limit} meghívó lehet függőben. Előbb vonj vissza egyet.",
     "error_invalid_login": "Ez nem GitHub-felhasználónév.",
     "error_busy": "Épp fut egy másik változtatás a tagokon. Próbáld újra egy pillanat múlva.",
-    "error_failed": "Ez nem sikerült. Próbáld újra."
+    "error_failed": "Ez nem sikerült. Próbáld újra.",
+    "members_quota": "{used} / {limit} tag",
+    "invites_quota": "{used} / {limit} függő meghívó",
+    "error_too_many_members": "A munkaterület megtelt: megvan a(z) {limit} tagja. Új meghívó előtt távolíts el valakit.",
+    "error_too_many_workspaces": "Ez a tag már {limit} munkaterületet birtokol, ennél többet egy ember nem birtokolhat. Válassz mást, vagy előbb adjon át egyet."
+  },
+  "Quota": {
+    "limits_heading": "A munkaterület korlátai",
+    "limits_explanation": "Ennyi fér el ebben a munkaterületben. A korlát elérése soha nem töröl és nem rejt el semmit: csak az új gépeket, szolgáltatókat, csoportokat, tokeneket vagy tagokat utasítja el, amíg nem csinálsz helyet.",
+    "limits_row_machines": "Gépek",
+    "limits_row_providers": "Szolgáltatók",
+    "limits_row_groups": "Csoportok",
+    "limits_row_tokens": "Aktív tokenek",
+    "limits_row_members": "Tagok",
+    "limits_row_pendingInvites": "Függő meghívók",
+    "limits_use": "{used} / {limit}",
+    "limits_use_full": "{used} / {limit} (megtelt)",
+    "refused_too_many_machines": "Az új „{machine}” gép riportját („{group}” csoport) elutasítottuk: a munkaterület elérte a(z) {limit} gépes korlátját. Törölj vagy vonj össze nem használt gépeket a Gépek résznél, és a következő riportja már bekerül.",
+    "refused_too_many_providers": "A(z) „{machine}” gép riportját elutasítottuk: új szolgáltatót hozott, a munkaterület pedig elérte a(z) {limit} szolgáltatós korlátját. Törölj egy nem használt szolgáltatót a Veszélyes műveletek résznél.",
+    "refused_too_many_groups": "A(z) „{machine}” gép riportját elutasítottuk: az új „{group}” csoportba jelentett, a munkaterület pedig elérte a(z) {limit} csoportos korlátját. Törölj vagy vonj össze egy csoportot a Csoportok résznél.",
+    "report_too_many_machines": "A munkaterület elérte a(z) {limit} gépes korlátját, ezért ennek az új gépnek a riportját nem tároltuk. Törölj vagy vonj össze nem használt gépeket a Beállítások → Gépek résznél, majd jelents újra.",
+    "report_too_many_providers": "A munkaterület elérte a(z) {limit} szolgáltatós korlátját, ezért ezt az új szolgáltatót hozó riportot nem tároltuk. Törölj egy nem használt szolgáltatót a Beállítások → Veszélyes műveletek résznél, majd jelents újra.",
+    "report_too_many_groups": "A munkaterület elérte a(z) {limit} csoportos korlátját, ezért ezt az új csoportba szóló riportot nem tároltuk. Jelents egy meglévő csoportba, vagy törölj egyet a Beállítások → Csoportok résznél."
   }
 }
