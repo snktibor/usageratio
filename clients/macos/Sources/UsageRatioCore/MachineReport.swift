@@ -67,11 +67,20 @@ public enum MachineReportProblem: Equatable, Sendable {
     case machineMismatch
     case readOnlyToken
     case rateLimited
+    /// The workspace is full (HTTP 422 too_many_*, lib/quotas.ts): a new machine, provider or group was refused.
+    case quotaReached(MachineReportQuota)
     case server(Int)
     case network
     case timedOut
     /// Anything else, in the reporter's own words.
     case other(String)
+}
+
+/// Which of the workspace's quotas refused this Mac's report.
+public enum MachineReportQuota: String, Equatable, Sendable, CaseIterable {
+    case machines = "too_many_machines"
+    case providers = "too_many_providers"
+    case groups = "too_many_groups"
 }
 
 public enum MachineReportOutcome: Equatable, Sendable {
@@ -90,6 +99,11 @@ public enum MachineReportOutcome: Equatable, Sendable {
             case 403 where message.contains("machine_mismatch"): return .failed(.machineMismatch)
             case 403 where message.contains("read_only_token"): return .failed(.readOnlyToken)
             case 429: return .failed(.rateLimited)
+            case 422:
+                if let quota = MachineReportQuota.allCases.first(where: { message.contains($0.rawValue) }) {
+                    return .failed(.quotaReached(quota))
+                }
+                return .failed(.server(status))
             default: return .failed(.server(status))
             }
         }

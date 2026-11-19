@@ -32,6 +32,10 @@ import Testing
         (1, #"❌ Sync failed: server answered HTTP 403: {"error":"read_only_token"}"#, .readOnlyToken),
         (3, #"❌ Sync failed: ccusage could not be read: Cycle endpoint answered HTTP 401: {"error":"unauthorized"}"#, .unauthorized),
         (1, #"❌ Sync failed: server answered HTTP 429: {"error":"rate_limited"}"#, .rateLimited),
+        (1, "❌ Sync failed: server answered HTTP 422: too_many_machines: This workspace has reached its limit of 25 machines", .quotaReached(.machines)),
+        (1, "❌ Sync failed: server answered HTTP 422: too_many_providers: Full.", .quotaReached(.providers)),
+        (1, "❌ Sync failed: server answered HTTP 422: too_many_groups: Full.", .quotaReached(.groups)),
+        (1, #"❌ Sync failed: server answered HTTP 422: {"error":"something_else"}"#, .server(422)),
         (1, "❌ Sync failed: server answered HTTP 503: ", .server(503)),
         (2, "❌ Sync failed: Node.js was not found (it is required by ccusage and the JSON parser)", .nodeMissing),
         (3, "❌ Sync failed: ccusage could not be read: Neither ccusage nor npx was found in PATH.", .nodeMissing),
@@ -61,12 +65,13 @@ import Testing
     let problems: [MachineReportProblem] = [
         .reporterMissing, .nodeMissing, .ccusageFailed, .unauthorized, .machineMismatch,
         .readOnlyToken, .rateLimited, .server(500), .network, .timedOut,
-    ]
+    ] + MachineReportQuota.allCases.map { .quotaReached($0) }
     for strings in [Strings.en, .hu, .de] {
         for problem in problems {
             #expect(!strings.message(for: problem).isEmpty)
         }
     }
     #expect(Strings.hu.message(for: .server(502)) == "a szerver HTTP 502 választ adott")
+    #expect(Strings.en.message(for: .quotaReached(.machines)).contains("Settings → Machines"))
     #expect(Strings.en.message(for: .other("as is")) == "as is")
 }

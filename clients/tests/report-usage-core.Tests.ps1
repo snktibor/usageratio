@@ -341,3 +341,58 @@ Describe 'report-usage-core.ps1 when the server rate limits the report' {
         Get-HitCount | Should -Be 3
     }
 }
+
+Describe 'report-usage-core.ps1 when a quota refuses the report' {
+    BeforeAll {
+        # An HTTP stub that refuses every POST the way POST /api/usage does once a workspace is full.
+        $script:QuotaPort = Get-Random -Minimum 40001 -Maximum 60000
+        $port = $script:QuotaPort
+        $refusal = @{
+            error     = 'too_many_machines'
+            requestId = 'req-1'
+            limit     = 25
+            message   = "This workspace has reached its limit of 25 machines, so this new machine's report was not stored."
+        } | ConvertTo-Json -Compress
+        $script:QuotaServer = Start-Job -ScriptBlock {
+            $listener = [Net.HttpListener]::new()
+            $listener.Prefixes.Add("http://localhost:$($using:port)/")
+            $listener.Start()
+            try {
+                while ($true) {
+                    $pending = $listener.GetContextAsync()
+                    while (-not $pending.Wait(200)) { }
+                    $context = $pending.Result
+                    $bytes = [Text.Encoding]::UTF8.GetBytes($using:refusal)
+                    $context.Response.StatusCode = 422
+                    $context.Response.ContentType = 'application/json'
+                    $context.Response.ContentLength64 = $bytes.Length
+                    $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+                    $context.Response.Close()
+                }
+            } finally { $listener.Stop() }
+        }
+        $deadline = (Get-Date).AddSeconds(15)
+        do {
+            Start-Sleep -Milliseconds 200
+            $client = [Net.Sockets.TcpClient]::new()
+            try { $client.Connect('localhost', $script:QuotaPort); $listening = $true } catch { $listening = $false } finally { $client.Dispose() }
+        } until ($listening -or (Get-Date) -gt $deadline)
+    }
+
+    AfterAll {
+        Stop-Job -Job $script:QuotaServer -ErrorAction SilentlyContinue
+        Remove-Job -Job $script:QuotaServer -Force -ErrorAction SilentlyContinue
+        Remove-Item Env:USAGERATIO_API_URL, Env:USAGERATIO_API_TOKEN -ErrorAction SilentlyContinue
+    }
+
+    It 'logs the code and the server''s message, and exits 1' {
+        $env:USAGERATIO_API_URL = "http://localhost:$script:QuotaPort/api/usage"
+        $env:USAGERATIO_API_TOKEN = 'test-token'
+        $result = Invoke-Core -Arguments @('-Tokens', 'claude=5', '-ConfigPath', $script:ConfigPath)
+
+        $result.ExitCode | Should -Be 1
+        $line = @(Get-Content -LiteralPath $script:LogFile)[-1]
+        $line | Should -Match ([regex]::Escape("ERROR: server answered HTTP 422: too_many_machines: This workspace has reached its limit of 25 machines"))
+        $line | Should -Not -Match 'requestId'
+    }
+}
