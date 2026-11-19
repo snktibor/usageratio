@@ -778,9 +778,11 @@ const MAX_ERROR_SUMMARY = 500;
  */
 function errorSummary(body) {
   if (!body || typeof body !== "object" || Array.isArray(body) || typeof body.error !== "string") return null;
+  const isControl = (char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127;
   const clean = (text) =>
-    String(text)
-      .replace(/[\u0000-\u001f\u007f]+/g, " ")
+    Array.from(String(text), (char) => (isControl(char) ? " " : char))
+      .join("")
+      .replace(/ {2,}/g, " ")
       .trim();
   const code = clean(body.error);
   if (!code) return null;

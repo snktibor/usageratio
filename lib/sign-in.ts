@@ -268,7 +268,7 @@ async function finishJoin(
   }
 
   // A full workspace (lib/quotas.ts) lets nobody new in; the invite stays, for once someone leaves.
-  if ((await membersFull(target.tenantId)).full) return fail("workspace_full");
+  if (await membersFull(target.tenantId)) return fail("workspace_full");
 
   const taken = await consumeInvite(hash);
   if (!taken || taken.tenantId !== target.tenantId) return fail("invite_invalid");

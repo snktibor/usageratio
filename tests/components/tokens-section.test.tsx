@@ -39,6 +39,43 @@ describe("TokensSection", () => {
     vi.useRealTimers();
   });
 
+  it("says which limit refused a new token: the workspace's own, from the answer", async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/tokens" && init?.method === "POST") return answer(422, { error: "too_many_tokens", limit: 50 });
+      return answer(200, { tokens: [TOKEN] });
+    });
+    renderWithIntl(<TokensSection titleId="t" timeZone="UTC" knownMachines={[]} onManaged={() => {}} />);
+    fireEvent.change(await screen.findByLabelText("Label"), { target: { value: "One too many" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create token" }));
+    expect(
+      await screen.findByText("The token limit (50) has been reached. Revoke one before creating another."),
+    ).toBeTruthy();
+  });
+
+  it("asks for a fresh sign-in when creating needs sudo", async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/tokens" && init?.method === "POST") return answer(403, { error: "sudo_required" });
+      if (url === "/api/auth/sudo") return answer(200, { mode: "github", numeric: false });
+      return answer(200, { tokens: [TOKEN] });
+    });
+    renderWithIntl(<TokensSection titleId="t" timeZone="UTC" knownMachines={[]} onManaged={() => {}} />);
+    fireEvent.change(await screen.findByLabelText("Label"), { target: { value: "Needs sudo" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create token" }));
+    expect(await screen.findByRole("button", { name: "Confirm with GitHub" })).toBeTruthy();
+  });
+
+  it("says it did not work when the answer is not JSON", async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/tokens" && init?.method === "POST")
+        return new Response("<html>bad gateway</html>", { status: 502 });
+      return answer(200, { tokens: [TOKEN] });
+    });
+    renderWithIntl(<TokensSection titleId="t" timeZone="UTC" knownMachines={[]} onManaged={() => {}} />);
+    fireEvent.change(await screen.findByLabelText("Label"), { target: { value: "Gateway down" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create token" }));
+    expect(await screen.findByText(/did not work|could not/i)).toBeTruthy();
+  });
+
   it("rotates a token after asking, and shows the new secret once", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {

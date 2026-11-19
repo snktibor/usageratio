@@ -34,6 +34,7 @@ const {
   PROVIDERS,
   providerFrom,
 } = require("../clients/shared/ccusage-providers.cjs") as {
+  errorSummary: (body: unknown) => string | null;
   MAX_DAYS: number;
   MAX_MODELS: number;
   MAX_MODELS_PER_PROVIDER: number;
