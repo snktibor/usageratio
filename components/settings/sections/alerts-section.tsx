@@ -17,6 +17,12 @@ import { webhookFieldProblem } from "@/lib/webhook";
 const FORMATS: AlertsFormat[] = ["generic", "slack", "discord"];
 
 /** The language's own name in itself, matching `LanguageSwitcher`'s labels. */
+/** A 429's Retry-After in whole seconds (lib/api.ts always sends one); 10, the test's own window, without it. */
+function retryAfterSeconds(response: Response): number {
+  const seconds = Number(response.headers.get("retry-after"));
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 10;
+}
+
 function localeLabel(locale: string): string {
   try {
     return new Intl.DisplayNames([locale], { type: "language" }).of(locale) ?? locale;
@@ -85,6 +91,8 @@ export function AlertsSection({
         setTestNotice(t("alerts_test_sent"));
       } else if (response.status === 401) {
         setTestProblem(t("session_expired"));
+      } else if (response.status === 429) {
+        setTestProblem(t("alerts_test_rate_limited", { seconds: retryAfterSeconds(response) }));
       } else {
         setTestProblem(t("alerts_test_failed"));
       }

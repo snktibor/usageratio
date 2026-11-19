@@ -268,3 +268,76 @@ Describe 'report-usage-core.ps1 with each provider''s own cycle start' {
         $payload.modelCosts.openai.'gpt-5-codex' | Should -Be 0.5
     }
 }
+
+Describe 'report-usage-core.ps1 when the server rate limits the report' {
+    BeforeAll {
+        # An HTTP stub that answers every request 429, with the Retry-After the path names
+        # (/wait/3600/api/usage), and writes one line per request it served.
+        $script:LimitPort = Get-Random -Minimum 40001 -Maximum 60000
+        $script:Hits = Join-Path $script:HomeDir 'rate-limit-hits.txt'
+        $port = $script:LimitPort
+        $hits = $script:Hits
+        $script:LimitServer = Start-Job -ScriptBlock {
+            $listener = [Net.HttpListener]::new()
+            $listener.Prefixes.Add("http://localhost:$($using:port)/")
+            $listener.Start()
+            try {
+                while ($true) {
+                    $pending = $listener.GetContextAsync()
+                    while (-not $pending.Wait(200)) { }
+                    $context = $pending.Result
+                    Add-Content -LiteralPath $using:hits -Value $context.Request.Url.AbsolutePath
+                    $wait = ($context.Request.Url.AbsolutePath -split '/')[2]
+                    $bytes = [Text.Encoding]::UTF8.GetBytes('{"error":"rate_limited"}')
+                    $context.Response.StatusCode = 429
+                    $context.Response.AddHeader('Retry-After', $wait)
+                    $context.Response.ContentType = 'application/json'
+                    $context.Response.ContentLength64 = $bytes.Length
+                    $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+                    $context.Response.Close()
+                }
+            } finally { $listener.Stop() }
+        }
+        $deadline = (Get-Date).AddSeconds(15)
+        do {
+            Start-Sleep -Milliseconds 200
+            $client = [Net.Sockets.TcpClient]::new()
+            try { $client.Connect('localhost', $script:LimitPort); $listening = $true } catch { $listening = $false } finally { $client.Dispose() }
+        } until ($listening -or (Get-Date) -gt $deadline)
+
+        function script:Get-HitCount {
+            if (-not (Test-Path -LiteralPath $script:Hits)) { return 0 }
+            return @(Get-Content -LiteralPath $script:Hits).Count
+        }
+    }
+
+    BeforeEach {
+        Remove-Item -LiteralPath $script:Hits, $script:LogFile -ErrorAction SilentlyContinue
+        $env:USAGERATIO_API_TOKEN = 'test-token'
+    }
+
+    AfterAll {
+        Stop-Job -Job $script:LimitServer -ErrorAction SilentlyContinue
+        Remove-Job -Job $script:LimitServer -Force -ErrorAction SilentlyContinue
+        Remove-Item Env:USAGERATIO_API_URL, Env:USAGERATIO_API_TOKEN -ErrorAction SilentlyContinue
+    }
+
+    It 'gives up at once on a long Retry-After, and leaves the next run to try again' {
+        $env:USAGERATIO_API_URL = "http://localhost:$script:LimitPort/wait/3600/api/usage"
+        $started = Get-Date
+        $result = Invoke-Core -Arguments @('-Tokens', 'claude=5', '-ConfigPath', $script:ConfigPath)
+
+        $result.ExitCode | Should -Be 1
+        Get-HitCount | Should -Be 1
+        ((Get-Date) - $started).TotalSeconds | Should -BeLessThan 30
+        Get-Content -LiteralPath $script:LogFile -Raw | Should -Match 'HTTP 429: .*rate limited; the next run tries again'
+    }
+
+    It 'retries a short Retry-After, up to three attempts' {
+        $env:USAGERATIO_API_URL = "http://localhost:$script:LimitPort/wait/1/api/usage"
+        $result = Invoke-Core -Arguments @('-Tokens', 'claude=5', '-ConfigPath', $script:ConfigPath)
+
+        $result.ExitCode | Should -Be 1
+        Get-HitCount | Should -Be 3
+    }
+}

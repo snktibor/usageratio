@@ -1,12 +1,20 @@
 import { hasLocale } from "next-intl";
 import { routing } from "@/i18n/routing";
 import { sendTestAlert } from "@/lib/alerts";
-import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, withApiHandler } from "@/lib/api";
+import {
+  apiError,
+  json,
+  rateLimited,
+  readJsonBody,
+  requireSameOrigin,
+  requireTenantSession,
+  withApiHandler,
+} from "@/lib/api";
 import { type AlertsFormat, getConfig } from "@/lib/config";
 import { demoReadOnly } from "@/lib/demo/mode";
-import { hit } from "@/lib/rate-limit";
-import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { isMultiTenant } from "@/lib/registration";
+import { clientIp } from "@/lib/request-context";
+import { alertTestRules } from "@/lib/route-limits";
 import { ALERT_FORMATS, resolveWebhookField, storedWebhookUrl } from "@/lib/settings";
 import { loadRawSettings } from "@/lib/usage-store";
 import { isAllowedWebhookUrl, MAX_WEBHOOK_URL_LENGTH } from "@/lib/webhook";
@@ -26,7 +34,8 @@ import { isAllowedWebhookUrl, MAX_WEBHOOK_URL_LENGTH } from "@/lib/webhook";
  *
  * 200 { "ok": true, "status": 200 } · 400 bad JSON/payload · 401 no session ·
  * 403 foreign origin · 413 body too large · 415 not JSON ·
- * 429 more than one attempt per 10 seconds ·
+ * 429 more than one attempt per 10 seconds, 30 per hour from one workspace or 60 from one client
+ * address (lib/route-limits.ts) ·
  * 502 { "error": "webhook_failed", "status", "detail" }, the upstream status
  * (null for a network failure) and the error message · 503 Redis down
  */
@@ -79,8 +88,8 @@ export const POST = withApiHandler("api/alerts/test", async ({ request }) => {
   const tenant = await requireTenantSession();
   if (tenant instanceof Response) return tenant;
 
-  const limited = await hit(GLOBAL_KEYS.rateLimit.alertsTest, 1, 10);
-  if (!limited.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: limited.retryAfterSeconds });
+  const limited = await rateLimited(alertTestRules({ tenantId: tenant.store.tenantId, ip: await clientIp() }));
+  if (limited) return limited;
 
   const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES });
   if (!body.ok) return body.response;

@@ -105,7 +105,7 @@ read_provider_tokens() {
     --config "$WORK_DIR/curl.conf" \
     --request GET \
     --connect-timeout 10 --max-time 30 \
-    --retry 3 --retry-delay 5 --retry-connrefused \
+    --retry 3 --retry-delay 5 --retry-connrefused --retry-max-time "$RETRY_MAX_SECONDS" \
     --output "$cycle_file" \
     --write-out '%{http_code}' \
     "$API_URL" 2>"$error_file")" || return 1
@@ -226,6 +226,11 @@ escape() {
 usage() {
   sed -n '3,10p' "$0" | sed 's/^# \{0,1\}//'
 }
+
+# curl's --retry also retries a 429, and waits as long as its Retry-After says, which an hourly
+# rate limit can put close to an hour away. --retry-max-time caps the retrying: a wait that would
+# go past it is not waited at all, the run fails, and the next scheduled run tries again.
+RETRY_MAX_SECONDS=120
 
 # ─── Arguments ────────────────────────────────────────────────────────────────
 
@@ -367,7 +372,7 @@ HTTP_CODE="$(curl --silent --show-error \
   --header 'Content-Type: application/json' \
   --data "$PAYLOAD" \
   --connect-timeout 10 --max-time 30 \
-  --retry 3 --retry-delay 5 --retry-connrefused \
+  --retry 3 --retry-delay 5 --retry-connrefused --retry-max-time "$RETRY_MAX_SECONDS" \
   --output "$WORK_DIR/response" \
   --write-out '%{http_code}' \
   "$API_URL" 2>"$WORK_DIR/error")"
@@ -389,6 +394,11 @@ case "$HTTP_CODE" in
       printf '✅ Sync successful: %s providers sent.%s\n' "${PROVIDER_COUNT:-0}" "$NOTE"
     fi
     exit 0
+    ;;
+  429)
+    # Rate limited: nothing is wrong with this machine, and the next run tries again.
+    log "ERROR: server answered HTTP 429: $(head -c 300 "$WORK_DIR/response" 2>/dev/null | tr '\n' ' ') (rate limited; the next run tries again)"
+    exit 1
     ;;
   *)
     log "ERROR: server answered HTTP $HTTP_CODE: $(head -c 300 "$WORK_DIR/response" 2>/dev/null | tr '\n' ' ')"
