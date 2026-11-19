@@ -2,7 +2,8 @@
 
 import { useTranslations } from "next-intl";
 import { useId, useState } from "react";
-import { PlusIcon, XIcon } from "@/components/icons";
+import { Swatch } from "@/components/group-breakdown";
+import { ArchiveIcon, PlusIcon, XIcon } from "@/components/icons";
 import type { DraftGroup, DraftProvider } from "@/components/settings/draft";
 import { ForceDeleteDialog, useDeleteImpact } from "@/components/settings/force-delete-dialog";
 import { SudoUnlock } from "@/components/setup/sudo-unlock";
@@ -146,6 +147,24 @@ export function GroupsSection({
     });
   }
 
+  /** Archives or restores a saved group on the server (lib/archived.ts); the draft and its baseline follow, like a merge. */
+  async function setArchived(id: string, archived: boolean) {
+    const response = await fetch(`/api/groups/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ archived }),
+    }).catch(() => null);
+    if (!response?.ok) {
+      setProblem(t("manage_groups_action_failed"));
+      return;
+    }
+    const archivedAt = archived ? Date.now() : undefined;
+    onGroupsChanged((current) => current.map((group) => (group.id === id ? { ...group, archivedAt } : group)));
+    setProblem(null);
+    setToast(archived ? t("group_archived_toast", { id }) : t("group_unarchived_toast", { id }));
+    onManaged();
+  }
+
   async function performForceDelete(id: string) {
     const response = await fetch(`/api/groups/${encodeURIComponent(id)}?force=1`, { method: "DELETE" });
     if (response.ok) {
@@ -162,15 +181,18 @@ export function GroupsSection({
     setProblem(t("manage_groups_action_failed"));
   }
 
+  const activeGroups = groups.filter((group) => group.archivedAt === undefined);
+  const archivedGroups = groups.filter((group) => group.archivedAt !== undefined);
+
   return (
     <section aria-labelledby={`${titleId}-groups`}>
       <h3 id={`${titleId}-groups`} className="font-medium">
         {t("groups")}
       </h3>
 
-      {groups.length > 0 && (
+      {activeGroups.length > 0 && (
         <ul className="mt-3 border-t border-hairline">
-          {groups.map((group) => {
+          {activeGroups.map((group) => {
             const isEditing = editing?.id === group.id;
             return (
               <li key={group.id} className="border-b border-hairline py-2.5">
@@ -234,6 +256,17 @@ export function GroupsSection({
                     aria-invalid={normalizeHexColor(group.colorText) === null || undefined}
                     className={`w-[6.5rem] font-mono text-sm ${FIELD}`}
                   />
+                  {savedGroupIds.includes(group.id) && (
+                    <button
+                      type="button"
+                      onClick={() => void setArchived(group.id, true)}
+                      aria-label={t("group_archive_aria", { id: group.id })}
+                      title={t("group_archive_hint")}
+                      className="rounded-md p-2 text-ink-3 transition-colors hover:text-ink"
+                    >
+                      <ArchiveIcon />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => (group.hasReports ? setForceDeleteConfirm({ id: group.id }) : onRemoveGroup(group))}
@@ -275,6 +308,34 @@ export function GroupsSection({
             );
           })}
         </ul>
+      )}
+      {archivedGroups.length > 0 && (
+        // Folded away like Recently deleted: archived groups are kept, just out of the way.
+        <details className="mt-3">
+          <summary className="cursor-pointer text-sm text-ink-2">
+            {t("groups_archived_show", { count: archivedGroups.length })}
+          </summary>
+          <p className="mt-3 text-sm text-ink-3">{t("groups_archived_explanation")}</p>
+          {/* biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics once list-style is none */}
+          <ul role="list" className="mt-3 border-t border-hairline">
+            {archivedGroups.map((group) => (
+              <li key={group.id} className="flex items-center justify-between gap-3 border-b border-hairline py-2.5">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Swatch color={group.color} />
+                  <span className="min-w-0 wrap-anywhere">{group.id}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void setArchived(group.id, false)}
+                  aria-label={t("group_unarchive_aria", { id: group.id })}
+                  className={`shrink-0 text-sm ${QUIET_BUTTON}`}
+                >
+                  {t("unarchive_button")}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
       <datalist id={presetsId}>
         {PRESET_COLORS.map((color) => (

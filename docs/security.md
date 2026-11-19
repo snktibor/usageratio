@@ -351,10 +351,10 @@ session tag (a hash of the session id, never the id itself), User-Agent, and the
 manual `POST /api/housekeeping` (settings panel, sudo-gated unless `?dryRun=1`) both run
 `runHousekeeping` (`lib/housekeeping.ts`), which prunes:
 
-- `usage:machines` entries silent longer than `RETENTION_DAYS` (70 days);
+- `usage:machines` entries silent longer than `RETENTION_DAYS` (70 days), unless archived;
 - `usage:providers` entries with no events anywhere, no surviving machine, and not referenced by
   the settings document, once old enough to be dead rather than new;
-- `usage:groups` entries with zero events across every provider, once old enough;
+- `usage:groups` entries with zero events across every provider, once old enough, unless archived;
 - `usage:official` entries older than the provider's current segment (its cycle rolled over, or a
   reset since), or that fail to parse;
 - `usage:resets` events: a keep reset once it is older than the provider's previous cycle, a restart

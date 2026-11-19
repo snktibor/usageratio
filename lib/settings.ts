@@ -115,6 +115,12 @@ export interface IndexedGroup {
   groupId: string;
   color: string | null;
   firstSeenAt: number;
+  /**
+   * When the group was archived (lib/archived.ts): taken off the settings panel's lists and
+   * pickers, its reports and past cycles kept. Absent while it is active; its next report
+   * clears it.
+   */
+  archivedAt?: number;
 }
 
 /** An indexed group, plus whether any of its reports are still stored. */
@@ -148,8 +154,8 @@ export interface SettingsView {
   timeZone: string;
   /** `models`: this cycle's model ids of the provider (without their dates), for picking a sub-limit's. */
   providers: { id: string; label: string; models: string[] }[];
-  /** In order of first appearance. */
-  groups: (GroupDefinition & { hasReports: boolean })[];
+  /** In order of first appearance; `archivedAt` only on an archived group (lib/archived.ts). */
+  groups: (GroupDefinition & { hasReports: boolean; archivedAt?: number })[];
 }
 
 export type SettingsParseResult = { ok: true; update: SettingsUpdate } | { ok: false; errors: string[] };
@@ -919,6 +925,7 @@ export function parseGroupEntry(groupId: string, raw: string): IndexedGroup {
         groupId,
         color: normalizeHexColor(entry.color),
         firstSeenAt: typeof entry.ts === "number" && Number.isFinite(entry.ts) ? entry.ts : 0,
+        ...(typeof entry.ar === "number" && Number.isFinite(entry.ar) && { archivedAt: entry.ar }),
       };
     }
   } catch {
@@ -927,8 +934,9 @@ export function parseGroupEntry(groupId: string, raw: string): IndexedGroup {
   return { groupId, color: null, firstSeenAt: 0 };
 }
 
-export function serializeGroupEntry(color: string, firstSeenAt: number): string {
-  return JSON.stringify({ color, ts: firstSeenAt });
+/** A `usage:groups` entry; `archivedAt` (field `ar`) only while the group is archived. */
+export function serializeGroupEntry(color: string, firstSeenAt: number, archivedAt?: number): string {
+  return JSON.stringify({ color, ts: firstSeenAt, ...(archivedAt !== undefined && { ar: archivedAt }) });
 }
 
 function byFirstAppearance(a: IndexedGroup, b: IndexedGroup): number {
@@ -992,6 +1000,7 @@ export function buildSettingsView(
       id: group.groupId,
       color: colors.get(group.groupId) ?? NEUTRAL_COLOR,
       hasReports: group.hasReports,
+      ...(group.archivedAt !== undefined && { archivedAt: group.archivedAt }),
     })),
   };
 }

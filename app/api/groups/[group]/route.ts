@@ -2,19 +2,21 @@ import { apiError, json, readJsonBody, requireSameOrigin, requireTenantSession, 
 import { hasSudo } from "@/lib/auth";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { manageAudit } from "@/lib/manage-audit";
-import { deleteGroup, renameOrMergeGroup } from "@/lib/manage-store";
+import { deleteGroup, renameOrMergeGroup, setGroupArchived } from "@/lib/manage-store";
 import { parseId } from "@/lib/validation";
 
 /**
- * /api/groups/[group] — rename, merge or delete a group. Behind the
+ * /api/groups/[group] — rename, merge, archive or delete a group. Behind the
  * dashboard's session; a merge (`{"merge": true}`, onto a group that already
  * exists) and a delete both need a fresh sudo grant, since either can lose
  * data (a merge combines two histories, a delete drops them). A plain rename
- * onto an unused id needs neither. A merge and a delete go on the manage audit trail (GET
+ * onto an unused id needs neither, nor does an archive (lib/archived.ts), which deletes nothing. A merge and a delete go on the manage audit trail (GET
  * /api/manage/audit), in the same transaction; a rename and a dry run do not.
  *
  *   PATCH { "id": "new-name" }              → 409 group_exists unless the id is free
  *   PATCH { "id": "existing", "merge": true } → unions the two groups' history (needs sudo)
+ *   PATCH { "archived": true | false }        → archives or restores it; its reports stay
+ *                                               (→ { "ok": true, "changed": bool })
  *   DELETE                                    → 409 group_has_events unless ?force=1
  *   DELETE?force=1                            → moves its reports to the trash for 30 days (needs sudo;
  *                                               `trashId` in the answer, GET /api/trash, restorable)
@@ -33,11 +35,18 @@ import { parseId } from "@/lib/validation";
 
 type Params = { group: string };
 
-function parseGroupBody(value: unknown): { id: string; merge: boolean } | { errors: string[] } {
+type GroupBody = { id: string; merge: boolean } | { archived: boolean };
+
+function parseGroupBody(value: unknown): GroupBody | { errors: string[] } {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return { errors: ["body must be a JSON object"] };
   }
   const body = value as Record<string, unknown>;
+  if (body.archived !== undefined) {
+    if (typeof body.archived !== "boolean") return { errors: ["archived must be true or false"] };
+    if (body.id !== undefined || body.merge !== undefined) return { errors: ["archived goes alone"] };
+    return { archived: body.archived };
+  }
   const errors: string[] = [];
   const id = parseId(body.id, "id", errors);
   if (body.merge !== undefined && typeof body.merge !== "boolean") errors.push("merge must be true or false");
@@ -64,6 +73,12 @@ export async function PATCH(request: Request, context: { params: Promise<Params>
     if (!body.ok) return body.response;
     const parsed = parseGroupBody(body.value);
     if ("errors" in parsed) return apiError("invalid_payload", 400, { details: parsed.errors });
+
+    if ("archived" in parsed) {
+      const archive = await setGroupArchived(store, groupId, parsed.archived, now);
+      if (!archive.ok) return apiError("not_found", 404);
+      return json({ ok: true, changed: archive.changed }, 200);
+    }
 
     if (parsed.merge && !(await hasSudo())) return apiError("sudo_required", 403);
 

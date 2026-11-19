@@ -40,6 +40,8 @@ export interface DraftGroup {
   hasReports: boolean;
   /** The providers whose usage in this group does not count. */
   excluded: string[];
+  /** Archived (lib/archived.ts): folded under the section's Archived list, left out of every picker. */
+  archivedAt?: number;
 }
 
 /** A provider's own reset on the form: its moment as typed; `source` only while a report's value is untouched. */

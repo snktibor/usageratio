@@ -1,10 +1,11 @@
 import type { UsageEvent } from "@/lib/aggregate";
 import { archiveBeforeChange } from "@/lib/archive";
+import { archivedGroupIds, isMachineArchived } from "@/lib/archived";
 import { RETENTION_DAYS, type ResetConfig, type TokenMode } from "@/lib/config";
 import { getCycle, getDaySegments } from "@/lib/cycle";
 import { carryOver, type MergeCycle, type MergeUnit } from "@/lib/machine-merge";
 import { type ManageAuditWriter, parseManageAuditRecord, queueManageAudit } from "@/lib/manage-audit";
-import { randomGroupColor, serializeGroupEntry } from "@/lib/settings";
+import { randomGroupColor, resolveGroupColors, serializeGroupEntry } from "@/lib/settings";
 import type { TenantStore } from "@/lib/tenant";
 import { groupSettingsParts, newTrashId, providerSettingsParts, queueTrash, type TrashKeyRef } from "@/lib/trash";
 import { eventMember, loadIndexes, loadRawSettings, machineEntry, parseEvent } from "@/lib/usage-store";
@@ -267,6 +268,7 @@ export async function moveMachine(
       newest.lastTokens,
       newest.mode,
       newest.intervalMinutes,
+      newest.archivedAt,
     ),
   });
   if (audit) queueManageAudit(tx, store, audit);
@@ -334,7 +336,11 @@ export async function deleteMachine(
   return { ok: true, affected };
 }
 
-/** Silent machines dropped from the index (not their stored reports), across every provider. Mirrors lib/housekeeping.ts's own machine step, triggered on demand. */
+/**
+ * Silent machines dropped from the index (not their stored reports), across every provider.
+ * Mirrors lib/housekeeping.ts's own machine step, triggered on demand. Archived machines stay
+ * (lib/archived.ts): they are already off the list, and the Archived list keeps them.
+ */
 export async function pruneMachines(
   store: TenantStore,
   now: Date,
@@ -342,10 +348,75 @@ export async function pruneMachines(
 ): Promise<{ removedIds: string[] }> {
   const indexes = await loadIndexes(store);
   const cutoffMs = now.getTime() - inactiveDays * 86_400_000;
-  const stale = indexes.machines.filter((machine) => machine.lastSeenAt < cutoffMs);
+  const archivedGroups = archivedGroupIds(indexes.groups);
+  const stale = indexes.machines.filter(
+    (machine) => machine.lastSeenAt < cutoffMs && !isMachineArchived(machine, archivedGroups),
+  );
   const fields = stale.map((machine) => `${machine.providerId}:${machine.machineId}`);
   if (fields.length > 0) await store.redis.hdel(store.keys.machines, ...fields);
   return { removedIds: fields };
+}
+
+export type ArchiveResult = { ok: true; changed: boolean } | { ok: false; reason: "not_found" };
+
+/**
+ * Archives (`archived: true`) or restores one group (lib/archived.ts): only its `usage:groups`
+ * entry changes, its reports and machines stay as they are. A group without a stored colour (an
+ * entry older than colours) is given the one the dashboard shows it in, so archiving never
+ * changes how it is drawn. `changed` is false when it already was in that state.
+ *
+ * Read, then written: a report landing in between rewrites nothing here (it only HSETNXes an
+ * existing group), so the archive simply wins; the group's next report brings it back.
+ */
+export async function setGroupArchived(
+  store: TenantStore,
+  groupId: string,
+  archived: boolean,
+  now: Date,
+): Promise<ArchiveResult> {
+  const indexes = await loadIndexes(store);
+  const group = indexes.groups.find((entry) => entry.groupId === groupId);
+  if (!group) return { ok: false, reason: "not_found" };
+  if ((group.archivedAt !== undefined) === archived) return { ok: true, changed: false };
+
+  // resolveGroupColors gives every group it is handed a colour.
+  const color = group.color ?? resolveGroupColors(indexes.groups).get(groupId)!;
+  const entry = serializeGroupEntry(color, group.firstSeenAt, archived ? now.getTime() : undefined);
+  await store.redis.hset(store.keys.groups, { [groupId]: entry });
+  return { ok: true, changed: true };
+}
+
+/**
+ * Archives (`archived: true`) or restores one machine's entry for one provider (the route is
+ * called once per provider, like a move): only its `usage:machines` field changes. Restoring a
+ * machine whose group is archived clears its own mark, but it stays archived with the group.
+ *
+ * Read, then written: a report landing in between is overwritten by the copy read before it, so
+ * the entry's last-seen time and tokens lag one report behind until the next one, which also
+ * brings the machine back.
+ */
+export async function setMachineArchived(
+  store: TenantStore,
+  providerId: string,
+  machineId: string,
+  archived: boolean,
+  now: Date,
+): Promise<ArchiveResult> {
+  const indexes = await loadIndexes(store);
+  const machine = indexes.machines.find((m) => m.providerId === providerId && m.machineId === machineId);
+  if (!machine) return { ok: false, reason: "not_found" };
+  if ((machine.archivedAt !== undefined) === archived) return { ok: true, changed: false };
+
+  const entry = machineEntry(
+    machine.groupId,
+    machine.lastSeenAt,
+    machine.lastTokens,
+    machine.mode,
+    machine.intervalMinutes,
+    archived ? now.getTime() : undefined,
+  );
+  await store.redis.hset(store.keys.machines, { [`${providerId}:${machineId}`]: entry });
+  return { ok: true, changed: true };
 }
 
 /** Moves (or merges) a group's `excludedProviders` entry in the settings document; a no-op without a stored document or exclusion. */
@@ -476,6 +547,7 @@ export async function renameOrMergeGroup(
         machine.lastTokens,
         machine.mode,
         machine.intervalMinutes,
+        machine.archivedAt,
       );
     }
     tx.hset(store.keys.machines, machineEntries);
@@ -483,7 +555,7 @@ export async function renameOrMergeGroup(
 
   if (!destinationExists) {
     tx.hset(store.keys.groups, {
-      [newGroupId]: serializeGroupEntry(source.color ?? randomGroupColor(), source.firstSeenAt),
+      [newGroupId]: serializeGroupEntry(source.color ?? randomGroupColor(), source.firstSeenAt, source.archivedAt),
     });
   }
   tx.hdel(store.keys.groups, groupId);

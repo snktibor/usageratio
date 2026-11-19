@@ -6,7 +6,8 @@ import { loadIndexes } from "@/lib/usage-store";
  * section (rename, delete, prune). Behind the dashboard's session only: a
  * read, so it needs neither the origin check nor sudo.
  *
- *   → { "machines": [{ "providerId", "machineId", "groupId", "lastSeenAt", "lastTokens" }] }
+ *   → { "machines": [{ "providerId", "machineId", "groupId", "lastSeenAt", "lastTokens", "archivedAt"? }] }
+ *     ("archivedAt": the entry's own archive mark, lib/archived.ts; its group's is on GET /api/settings)
  *
  * 200 ok · 401 no session · 503 Redis down
  */
@@ -24,6 +25,7 @@ export const GET = withApiHandler("api/machines", async () => {
         groupId: machine.groupId,
         lastSeenAt: machine.lastSeenAt,
         lastTokens: machine.lastTokens,
+        ...(machine.archivedAt !== undefined && { archivedAt: machine.archivedAt }),
       })),
     },
     200,

@@ -2,6 +2,7 @@ import type { TimeWindow } from "@/lib/aggregate";
 import { ALERT_TTL_SECONDS } from "@/lib/alerts";
 import { parseAuditRecord } from "@/lib/api-token";
 import { archiveDueCycles } from "@/lib/archive";
+import { archivedGroupIds, isMachineArchived } from "@/lib/archived";
 import { getConfig, RETENTION_DAYS } from "@/lib/config";
 import { pruneExpiredInvites } from "@/lib/invites";
 import { log } from "@/lib/log";
@@ -93,8 +94,12 @@ export async function runHousekeeping(
   const providerIds = indexes.providers.map((provider) => provider.providerId);
   const cutoffMs = now.getTime() - RETENTION_DAYS * DAY_MS;
 
-  // Step 1: machines silent for longer than the retention window.
-  const staleMachines = indexes.machines.filter((machine) => machine.lastSeenAt < cutoffMs);
+  // Step 1: machines silent for longer than the retention window. An archived one stays
+  // (lib/archived.ts): the settings panel's Archived list keeps it until it is restored.
+  const archivedGroups = archivedGroupIds(indexes.groups);
+  const staleMachines = indexes.machines.filter(
+    (machine) => machine.lastSeenAt < cutoffMs && !isMachineArchived(machine, archivedGroups),
+  );
   const machineFields = staleMachines.map((machine) => `${machine.providerId}:${machine.machineId}`);
   const liveMachineProviderIds = new Set(
     indexes.machines.filter((machine) => machine.lastSeenAt >= cutoffMs).map((machine) => machine.providerId),
@@ -140,8 +145,11 @@ export async function runHousekeeping(
       !referencedProviders.has(provider.providerId),
   );
 
-  // Step 3: groups with zero events across every provider, old enough to be dead rather than new. A group with any data never qualifies.
-  const staleGroups = indexes.groups.filter((group) => group.firstSeenAt < cutoffMs && !groupHasEvents(group.groupId));
+  // Step 3: groups with zero events across every provider, old enough to be dead rather than new. A group with any data never
+  // qualifies, nor does an archived one: it keeps its colour for the past cycles, and its place on the Archived list.
+  const staleGroups = indexes.groups.filter(
+    (group) => group.firstSeenAt < cutoffMs && group.archivedAt === undefined && !groupHasEvents(group.groupId),
+  );
 
   // Step 4: archive the cycle that just ended into `usage:history:{provider}` (lib/archive.ts), the
   // same way the first dashboard render after it does: a cycle nobody looked at is kept all the same.

@@ -140,6 +140,7 @@ export function machineEntry(
   tokens: number,
   mode: ReportMode | undefined,
   intervalMinutes: number | null | undefined,
+  archivedAt?: number,
 ): string {
   return JSON.stringify({
     g: groupId,
@@ -147,6 +148,7 @@ export function machineEntry(
     t: tokens,
     ...(mode === "manual" && { md: mode }),
     ...(intervalMinutes != null && { iv: intervalMinutes }),
+    ...(archivedAt !== undefined && { ar: archivedAt }),
   });
 }
 
@@ -173,19 +175,20 @@ export type StoreReportResult =
  * MAX_PROVIDERS or MAX_MACHINES. Read here, not inside the write's MULTI, so
  * two first reports racing each other can each see room and both get
  * written — the caps bound runaway growth, they are not an exact invariant
- * (see lib/config.ts MAX_MACHINES).
+ * (see lib/config.ts MAX_MACHINES). Also returns the report's group entry as
+ * stored (null: a new group), which tells `storeReport` whether to unarchive it.
  */
 async function checkRegistryCaps(
   store: TenantStore,
   report: UsageReport,
   heartbeat: boolean,
-): Promise<StoreReportRefusal | null> {
+): Promise<{ refused: StoreReportRefusal | null; group: IndexedGroup | null }> {
   const providers = Object.entries(report.providers);
   const redis = store.redis;
   const caps = redis.pipeline();
   const plan = new TxPlan();
   plan.add("groupCount", () => caps.hlen(store.keys.groups));
-  plan.add("groupExists", () => caps.hexists(store.keys.groups, report.groupId));
+  plan.add("group", () => caps.hget(store.keys.groups, report.groupId));
   if (!heartbeat) {
     plan.add("providerCount", () => caps.hlen(store.keys.providers));
     for (const [providerId] of providers) {
@@ -200,24 +203,29 @@ async function checkRegistryCaps(
   }
   const results: unknown[] = await caps.exec();
 
-  const groupCount = Number(plan.result(results, "groupCount"));
-  const groupExists = Number(plan.result(results, "groupExists")) === 1;
-  if (!groupExists && groupCount >= MAX_GROUPS) return "too_many_groups";
-  if (heartbeat) return null;
+  const rawGroup = toRawDocument(plan.result(results, "group"));
+  const group = rawGroup === null ? null : parseGroupEntry(report.groupId, rawGroup);
 
-  const providerCount = Number(plan.result(results, "providerCount"));
-  const newProviderCount = providers.filter(
-    ([providerId]) => Number(plan.result(results, `providerExists:${providerId}`)) === 0,
-  ).length;
-  if (providerCount + newProviderCount > MAX_PROVIDERS) return "too_many_providers";
+  const refusal = (): StoreReportRefusal | null => {
+    const groupCount = Number(plan.result(results, "groupCount"));
+    if (group === null && groupCount >= MAX_GROUPS) return "too_many_groups";
+    if (heartbeat) return null;
 
-  const machineCount = Number(plan.result(results, "machineCount"));
-  const newMachineCount = providers.filter(
-    ([providerId]) => Number(plan.result(results, `machineExists:${providerId}`)) === 0,
-  ).length;
-  if (machineCount + newMachineCount > MAX_MACHINES) return "too_many_machines";
+    const providerCount = Number(plan.result(results, "providerCount"));
+    const newProviderCount = providers.filter(
+      ([providerId]) => Number(plan.result(results, `providerExists:${providerId}`)) === 0,
+    ).length;
+    if (providerCount + newProviderCount > MAX_PROVIDERS) return "too_many_providers";
 
-  return null;
+    const machineCount = Number(plan.result(results, "machineCount"));
+    const newMachineCount = providers.filter(
+      ([providerId]) => Number(plan.result(results, `machineExists:${providerId}`)) === 0,
+    ).length;
+    if (machineCount + newMachineCount > MAX_MACHINES) return "too_many_machines";
+
+    return null;
+  };
+  return { refused: refusal(), group };
 }
 
 /**
@@ -247,7 +255,7 @@ export async function storeReport(
   const providers = Object.entries(report.providers);
   const heartbeat = providers.length === 0;
 
-  const refused = await checkRegistryCaps(store, report, heartbeat);
+  const { refused, group } = await checkRegistryCaps(store, report, heartbeat);
   if (refused === "too_many_groups") return { ok: false, refused, limit: MAX_GROUPS };
   if (refused === "too_many_providers") return { ok: false, refused, limit: MAX_PROVIDERS };
   if (refused === "too_many_machines") return { ok: false, refused, limit: MAX_MACHINES };
@@ -267,6 +275,12 @@ export async function storeReport(
   plan.add("group", () =>
     tx.hsetnx(store.keys.groups, report.groupId, serializeGroupEntry(randomGroupColor(), now.getTime())),
   );
+  // A report from an archived group brings it back (lib/archived.ts). Its machine entries below are
+  // written without a mark, which does the same for the machine.
+  if (group?.archivedAt !== undefined) {
+    const active = serializeGroupEntry(group.color ?? randomGroupColor(), group.firstSeenAt);
+    plan.add(null, () => tx.hset(store.keys.groups, { [report.groupId]: active }));
+  }
   if (!heartbeat) {
     const machineEntries: Record<string, string> = {};
     for (const [providerId, tokens] of providers) {
@@ -372,7 +386,7 @@ function finiteIntegerOr(value: unknown, min: number, fallback: number | null): 
 
 function parseMachine(field: string, raw: string): ProviderMachine | null {
   try {
-    const { g, ts, t, md, iv } = JSON.parse(raw) as Record<string, unknown>;
+    const { g, ts, t, md, iv, ar } = JSON.parse(raw) as Record<string, unknown>;
     if (typeof g !== "string" || typeof ts !== "number" || !Number.isFinite(ts)) return null;
     const separator = field.indexOf(":");
     // A field without a "providerId:" prefix is pre-provider data: run the migration first (see the layout comment above).
@@ -391,6 +405,7 @@ function parseMachine(field: string, raw: string): ProviderMachine | null {
       lastTokens: typeof t === "number" ? t : 0,
       mode,
       intervalMinutes,
+      ...(typeof ar === "number" && Number.isFinite(ar) && { archivedAt: ar }),
     };
   } catch {
     return null;
@@ -698,13 +713,13 @@ export async function saveSettings(
   ];
   if (groupsWithReports.length > 0) return { ok: false, groupsWithReports };
 
-  // A recoloured group keeps its first-seen time: it decides the order on the panel.
+  // A recoloured group keeps its first-seen time (it decides the order on the panel) and its archive mark.
   const current = toStringRecord(rawGroups);
   const entries: Record<string, string> = {};
   for (const group of update.groups) {
     const existing = current[group.id];
-    const firstSeenAt = existing === undefined ? 0 : parseGroupEntry(group.id, existing).firstSeenAt;
-    entries[group.id] = serializeGroupEntry(group.color, firstSeenAt || now.getTime());
+    const stored = existing === undefined ? null : parseGroupEntry(group.id, existing);
+    entries[group.id] = serializeGroupEntry(group.color, stored?.firstSeenAt || now.getTime(), stored?.archivedAt);
   }
 
   const tx = redis.multi();

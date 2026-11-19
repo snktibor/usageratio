@@ -84,7 +84,7 @@ the same store behind a PIN session; a threshold alert fires a webhook the same 
 | **Cost, energy and water estimate** | An approximate USD figure from `ccusage`'s own API list prices, with the energy and water behind it — off by default (a settings switch), and never a substitute for a subscription's real billing. |
 | **One-click client install** | A ready-to-run ZIP or copy-paste package for macOS, Linux, or Windows, plus an install-free one-shot command for a single report. |
 | **Per-machine revocable tokens** | An alternative to the shared bearer token that can be issued and revoked per machine from the settings panel. |
-| **Machine, group, and provider management** | Rename, recolor, re-group, or remove any of them from the dashboard, without touching a client. |
+| **Machine, group, and provider management** | Rename, recolor, re-group, or remove any of them from the dashboard, without touching a client. Archive a retired machine or group to clear it off the lists while its usage stays in every chart. |
 | **Recently deleted** | Force-deleted groups and providers can be restored for 30 days. |
 | **PIN or passphrase login** | 5–64 characters, constant-time comparison, escalating lockout on repeated failures, and sudo re-confirmation before revealing a stored secret. |
 | **Nonce CSP and security headers** | A strict, nonce-based Content-Security-Policy plus COOP, CORP, and HSTS, set for every request. |
