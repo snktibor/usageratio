@@ -1,3 +1,5 @@
+import { isMachineArchived } from "@/lib/archived";
+
 /**
  * The settings panel's machine list, one row per machine. The index
  * (`usage:machines`) keys a machine by provider and id, so a machine that
@@ -13,6 +15,8 @@ export interface MachineEntry {
   groupId: string;
   lastSeenAt: number;
   lastTokens: number;
+  /** The entry's own archive mark (lib/archived.ts); absent while active. */
+  archivedAt?: number;
 }
 
 export interface MachineRow {
@@ -44,6 +48,23 @@ export function machineRows(entries: MachineEntry[]): MachineRow[] {
     row.lastSeenAt = Math.max(row.lastSeenAt, entry.lastSeenAt);
   }
   return [...rows.values()];
+}
+
+/**
+ * The rows split into the listed ones and the archived ones (lib/archived.ts). A row is archived
+ * once every entry of it is, by its own mark or its group's: a machine that still reports for one
+ * provider stays on the list.
+ */
+export function splitArchivedRows(
+  rows: MachineRow[],
+  archivedGroups: ReadonlySet<string>,
+): { active: MachineRow[]; archived: MachineRow[] } {
+  const active: MachineRow[] = [];
+  const archived: MachineRow[] = [];
+  for (const row of rows) {
+    (row.entries.every((entry) => isMachineArchived(entry, archivedGroups)) ? archived : active).push(row);
+  }
+  return { active, archived };
 }
 
 /**

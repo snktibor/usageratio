@@ -44,6 +44,8 @@ export interface KnownMachine {
   mode?: ReportMode;
   /** The auto client's own reporting interval in minutes; absent/null unless `mode` is "auto". */
   intervalMinutes?: number | null;
+  /** When this machine (this provider's entry) was archived (lib/archived.ts); absent while active. */
+  archivedAt?: number;
 }
 
 /** Everything the dashboard needs from the store. */

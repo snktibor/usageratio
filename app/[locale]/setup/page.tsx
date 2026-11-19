@@ -28,11 +28,12 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   return { title: `${t("title")} · usageratio` };
 }
 
-/** The known groups in order of first appearance, with the colours the dashboard shows them in. */
+/** The known groups in order of first appearance, with the colours the dashboard shows them in; not the archived ones. */
 async function loadGroups(store: TenantStore): Promise<SetupGroup[]> {
   const { groups } = await loadIndexes(store);
   const colors = resolveGroupColors(groups);
-  return [...groups]
+  return groups
+    .filter((group) => group.archivedAt === undefined)
     .sort((a, b) => a.firstSeenAt - b.firstSeenAt || a.groupId.localeCompare(b.groupId))
     .map((group) => ({ id: group.groupId, color: colors.get(group.groupId) ?? NEUTRAL_COLOR }));
 }

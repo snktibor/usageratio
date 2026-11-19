@@ -3,16 +3,23 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { Swatch } from "@/components/group-breakdown";
-import { XIcon } from "@/components/icons";
+import { ArchiveIcon, XIcon } from "@/components/icons";
 import type { DraftGroup } from "@/components/settings/draft";
 import { SudoUnlock } from "@/components/setup/sudo-unlock";
 import { StatusLine } from "@/components/status-line";
 import { FIELD, QUIET_BUTTON } from "@/components/ui/classes";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Toast } from "@/components/ui/toast";
+import { archivedGroupIds } from "@/lib/archived";
 import { INACTIVE_MACHINE_DAYS } from "@/lib/config";
 import { formatAgo } from "@/lib/format";
-import { type MachineEntry, type MachineRow, machineRows, renameConflicts } from "@/lib/machine-rows";
+import {
+  type MachineEntry,
+  type MachineRow,
+  machineRows,
+  renameConflicts,
+  splitArchivedRows,
+} from "@/lib/machine-rows";
 import { providerLabel } from "@/lib/providers";
 
 /** How long the delete/merge/prune confirm buttons stay disabled after opening. */
@@ -29,8 +36,9 @@ type PendingMerge = { row: MachineRow; to: string; groupId: string };
 type MergeDialog = { merge: PendingMerge; entries: MachineEntry[]; phase: "confirm" | "busy" | "pin" };
 /** A delete resumes with the entries it has not removed yet. */
 type SudoRetry = { kind: "delete"; machineId: string; entries: MachineEntry[] } | { kind: "prune" };
-/** The body of PATCH /api/machines/[provider]/[machine]. */
-type Move = { id?: string; group?: string; merge?: true };
+/** The body of PATCH /api/machines/[provider]/[machine]: a move, or an archive (which goes alone). */
+type MoveBody = { id?: string; group?: string; merge?: true };
+type Move = MoveBody | { archived: boolean };
 type MoveOutcome = { done: MachineEntry[]; failure: { entry: MachineEntry; error: string | null } | null };
 
 async function errorCode(response: Response): Promise<string | null> {
@@ -120,7 +128,15 @@ export function MachinesSection({
 
   const groupById = useMemo(() => new Map(groups.map((group) => [group.id, group])), [groups]);
   const entries = load.phase === "ready" ? load.machines : [];
-  const rows = useMemo(() => machineRows(entries), [entries]);
+  const archivedGroups = useMemo(
+    () => archivedGroupIds(groups.map((group) => ({ groupId: group.id, archivedAt: group.archivedAt }))),
+    [groups],
+  );
+  const { active: rows, archived: archivedRows } = useMemo(
+    () => splitArchivedRows(machineRows(entries), archivedGroups),
+    [entries, archivedGroups],
+  );
+  const pickableGroupIds = groups.filter((group) => group.archivedAt === undefined).map((group) => group.id);
   const now = Date.now();
   const silentCount = rows.filter((row) => now - row.lastSeenAt > INACTIVE_MS).length;
 
@@ -139,7 +155,7 @@ export function MachinesSection({
   }
 
   /** What to say when a move was refused outright. */
-  function moveProblem(failure: NonNullable<MoveOutcome["failure"]>, move: Move): string {
+  function moveProblem(failure: NonNullable<MoveOutcome["failure"]>, move: MoveBody): string {
     switch (failure.error) {
       case "machine_exists":
         return t("manage_machines_rename_exists", {
@@ -176,7 +192,7 @@ export function MachinesSection({
 
     setMoving(true);
     setProblem(null);
-    const move: Move = { id: newId };
+    const move: MoveBody = { id: newId };
     const { done, failure } = await patchEntries(row.entries, move);
     setMoving(false);
 
@@ -218,7 +234,7 @@ export function MachinesSection({
     setMoving(true);
     setProblem(null);
     setRowProblem(null);
-    const move: Move = { group: groupId };
+    const move: MoveBody = { group: groupId };
     const { done, failure } = await patchEntries(row.entries, move);
     setMoving(false);
 
@@ -252,7 +268,7 @@ export function MachinesSection({
     setMergeDialog({ merge, entries: toMerge, phase: "busy" });
     setMoving(true);
     setProblem(null);
-    const move: Move = { id: merge.to, group: merge.groupId, merge: true };
+    const move: MoveBody = { id: merge.to, group: merge.groupId, merge: true };
     const { done, failure } = await patchEntries(toMerge, move);
     setMoving(false);
 
@@ -281,6 +297,34 @@ export function MachinesSection({
       reload();
       onManaged();
     }
+  }
+
+  /**
+   * Archives or restores a row, every entry of it (an entry already in that state is a no-op on the
+   * server). Stops at the first failure, like a move, and then shows the list as the store has it.
+   */
+  async function setArchived(row: MachineRow, archived: boolean) {
+    // Its buttons are disabled while a move or another archive runs.
+    const targets = row.entries;
+    setMoving(true);
+    setProblem(null);
+    setRowProblem(null);
+    const { done, failure } = await patchEntries(targets, { archived });
+    setMoving(false);
+    if (failure) {
+      setProblem(t("manage_machines_action_failed"));
+      if (done.length > 0) reload();
+      return;
+    }
+    const archivedAt = archived ? Date.now() : undefined;
+    updateEntries((machines) =>
+      machines.map((machine) =>
+        targets.some((entry) => sameEntry(entry, machine)) ? { ...machine, archivedAt } : machine,
+      ),
+    );
+    const id = row.machineId;
+    setToast(archived ? t("manage_machines_archived_toast", { id }) : t("manage_machines_unarchived_toast", { id }));
+    onManaged();
   }
 
   async function performDelete(machineId: string, toDelete: MachineEntry[]) {
@@ -418,7 +462,7 @@ export function MachinesSection({
                           {row.groupIds.join(" + ")}
                         </option>
                       )}
-                      {[...new Set([...groups.map((group) => group.id), ...row.groupIds])].map((groupId) => (
+                      {[...new Set([...pickableGroupIds, ...row.groupIds])].map((groupId) => (
                         <option key={groupId} value={groupId}>
                           {groupId}
                         </option>
@@ -428,14 +472,27 @@ export function MachinesSection({
                   <time dateTime={new Date(row.lastSeenAt).toISOString()} className="shrink-0 text-sm text-ink-3">
                     {formatAgo(row.lastSeenAt, now, locale, tWidgets("now"))}
                   </time>
-                  <button
-                    type="button"
-                    onClick={() => setPendingDelete(row)}
-                    aria-label={t("manage_machines_delete_aria", { id: row.machineId })}
-                    className="rounded-md p-2 text-ink-3 transition-colors hover:text-ink"
-                  >
-                    <XIcon />
-                  </button>
+                  {/* The two actions wrap together, to the right, when the row is too narrow for them. */}
+                  <span className="ml-auto flex shrink-0">
+                    <button
+                      type="button"
+                      disabled={moving}
+                      onClick={() => void setArchived(row, true)}
+                      aria-label={t("manage_machines_archive_aria", { id: row.machineId })}
+                      title={t("manage_machines_archive_hint")}
+                      className="rounded-md p-2 text-ink-3 transition-colors hover:text-ink disabled:opacity-50"
+                    >
+                      <ArchiveIcon />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingDelete(row)}
+                      aria-label={t("manage_machines_delete_aria", { id: row.machineId })}
+                      className="rounded-md p-2 text-ink-3 transition-colors hover:text-ink"
+                    >
+                      <XIcon />
+                    </button>
+                  </span>
                 </div>
                 <ul
                   // biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics once list-style is none
@@ -465,6 +522,52 @@ export function MachinesSection({
             );
           })}
         </ul>
+      )}
+
+      {archivedRows.length > 0 && (
+        // Folded away like Recently deleted: archived machines are kept, just out of the way.
+        <details className="mt-3">
+          <summary className="cursor-pointer text-sm text-ink-2">
+            {t("manage_machines_archived_show", { count: archivedRows.length })}
+          </summary>
+          <p className="mt-3 text-sm text-ink-3">{t("manage_machines_archived_explanation")}</p>
+          {/* biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics once list-style is none */}
+          <ul role="list" className="mt-3 border-t border-hairline">
+            {archivedRows.map((row) => {
+              const withGroup = row.groupIds.filter((groupId) => archivedGroups.has(groupId));
+              return (
+                <li
+                  key={row.machineId}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-hairline py-2.5"
+                >
+                  <span className="min-w-0 grow wrap-anywhere">{row.machineId}</span>
+                  <span className="flex shrink-0 items-center gap-1.5 text-sm text-ink-3">
+                    <Swatch color={groupById.get(row.groupIds[0]!)?.color ?? "#6b6a65"} />
+                    {row.groupIds.join(" + ")}
+                  </span>
+                  <time dateTime={new Date(row.lastSeenAt).toISOString()} className="shrink-0 text-sm text-ink-3">
+                    {formatAgo(row.lastSeenAt, now, locale, tWidgets("now"))}
+                  </time>
+                  {withGroup.length > 0 ? (
+                    <span className="shrink-0 text-sm text-ink-3">
+                      {t("manage_machines_archived_with_group", { group: withGroup.join(", ") })}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={moving}
+                      onClick={() => void setArchived(row, false)}
+                      aria-label={t("manage_machines_unarchive_aria", { id: row.machineId })}
+                      className={`shrink-0 text-sm ${QUIET_BUTTON}`}
+                    >
+                      {t("unarchive_button")}
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </details>
       )}
 
       {load.phase === "ready" && silentCount > 0 && (

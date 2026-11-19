@@ -541,7 +541,8 @@ Up to 100 live tokens per workspace (`422 too_many_tokens` with `limit` past tha
 
 ## Machines
 
-- **`GET /api/machines`** (session) → `{ "machines": [{providerId, machineId, groupId, lastSeenAt, lastTokens}] }`. `401` no session · `503` Redis down.
+- **`GET /api/machines`** (session) → `{ "machines": [{providerId, machineId, groupId, lastSeenAt, lastTokens, archivedAt?}] }`
+  (`archivedAt`: the entry's own archive mark, see [Archived](#archived-groups-and-machines)). `401` no session · `503` Redis down.
 - **`PATCH /api/machines/[provider]/[machine]`** (session, same-origin) `{ "id"?: "new-machine-id",
   "group"?: "group-id", "merge"?: true }` (at least one of `id`/`group`) renames the machine, moves it
   to another existing group, or both, with all its stored reports. Onto an id the provider already
@@ -552,10 +553,14 @@ Up to 100 live tokens per workspace (`422 too_many_tokens` with `limit` past tha
   session · `403` foreign origin, demo mode, or (merge) no sudo grant · `404 not_found` (no such
   machine) or `group_not_found` · `409 machine_exists` / `merge_unsupported` · `413`/`415` bad body ·
   `503` Redis down.
+- **`PATCH /api/machines/[provider]/[machine]`** (session, same-origin, **no sudo**) `{ "archived": true | false }`,
+  alone, archives or restores this provider's entry of the machine; nothing else changes →
+  `200 { "ok": true, "changed": bool }` (`false`: it already was). `400` a mark that is not a boolean, or
+  sent with `id`/`group`/`merge` · `404` no such machine.
 - **`DELETE /api/machines/[provider]/[machine]`** (session **+ sudo**, same-origin) — same response
   shape. `403` also covers "no sudo grant" · `404` no such machine.
 - **`POST /api/machines/prune`** (session + sudo, same-origin) — removes every machine silent longer
-  than `INACTIVE_MACHINE_DAYS`. `200 { "ok": true, "affected": {"events": 0, "machines": N, "groups": 0} }`.
+  than `INACTIVE_MACHINE_DAYS`, except archived ones. `200 { "ok": true, "affected": {"events": 0, "machines": N, "groups": 0} }`.
 
 ## Groups
 
@@ -564,6 +569,9 @@ Up to 100 live tokens per workspace (`422 too_many_tokens` with `limit` past tha
   sudo**). `200 { "ok": true, "affected": {...} }` · `400` invalid id/body · `401` no session ·
   `403` foreign origin, demo mode, or (merge) no sudo · `404` no such group · `409 group_exists` ·
   `413`/`415` bad body · `503` Redis down.
+- **`PATCH /api/groups/[group]`** (session, same-origin, **no sudo**) `{ "archived": true | false }`, alone,
+  archives or restores the group → `200 { "ok": true, "changed": bool }`. `400` a mark that is not a
+  boolean, or sent with `id`/`merge` · `404` no such group.
 - **`DELETE /api/groups/[group]`** (session + sudo, same-origin) `?force=1` required once it has
   stored reports (`409 group_has_events` otherwise). Same response shape, plus `"impact": { "events",
   "machines", "groups", "lastReportAt": ms | null, "recentMachines": n }`: what it removed, the newest
@@ -587,6 +595,16 @@ Up to 100 live tokens per workspace (`422 too_many_tokens` with `limit` past tha
 - **`DELETE /api/providers/[provider]?dryRun=1`** (session, same-origin, **no sudo**) — what a forced
   delete would remove: `200 { "ok": true, "dryRun": true, "affected": {...}, "impact": {...} }`, with
   nothing written or archived and no `409`. Demo mode refuses it like every other delete.
+
+## Archived groups and machines
+
+A group or a machine that will not report again can be archived from the settings panel
+(`lib/archived.ts`). It leaves the panel's lists, its group pickers and the setup page's, folded
+under "Archived" with a Restore button; a machine also counts as archived while its group is.
+Nothing is deleted: its reports, colour, past cycles and all-time shares stay on the dashboard, so
+neither the archive nor the restore needs sudo or goes on the manage audit trail. A new report (a
+heartbeat too) clears the mark of its group and its machine. Housekeeping and `POST
+/api/machines/prune` leave archived entries alone.
 
 ## Recently deleted
 

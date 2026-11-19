@@ -107,6 +107,16 @@ export function XIcon({ className }: IconProps) {
   );
 }
 
+/** A box with its lid: archive (keep, but out of the way). */
+export function ArchiveIcon({ className }: IconProps) {
+  return (
+    <Glyph className={className}>
+      <path d="M2.6 3.4h10.8v2.8H2.6z" />
+      <path d="M3.6 6.2v6.4h8.8V6.2M6.5 8.8h3" />
+    </Glyph>
+  );
+}
+
 export function PlusIcon({ className }: IconProps) {
   return (
     <Glyph className={className}>

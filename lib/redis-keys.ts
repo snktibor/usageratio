@@ -22,10 +22,12 @@
  *                                                 merged machine's carry-over, see lib/machine-merge.ts; "s" the cycle
  *                                                 start the client counted from, see lib/resets.ts dropStaleBasis
  *                                                 and lib/aggregate.ts STALE_BASIS_MS)
- *   usage:groups            HASH  groupId   → {"color": "#rrggbb", "ts": first-seen ms}
- *                                 (a bare ms number in entries older than group colours)
+ *   usage:groups            HASH  groupId   → {"color": "#rrggbb", "ts": first-seen ms, "ar": archived-at ms}
+ *                                 (a bare ms number in entries older than group colours; "ar" only
+ *                                 while archived, see lib/archived.ts)
  *   usage:machines          HASH  providerId:machineId → {"g": groupId, "ts": ms, "t": tokens,
- *                                 "md": "manual", "iv": intervalMinutes} ("md"/"iv" only when not the default)
+ *                                 "md": "manual", "iv": intervalMinutes, "ar": archived-at ms}
+ *                                 ("md"/"iv" only when not the default, "ar" only while archived)
  *   usage:official           HASH  providerId, or providerId:subLimitId →
  *                                  {"raw": "45.5", "enteredAt": ms, "cycleStartMs": ms, "resetsAtMs": ms}
  *                                  (the ground-truth field on the dashboard; see lib/official-usage.ts;
