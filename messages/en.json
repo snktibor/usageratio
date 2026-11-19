@@ -314,7 +314,7 @@
     "alerts_explanation_official": "A webhook message fires the first time the official percentage typed on the dashboard crosses one of the thresholds below.",
     "alerts_webhook_label": "Webhook URL",
     "alerts_webhook_placeholder": "https://…",
-    "alerts_webhook_invalid": "Enter an https URL that is not a local or private address.",
+    "alerts_webhook_invalid": "Enter an https URL with a public host name: not an IP address, a local name or a private address.",
     "alerts_webhook_masked": "The saved URL is hidden, even from you. Leave it as it is to keep it, or paste a new one to replace it.",
     "alerts_format_label": "Message format",
     "alerts_format_generic": "Generic JSON",
