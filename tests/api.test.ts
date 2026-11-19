@@ -1,7 +1,8 @@
 import { errors as upstash } from "@upstash/redis";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { apiError, json, readJsonBody, requireBearer, requireSameOrigin, withApiHandler } from "@/lib/api";
+import { apiError, json, rateLimited, readJsonBody, requireBearer, requireSameOrigin, withApiHandler } from "@/lib/api";
 import { resetErrorReporter, setErrorReporter } from "@/lib/error-reporter";
+import { log } from "@/lib/log";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { currentCookies, runWithRequest } from "@/lib/request-context";
 import { resetStorageQuotaReportsForTests } from "@/lib/storage-quota";
@@ -367,5 +368,27 @@ describe("withApiHandler", () => {
       expect(await response.json()).toEqual({ value: "outer-value" });
       expect(jar.sets).toEqual([{ name: "written", value: "1", options: undefined }]);
     });
+  });
+});
+
+describe("rateLimited", () => {
+  useRedis();
+  afterEach(() => vi.restoreAllMocks());
+
+  const rule = { name: "test", scope: "token" as const, key: "usage:rl:test:api", limit: 1, windowSeconds: 30 };
+
+  it("is null while the rules have room, then the 429 with Retry-After", async () => {
+    expect(await rateLimited([rule])).toBeNull();
+    const refused = await withRequest(() => rateLimited([rule]), { route: "api/test" });
+    expect(refused?.status).toBe(429);
+    expect(refused?.headers.get("retry-after")).toBe("30");
+    expect(await refused?.json()).toMatchObject({ error: "rate_limited", retryAfterSeconds: 30 });
+  });
+
+  it("logs the route it refused on, or none outside a request", async () => {
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+    await rateLimited([rule]);
+    await rateLimited([rule]);
+    expect(warn).toHaveBeenCalledWith("rate_limit.exceeded", expect.objectContaining({ route: null }));
   });
 });

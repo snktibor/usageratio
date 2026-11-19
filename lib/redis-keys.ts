@@ -167,7 +167,12 @@
  *   usage:auth:global                           STRING guesses from unknown browsers (1h window)
  *   usage:auth:device:{sha256(deviceId)}        STRING "1" — a browser that has logged in before
  *   usage:rl:*                                  STRING fixed-window rate-limit counters
- *                                               (lib/rate-limit.ts), named in `GLOBAL_KEYS.rateLimit`
+ *                                               (lib/rate-limit.ts), named in `GLOBAL_KEYS.rateLimit`;
+ *                                               the limits themselves are in lib/config.ts. Per token
+ *                                               (`…:{tokenId}`), per tenant (`…-tenant:{tenantId}…`),
+ *                                               per address (`…-ip:{sha256(ip)[:32]}`) and per instance
+ *                                               (`…:global:{UTC hour yyyymmddhh}`); each expires with
+ *                                               its window
  *   usage:demo:seededAt, usage:demo:seeding     STRING demo mode's seed stamp and lock (lib/demo/seed.ts)
  *
  *   usage:tenant:{tenantId}      STRING {"v": 1, "name", "createdAt": ms, "status": "active" | "disabled" |
@@ -351,11 +356,21 @@ export const GLOBAL_KEYS = {
     unauth: (ipHash: string) => `usage:rl:unauth:${ipHash}`,
     cycle: (tokenId: string) => `usage:rl:cycle:${tokenId}`,
     ingestMachine: (hash: string) => `usage:rl:ingest:${hash}`,
+    ingestTenant: (tenantId: string, hourBucket: string) => `usage:rl:ingest-tenant:${tenantId}:${hourBucket}`,
+    ingestIp: (ipHash: string) => `usage:rl:ingest-ip:${ipHash}`,
     ingestGlobal: (hourBucket: string) => `usage:rl:ingest:global:${hourBucket}`,
     status: (tokenId: string) => `usage:rl:status:${tokenId}`,
     official: (tokenId: string) => `usage:rl:official:${tokenId}`,
-    alertsTest: "usage:rl:alerts-test",
+    officialTenant: (tenantId: string) => `usage:rl:official-tenant:${tenantId}`,
+    officialIp: (ipHash: string) => `usage:rl:official-ip:${ipHash}`,
+    exportTenant: (tenantId: string) => `usage:rl:export-tenant:${tenantId}`,
+    exportIp: (ipHash: string) => `usage:rl:export-ip:${ipHash}`,
+    alertsTestBurst: (tenantId: string) => `usage:rl:alerts-test:${tenantId}`,
+    alertsTestTenant: (tenantId: string) => `usage:rl:alerts-test-tenant:${tenantId}`,
+    alertsTestIp: (ipHash: string) => `usage:rl:alerts-test-ip:${ipHash}`,
     oauth: (ipHash: string) => `usage:rl:oauth:${ipHash}`,
+    registrationIp: (ipHash: string) => `usage:rl:signup-ip:${ipHash}`,
+    registrationInstance: (hourBucket: string) => `usage:rl:signup:global:${hourBucket}`,
   },
   tenantRecord: (tenantId: string) => `usage:tenant:${tenantId}`,
   tenantMembers: (tenantId: string) => `usage:tenant:${tenantId}:members`,

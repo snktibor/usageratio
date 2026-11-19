@@ -1,20 +1,14 @@
 import { checkIngestAlerts } from "@/lib/alerts";
-import { apiError, json, readJsonBody, requireBearerThrottled, withApiHandler } from "@/lib/api";
-import {
-  CYCLE_RATE_LIMIT_PER_TOKEN,
-  getConfig,
-  INGEST_RATE_LIMIT_GLOBAL,
-  INGEST_RATE_LIMIT_PER_MACHINE,
-} from "@/lib/config";
+import { apiError, json, rateLimited, readJsonBody, requireBearerThrottled, withApiHandler } from "@/lib/api";
+import { getConfig } from "@/lib/config";
 import { dateInTimeZone } from "@/lib/cycle";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { ingestReport } from "@/lib/ingest";
 import { earliestCycle, providerCycle } from "@/lib/provider-cycles";
 import { mergeProviderIds } from "@/lib/providers";
-import { hit } from "@/lib/rate-limit";
-import { GLOBAL_KEYS } from "@/lib/redis-keys";
-import { defer } from "@/lib/request-context";
-import { sha256Hex } from "@/lib/security";
+import { isMultiTenant } from "@/lib/registration";
+import { clientIp, defer } from "@/lib/request-context";
+import { cycleRules, ingestRules } from "@/lib/route-limits";
 import { resolveConfig, storedProviderIds } from "@/lib/settings";
 import { loadReportContext } from "@/lib/usage-store";
 
@@ -58,13 +52,14 @@ import { loadReportContext } from "@/lib/usage-store";
  * can be revoked individually, and optionally bound to one `machineId`, in
  * which case a report naming a different machine is refused outright.
  *
- * Rate limits (lib/rate-limit.ts `hit`, all answer 429 `rate_limited`):
+ * Rate limits (lib/config.ts, lib/route-limits.ts; all answer 429 `rate_limited` with Retry-After):
  * a per-IP counter of failed Bearer tokens (`usage:rl:unauth:*`, 60/minute —
  * this only ever counts an actual 401, so machines sharing one IP behind a
  * NAT are never throttled by each other's *valid* reports); once a token is
- * accepted, POST is further limited per token+machine (`usage:rl:ingest:*`,
- * 60/hour) and by a deployment-wide total (`usage:rl:ingest:global:*`,
- * 600/hour); GET is limited per token (`usage:rl:cycle:*`, 120/hour).
+ * accepted, POST is further limited, narrowest first, per token+machine
+ * (60/hour, 12 in multi-tenant mode), per client address (1 200/hour), per
+ * tenant (600 per clock hour) and per instance (20 000 per clock hour, the
+ * cost cap); GET is limited per token (`usage:rl:cycle:*`, 120/hour).
  */
 
 // Room for the optional splits: up to 60 model ids, and those again for each of up to 32 days, with their hours.
@@ -77,20 +72,14 @@ function rawMachineId(body: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
-/** The current UTC hour, as a fixed-width bucket for the global ingest counter's key. */
-function hourBucket(now: Date): string {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}${pad(now.getUTCHours())}`;
-}
-
 /** Current server-side cycle, used by clients to filter ccusage daily output. */
 export const GET = withApiHandler("api/usage", async ({ request }) => {
   const auth = await requireBearerThrottled(request);
   if (auth instanceof Response) return auth;
   const { store } = auth;
 
-  const cycleHit = await hit(GLOBAL_KEYS.rateLimit.cycle(auth.tokenId), CYCLE_RATE_LIMIT_PER_TOKEN, 3600);
-  if (!cycleHit.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: cycleHit.retryAfterSeconds });
+  const limited = await rateLimited(cycleRules(auth.tokenId));
+  if (limited) return limited;
 
   const config = getConfig();
   const context = await loadReportContext(store);
@@ -141,19 +130,17 @@ export const POST = withApiHandler("api/usage", async ({ request }) => {
   if (auth.machineId !== null && machineId?.trim() !== auth.machineId) {
     return apiError("machine_mismatch", 403);
   }
-  if (machineId) {
-    const machineKey = GLOBAL_KEYS.rateLimit.ingestMachine(sha256Hex(`${auth.tokenId}:${machineId}`).slice(0, 32));
-    const machineHit = await hit(machineKey, INGEST_RATE_LIMIT_PER_MACHINE, 3600);
-    if (!machineHit.allowed) {
-      return apiError("rate_limited", 429, { retryAfterSeconds: machineHit.retryAfterSeconds });
-    }
-  }
-  const globalHit = await hit(
-    GLOBAL_KEYS.rateLimit.ingestGlobal(hourBucket(new Date())),
-    INGEST_RATE_LIMIT_GLOBAL,
-    3600,
+  const limited = await rateLimited(
+    ingestRules({
+      tokenId: auth.tokenId,
+      tenantId: store.tenantId,
+      machineId,
+      ip: await clientIp(),
+      multiTenant: isMultiTenant(),
+      now: new Date(),
+    }),
   );
-  if (!globalHit.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: globalHit.retryAfterSeconds });
+  if (limited) return limited;
 
   const now = new Date();
   const result = await ingestReport(store, body.value, now);

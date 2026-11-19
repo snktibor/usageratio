@@ -1,4 +1,4 @@
-import { apiError, json, requireOwner, requireTenantSession, withApiHandler } from "@/lib/api";
+import { apiError, json, rateLimited, requireOwner, requireTenantSession, withApiHandler } from "@/lib/api";
 import { currentTime } from "@/lib/clock";
 import { getConfig } from "@/lib/config";
 import { dateInTimeZone } from "@/lib/cycle";
@@ -11,7 +11,9 @@ import {
 } from "@/lib/export";
 import { earliestCycle, earliestStartMs, providerCycle } from "@/lib/provider-cycles";
 import { mergeProviderIds, providerLabel } from "@/lib/providers";
+import { clientIp } from "@/lib/request-context";
 import { resetEventsOf } from "@/lib/resets";
+import { exportRules } from "@/lib/route-limits";
 import { resolveConfig, storedProviderIds, visibleProviderIds } from "@/lib/settings";
 import { loadEvents, loadHistory, loadIndexes } from "@/lib/usage-store";
 
@@ -29,7 +31,7 @@ import { loadEvents, loadHistory, loadIndexes } from "@/lib/usage-store";
  *
  * 200 ok (a file download, `Content-Disposition: attachment`) · 400 bad query ·
  * 401 no session · 403 owner_only (in a shared workspace only its owner exports) · 404 unknown
- * provider · 503 Redis down
+ * provider · 429 rate limited (60/hour per tenant, 120/hour per client address) · 503 Redis down
  */
 
 export const GET = withApiHandler("api/export", async ({ url }) => {
@@ -38,6 +40,8 @@ export const GET = withApiHandler("api/export", async ({ url }) => {
   const notOwner = requireOwner(tenant);
   if (notOwner) return notOwner;
   const { store } = tenant;
+  const limited = await rateLimited(exportRules({ tenantId: store.tenantId, ip: await clientIp() }));
+  if (limited) return limited;
 
   const parsed = parseExportQuery(url.searchParams);
   if (!parsed.ok) return apiError("invalid_payload", 400, { details: parsed.errors });

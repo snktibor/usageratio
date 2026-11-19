@@ -5,7 +5,7 @@ import { isDemoMode } from "@/lib/demo/mode";
 import { reportError } from "@/lib/error-reporter";
 import { isForeignOrigin } from "@/lib/http";
 import { log } from "@/lib/log";
-import { hit } from "@/lib/rate-limit";
+import { enforceLimits, hit, type RateLimitRule } from "@/lib/rate-limit";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { isMultiTenant } from "@/lib/registration";
@@ -324,6 +324,18 @@ export async function requireBearerThrottled(request: Request): Promise<Response
   const unauth = await hit(key, UNAUTH_RATE_LIMIT_PER_IP, 60);
   if (!unauth.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: unauth.retryAfterSeconds });
   return auth;
+}
+
+/**
+ * Counts the request against `rules` (lib/route-limits.ts), narrowest first:
+ * the 429 `rate_limited` of the first one it exceeds, with Retry-After and
+ * `retryAfterSeconds`, or null when every one still had room. The refusal is
+ * logged as `rate_limit.exceeded` (lib/rate-limit.ts `enforceLimits`).
+ */
+export async function rateLimited(rules: readonly RateLimitRule[]): Promise<Response | null> {
+  const outcome = await enforceLimits(rules, { route: currentRequest()?.route ?? null });
+  if (outcome.allowed) return null;
+  return apiError("rate_limited", 429, { retryAfterSeconds: outcome.retryAfterSeconds });
 }
 
 /** A store that did not answer: the SDK's own errors, and the network failures under them. */

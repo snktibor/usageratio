@@ -1,5 +1,7 @@
 import { apiError, withApiHandler } from "@/lib/api";
+import { CSP_REPORT_RATE_LIMIT_INSTANCE, CSP_REPORT_RATE_LIMIT_PER_IP } from "@/lib/config";
 import { log } from "@/lib/log";
+import { LocalRateLimiter, type RateLimitResult } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/request-context";
 
 /**
@@ -19,34 +21,43 @@ import { clientIp } from "@/lib/request-context";
  * blockedUri, sample }`; anything else in the payload is dropped.
  *
  * 204 always (nothing meaningful to return to a beacon the browser doesn't
- * read) · 413 over 8 KiB · 415 any other Content-Type · 429 over 20/minute
- * from one IP (a tiny in-process counter — this single endpoint is not worth
- * a shared/store-backed limiter, and it must keep working even if the store
- * is down or not configured).
+ * read) · 413 over 8 KiB · 415 any other Content-Type · 429 `rate_limited`
+ * with Retry-After, over 20/minute from one address or 300/minute in all
+ * (lib/config.ts `CSP_REPORT_RATE_LIMIT_*`). Every request counts, whatever
+ * its Content-Type. The counters live in each server instance's memory
+ * (lib/rate-limit.ts `LocalRateLimiter`): an unauthenticated beacon must not
+ * cost a store round trip, and it must keep working even if the store is down
+ * or not configured. The total cap is what bounds the log volume a flood from
+ * many (or spoofed) addresses can cause.
  */
 
 const MAX_BODY_BYTES = 8_192;
 const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX = 20;
-// Bounded so a flood of spoofed IPs cannot grow this without limit; cleared
-// wholesale rather than tracked per-entry, since it is a soft, best-effort cap.
-const RATE_LIMIT_MAX_BUCKETS = 5_000;
 
 const CSP_REPORT_CONTENT_TYPE = /^application\/csp-report\s*(;.*)?$/i;
 const REPORTS_JSON_CONTENT_TYPE = /^application\/reports\+json\s*(;.*)?$/i;
 
-const buckets = new Map<string, { count: number; windowStart: number }>();
+const perAddress = new LocalRateLimiter(CSP_REPORT_RATE_LIMIT_PER_IP, RATE_LIMIT_WINDOW_MS);
+const inTotal = new LocalRateLimiter(CSP_REPORT_RATE_LIMIT_INSTANCE, RATE_LIMIT_WINDOW_MS, 1);
 
-/** True once `ip` has made more than RATE_LIMIT_MAX requests in the current window. */
-function isRateLimited(ip: string, now: number): boolean {
-  if (buckets.size > RATE_LIMIT_MAX_BUCKETS) buckets.clear();
-  const bucket = buckets.get(ip);
-  if (!bucket || now - bucket.windowStart >= RATE_LIMIT_WINDOW_MS) {
-    buckets.set(ip, { count: 1, windowStart: now });
-    return false;
+/**
+ * The refusal for this request, or null: the address first, so one noisy
+ * address does not use up the total. The first refusal of a window is logged.
+ */
+function refusal(ip: string, nowMs: number): RateLimitResult | null {
+  const scopes: [string, () => RateLimitResult, number][] = [
+    ["ip", () => perAddress.hit(ip, nowMs), CSP_REPORT_RATE_LIMIT_PER_IP],
+    ["instance", () => inTotal.hit("all", nowMs), CSP_REPORT_RATE_LIMIT_INSTANCE],
+  ];
+  for (const [scope, count, max] of scopes) {
+    const outcome = count();
+    if (outcome.allowed) continue;
+    if (outcome.count === max + 1) {
+      log.warn("rate_limit.exceeded", { limit: "csp-report", scope, max, windowSeconds: RATE_LIMIT_WINDOW_MS / 1000 });
+    }
+    return outcome;
   }
-  bucket.count += 1;
-  return bucket.count > RATE_LIMIT_MAX;
+  return null;
 }
 
 type BodyResult = { ok: true; text: string } | { ok: false; response: Response };
@@ -126,14 +137,13 @@ function fromReportingApi(parsed: unknown): Violation[] {
 }
 
 export const POST = withApiHandler("api/csp-report", async ({ request }) => {
+  const refused = refusal(await clientIp(), Date.now());
+  if (refused) return apiError("rate_limited", 429, { retryAfterSeconds: refused.retryAfterSeconds });
+
   const contentType = (request.headers.get("content-type") ?? "").trim();
   const isLegacy = CSP_REPORT_CONTENT_TYPE.test(contentType);
   const isReportingApi = REPORTS_JSON_CONTENT_TYPE.test(contentType);
   if (!isLegacy && !isReportingApi) return apiError("unsupported_media_type", 415);
-
-  if (isRateLimited(await clientIp(), Date.now())) {
-    return apiError("rate_limited", 429, { retryAfterSeconds: 60 });
-  }
 
   const body = await readCappedText(request, MAX_BODY_BYTES);
   if (!body.ok) return body.response;

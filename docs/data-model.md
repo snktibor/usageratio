@@ -50,7 +50,7 @@ local development and tests.
 | `usage:auth:device:{sha256(deviceId)}` | STRING | `"1"` | 365 days | A successful login |
 | `usage:auth:ip:{sha256(ip)}` (+ `:strikes`) | STRING | attempt counter | 15 min window, escalating on repeat lockouts (up to 6h); strikes remembered 24h | Login/sudo attempts |
 | `usage:auth:global` | STRING | attempt counter | 1 hour | Login attempts from browsers with no known-device cookie |
-| `usage:rl:*` (`ingest`, `ingest:global`, `cycle`, `unauth`, `alerts-test`) | STRING | fixed-window counter (`lib/rate-limit.ts`) | matches the limit's own window | The endpoint being rate-limited |
+| `usage:rl:*` (`ingest`, `ingest-ip`, `ingest-tenant`, `ingest:global`, `cycle`, `status`, `official`, `official-ip`, `official-tenant`, `export-ip`, `export-tenant`, `alerts-test`, `alerts-test-ip`, `alerts-test-tenant`, `unauth`, `oauth`, `signup-ip`, `signup:global`) | STRING | fixed-window counter (`lib/rate-limit.ts`) | matches the limit's own window | The endpoint being rate-limited |
 | `usage:demo:seededAt`, `usage:demo:seeding` | STRING | timestamp / lock | `usage:demo:seeding` expires after 60s | Demo mode's self-seeding (`ensureDemoData`) |
 | `usage:tenant:{tenantId}` | STRING | JSON `{"v": 1, "name", "createdAt", "status": "active"\|"disabled"\|"deleting", "statusAt"?}` — a tenant's own record (`lib/tenants.ts`); an unknown status reads as "disabled" | Until the tenant is deleted (the record goes last) | Workspace creation; `npm run migrate:tenant` (the default tenant's); the instance admin (status) |
 | `usage:tenants` | ZSET | `tenantId → createdMs`, every tenant besides `default`, which always exists | Forever | Tenant creation (none yet: a single-tenant instance has only `default`) |
