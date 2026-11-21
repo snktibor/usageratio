@@ -29,7 +29,9 @@ pre-archived older cycles written directly to the history keys (bypassing real i
 reports that old would already be outside the normal retention window). Two providers carry a
 synthetic cost estimate. `lib/demo/seed.ts`'s `ensureDemoData()` re-seeds automatically whenever
 the store is empty or older than 30 minutes, using a short Redis lock so concurrent page loads
-don't double-seed.
+don't double-seed. It runs on the first read (a dashboard or settings render, `/api/status`, or any
+route behind `requireTenantSession()`), never at server start: `GET /api/health` stays cheap, so an
+uptime monitor pinging it does not make every cold start of a public demo seed the whole dataset.
 
 **`DEMO_FIXED_TIME`** (e.g. `2026-09-23T12:00:00Z`) freezes what `lib/clock.ts`'s `currentTime()`
 returns in demo mode, so the seeded dataset, screenshots, and end-to-end tests always see the same
