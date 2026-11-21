@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.14.0](https://github.com/snktibor/usageratio/compare/v0.13.0...v0.14.0) (2026-11-21)
+
+
+### Features
+
+* **audit:** record destructive group, provider, machine and restart actions ([#83](https://github.com/snktibor/usageratio/issues/83)) ([79ed2f1](https://github.com/snktibor/usageratio/commit/79ed2f1e75fa0eddc4216649c95fd5a7024bdb8d))
+* **settings:** archive groups and machines that no longer report ([#86](https://github.com/snktibor/usageratio/issues/86)) ([1ef065d](https://github.com/snktibor/usageratio/commit/1ef065d0942465e1a19b3cd4e04c5dd5a513234b))
+* **settings:** restore or permanently delete from Recently deleted ([#85](https://github.com/snktibor/usageratio/issues/85)) ([be2e4b9](https://github.com/snktibor/usageratio/commit/be2e4b9a0300f06f434ecb79fed26ab216d1dc62))
+* **settings:** type the name to force-delete a group or provider, and see what it deletes ([#82](https://github.com/snktibor/usageratio/issues/82)) ([e7b64f9](https://github.com/snktibor/usageratio/commit/e7b64f971ae2b519c47605ef5a6d2aea3fb2b716))
+* **trash:** keep force-deleted groups and providers for 30 days, restorable ([#84](https://github.com/snktibor/usageratio/issues/84)) ([6c6fee8](https://github.com/snktibor/usageratio/commit/6c6fee81ab9d96fa523e33fbfda2bdee5c6852d3))
+
+
+### Bug Fixes
+
+* **demo:** seed on first read instead of at server start ([#90](https://github.com/snktibor/usageratio/issues/90)) ([28e1204](https://github.com/snktibor/usageratio/commit/28e1204403df88e2258804a5ec88bb7546fdc913))
+* **groups:** keep machines' mode and interval and the key's expiry on a group rename or merge ([#79](https://github.com/snktibor/usageratio/issues/79)) ([9053f20](https://github.com/snktibor/usageratio/commit/9053f203ee9b15a4ca4d877296ed4d0ced5b764a))
+* **history:** archive the ended cycle before a delete, a group merge or a new restart ([#80](https://github.com/snktibor/usageratio/issues/80)) ([1e8dbbb](https://github.com/snktibor/usageratio/commit/1e8dbbb3eebad14ad2dc4ba6c627aa429b13c7bf))
+
 ## [0.13.0](https://github.com/snktibor/usageratio/compare/v0.12.1...v0.13.0) (2026-11-10)
 
 
