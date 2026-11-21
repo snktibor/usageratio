@@ -12,7 +12,8 @@ import { countsForProvider, parseStoredSettings, settingsFromConfig, type UsageS
 import type { TenantStore } from "@/lib/tenant";
 import { loadEvents, loadIndexes, loadRawSettings, loadResets } from "@/lib/usage-store";
 import type { UsageReport } from "@/lib/validation";
-import { sendWebhook, type WebhookResult } from "@/lib/webhook";
+import type { WebhookResult } from "@/lib/webhook";
+import { sendWebhook } from "@/lib/webhook-send";
 
 /**
  * Threshold alerts: a webhook message the first time a provider's usage in

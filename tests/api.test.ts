@@ -1,8 +1,10 @@
 import { errors as upstash } from "@upstash/redis";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiError, json, readJsonBody, requireBearer, requireSameOrigin, withApiHandler } from "@/lib/api";
+import { resetErrorReporter, setErrorReporter } from "@/lib/error-reporter";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { currentCookies, runWithRequest } from "@/lib/request-context";
+import { resetStorageQuotaReportsForTests } from "@/lib/storage-quota";
 import { createToken, revokeToken } from "@/lib/tokens";
 import { useRedis } from "./helpers/redis-fixture";
 import { fakeCookieJar, withRequest } from "./helpers/request";
@@ -270,6 +272,27 @@ describe("withApiHandler", () => {
       expect(response.status).toBe(503);
       expect(response.headers.get("retry-after")).toBe("60");
       expect((await response.json()).error).toBe("storage_unavailable");
+    }
+  });
+
+  it("reports Upstash refusing over a plan limit or budget to the error webhook, still as a 503", async () => {
+    const reporter = vi.fn();
+    setErrorReporter(reporter);
+    try {
+      const handler = withApiHandler("api/test", async () => {
+        throw new upstash.UpstashError("ERR max requests limit exceeded. Limit: 10000, Usage: 10000");
+      });
+      const response = await handler(get({ "x-request-id": "q" }));
+      expect(response.status).toBe(503);
+      expect((await response.json()).error).toBe("storage_unavailable");
+      expect(reporter).toHaveBeenCalledTimes(1);
+      expect(reporter.mock.calls[0]![1]).toMatchObject({ requestId: "q", route: "api/test" });
+      // The same refusal again within the hour: answered the same, not reported again.
+      expect((await handler(get())).status).toBe(503);
+      expect(reporter).toHaveBeenCalledTimes(1);
+    } finally {
+      resetErrorReporter();
+      resetStorageQuotaReportsForTests();
     }
   });
 

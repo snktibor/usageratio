@@ -116,9 +116,9 @@ each one has its own remove button.
 Each threshold fires at most once per provider per cycle — or per stretch of it: once a
 [usage reset](#usage-resets) has been recorded, the thresholds can fire again for the usage since.
 Fields:
-webhook URL (must be `https`, and can't point at a private/loopback/link-local address — the same
-allow-list a self-hosted deployment's own network is protected by, see
-[security.md](security.md)), message format (**generic** JSON, **Slack**, or **Discord**),
+webhook URL (`https` with a public host name: no IP address, no local name, and a name that
+resolves to a private, loopback or link-local address is refused when the message is sent — see
+[security.md](security.md#outbound-webhooks-ssrf)), message format (**generic** JSON, **Slack**, or **Discord**),
 whether hidden providers alert too, and the language the message text is written in (independent
 of the dashboard's own display language). A **send test** button posts a sample message
 immediately. With token limits on, a threshold is judged against measured tokens; with them off,
@@ -259,7 +259,7 @@ OAuth App.
 | --- | --- | --- |
 | `NEXT_PUBLIC_SITE_URL` | the Vercel production domain | The dashboard's public address (e.g. `https://usage.example.com`): the ingest URL written into setup packages, and the dashboard link in alerts. Set it when the deployment has more than one domain, since Vercel's production domain is the shortest one. A change needs a redeploy. |
 | `CRON_SECRET` | unset | Bearer token Vercel Cron uses to call `GET /api/cron/housekeeping` daily (at least 16 characters). Without it, the housekeeping endpoint refuses to run. |
-| `ERROR_WEBHOOK_URL` | unset | Server errors are POSTed here as JSON (`message`, `digest`, `path`, request id). |
+| `ERROR_WEBHOOK_URL` | unset | Server errors are POSTed here as JSON (`message`, `digest`, `path`, request id). So is Upstash refusing commands over a plan limit or the budget, at most once an hour per server instance (see [self-hosting.md](self-hosting.md#cost-limits)). |
 | `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error`. |
 | `LOG_FORMAT` | `json` in production | `json` \| `pretty`. |
 | `TRUST_PROXY` | on | Trust `X-Forwarded-For` for rate limits (always on Vercel); set `0` on a self-hosted server not behind a proxy. |

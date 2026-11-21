@@ -15,6 +15,8 @@ For everything not specific to Docker — the client protocol, the API, the Redi
 - [HTTPS](#https)
 - [Installing clients](#installing-clients)
 - [Housekeeping (the daily cron)](#housekeeping-the-daily-cron)
+- [Alert webhooks and egress](#alert-webhooks-and-egress)
+- [Cost limits](#cost-limits)
 - [Backups](#backups)
 - [Upgrades](#upgrades)
 - [Troubleshooting](#troubleshooting)
@@ -191,6 +193,72 @@ the endpoint; without it (or with a short one) the endpoint refuses to run rathe
 request. Housekeeping prunes the index hashes and the token-audit trail of entries nothing still points
 to — the raw usage history already self-prunes on write, so a missed day changes nothing except a
 slightly larger audit log.
+
+## Alert webhooks and egress
+
+A threshold-alert webhook is a request the server makes to a URL a dashboard user typed. The app
+refuses IP addresses, local names, and any name that resolves to a private, loopback, link-local
+or metadata address, and it connects only to the address it checked, so DNS rebinding cannot send
+it anywhere else ([security.md](security.md#outbound-webhooks-ssrf) has the full list). There is no
+switch to allow a webhook on your LAN: put a relay with a public `https` name in front of it, or
+use a service such as ntfy, Slack or Discord.
+
+"Public" still includes **your own public addresses**: the host's public IP, and, with IPv6, every
+other device in your prefix that has a public address (a router, a NAS). In `closed` mode only
+you set the webhook URL, so that is your own choice. **In `open` mode, and in `invite` mode with
+people you don't fully trust, filter the app container's outbound traffic as well.** It needs:
+
+| Destination | Why |
+| --- | --- |
+| the Redis REST endpoint (`redis-rest:80` in Compose, or your Upstash URL) | the store |
+| `github.com:443`, `api.github.com:443` | GitHub sign-in (multi-user mode) |
+| any public address on port `443` and the unprivileged ports a webhook may use | alert webhooks, `ERROR_WEBHOOK_URL` |
+| DNS (your resolver, port 53) | resolving the above |
+
+Drop everything else, and add explicit drops for your own public IPv4 address and IPv6 prefix. One
+way on a Linux host with Docker is the `DOCKER-USER` chain (`iptables -I DOCKER-USER -s <app
+network> -d <your prefix> -j DROP`); a firewall in front of the host or an egress proxy works as
+well. On Vercel none of this applies: a function has no private network to reach.
+
+## Cost limits
+
+usageratio is cheap to run: every hourly client report is a few dozen Redis commands, and a page
+view a few more. A handful of machines stays far inside Upstash's free tier and Vercel's Hobby
+plan. A limit is there for the day something goes wrong: a client stuck in a retry loop, a script
+hammering the API, a workspace in `open` mode that grows faster than planned. The limits are set in
+the providers' dashboards; the app cannot set them for you.
+
+**Upstash (the store).**
+
+- **Free plan**: a hard cap on its own. Over its monthly command allowance, Upstash refuses
+  commands until the next month; nothing is billed.
+- **Pay-as-you-go**: set a **monthly budget** on the database (Upstash console → the database →
+  *Usage* / *Budget*; through the Vercel Marketplace integration, open the store in Upstash's
+  console from Vercel → *Storage*). For a hobby instance, **$5–10 a month** leaves plenty of room
+  above normal use and bounds a runaway. Once the budget is reached Upstash refuses commands, as on
+  the free plan.
+- Turn on Upstash's own usage e-mails if your plan offers them: they arrive before the limit does.
+
+When Upstash refuses commands over a limit or budget, the API answers `503 storage_unavailable`
+(the clients retry later, without losing anything). The app also reports it to
+**`ERROR_WEBHOOK_URL`**, at most once an hour per server instance, with a message starting
+`Upstash Redis refused a command over a plan limit or budget`, and logs `storage.quota_exceeded`
+on every refused request. Other storage outages only log, since they usually heal on their own; a
+limit waits for the month to end or for a higher budget. Set `ERROR_WEBHOOK_URL` to an endpoint
+that takes generic JSON (`{ "message", "digest", "path", "requestId", "version", "commit" }`); Slack
+and Discord want their own shapes, so put a small relay in front of them.
+
+**Vercel (the app).**
+
+- **Hobby**: nothing is billed. Over a limit, Vercel pauses the project until the next cycle.
+- **Pro**: set **Spend Management** (Team → *Settings* → *Billing* → *Spend Management*): a spend
+  amount, the e-mail or SMS alerts at 50/75/100%, and **"Pause production deployment"** at 100%.
+  For a hobby instance on Pro, about **$10–20 above the plan's included usage** is a sensible
+  ceiling. Spend Management can also call a webhook of its own; the app is not involved there.
+
+**Self-hosted with Docker**, the bundled Redis has no bill: the limits are the host's disk and
+memory. Watch the `redis-data` volume, and set `maxmemory` on the `redis` service if the host is
+shared.
 
 ## Backups
 

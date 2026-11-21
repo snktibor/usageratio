@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { evaluateAlerts, sendTestAlert } from "@/lib/alerts";
 import type { AlertsConfig } from "@/lib/config";
 import { getRedis } from "@/lib/redis";
+import { setWebhookTransportForTests } from "@/lib/webhook-send";
 import en from "@/messages/en.json";
 import { useRedis } from "./helpers/redis-fixture";
 import { KEYS, tenant } from "./helpers/tenant";
@@ -34,7 +35,7 @@ const CYCLE = { startMs: 1_700_000_000_000, endMs: 1_700_604_800_000, timeZone: 
 
 function mockFetch(status = 200): ReturnType<typeof vi.fn> {
   const fn = vi.fn().mockResolvedValue(new Response(null, { status }));
-  vi.stubGlobal("fetch", fn);
+  setWebhookTransportForTests(fn);
   return fn;
 }
 
@@ -48,6 +49,7 @@ describe("evaluateAlerts", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    setWebhookTransportForTests(null);
   });
 
   it("does nothing without a webhook URL", async () => {
@@ -228,7 +230,7 @@ describe("evaluateAlerts", () => {
   });
 
   it("never throws when the webhook fails", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("down")));
+    setWebhookTransportForTests(vi.fn().mockRejectedValue(new Error("down")));
     await expect(
       evaluateAlerts(tenant, {
         providerId: "claude",
@@ -246,6 +248,7 @@ describe("sendTestAlert", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    setWebhookTransportForTests(null);
   });
 
   it("sends a sample message and returns the webhook result", async () => {
