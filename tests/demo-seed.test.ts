@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { requireTenantSession } from "@/lib/api";
 import { DEMO_GROUPS, DEMO_MACHINES, DEMO_PROVIDERS } from "@/lib/demo/dataset";
 import { DEMO_STALE_MS, ensureDemoData, seedStore, wipeUsageData } from "@/lib/demo/seed";
+import { registerNode } from "@/lib/instrumentation-node";
 import { getRedis } from "@/lib/redis";
 import { loadIndexes, loadRawSettings, saveResets } from "@/lib/usage-store";
 import { useRedis } from "./helpers/redis-fixture";
@@ -81,6 +83,19 @@ describe("ensureDemoData", () => {
     // The machine index has one row per provider and machine; count the machines.
     const machines = new Set((await loadIndexes(tenant)).machines.map((machine) => machine.machineId));
     expect(machines.size).toBe(DEMO_MACHINES.length);
+  });
+
+  it("is not run at server start, so a cold start that only answers /api/health stays cheap", async () => {
+    vi.stubEnv("DEMO_MODE", "1");
+    await registerNode();
+    expect(await loadRawSettings(tenant)).toBeNull();
+  });
+
+  it("runs on the first read through requireTenantSession()", async () => {
+    vi.stubEnv("DEMO_MODE", "1");
+    const context = await requireTenantSession();
+    expect(context).not.toBeInstanceOf(Response);
+    expect(await loadRawSettings(tenant)).not.toBeNull();
   });
 
   it("lets a concurrent render through while another one is seeding", async () => {

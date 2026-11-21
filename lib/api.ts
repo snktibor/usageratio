@@ -1,5 +1,7 @@
 import { errors as upstash } from "@upstash/redis";
+import { currentTime } from "@/lib/clock";
 import { UNAUTH_RATE_LIMIT_PER_IP } from "@/lib/config";
+import { isDemoMode } from "@/lib/demo/mode";
 import { reportError } from "@/lib/error-reporter";
 import { isForeignOrigin } from "@/lib/http";
 import { log } from "@/lib/log";
@@ -179,7 +181,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 /**
  * The signed-in browser's tenant (lib/tenant-context.ts), or the 401 to answer
  * instead. The tenant comes from the session alone. Throws when the store
- * cannot be asked.
+ * cannot be asked. In demo mode it also (re)seeds the synthetic data first.
  *
  * In multi-tenant mode a request that changes something must also name the
  * tenant its page was rendered for (lib/tenant-header.ts): 412 tenant_changed
@@ -189,6 +191,12 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 export async function requireTenantSession(): Promise<Response | TenantContext> {
   const tenant = await currentTenant();
   if (!tenant) return apiError("unauthorized", 401);
+  if (isDemoMode()) {
+    // The demo's in-memory store starts empty on every instance: fill it before the first read.
+    // Imported on demand, so a real deployment never loads the synthetic dataset.
+    const { ensureDemoData } = await import("@/lib/demo/seed");
+    await ensureDemoData(tenant.store, currentTime());
+  }
   const request = currentRequest();
   if (isMultiTenant() && !SAFE_METHODS.has(request?.method ?? "GET")) {
     if (request?.namedTenant !== tenant.store.tenantId) return apiError("tenant_changed", 412);

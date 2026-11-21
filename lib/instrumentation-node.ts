@@ -1,16 +1,13 @@
 import type { Instrumentation } from "next";
-import { currentTime } from "@/lib/clock";
 import { isDemoMode } from "@/lib/demo/mode";
-import { ensureDemoData } from "@/lib/demo/seed";
 import { reportError } from "@/lib/error-reporter";
 import { log } from "@/lib/log";
 import { storageKind } from "@/lib/redis";
-import { defaultTenantStore } from "@/lib/tenant";
 import { version } from "@/package.json";
 
 /**
- * The Node.js half of instrumentation.ts: the start-up log line, the demo
- * seed, and the server-side error report. Kept out of instrumentation.ts
+ * The Node.js half of instrumentation.ts: the start-up log line and the
+ * server-side error report. Kept out of instrumentation.ts
  * itself, which Next also compiles for the Edge runtime.
  */
 
@@ -22,8 +19,8 @@ export async function registerNode(): Promise<void> {
     storage: storageKind(),
     demo: isDemoMode(),
   });
-  // Demo mode: the in-memory store starts empty, so fill it before the first request.
-  if (isDemoMode()) await ensureDemoData(defaultTenantStore(), currentTime());
+  // No demo seed here: every cold start would pay for it, even one that only answers an uptime
+  // monitor's /api/health. The pages and requireTenantSession() seed on first read instead.
 }
 
 export const onRequestErrorNode: Instrumentation.onRequestError = async (error, request, context) => {
