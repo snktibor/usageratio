@@ -1,6 +1,7 @@
 import { hasLocale } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { SignInGate } from "@/components/auth/sign-in-gate";
+import type { SettingsQuota } from "@/components/settings/sections/limits-section";
 import { SettingsPage } from "@/components/settings/settings-page";
 import { StorageProblem } from "@/components/storage-problem";
 import { TenantGuard } from "@/components/tenant-guard";
@@ -12,6 +13,8 @@ import { log } from "@/lib/log";
 import { modelKeysIn } from "@/lib/models";
 import { earliestStartMs } from "@/lib/provider-cycles";
 import { mergeProviderIds } from "@/lib/providers";
+import { loadQuotaRefusals } from "@/lib/quota-refusals";
+import { loadQuotaUse } from "@/lib/quota-use";
 import { StorageNotConfiguredError } from "@/lib/redis";
 import { isMultiTenant } from "@/lib/registration";
 import { buildSettingsView, resolveConfig, type SettingsView, storedProviderIds } from "@/lib/settings";
@@ -64,6 +67,7 @@ export default async function Page({ params }: { params: Promise<{ locale: strin
   if (hasLocale(routing.locales, locale)) setRequestLocale(locale);
 
   let view: SettingsView | null = null;
+  let quota: SettingsQuota | undefined;
   let tenantId: string | null = null;
   let storageError: unknown = null;
 
@@ -73,6 +77,15 @@ export default async function Page({ params }: { params: Promise<{ locale: strin
     if (tenant) {
       tenantId = tenant.store.tenantId;
       view = await loadSettingsView(tenant.store, tenant.role);
+      // A workspace's quotas (multi-tenant mode): what it uses, and the reports they refused lately.
+      if (isMultiTenant()) {
+        const now = currentTime();
+        const [use, refusals] = await Promise.all([
+          loadQuotaUse(tenant.store, now),
+          loadQuotaRefusals(tenant.store, now),
+        ]);
+        quota = { use, refusals };
+      }
     }
   } catch (error) {
     storageError = error;
@@ -87,7 +100,7 @@ export default async function Page({ params }: { params: Promise<{ locale: strin
   return (
     <>
       {isMultiTenant() && tenantId && <TenantGuard tenantId={tenantId} />}
-      <SettingsPage view={view} />
+      <SettingsPage view={view} quota={quota} />
     </>
   );
 }

@@ -269,7 +269,6 @@
     "trash_restored_toast": "Restored “{name}”.",
     "trash_restored_merged_toast": "Restored “{name}”, together with the reports that arrived since it was deleted.",
     "trash_gone": "That entry is no longer in Recently deleted.",
-    "trash_too_many": "It cannot be restored: the limit of groups, providers or machines is reached.",
     "trash_action_failed": "That did not work. Try again in a moment.",
     "manage_clients_note": "A client still configured with the old name or group will report there again the next time it runs: change it on the machine too.",
     "manage_machines_heading": "Machines",
@@ -374,7 +373,12 @@
     "tokens_rotate_title": "Rotate this token?",
     "tokens_rotate_body": "“{label}” stops working now and a new token replaces it, shown once. Put the new one into that machine's client config, or it stops reporting.",
     "tokens_rotate_too_many": "Too many revoked tokens are still kept (they are forgotten 90 days after revocation). Try again later.",
-    "tokens_rotate_lost": "The answer did not arrive. Check the list: if the token was rotated, rotate it again to get a new secret."
+    "tokens_rotate_lost": "The answer did not arrive. Check the list: if the token was rotated, rotate it again to get a new secret.",
+    "section_limits": "Limits",
+    "quota_groups_refused": "This workspace may have at most {limit} groups. Remove a group without reports, or merge two, before adding another.",
+    "trash_too_many_groups": "It cannot be restored: this workspace already has its {limit} groups. Remove or merge one first.",
+    "trash_too_many_providers": "It cannot be restored: this workspace already has its {limit} providers. Delete one first.",
+    "trash_too_many_machines": "It cannot be restored: its machines would take this workspace past its limit of {limit} machines. Delete or merge machines first."
   },
   "Alerts": {
     "threshold_text": "{label} has used {threshold}% of its budget (currently at {used}%); the cycle ends {end}."
@@ -804,7 +808,8 @@
     "join_missing_code": "This invite link is incomplete. Open the full link you were given.",
     "no_workspace_account": "Your account",
     "error_invite_invalid": "This invite is no longer valid: it was used, revoked, or it expired. Ask for a new one.",
-    "error_invite_wrong_account": "This invite is for a different GitHub account. Sign in with the account it names, or ask for a new invite."
+    "error_invite_wrong_account": "This invite is for a different GitHub account. Sign in with the account it names, or ask for a new invite.",
+    "error_workspace_full": "This workspace is full, so the invite cannot be used right now. Ask its owner to make room; the invite stays valid until it expires."
   },
   "Account": {
     "heading": "Account",
@@ -861,7 +866,11 @@
     "code_expired": "expired",
     "code_expires": "valid until",
     "revoke": "Revoke",
-    "no_codes": "No sign-up links yet."
+    "no_codes": "No sign-up links yet.",
+    "col_providers": "Providers",
+    "col_groups": "Groups",
+    "col_invites": "Invites",
+    "quota_use": "{used} / {limit}"
   },
   "Errors": {
     "page_failed_title": "The page could not load",
@@ -916,9 +925,31 @@
     "transfer_body": "They can then invite and remove people, export the data and delete the workspace. You stay on as a member.",
     "transfer_sudo": "Handing the workspace over needs a fresh sign-in.",
     "cancel": "Cancel",
-    "error_too_many_invites": "At most 10 invites can be pending at once. Revoke one first.",
+    "error_too_many_invites": "At most {limit} invites can be pending at once. Revoke one first.",
     "error_invalid_login": "That is not a GitHub login.",
     "error_busy": "Another change to the members is running. Try again in a moment.",
-    "error_failed": "That did not work. Please try again."
+    "error_failed": "That did not work. Please try again.",
+    "members_quota": "{used} of {limit} members",
+    "invites_quota": "{used} of {limit} pending invites",
+    "error_too_many_members": "This workspace is full: it has its {limit} members. Remove someone before inviting another.",
+    "error_too_many_workspaces": "That member already owns {limit} workspaces, the most one person may own. Choose someone else, or ask them to hand one over first."
+  },
+  "Quota": {
+    "limits_heading": "Workspace limits",
+    "limits_explanation": "What this workspace may hold. Reaching a limit never deletes or hides anything: only new machines, providers, groups, tokens or people are refused until you make room.",
+    "limits_row_machines": "Machines",
+    "limits_row_providers": "Providers",
+    "limits_row_groups": "Groups",
+    "limits_row_tokens": "Active tokens",
+    "limits_row_members": "Members",
+    "limits_row_pendingInvites": "Pending invites",
+    "limits_use": "{used} of {limit}",
+    "limits_use_full": "{used} of {limit} (full)",
+    "refused_too_many_machines": "A report from the new machine “{machine}” (group “{group}”) was refused: this workspace has reached its limit of {limit} machines. Delete or merge machines no longer in use under Machines, and its next report gets in.",
+    "refused_too_many_providers": "A report from “{machine}” was refused: it named a new provider, and this workspace has reached its limit of {limit} providers. Delete a provider no longer in use under Danger zone.",
+    "refused_too_many_groups": "A report from “{machine}” was refused: it named the new group “{group}”, and this workspace has reached its limit of {limit} groups. Remove or merge a group under Groups.",
+    "report_too_many_machines": "This workspace has reached its limit of {limit} machines, so this new machine's report was not stored. Delete or merge machines no longer in use under Settings → Machines, then report again.",
+    "report_too_many_providers": "This workspace has reached its limit of {limit} providers, so this report with a new provider was not stored. Delete a provider no longer in use under Settings → Danger zone, then report again.",
+    "report_too_many_groups": "This workspace has reached its limit of {limit} groups, so this report for a new group was not stored. Report into an existing group, or remove one under Settings → Groups."
   }
 }

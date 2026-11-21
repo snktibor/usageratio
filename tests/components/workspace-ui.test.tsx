@@ -36,6 +36,7 @@ const OWNER_VIEW: WorkspaceView = {
   invites: [
     { id: "iv_AAAAAAAA", createdAt: 1, expiresAt: Date.now() + 86_400_000, createdBy: "u_alice", login: "carol" },
   ],
+  quotas: { members: 10, pendingInvites: 10, ownedWorkspaces: 3 },
 };
 
 describe("WorkspaceMembers", () => {
@@ -48,6 +49,23 @@ describe("WorkspaceMembers", () => {
     vi.stubGlobal("location", { ...window.location, assign, reload: vi.fn(), pathname: "/en/workspace" });
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it("shows the people quotas, and explains each refusal with its limit", async () => {
+    renderWithIntl(<WorkspaceMembers workspace={OWNER_VIEW} />);
+    expect(screen.getByText("2 of 10 members")).toBeTruthy();
+    expect(screen.getByText("1 of 10 pending invites")).toBeTruthy();
+    for (const [error, text] of [
+      ["too_many_invites", "At most 10 invites can be pending at once. Revoke one first."],
+      ["too_many_members", "This workspace is full: it has its 10 members. Remove someone before inviting another."],
+      ["invalid_payload", "That is not a GitHub login."],
+      ["members_busy", "Another change to the members is running. Try again in a moment."],
+      ["internal_error", "That did not work. Please try again."],
+    ] as const) {
+      fetchMock.mockResolvedValueOnce(answer(422, { error, limit: 10 }));
+      fireEvent.click(screen.getByRole("button", { name: /Create an invite/ }));
+      expect(await screen.findByText(text)).toBeTruthy();
+    }
+  });
 
   it("shows an owner the invites, and a new link once", async () => {
     fetchMock.mockResolvedValueOnce(
@@ -103,6 +121,20 @@ describe("WorkspaceMembers", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Make owner" }));
     expect(await screen.findByRole("button", { name: "Confirm with GitHub" })).toBeTruthy();
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({ userId: "u_bob" });
+    vi.useRealTimers();
+  });
+
+  it("explains a hand-over refused because the member owns as many workspaces as they may", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fetchMock.mockResolvedValue(answer(422, { error: "too_many_workspaces", limit: 3 }));
+    renderWithIntl(<WorkspaceMembers workspace={OWNER_VIEW} />);
+    fireEvent.click(screen.getByRole("button", { name: "Make owner" }));
+    const dialog = await screen.findByRole("alertdialog");
+    await act(async () => {
+      vi.advanceTimersByTime(3500);
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Make owner" }));
+    expect(await screen.findByText(/That member already owns 3 workspaces/)).toBeTruthy();
     vi.useRealTimers();
   });
 

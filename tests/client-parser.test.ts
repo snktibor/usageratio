@@ -1,6 +1,8 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFile, execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { createRequire } from "node:module";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -19,6 +21,7 @@ type DayMap = Record<
 type Hourly = { blocks: unknown; cycleStartMs: number; timeZone: string; starts?: Record<string, number> } | null;
 const PARSER = join(__dirname, "../clients/shared/ccusage-providers.cjs");
 const {
+  errorSummary,
   MAX_DAYS,
   MAX_MODELS,
   MAX_MODELS_PER_PROVIDER,
@@ -31,6 +34,7 @@ const {
   PROVIDERS,
   providerFrom,
 } = require("../clients/shared/ccusage-providers.cjs") as {
+  errorSummary: (body: unknown) => string | null;
   MAX_DAYS: number;
   MAX_MODELS: number;
   MAX_MODELS_PER_PROVIDER: number;
@@ -715,4 +719,59 @@ describe("ccusage split by hour", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   }, 30_000);
+});
+
+describe("the client's account of a refused report", () => {
+  it("reads the error envelope as code: message, on one line", () => {
+    expect(errorSummary({ error: "too_many_machines", limit: 25, message: "Full.\nDelete one." })).toBe(
+      "too_many_machines: Full. Delete one.",
+    );
+    expect(errorSummary({ error: "machine_mismatch", requestId: "r" })).toBe("machine_mismatch");
+    expect(errorSummary({ error: "rate_limited", message: 5 })).toBe("rate_limited");
+    expect(errorSummary({ error: "x", message: "y".repeat(900) })).toHaveLength(500);
+    for (const body of [null, [], "text", { message: "no code" }, { error: "\u0001" }]) {
+      expect(errorSummary(body)).toBeNull();
+    }
+  });
+
+  it("report-usage-core.sh logs a quota refusal's code and message, and says so in manual mode", async () => {
+    const message = "This workspace has reached its limit of 25 machines, so this new machine's report was not stored.";
+    const server = createServer((_request, response) => {
+      response.writeHead(422, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "too_many_machines", requestId: "req-1", limit: 25, message }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const dir = mkdtempSync(join(tmpdir(), "usageratio-quota-"));
+    const logFile = join(dir, "usageratio.log");
+    try {
+      const { port } = server.address() as AddressInfo;
+      const result = await new Promise<{ code: number | null; stderr: string }>((resolve) => {
+        const child = execFile(
+          "bash",
+          ["clients/shared/report-usage-core.sh", "--tokens", "claude=5"],
+          {
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              USAGERATIO_CONFIG: "/nonexistent/usageratio-config",
+              USAGERATIO_LOG_FILE: logFile,
+              USAGERATIO_OUTPUT_MODE: "manual",
+              USAGERATIO_API_URL: `http://127.0.0.1:${port}/api/usage`,
+              USAGERATIO_API_TOKEN: "test-token-of-16-chars",
+              USAGERATIO_MACHINE_ID: "new-box",
+              USAGERATIO_GROUP_ID: "Personal",
+            },
+          },
+          (_error, _stdout, stderr) => resolve({ code: child.exitCode, stderr }),
+        );
+      });
+      expect(result.code).toBe(1);
+      const expected = `server answered HTTP 422: too_many_machines: ${message}`;
+      expect(result.stderr).toContain(`❌ Sync failed: ${expected}`);
+      expect(readFileSync(logFile, "utf8")).toContain(`ERROR: ${expected}`);
+    } finally {
+      server.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

@@ -3,7 +3,7 @@ import { clearCookie, hostCookieName, serializeCookie } from "@/lib/cookies";
 import { authorizeUrl, exchangeCode, fetchGithubUser, githubConfig, pkcePair } from "@/lib/github";
 import { consumeInvite, inviteHash, isInviteCodeShape, peekInvite } from "@/lib/invites";
 import { log } from "@/lib/log";
-import { addMember } from "@/lib/members";
+import { addMember, membersFull } from "@/lib/members";
 import { consumeOAuthState, createOAuthState, OAUTH_STATE_TTL_SECONDS, type OAuthPurpose } from "@/lib/oauth-state";
 import { hit, type RateLimitResult } from "@/lib/rate-limit";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
@@ -69,6 +69,7 @@ export type SignInErrorCode =
   | "signup_code_invalid"
   | "invite_invalid"
   | "invite_wrong_account"
+  | "workspace_full"
   | "sudo_mismatch";
 
 export type StartResult =
@@ -265,6 +266,9 @@ async function finishJoin(
     log.info("signin.ok", { userId: known, purpose: "join", alreadyMember: true });
     return { location: landing, cookies };
   }
+
+  // A full workspace (lib/quotas.ts) lets nobody new in; the invite stays, for once someone leaves.
+  if (await membersFull(target.tenantId)) return fail("workspace_full");
 
   const taken = await consumeInvite(hash);
   if (!taken || taken.tenantId !== target.tenantId) return fail("invite_invalid");

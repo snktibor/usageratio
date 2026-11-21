@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { LOGIN_PATTERN } from "@/lib/github";
+import { growsPast, workspaceQuotas } from "@/lib/quotas";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { sha256Hex } from "@/lib/security";
@@ -19,7 +20,7 @@ import { isTenantId, type TenantId } from "@/lib/tenant-id";
  */
 
 export const INVITE_DAYS = 7;
-/** Pending invites a workspace may have at once (the design's quota table). */
+/** Pending invites a workspace may have at once (the design's quota table; lib/quotas.ts applies it). */
 export const MAX_PENDING_INVITES = 10;
 const CODE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const INVITE_ID_PATTERN = /^iv_[A-Za-z0-9_-]{8}$/;
@@ -96,17 +97,30 @@ export async function listInvites(tenantId: TenantId, now: Date): Promise<Invite
 
 export type CreateInviteResult =
   | { ok: true; code: string; entry: InviteEntry }
-  | { ok: false; reason: "too_many_invites" };
+  | { ok: false; reason: "too_many_invites" | "too_many_members"; limit: number };
 
-/** Issues an invite into `tenantId`; the plaintext code is returned once and never stored. */
+/**
+ * Issues an invite into `tenantId`; the plaintext code is returned once and never stored. Refused
+ * with the workspace's quotas (lib/quotas.ts): too many pending invites, or a workspace that is
+ * already full, where nobody could accept one.
+ */
 export async function createInvite(
   tenantId: TenantId,
   createdBy: string,
   login: string | null,
   now: Date,
 ): Promise<CreateInviteResult> {
-  if ((await listInvites(tenantId, now)).length >= MAX_PENDING_INVITES)
-    return { ok: false, reason: "too_many_invites" };
+  const quotas = workspaceQuotas();
+  if (quotas.members !== null) {
+    const members = Number(await getRedis().hlen(GLOBAL_KEYS.tenantMembers(tenantId)));
+    if (growsPast(members, members + 1, quotas.members)) {
+      return { ok: false, reason: "too_many_members", limit: quotas.members };
+    }
+  }
+  const pending = (await listInvites(tenantId, now)).length;
+  if (growsPast(pending, pending + 1, quotas.pendingInvites)) {
+    return { ok: false, reason: "too_many_invites", limit: quotas.pendingInvites };
+  }
   const code = randomBytes(32).toString("base64url");
   const id = `iv_${randomBytes(6).toString("base64url")}`;
   const hash = inviteHash(code);

@@ -171,11 +171,19 @@ describe("the account and the instance admin", () => {
     expect(text).not.toContain("alice-secret-host");
     expect(text).not.toContain("Personal");
     const { overview } = JSON.parse(text) as {
-      overview: { rows: { tenantId: string; owners: string[]; machines: number }[] };
+      overview: { rows: { tenantId: string; owners: string[]; quota: Record<string, unknown> }[] };
     };
+    // The counts come with the workspace's quotas (lib/quotas.ts WORKSPACE_QUOTAS).
     expect(overview.rows.find((row) => row.tenantId === alice.tenantId)).toMatchObject({
       owners: ["alice"],
-      machines: 1,
+      quota: {
+        machines: { used: 1, limit: 25 },
+        providers: { used: 1, limit: 20 },
+        groups: { used: 1, limit: 20 },
+        tokens: { used: 0, limit: 50 },
+        members: { used: 1, limit: 10 },
+        pendingInvites: { used: 0, limit: 10 },
+      },
     });
   });
 

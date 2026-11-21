@@ -13,12 +13,11 @@ import { Toast } from "@/components/ui/toast";
 import { formatDateTime } from "@/lib/format";
 
 /**
- * Mirrors lib/tokens.ts's MAX_LABEL_LENGTH and MAX_TOKENS; kept local so this
- * client component never imports lib/tokens.ts, which pulls in node:crypto
- * for token generation.
+ * Mirrors lib/tokens.ts's MAX_LABEL_LENGTH; kept local so this client
+ * component never imports lib/tokens.ts, which pulls in node:crypto for token
+ * generation.
  */
 const MAX_LABEL_LENGTH = 64;
-const MAX_TOKENS = 100;
 /** How long the revoke confirm button stays disabled after opening. */
 const CONFIRM_DELAY_SECONDS = 3;
 
@@ -131,13 +130,16 @@ export function TokensSection({
         onManaged();
         return;
       }
-      const error = await errorCode(response);
-      if (error === "sudo_required") {
+      const payload = (await response.json().catch(() => null)) as { error?: string; limit?: number } | null;
+      if (payload?.error === "sudo_required") {
         setSudoRetry({ kind: "create", label: rawLabel, machineId: rawMachineId, scope: rawScope });
         return;
       }
+      // The limit comes with the refusal: a workspace's quota (lib/quotas.ts) is not this instance's cap.
       setCreateProblem(
-        error === "too_many_tokens" ? t("tokens_too_many", { limit: MAX_TOKENS }) : t("tokens_action_failed"),
+        payload?.error === "too_many_tokens"
+          ? t("tokens_too_many", { limit: Number(payload.limit) })
+          : t("tokens_action_failed"),
       );
     } catch {
       setCreateProblem(t("tokens_action_failed"));

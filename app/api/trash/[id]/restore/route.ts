@@ -16,7 +16,7 @@ import { restoreTrash, TRASH_ID_PATTERN } from "@/lib/trash";
  *
  * 200 ok · 400 invalid id · 401 no session · 403 foreign origin, demo mode, or no sudo grant ·
  * 404 not_found (no such entry, or it expired) · 409 too_many_groups | too_many_providers |
- * too_many_machines · 412 tenant_changed · 503 Redis down
+ * too_many_machines (the workspace's quota, lib/quotas.ts, with its `limit`) · 412 tenant_changed · 503 Redis down
  */
 
 type Params = { id: string };
@@ -40,7 +40,7 @@ export async function POST(request: Request, context: { params: Promise<Params> 
     if (!result.ok) {
       return result.reason === "not_found"
         ? apiError("not_found", 404)
-        : apiError(result.reason, REFUSALS[result.reason]);
+        : apiError(result.reason, REFUSALS[result.reason], { limit: result.limit });
     }
     const { ok: _ok, ...rest } = result;
     return json({ ok: true, ...rest }, 200);

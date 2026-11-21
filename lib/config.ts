@@ -137,6 +137,31 @@ export const MAX_CLOCK_SKEW_MINUTES = 10;
 export const MAX_MACHINES = 200;
 
 /**
+ * What one workspace may hold in multi-tenant mode (REGISTRATION=invite|open), the design's quota
+ * table (docs/superpowers/specs/2026-11-07-multitenant-design.md, "Quotas"); lib/quotas.ts applies
+ * them. A single-user instance (closed) keeps the instance-wide caps above and next to their
+ * modules instead: MAX_MACHINES, MAX_GROUPS, MAX_PROVIDERS, MAX_TOKENS. Deliberately not env
+ * variables: a hosted instance's limits are part of what it offers, and a self-hoster who wants
+ * more runs it closed, or changes them here.
+ *
+ * - machines: distinct machine ids (one machine reporting five providers is one), where the
+ *   closed cap counts `usage:machines` entries (provider:machine pairs);
+ * - members: the owner included; ownedWorkspaces: per user, across the instance.
+ *
+ * A quota only refuses what would grow past it: data already over a limit (a workspace from
+ * before the quotas) is never deleted or hidden, and keeps reporting.
+ */
+export const WORKSPACE_QUOTAS = {
+  machines: 25,
+  providers: 20,
+  groups: 20,
+  tokens: 50,
+  members: 10,
+  pendingInvites: 10,
+  ownedWorkspaces: 3,
+} as const;
+
+/**
  * POST /api/usage: hits per token+machine and the deployment-wide total,
  * both per hour (app/api/usage/route.ts).
  */

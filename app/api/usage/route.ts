@@ -11,6 +11,7 @@ import { demoReadOnly } from "@/lib/demo/mode";
 import { ingestReport } from "@/lib/ingest";
 import { earliestCycle, providerCycle } from "@/lib/provider-cycles";
 import { mergeProviderIds } from "@/lib/providers";
+import { quotaRefusalMessage } from "@/lib/quota-refusals";
 import { hit } from "@/lib/rate-limit";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { defer } from "@/lib/request-context";
@@ -48,8 +49,9 @@ import { loadReportContext } from "@/lib/usage-store";
  * 201 stored · 200 identical report already stored · 400 bad JSON/payload ·
  * 401 bad token · 403 machine_mismatch (a machine-bound token reporting for
  * another machine), or read_only_token (a "read" token, which may not report tokens) ·
- * 413 body too large · 422 a registry cap (too many groups, providers or
- * machines) refused the report, with its `limit` · 429 a rate
+ * 413 body too large · 422 a registry quota (too many groups, providers or
+ * machines, lib/quotas.ts) refused the report, with its `limit` and a readable
+ * `message` the clients log · 429 a rate
  * limit was hit, with `retryAfterSeconds` · 500 server misconfigured ·
  * 503 Redis down
  *
@@ -158,7 +160,10 @@ export const POST = withApiHandler("api/usage", async ({ request }) => {
   const now = new Date();
   const result = await ingestReport(store, body.value, now);
   if (!result.ok) {
-    if ("refused" in result) return apiError(result.refused, 422, { limit: result.limit });
+    if ("refused" in result) {
+      const message = await quotaRefusalMessage(result.refused, result.limit, request);
+      return apiError(result.refused, 422, { limit: result.limit, message });
+    }
     return apiError("invalid_payload", 400, { details: result.errors });
   }
 
