@@ -159,7 +159,7 @@ describe("the alert webhook URL in a multi-tenant workspace", () => {
     expect(sent.status).toBe(200);
     expect(String(fetchMock.mock.calls[0]![0])).toBe(SECRET_URL);
 
-    await getRedis().del(GLOBAL_KEYS.rateLimit.alertsTest);
+    await getRedis().del(GLOBAL_KEYS.rateLimit.alertsTestBurst(owner.tenantId));
     const masked = await testAlert(
       request("/api/alerts/test", owner, { method: "POST", body: { webhookUrl: MASK, format: "slack", locale: "en" } }),
     );

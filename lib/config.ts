@@ -137,22 +137,93 @@ export const MAX_CLOCK_SKEW_MINUTES = 10;
 export const MAX_MACHINES = 200;
 
 /**
- * POST /api/usage: hits per token+machine and the deployment-wide total,
- * both per hour (app/api/usage/route.ts).
+ * Rate limits (lib/rate-limit.ts). Every one answers 429 `rate_limited` with
+ * Retry-After; the numbers leave a wide margin over what the clients send:
+ *
+ *   - the hourly reporter (clients/auto, cron/launchd/Task Scheduler): one
+ *     GET /api/usage and one POST per machine per hour; the one-off command
+ *     (clients/manual) the same once per run;
+ *   - the macOS menu bar app: GET /api/status every 5 minutes (12/hour, up to
+ *     3 lookups a poll after an upload or a report), one official report per
+ *     provider when its reading changed (at most 2 a poll, 24/hour), and this
+ *     Mac's own report hourly through the reporter above, 15 minutes after a
+ *     failed one.
+ *
+ * The narrowest budget is checked first (lib/rate-limit.ts `enforceLimits`):
+ * a request one of them refuses does not count against the wider ones.
+ */
+
+/**
+ * POST /api/usage, per token+machine per hour. The hosted (multi-tenant)
+ * instance allows 12: an hourly reporter plus a few manual runs. A single-user
+ * instance keeps the 60 it always had.
  */
 export const INGEST_RATE_LIMIT_PER_MACHINE = 60;
-export const INGEST_RATE_LIMIT_GLOBAL = 600;
+export const INGEST_RATE_LIMIT_PER_MACHINE_MULTI = 12;
+/**
+ * POST /api/usage per tenant per (clock) hour: 600 is 24 an hour for each of a
+ * workspace's 25 machines; on a single-user instance it is the instance's
+ * whole budget, as before.
+ */
+export const INGEST_RATE_LIMIT_PER_TENANT = 600;
+/** POST /api/usage per client address per hour (not counted when no trusted proxy names the address). */
+export const INGEST_RATE_LIMIT_PER_IP = 1_200;
+/** POST /api/usage per instance per (clock) hour: the cost cap, far above any one tenant's 600. */
+export const INGEST_RATE_LIMIT_INSTANCE = 20_000;
 
 /** GET /api/usage: cycle lookups per token, per hour. */
 export const CYCLE_RATE_LIMIT_PER_TOKEN = 120;
 
 /** GET /api/status: lookups per token, per hour (the menu bar app polls every 5 minutes, 12 an hour). */
 export const STATUS_RATE_LIMIT_PER_TOKEN = 120;
-/** POST /api/official-usage/report calls per token per hour. */
+
+/** POST /api/official-usage/report per token per hour (the menu bar app sends at most 24). */
 export const OFFICIAL_REPORT_RATE_LIMIT_PER_TOKEN = 120;
+/** … per tenant and per client address, per hour: 25 Macs at their most, twice over. */
+export const OFFICIAL_REPORT_RATE_LIMIT_PER_TENANT = 1_200;
+export const OFFICIAL_REPORT_RATE_LIMIT_PER_IP = 1_200;
+
+/** GET /api/export per tenant and per client address, per hour (a person clicking "download"). */
+export const EXPORT_RATE_LIMIT_PER_TENANT = 60;
+export const EXPORT_RATE_LIMIT_PER_IP = 120;
+
+/**
+ * POST /api/alerts/test: one test message per tenant every 10 seconds, 30 per
+ * tenant and 60 per client address per hour. Each one is a request to a URL
+ * the caller chose, so it is the tightest limit here.
+ */
+export const ALERT_TEST_RATE_LIMIT_BURST_SECONDS = 10;
+export const ALERT_TEST_RATE_LIMIT_PER_TENANT = 30;
+export const ALERT_TEST_RATE_LIMIT_PER_IP = 60;
 
 /** Failed Bearer tokens per IP, per minute, on either method of /api/usage and on GET /api/status. */
 export const UNAUTH_RATE_LIMIT_PER_IP = 60;
+
+/**
+ * GitHub sign-in (multi-tenant mode), start and callback together, per client
+ * address per 10 minutes. Without a trusted proxy every request is "unknown":
+ * one shared, larger budget then.
+ */
+export const SIGN_IN_RATE_LIMIT_PER_IP = 20;
+export const SIGN_IN_RATE_LIMIT_UNKNOWN_IP = 300;
+export const SIGN_IN_RATE_LIMIT_WINDOW_SECONDS = 600;
+
+/**
+ * New workspaces (a sign-up code, or a first sign-in in `open` mode) per
+ * client address per day, and per instance per hour. Joining a workspace by
+ * invite creates none and is not counted. Over either, the callback answers
+ * `signin_error=registration_rate_limited` and the sign-up code stays unused.
+ */
+export const REGISTRATION_RATE_LIMIT_PER_IP = 5;
+export const REGISTRATION_RATE_LIMIT_PER_IP_WINDOW_SECONDS = 86_400;
+export const REGISTRATION_RATE_LIMIT_INSTANCE = 50;
+
+/**
+ * POST /api/csp-report, counted in each server instance's memory (the endpoint
+ * never touches the store): per client address and in total, per minute.
+ */
+export const CSP_REPORT_RATE_LIMIT_PER_IP = 20;
+export const CSP_REPORT_RATE_LIMIT_INSTANCE = 300;
 
 // ─────────────────────────────────────────────────────────────────────────────
 

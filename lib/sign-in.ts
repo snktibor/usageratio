@@ -5,11 +5,10 @@ import { consumeInvite, inviteHash, isInviteCodeShape, peekInvite } from "@/lib/
 import { log } from "@/lib/log";
 import { addMember } from "@/lib/members";
 import { consumeOAuthState, createOAuthState, OAUTH_STATE_TTL_SECONDS, type OAuthPurpose } from "@/lib/oauth-state";
-import { hit, type RateLimitResult } from "@/lib/rate-limit";
-import { GLOBAL_KEYS } from "@/lib/redis-keys";
+import { enforceLimits, type LimitOutcome } from "@/lib/rate-limit";
 import { registrationMode } from "@/lib/registration";
 import { clientIp, isHttpsRequest } from "@/lib/request-context";
-import { sha256Hex } from "@/lib/security";
+import { registrationRules, signInRules } from "@/lib/route-limits";
 import { consumeSignupCode, isSignupCodeShape, signupCodeHash, signupCodeIsLive } from "@/lib/signup-codes";
 import type { TenantId } from "@/lib/tenant-id";
 import { loadTenantRecord, tenantIsActive } from "@/lib/tenants";
@@ -44,23 +43,28 @@ export function safeLocale(raw: unknown): string {
   return typeof raw === "string" && (routing.locales as readonly string[]).includes(raw) ? raw : routing.defaultLocale;
 }
 
-/** Sign-in requests (start and callback together) per address and window. */
-const ATTEMPTS_PER_ADDRESS = 20;
-/** Without a trusted proxy every request comes from "unknown": one shared, larger budget then. */
-const ATTEMPTS_UNKNOWN_ADDRESS = 300;
-const ATTEMPT_WINDOW_SECONDS = 600;
+/**
+ * Counts one sign-in request (start or callback) against its address's budget
+ * (lib/config.ts `SIGN_IN_RATE_LIMIT_*`: 20 per 10 minutes, 300 shared when no
+ * trusted proxy names the address).
+ */
+export async function countSignInAttempt(): Promise<LimitOutcome> {
+  return enforceLimits(signInRules(await clientIp()), { route: "sign-in" });
+}
 
-/** Counts one sign-in request against its address's budget (lib/rate-limit.ts). */
-export async function countSignInAttempt(): Promise<RateLimitResult> {
-  const ip = await clientIp();
-  if (ip === "unknown") {
-    return hit(GLOBAL_KEYS.rateLimit.oauth("unknown"), ATTEMPTS_UNKNOWN_ADDRESS, ATTEMPT_WINDOW_SECONDS);
-  }
-  return hit(GLOBAL_KEYS.rateLimit.oauth(sha256Hex(ip).slice(0, 32)), ATTEMPTS_PER_ADDRESS, ATTEMPT_WINDOW_SECONDS);
+/**
+ * Counts one new workspace against its address's day and the instance's hour
+ * (lib/config.ts `REGISTRATION_RATE_LIMIT_*`). Asked only right before one is
+ * created, and before a sign-up code is taken, so a refused one leaves the
+ * code for later.
+ */
+async function registrationAllowed(now: Date): Promise<boolean> {
+  return (await enforceLimits(registrationRules(await clientIp(), now), { route: "sign-in" })).allowed;
 }
 
 export type SignInErrorCode =
   | "rate_limited"
+  | "registration_rate_limited"
   | "misconfigured"
   | "state_invalid"
   | "github_denied"
@@ -205,6 +209,7 @@ export async function finishSignIn(
   if (attempt.purpose === "signup" && !hasWorkspace) {
     // The code is taken first: a code that is gone (used, revoked, expired) creates nothing.
     if (!attempt.signup) return fail(locale, "signup_code_invalid");
+    if (!(await registrationAllowed(now))) return fail(locale, "registration_rate_limited");
     const placeholder = `github:${github.id}`;
     const codeId = await consumeSignupCode(attempt.signup, placeholder, now);
     if (!codeId) return fail(locale, "signup_code_invalid");
@@ -215,6 +220,7 @@ export async function finishSignIn(
     // A sign-up link opened by someone who already has a workspace is just a sign-in: the code
     // stays unused, and nobody gets a second, empty workspace by accident.
     if (!known && registrationMode() !== "open") return fail(locale, "registration_closed");
+    if (!known && !(await registrationAllowed(now))) return fail(locale, "registration_rate_limited");
     const result = await findOrCreateGithubUser(github, now);
     userId = result.userId;
     if (result.created) {
