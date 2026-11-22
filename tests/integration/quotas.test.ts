@@ -159,10 +159,11 @@ describe("workspace quotas (multi-tenant mode)", () => {
   it("abuse probe: groups until the 21st is refused, from a report and from the settings page", async () => {
     const alice = await owner("alice");
     const token = await ingestToken(alice.tenantId);
+    // One machine per group: a single machine may only report 12 times an hour here.
     for (let i = 0; i < WORKSPACE_QUOTAS.groups; i += 1) {
-      expect((await report(token, "box", `Group ${i}`, {})).status).toBe(201);
+      expect((await report(token, `box-${i}`, `Group ${i}`, {})).status).toBe(201);
     }
-    const refused = await report(token, "box", "Group 21", {});
+    const refused = await report(token, "box-21", "Group 21", {});
     expect(refused.status).toBe(422);
     expect(await refused.json()).toMatchObject({ error: "too_many_groups", limit: 20 });
 
