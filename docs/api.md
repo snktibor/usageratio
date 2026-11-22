@@ -95,18 +95,28 @@ The full `ApiErrorCode` union (`lib/api.ts`):
 
 ## Rate limits and size caps
 
-Fixed-window counters in Redis (`lib/rate-limit.ts`), except the CSP-report endpoint, which uses a
-tiny in-process counter so it still works when the store is down.
+Fixed-window counters in Redis (`lib/rate-limit.ts`), except the CSP-report endpoint, which uses
+in-process counters so it still works when the store is down. Several limits on one endpoint are
+checked narrowest first, and a request one of them refuses does not count against the wider ones:
+one tenant at its limit leaves the instance's budget to everyone else. Every one answers `429
+rate_limited` with `Retry-After`; [security.md](security.md#rate-limits) has the keys and why the
+numbers are what they are.
 
 | Endpoint | Limit | Window | Keyed by |
 | --- | --- | --- | --- |
-| `POST /api/usage` | 60 | 1 hour | per token + `machineId` |
-| `POST /api/usage` (global) | 600 | 1 hour | the whole deployment, per UTC hour bucket |
+| `POST /api/usage` | 60 (12 in multi-tenant mode) | 1 hour | per token + `machineId` |
+| `POST /api/usage` | 1 200 | 1 hour | per IP (hashed) |
+| `POST /api/usage` | 600 | the UTC clock hour | per tenant |
+| `POST /api/usage` (instance) | 20 000 | the UTC clock hour | the whole deployment |
 | `GET /api/usage` | 120 | 1 hour | per token |
 | `GET /api/status` | 120 | 1 hour | per token |
+| `POST /api/official-usage/report` | 120 / 1 200 / 1 200 | 1 hour | per token / per IP / per tenant |
+| `GET /api/export` | 120 / 60 | 1 hour | per IP / per tenant |
 | Any `Authorization: Bearer` on `/api/usage` or `/api/status` that fails | 60 | 1 minute | per IP (hashed) |
-| `POST /api/alerts/test` | 1 | 10 seconds | global (one counter for every caller) |
-| `POST /api/csp-report` | 20 | 1 minute | per IP, in-process only |
+| `POST /api/alerts/test` | 1, then 30 / 60 | 10 seconds, then 1 hour | per tenant, then per tenant / per IP |
+| `POST /api/csp-report` | 20 / 300 | 1 minute | per IP / in total, in-process only |
+| GitHub sign-in (start + callback) | 20 | 10 minutes | per IP (300 shared without a trusted proxy) |
+| New workspaces | 5 / 50 | 1 day / the UTC clock hour | per IP / the whole deployment |
 | Dashboard login / sudo PIN guesses | 5 | 15 minutes | per IP, with an escalating lockout (15 min → 30 min → … capped at 6 hours) |
 | Dashboard login (global) | 30 | 1 hour | browsers with no known-device cookie only |
 
@@ -633,7 +643,7 @@ Both writes are on the manage audit trail (`trash_restored`, `trash_purged`).
 
 ## Alerts test
 
-- **`POST /api/alerts/test`** (session, same-origin, rate-limited to 1 call/10s globally)
+- **`POST /api/alerts/test`** (session, same-origin, rate-limited to 1 call/10s and 30/hour per workspace, 60/hour per IP)
   `{ "webhookUrl": "https://…", "format": "slack", "locale": "en" }` → `200 { "ok": true, "status": 200 }`.
   `400` bad JSON/payload · `401` no session · `403` foreign origin · `413`/`415` bad body · `429` rate
   limited · `502 { "error": "webhook_failed", "status", "detail" }` (the upstream status, `null` for a
@@ -669,7 +679,8 @@ Multi-tenant mode only (`REGISTRATION=invite|open`); both answer `404` on a sing
   `__Host-ur_session`), or `/{locale}?signin_error=<code>`: `state_invalid` (expired, used, or started in
   another browser), `github_denied`, `github_failed`, `registration_closed`, `signup_code_invalid`,
   `sudo_mismatch` (a different GitHub account than the signed-in one), `misconfigured`,
-  `rate_limited`. A failed sudo goes back to the page that asked, with the same `?signin_error=`,
+  `rate_limited`, `registration_rate_limited` (a new workspace over the per-address or the instance's
+  limit; the sign-up code stays unused). A failed sudo goes back to the page that asked, with the same `?signin_error=`,
   where the unlock prompt shows it; a failed join goes back to `/{locale}/join?signin_error=`
   with `invite_invalid` (used, revoked, expired, or its workspace is switched off) or
   `invite_wrong_account` (the invite names another GitHub login; it stays unused).
@@ -758,13 +769,14 @@ Multi-tenant mode, and a user whose GitHub id is in `ADMIN_GITHUB_IDS`; everyone
     of the requested cycle; `events` are that window's raw reports, `history` is every archived cycle for that
     provider (not filtered to the requested cycle).
   - `400` bad query · `401` no session · `403 owner_only` (in a multi-tenant workspace only its owner
-    exports) · `404` unknown provider · `503` Redis down.
+    exports) · `404` unknown provider · `429 rate_limited` (60/hour per workspace, 120/hour per IP) ·
+    `503` Redis down.
 
 ## CSP report
 
 - **`POST /api/csp-report`** — auth: **none** (browsers send these unprompted, often with no
   `Origin`). Accepts `application/csp-report` (legacy) or `application/reports+json` (the Reporting
   API); every violation is logged as `csp.violation` and nothing else happens to it. `204` always ·
-  `413` over 8 KB · `415` any other content type · `429` over 20/minute from one IP (in-process
-  counter, so it keeps working even if Redis is down). See
+  `413` over 8 KB · `415` any other content type · `429` over 20/minute from one IP or 300/minute in
+  total, whatever the content type (in-process counters, so it keeps working even if Redis is down). See
   [security.md](security.md#content-security-policy) for the `SECURITY_CSP` rollout this feeds.

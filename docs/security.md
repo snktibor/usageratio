@@ -191,8 +191,9 @@ report-to csp-endpoint;
 `style-src-attr 'unsafe-inline'` allows the inline `style={{}}` attributes React needs for
 data-driven values (chart bar widths, dynamic colors); an attribute can't execute script, and
 `img-src`/`connect-src 'self'` close off using it to exfiltrate data. `/api/csp-report`
-(unauthenticated, capped at 8 KiB, rate-limited to 20 requests/minute per IP via an in-process
-counter — a store-backed limiter isn't worth it for one best-effort endpoint) logs every violation
+(unauthenticated, capped at 8 KiB, rate-limited to 20 requests/minute per IP and 300/minute in
+total via in-process counters, so an unauthenticated beacon never costs a store round trip and the
+total bounds the log volume a flood can cause) logs every violation
 as `csp.violation { documentUri, violatedDirective, blockedUri, sample }` and answers `204`
 (`413`, `415` or `429` for an oversized, mistyped or too frequent report).
 
@@ -290,26 +291,74 @@ operator, not a user, and is not filtered.
 
 ## Rate limits
 
-Every limit below is a fixed-window Redis counter (`lib/rate-limit.ts`'s `hit(key, limit,
-windowSeconds)`: `SET key 0 EX windowSeconds NX` then `INCR`, so the first hit of a window seeds
-its own expiry and the window resets when the key expires — no cleanup job).
+Every limit below except the CSP report's is a fixed-window Redis counter (`lib/rate-limit.ts`'s
+`hit(key, limit, windowSeconds)`: `SET key 0 EX windowSeconds NX` then `INCR`, so the first hit of a
+window seeds its own expiry and the window resets when the key expires — no cleanup job). The
+numbers live in `lib/config.ts`; which limits an endpoint counts a request against is in
+`lib/route-limits.ts`.
+
+An endpoint with several limits checks them **narrowest first** (`enforceLimits`: a machine or a
+token, then the address, then the tenant, then the instance) and stops at the first one a request
+exceeds. A request one budget refuses is not counted against the wider ones after it. That is the
+tenant isolation: a workspace flooding past its own limit never uses up the instance's budget, so it
+cannot lock out the other workspaces. The first refusal of each window is logged as
+`rate_limit.exceeded { limit, scope, max, windowSeconds, retryAfterSeconds, route }`; the request
+log (`api.request`) has every `429`.
 
 | Limit | Value | Key |
 | --- | --- | --- |
 | Login attempts, per IP | 5 / 15 min, escalating lockout to 6h | `usage:auth:ip:*` |
 | Login attempts, global (unknown devices only) | 30 / hour | `usage:auth:global` |
 | Sudo attempts | shares the per-IP login limiter above | `usage:auth:ip:*` |
-| `POST /api/usage`, per machine+token | 60 / hour (`INGEST_RATE_LIMIT_PER_MACHINE`) | `usage:rl:ingest:{sha256(tokenId:machineId)}` |
-| `POST /api/usage`, deployment-wide | 600 / hour (`INGEST_RATE_LIMIT_GLOBAL`) | `usage:rl:ingest:global:{hour}` |
+| `POST /api/usage`, per machine+token | 60 / hour; **12** in multi-tenant mode (`INGEST_RATE_LIMIT_PER_MACHINE[_MULTI]`) | `usage:rl:ingest:{sha256(tokenId:machineId)}` |
+| `POST /api/usage`, per IP | 1 200 / hour (`INGEST_RATE_LIMIT_PER_IP`) | `usage:rl:ingest-ip:{sha256(ip)}` |
+| `POST /api/usage`, per tenant | 600 / clock hour (`INGEST_RATE_LIMIT_PER_TENANT`) | `usage:rl:ingest-tenant:{tenantId}:{hour}` |
+| `POST /api/usage`, per instance (the cost cap) | 20 000 / clock hour (`INGEST_RATE_LIMIT_INSTANCE`) | `usage:rl:ingest:global:{hour}` |
 | `GET /api/usage` (cycle lookup), per token | 120 / hour (`CYCLE_RATE_LIMIT_PER_TOKEN`) | `usage:rl:cycle:{tokenId}` |
+| `GET /api/status`, per token | 120 / hour (`STATUS_RATE_LIMIT_PER_TOKEN`) | `usage:rl:status:{tokenId}` |
+| `POST /api/official-usage/report`, per token | 120 / hour (`OFFICIAL_REPORT_RATE_LIMIT_PER_TOKEN`) | `usage:rl:official:{tokenId}` |
+| `POST /api/official-usage/report`, per IP and per tenant | 1 200 / hour each | `usage:rl:official-ip:*`, `usage:rl:official-tenant:{tenantId}` |
+| `GET /api/export`, per IP / per tenant | 120 / 60 per hour (`EXPORT_RATE_LIMIT_*`) | `usage:rl:export-ip:*`, `usage:rl:export-tenant:{tenantId}` |
+| `POST /api/alerts/test`, per tenant | 1 / 10 seconds, and 30 / hour | `usage:rl:alerts-test:{tenantId}`, `usage:rl:alerts-test-tenant:{tenantId}` |
+| `POST /api/alerts/test`, per IP | 60 / hour | `usage:rl:alerts-test-ip:*` |
 | Unauthenticated bearer attempts, per IP | 60 / minute (`UNAUTH_RATE_LIMIT_PER_IP`) | `usage:rl:unauth:{sha256(ip)}` |
-| `/api/csp-report` | 20 / minute per IP | in-process `Map`, not Redis — see [above](#content-security-policy) |
-| `POST /api/alerts/test` | 1 / 10 seconds, shared globally (not per-IP/session) | `usage:rl:alerts-test` |
+| GitHub sign-in (start + callback), per IP | 20 / 10 min; 300 shared when no trusted proxy names the address (`SIGN_IN_RATE_LIMIT_*`) | `usage:rl:oauth:*` |
+| New workspaces (sign-up code, or a first sign-in in `open` mode), per IP | 5 / day (`REGISTRATION_RATE_LIMIT_PER_IP`) | `usage:rl:signup-ip:*` |
+| New workspaces, per instance | 50 / clock hour (`REGISTRATION_RATE_LIMIT_INSTANCE`) | `usage:rl:signup:global:{hour}` |
+| `/api/csp-report`, per IP / in total | 20 / 300 per minute | in-process, not Redis — see [above](#content-security-policy) |
+
+"Clock hour" counters are keyed by the UTC hour and expire at its end, so their `Retry-After` is the
+time to the next hour. A refused registration answers `?signin_error=registration_rate_limited` and leaves the
+sign-up code unused; joining a workspace by invite creates none and is not counted.
+
+**Why these numbers.** They leave a wide margin over what the clients send. The hourly reporter
+(`clients/auto`: cron, launchd or Task Scheduler) makes one cycle lookup and one report per machine
+per hour, and the one-off command (`clients/manual`) the same once per run. The macOS menu bar app
+polls `GET /api/status` every 5 minutes (12 an hour, up to 3 lookups after an upload), sends at
+most one official report per provider per poll when its reading changed (24 an hour with Claude
+and Codex), and reports this Mac hourly, 15 minutes after a failed run. A workspace's 600 reports an
+hour is 24 for each of its 25 machines (the F6 machine quota); the instance's 20 000 is 33 such
+workspaces at their limit together.
+
+**What the clients do on a `429`.** Nothing is wrong with the machine, so nothing is reset: the run
+logs `server answered HTTP 429 … (rate limited; the next run tries again)` and exits 1, and the
+next scheduled run reports as usual. The bash reporter's curl retries a `429` only while the
+`Retry-After` fits in `--retry-max-time 120`, so an hourly limit's long wait is never sat out. The
+PowerShell reporter retries a `429` only when `Retry-After` is 30 seconds or less. The menu bar app
+backs off its status polling by `Retry-After` (at least a minute), retries an official upload at the
+next poll, and a failed Mac report after 15 minutes.
 
 All of the above answer `429` once exceeded; the API endpoints add `rate_limited` with
-`Retry-After`/`retryAfterSeconds`, and the login form shows the wait time. Behind a reverse proxy or load balancer, `TRUST_PROXY` must be
+`Retry-After`/`retryAfterSeconds`, and the login form, the sign-in page and the alert test button
+show a translated message. Behind a reverse proxy or load balancer, `TRUST_PROXY` must be
 set correctly (`1` when a proxy you control sets `X-Forwarded-For`, `0` when the app is exposed
-directly) or every per-IP limit above can be spoofed or trivially bypassed.
+directly) or every per-IP limit above can be spoofed or trivially bypassed. Without a trusted
+address every per-IP limit except sign-in's is left out (they would put every caller in one
+bucket); the token, tenant and instance limits still hold. On Vercel the address is always trusted.
+
+**Bot protection.** Nothing beyond the limits above is built in. A hosted instance that opens
+sign-ups (`REGISTRATION=open`) can add [Vercel BotID](https://vercel.com/docs/botid) in front of
+`POST /api/auth/github/start`; in `invite` mode a sign-up code is already required.
 
 ## Per-machine tokens
 

@@ -1,16 +1,15 @@
 import { checkOfficialUsageAlerts } from "@/lib/alerts";
-import { apiError, json, readJsonBody, requireBearerThrottled, withApiHandler } from "@/lib/api";
+import { apiError, json, rateLimited, readJsonBody, requireBearerThrottled, withApiHandler } from "@/lib/api";
 import { currentTime } from "@/lib/clock";
-import { getConfig, OFFICIAL_REPORT_RATE_LIMIT_PER_TOKEN } from "@/lib/config";
+import { getConfig } from "@/lib/config";
 import { demoReadOnly } from "@/lib/demo/mode";
 import { decideOfficialReport, parseOfficialReport } from "@/lib/official-report";
 import { officialUsageField, parseStoredOfficialEntry } from "@/lib/official-usage";
 import { mergeProviderIds } from "@/lib/providers";
-import { hit } from "@/lib/rate-limit";
-import { GLOBAL_KEYS } from "@/lib/redis-keys";
-import { defer } from "@/lib/request-context";
+import { clientIp, defer } from "@/lib/request-context";
 import { saveDetectedReset } from "@/lib/reset-store";
 import { resetsOf } from "@/lib/resets";
+import { officialReportRules } from "@/lib/route-limits";
 import { resolveConfig, storedProviderIds } from "@/lib/settings";
 import { loadIndexes, saveOfficialUsage, saveResetOverride } from "@/lib/usage-store";
 
@@ -30,7 +29,8 @@ import { loadIndexes, saveOfficialUsage, saveResetOverride } from "@/lib/usage-s
  *
  * 200 { ok, saved, cycleChanged, reset, detectedReset } · 400 bad payload · 401 bad token ·
  * 403 official_scope_required · 409 period_not_weekly | stale_reading ·
- * 413 body too large · 415 not JSON · 429 rate limited · 503 Redis down
+ * 413 body too large · 415 not JSON · 429 rate limited (per token 120/hour, per tenant and per
+ * client address 1 200/hour; lib/route-limits.ts) · 503 Redis down
  */
 
 const MAX_BODY_BYTES = 1_024;
@@ -44,8 +44,10 @@ export const POST = withApiHandler("api/official-usage/report", async ({ request
   const { store } = auth;
   if (auth.scope !== "official") return apiError("official_scope_required", 403);
 
-  const limit = await hit(GLOBAL_KEYS.rateLimit.official(auth.tokenId), OFFICIAL_REPORT_RATE_LIMIT_PER_TOKEN, 3600);
-  if (!limit.allowed) return apiError("rate_limited", 429, { retryAfterSeconds: limit.retryAfterSeconds });
+  const limited = await rateLimited(
+    officialReportRules({ tokenId: auth.tokenId, tenantId: store.tenantId, ip: await clientIp() }),
+  );
+  if (limited) return limited;
 
   const body = await readJsonBody(request, { maxBytes: MAX_BODY_BYTES });
   if (!body.ok) return body.response;

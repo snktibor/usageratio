@@ -345,6 +345,26 @@ if ($DryRun) {
 
 # --- Send ---------------------------------------------------------------------
 
+# A 429's Retry-After in seconds, or $null without one: 5.1's response has a WebHeaderCollection,
+# 7+'s an HttpResponseMessage whose RetryAfter is already parsed.
+function Get-RetryAfterDelay {
+  param($Response)
+  $raw = $null
+  try {
+    $headers = $Response.Headers
+    if ($headers -is [Net.WebHeaderCollection]) {
+      $raw = $headers['Retry-After']
+    } elseif ($headers.RetryAfter -and $null -ne $headers.RetryAfter.Delta) {
+      $raw = $headers.RetryAfter.Delta.TotalSeconds
+    }
+  } catch { Write-Verbose "A Retry-After that cannot be read counts as none. ($($_.Exception.Message))" }
+  $seconds = 0.0
+  if ($null -ne $raw -and [double]::TryParse([string]$raw, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$seconds)) {
+    return [int][math]::Ceiling($seconds)
+  }
+  return $null
+}
+
 # Sent as bytes: 5.1 would otherwise encode the body as Latin-1 and break accented names.
 $body = [Text.Encoding]::UTF8.GetBytes($payload)
 function Send-Report {
@@ -353,25 +373,36 @@ function Send-Report {
       -ContentType 'application/json; charset=utf-8' -TimeoutSec 30 -UseBasicParsing
     return @{ Status = [int]$response.StatusCode; Text = [string]$response.Content }
   } catch {
+    $failure = $_
     $status = 0
-    $text = $_.Exception.Message
+    $retryAfter = $null
+    $text = $failure.Exception.Message
     # 5.1 throws WebException, 7+ throws HttpResponseException; both expose .Response.StatusCode.
-    if ($_.Exception.PSObject.Properties['Response'] -and $_.Exception.Response) {
-      try { $status = [int]$_.Exception.Response.StatusCode } catch { Write-Verbose "Not every error carries a status code; 0 stands for none. ($($_.Exception.Message))" }
+    if ($failure.Exception.PSObject.Properties['Response'] -and $failure.Exception.Response) {
+      try { $status = [int]$failure.Exception.Response.StatusCode } catch { Write-Verbose "Not every error carries a status code; 0 stands for none. ($($_.Exception.Message))" }
+      $retryAfter = Get-RetryAfterDelay -Response $failure.Exception.Response
     }
-    if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $text = $_.ErrorDetails.Message }
-    return @{ Status = $status; Text = $text }
+    if ($failure.ErrorDetails -and $failure.ErrorDetails.Message) { $text = $failure.ErrorDetails.Message }
+    return @{ Status = $status; Text = $text; RetryAfter = $retryAfter }
   }
 }
 
 $maxAttempts = 3
+# A 429 is retried only when the server asks for a short wait: an hourly rate limit can name one
+# close to an hour away, and this run must not sit that long. The next scheduled run tries again.
+$maxRetryAfterSeconds = 30
 $result = $null
 for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
   $result = Send-Report
   # Retry only what can heal by itself: no connection, timeouts, throttling, server errors.
   $transient = ($result.Status -eq 0) -or ($result.Status -eq 408) -or ($result.Status -eq 429) -or ($result.Status -ge 500)
   if (-not $transient -or $attempt -eq $maxAttempts) { break }
-  Start-Sleep -Seconds 5
+  $delay = 5
+  if ($result.Status -eq 429) {
+    if ($null -eq $result.RetryAfter -or $result.RetryAfter -gt $maxRetryAfterSeconds) { break }
+    $delay = [math]::Max($delay, $result.RetryAfter)
+  }
+  Start-Sleep -Seconds $delay
 }
 
 if ($result.Status -eq 200 -or $result.Status -eq 201) {
@@ -389,6 +420,9 @@ $text = ([string]$result.Text -replace '\s+', ' ')
 if ($text.Length -gt 300) { $text = $text.Substring(0, 300) }
 if ($result.Status -eq 0) {
   Write-UsageLog "ERROR: could not reach ${apiUrl}: $text"
+} elseif ($result.Status -eq 429) {
+  # Rate limited: nothing is wrong with this machine, and the next run tries again.
+  Write-UsageLog "ERROR: server answered HTTP 429: $text (rate limited; the next run tries again)"
 } else {
   Write-UsageLog "ERROR: server answered HTTP $($result.Status): $text"
 }

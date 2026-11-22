@@ -18,6 +18,7 @@ const ERRORS = [
   "invite_wrong_account",
   "sudo_mismatch",
   "rate_limited",
+  "registration_rate_limited",
   "unavailable",
 ] as const;
 export type SignInError = (typeof ERRORS)[number];
