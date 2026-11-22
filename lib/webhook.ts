@@ -1,64 +1,38 @@
-import { version } from "@/package.json";
-
 /**
- * The alerts webhook (lib/alerts.ts): a URL allow-list so a self-hosted
- * deployment cannot be pointed at its own private network, and the actual
- * POST. Both are used by the settings panel's validation (lib/settings.ts)
- * and by the "send test" endpoint (app/api/alerts/test/route.ts).
+ * The alerts webhook's URL policy (lib/alerts.ts), shared by the settings panel's form
+ * (components/settings), its validation (lib/settings.ts), the "send test" endpoint
+ * (app/api/alerts/test/route.ts) and the sender itself (lib/webhook-send.ts). It runs in the
+ * browser too, so it only looks at the URL: what the host name resolves to is checked when the
+ * webhook is sent, on the address the request then connects to (lib/webhook-send.ts), since a
+ * name can resolve to a public address now and a private one later (DNS rebinding).
  *
- * What is NOT defended: DNS rebinding, where a hostname that passes
- * `isAllowedWebhookUrl` resolves to a private address only when the webhook
- * actually fires (`fetch` re-resolves it then, after this check). Vercel
- * functions have no private network to reach in the first place; a
- * self-hoster who is exposed to that should filter egress in front of the
- * container rather than rely on this check alone.
+ * What a URL needs:
+ * - https, no `user:password@`, at most `MAX_WEBHOOK_URL_LENGTH` characters;
+ * - the default port, 443, or an unprivileged one (1024-65535): never 22, 25, 80 or the like;
+ * - a host name with a dot in it, never an IP address however written (`127.1`, `0x7f000001`,
+ *   `[::ffff:7f00:1]`): a public webhook always has a name, and the name is what the TLS
+ *   certificate is checked against;
+ * - not `localhost`, and not under a name that only ever means a local network (`.local`,
+ *   `.internal`, `.lan`, `.home.arpa`, …).
  */
 
 export const MAX_WEBHOOK_URL_LENGTH = 2048;
 
-const LOOPBACK_V4 = /^127\./;
-const LINK_LOCAL_V4 = /^169\.254\./;
-// 172.16.0.0/12: the second octet 16-31.
-const RFC1918 = [/^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./];
-// 100.64.0.0/10 (carrier-grade NAT): the second octet 64-127.
-const CGNAT_V4 = /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./;
+/** A name ending in one of these only ever means something on a local network (or this machine). */
+const LOCAL_SUFFIXES = ["localhost", "local", "localdomain", "internal", "intranet", "lan", "corp", "home.arpa"];
 
-function isBlockedIPv4(host: string): boolean {
-  return LOOPBACK_V4.test(host) || LINK_LOCAL_V4.test(host) || CGNAT_V4.test(host) || RFC1918.some((p) => p.test(host));
+const MIN_UNPRIVILEGED_PORT = 1024;
+
+function isIpLiteral(host: string): boolean {
+  // The URL parser has already turned every IPv4 spelling into dotted decimal, and keeps IPv6 bracketed.
+  return host.startsWith("[") || /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
 }
 
-function looksLikeIPv4(host: string): boolean {
-  return /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+function isLocalName(host: string): boolean {
+  return LOCAL_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
 }
 
-/** `new URL(...).hostname` keeps an IPv6 literal's brackets; strip them to get the address. */
-function unbracket(host: string): string {
-  return host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
-}
-
-/** An IPv4-mapped IPv6 address (`::ffff:a:b`, hex groups) restated as dotted decimal. */
-function ipv4MappedToDotted(host: string): string | null {
-  const match = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
-  if (!match?.[1] || !match[2]) return null;
-  const hi = Number.parseInt(match[1], 16);
-  const lo = Number.parseInt(match[2], 16);
-  return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
-}
-
-function isBlockedIPv6(host: string): boolean {
-  if (host === "::1") return true; // loopback
-  if (host.startsWith("fe80:")) return true; // link-local
-  if (/^f[cd][0-9a-f]{2}:/.test(host)) return true; // fc00::/7, unique local
-  const mapped = ipv4MappedToDotted(host);
-  return mapped !== null && isBlockedIPv4(mapped);
-}
-
-/**
- * Whether `raw` may be used as an alerts webhook target: https, no userinfo,
- * at most `MAX_WEBHOOK_URL_LENGTH` characters, and a host that is not
- * "localhost", a `.local`/`.internal` name, or a loopback/RFC1918/link-local/
- * CGNAT/unique-local IP literal.
- */
+/** Whether `raw` may be used as an alerts webhook target; see the policy at the top of this file. */
 export function isAllowedWebhookUrl(raw: string): boolean {
   if (raw.length === 0 || raw.length > MAX_WEBHOOK_URL_LENGTH) return false;
   let url: URL;
@@ -69,43 +43,17 @@ export function isAllowedWebhookUrl(raw: string): boolean {
   }
   if (url.protocol !== "https:") return false;
   if (url.username !== "" || url.password !== "") return false;
+  // `url.port` is "" for the scheme's default port (443), which the parser drops even when spelled out.
+  if (url.port !== "" && Number(url.port) < MIN_UNPRIVILEGED_PORT) return false;
 
-  const host = unbracket(url.hostname).toLowerCase();
-  if (host === "" || host === "localhost") return false;
-  if (host.endsWith(".local") || host.endsWith(".internal")) return false;
-  if (looksLikeIPv4(host)) return !isBlockedIPv4(host);
-  if (host.includes(":")) return !isBlockedIPv6(host);
-  return true;
+  // A trailing dot (`localhost.`) is the same name, fully qualified.
+  const host = url.hostname.toLowerCase().replace(/\.+$/, "");
+  if (isIpLiteral(host)) return false;
+  if (!host.includes(".")) return false; // `localhost`, or a single-label name such as a Docker service
+  return !isLocalName(host);
 }
 
 export type WebhookResult = { ok: true; status: number } | { ok: false; status: number | null; error: string };
-
-/**
- * POSTs `payload` as JSON, with no retries: a threshold alert is best-effort,
- * and retrying against a broken webhook would only pile up more failed calls.
- */
-export async function sendWebhook(
-  url: string,
-  payload: unknown,
-  options: { timeoutMs?: number } = {},
-): Promise<WebhookResult> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 5000);
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": `usageratio/${version}` },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    if (!response.ok) return { ok: false, status: response.status, error: `webhook responded ${response.status}` };
-    return { ok: true, status: response.status };
-  } catch (error) {
-    return { ok: false, status: null, error: error instanceof Error ? error.message : String(error) };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 /**
  * The webhook URL as a multi-tenant workspace shows it to everyone, its owner

@@ -11,6 +11,7 @@ import { getRedis } from "@/lib/redis";
 import { flushDeferred } from "@/lib/request-context";
 import { serializeSettings, settingsFromConfig, type UsageSettings } from "@/lib/settings";
 import { saveResets } from "@/lib/usage-store";
+import { setWebhookTransportForTests } from "@/lib/webhook-send";
 import en from "@/messages/en.json";
 import { useRedis } from "../helpers/redis-fixture";
 import { seedSession } from "../helpers/session";
@@ -33,7 +34,7 @@ async function seedSettings(overrides: Partial<UsageSettings>): Promise<void> {
 
 function mockFetch(status = 200): ReturnType<typeof vi.fn> {
   const fn = vi.fn().mockResolvedValue(new Response(null, { status }));
-  vi.stubGlobal("fetch", fn);
+  setWebhookTransportForTests(fn);
   return fn;
 }
 
@@ -42,6 +43,7 @@ describe("threshold alerts, wired into the routes", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    setWebhookTransportForTests(null);
   });
 
   describe("PUT /api/official-usage", () => {

@@ -235,6 +235,59 @@ The header value is `max-age=63072000; includeSubDomains[; preload]` (two years)
 build-time settings (`next.config.ts`'s `headers()` runs once at boot), so changing them needs a
 redeploy/restart, unlike `SECURITY_CSP` which `proxy.ts` re-reads per request.
 
+## Outbound webhooks (SSRF)
+
+The threshold-alert webhook URL is the one place a dashboard user chooses where the server sends a
+request. In `open` mode that user can be anyone with a GitHub account, so the URL is treated as
+hostile: it must not turn the server into a way into its own network (server-side request forgery).
+
+**When the URL is saved, and again before every send** (`lib/webhook.ts` `isAllowedWebhookUrl`, the
+same function in the browser's form and on the server):
+
+- `https` only, no `user:password@`, at most 2048 characters;
+- the default port, `443`, or an unprivileged one (1024–65535): never `22`, `25`, `80` and the like;
+- a host name with a dot in it. **No IP address, however it is written** (`127.1`, `2130706433`,
+  `0x7f000001`, `[::ffff:7f00:1]`): a real webhook always has a name, and TLS checks the certificate
+  against it. Single-label names (`redis-rest`, a Docker service) are refused as well;
+- not `localhost`, and nothing under `.localhost`, `.local`, `.localdomain`, `.internal` (where
+  `metadata.google.internal` lives), `.intranet`, `.lan`, `.corp` or `.home.arpa`.
+
+A stored URL that no longer passes (one saved before these rules) reads as "alerts off".
+
+**When the webhook is sent** (`lib/webhook-send.ts`), what the name resolves to decides:
+
+1. The name is resolved once, and **every** address it resolves to must be public unicast. Refused:
+   `0/8`, `10/8`, `100.64/10` (carrier-grade NAT, and `100.100.100.200` metadata), `127/8`,
+   `169.254/16` (link-local, and `169.254.169.254` metadata), `172.16/12`, `192.0.0/24`,
+   `192.0.2/24`, `192.88.99/24`, `192.168/16`, `198.18/15`, `198.51.100/24`, `203.0.113/24`,
+   multicast and reserved (`224/3`); for IPv6 everything outside `2000::/3` (so `::`, `::1`,
+   `fc00::/7` with AWS's `fd00:ec2::254`, `fe80::/10`, `ff00::/8`), plus `2001::/23` (Teredo among
+   it), `2001:db8::/32` and `3fff::/20`. IPv4-mapped (`::ffff:a.b.c.d`), NAT64 (`64:ff9b::/96`) and
+   6to4 (`2002::/16`) addresses are judged by the IPv4 address inside them.
+2. **The connection is pinned to the checked addresses.** The request goes through `node:https`
+   with a `lookup` that answers with those addresses instead of resolving the name a second time,
+   so a name that resolved to a public address when it was saved, or a moment ago, and to a
+   private one now (DNS rebinding) cannot be followed. TLS still verifies the certificate against
+   the host name.
+3. Redirects are never followed: a `3xx` is a failed send.
+4. One 5-second deadline covers the lookup, the connect, TLS and the response headers. The response
+   body is never read, and response headers over 16 KiB fail the send.
+
+The "send test" button goes through the same path. Its error names no address, and reads the same
+for a name that does not resolve as for one that resolves privately, so it cannot be used to probe
+which internal names the server's resolver knows.
+
+**What this does not cover, and what egress filtering is for.** "Public" means public on the
+internet, not "not yours": on a self-hosted server, a webhook can still reach your own public
+addresses — the host's own public IP, a router or NAS with a public IPv6 address in the same
+prefix, a service on another public port. Vercel has no private network for a webhook to reach,
+so a Vercel deployment needs nothing more. **A self-hosted instance in `open` mode (or `invite`
+mode with people you don't fully trust) should also filter the app container's egress**: let it
+reach Upstash (or the bundled `redis-rest`), `github.com` / `api.github.com` for sign-in, and the
+internet's port 443, and drop your own public prefixes; see
+[self-hosting.md](self-hosting.md#alert-webhooks-and-egress). `ERROR_WEBHOOK_URL` is set by the
+operator, not a user, and is not filtered.
+
 ## Rate limits
 
 Every limit below is a fixed-window Redis counter (`lib/rate-limit.ts`'s `hit(key, limit,

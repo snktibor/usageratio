@@ -14,6 +14,7 @@ import { createToken, type TokenScope } from "@/lib/tokens";
 import { archiveCycle, saveOfficialUsage } from "@/lib/usage-store";
 import { startUserSession } from "@/lib/user-session";
 import { addOwner, findOrCreateGithubUser } from "@/lib/users";
+import { setWebhookTransportForTests } from "@/lib/webhook-send";
 import en from "@/messages/en.json";
 import { useRedis } from "../helpers/redis-fixture";
 import { withRequest } from "../helpers/request";
@@ -512,6 +513,7 @@ describe.each<Mode>(["closed", "multi"])("tenant isolation, route by route (%s m
       vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://app.example.test");
     }
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
+    setWebhookTransportForTests(vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
   }
 
   beforeEach(async () => {
@@ -521,6 +523,7 @@ describe.each<Mode>(["closed", "multi"])("tenant isolation, route by route (%s m
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+    setWebhookTransportForTests(null);
   });
 
   it("has a row for every route under app/api", () => {

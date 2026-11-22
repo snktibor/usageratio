@@ -12,6 +12,7 @@ import type { TenantId } from "@/lib/tenant-id";
 import { loadIndexes } from "@/lib/usage-store";
 import { startUserSession } from "@/lib/user-session";
 import { createTenantFor, findOrCreateGithubUser } from "@/lib/users";
+import { setWebhookTransportForTests } from "@/lib/webhook-send";
 import en from "@/messages/en.json";
 import { useRedis } from "../helpers/redis-fixture";
 import { withRequest } from "../helpers/request";
@@ -102,6 +103,7 @@ describe("the alert webhook URL in a multi-tenant workspace", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+    setWebhookTransportForTests(null);
   });
 
   it("is never read back, by the owner or a member, and a save that asks keeps it", async () => {
@@ -148,7 +150,7 @@ describe("the alert webhook URL in a multi-tenant workspace", () => {
     const owner = await person(1, "alice");
     await putSettings(request("/api/settings", owner, { method: "PUT", body: settingsBody(SECRET_URL) }));
     const fetchMock = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
+    setWebhookTransportForTests(fetchMock);
 
     const sent = await testAlert(
       request("/api/alerts/test", owner, {

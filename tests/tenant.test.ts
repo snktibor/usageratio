@@ -19,6 +19,7 @@ import {
   saveOfficialUsage,
   saveResets,
 } from "@/lib/usage-store";
+import { setWebhookTransportForTests } from "@/lib/webhook-send";
 import en from "@/messages/en.json";
 import { stubAudit } from "./helpers/manage-audit";
 import { useRedis } from "./helpers/redis-fixture";
@@ -181,6 +182,8 @@ async function exerciseEverything(store: TenantStore, marker: string): Promise<s
   expect((await createToken(store, `${marker} token`, null, NOW)).ok).toBe(true);
 
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
+
+  setWebhookTransportForTests(vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
   await evaluateAlerts(store, {
     providerId: "claude",
     label: "Claude",
@@ -202,6 +205,7 @@ describe("a tenant's keys", () => {
   useRedis();
   afterEach(() => {
     vi.unstubAllGlobals();
+    setWebhookTransportForTests(null);
   });
 
   it("all sit under its prefix, and every one is a fixed key or in its registry", async () => {

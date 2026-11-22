@@ -62,7 +62,7 @@ alerts only ever fire from a usage report or an official-percentage update.
 | `lib/` — intake | `validation.ts`, `ingest.ts` |
 | `lib/` — presentation math | `aggregate.ts`, `dashboard.ts`, `quota.ts`, `sub-limits.ts`, `timeline.ts`, `models.ts`, `chart.ts`, `ground-truth.ts`, `official-usage.ts`, `cycle.ts`, `week.ts`, `days.ts`, `format.ts` |
 | `lib/` — cross-cutting | `csp.ts`, `rate-limit.ts`, `log.ts`, `request-context.ts`, `request-locale.ts`, `http.ts`, `i18n.ts`, `config.ts`, `api.ts`, `clock.ts`, `error-reporter.ts`, `instrumentation-node.ts`, `preferences.ts` |
-| `lib/` — ops | `housekeeping.ts`, `history.ts`, `export.ts`, `alerts.ts`, `webhook.ts`, `setup.ts`, `setup-package.ts`, `zip.ts`, `migrate-legacy.ts` |
+| `lib/` — ops | `housekeeping.ts`, `history.ts`, `export.ts`, `alerts.ts`, `webhook.ts`, `webhook-send.ts`, `storage-quota.ts`, `setup.ts`, `setup-package.ts`, `zip.ts`, `migrate-legacy.ts` |
 | `lib/demo/` | the synthetic dataset and demo-mode gating |
 | `i18n/` | next-intl routing config and the generated locale list |
 | `messages/` | one JSON file per locale (`en`, `hu`, `de`), kept in parity by tests |

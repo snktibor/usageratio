@@ -12,6 +12,7 @@ import { currentSegmentStartMs, earliestStartMs, providerCycle } from "@/lib/pro
 import { alertGuardSegmentMs } from "@/lib/redis-keys";
 import { pruneResets, resetEventsOf, resetsOf } from "@/lib/resets";
 import { parseStoredSettings, resolveConfig, settingsFromConfig } from "@/lib/settings";
+import { isStorageQuotaError, reportStorageQuota } from "@/lib/storage-quota";
 import { type TenantStore, tenantStore } from "@/lib/tenant";
 import { deleteTenant } from "@/lib/tenant-deletion";
 import { DEFAULT_TENANT } from "@/lib/tenant-id";
@@ -369,6 +370,7 @@ export async function runScheduledHousekeeping(
     } catch (error) {
       summary.failed += 1;
       log.error("housekeeping.tenant_failed", { tenantId, err: error });
+      if (isStorageQuotaError(error)) await reportStorageQuota(error, { route: "housekeeping", tenantId });
       // Stamped all the same, so a tenant that keeps failing goes to the back of the line instead
       // of taking the budget first every day.
       if (!dryRun) await markHousekept(tenantId, now.getTime()).catch(() => undefined);
