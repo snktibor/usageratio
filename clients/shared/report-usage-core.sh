@@ -401,7 +401,14 @@ case "$HTTP_CODE" in
     exit 1
     ;;
   *)
-    log "ERROR: server answered HTTP $HTTP_CODE: $(head -c 300 "$WORK_DIR/response" 2>/dev/null | tr '\n' ' ')"
+    # The error envelope as "code: message" (a quota refusal says what is full and what to do);
+    # anything else, such as a proxy's HTML page, as its first bytes.
+    SUMMARY="$(node "$CCUSAGE_PARSER" error-summary <"$WORK_DIR/response" 2>/dev/null)"
+    if [ -n "$SUMMARY" ]; then
+      log "ERROR: server answered HTTP $HTTP_CODE: $SUMMARY"
+    else
+      log "ERROR: server answered HTTP $HTTP_CODE: $(head -c 300 "$WORK_DIR/response" 2>/dev/null | tr '\n' ' ')"
+    fi
     exit 1
     ;;
 esac

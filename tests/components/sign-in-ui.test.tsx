@@ -157,10 +157,14 @@ const OVERVIEW: AdminOverview = {
       createdAt: null,
       status: "active",
       owners: ["maintainer"],
-      members: 1,
-      machines: 3,
-      providers: 4,
-      tokens: 2,
+      quota: {
+        machines: { used: 25, limit: 25 },
+        providers: { used: 4, limit: 20 },
+        groups: { used: 3, limit: 20 },
+        tokens: { used: 2, limit: 50 },
+        members: { used: 1, limit: 10 },
+        pendingInvites: { used: 0, limit: 10 },
+      },
       lastReportAt: null,
       keys: 21,
     },
@@ -169,10 +173,14 @@ const OVERVIEW: AdminOverview = {
       createdAt: 1,
       status: "active",
       owners: ["alice"],
-      members: 1,
-      machines: 1,
-      providers: 1,
-      tokens: 0,
+      quota: {
+        machines: { used: 1, limit: 25 },
+        providers: { used: 1, limit: 20 },
+        groups: { used: 1, limit: 20 },
+        tokens: { used: 0, limit: 50 },
+        members: null,
+        pendingInvites: null,
+      },
       lastReportAt: 5,
       keys: 2,
     },
@@ -180,6 +188,16 @@ const OVERVIEW: AdminOverview = {
 };
 
 describe("AdminView", () => {
+  it("shows each workspace's counts against its quotas, a full one marked", () => {
+    renderWithIntl(<AdminView overview={OVERVIEW} codes={[]} />);
+    const full = screen.getByText("25 / 25");
+    expect(full.className).toContain("text-warning");
+    expect(screen.getByText("1 / 25").className).not.toContain("text-warning");
+    expect(screen.getByRole("columnheader", { name: "Groups" })).toBeTruthy();
+    // A count without a quota (none applies) reads as a dash.
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
+  });
+
   it("disables a workspace, but never the default one", async () => {
     fetchMock.mockResolvedValue(answer(200, { ok: true, status: "disabled" }));
     renderWithIntl(<AdminView overview={OVERVIEW} codes={[]} />);

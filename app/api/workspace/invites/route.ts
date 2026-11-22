@@ -9,7 +9,7 @@ import {
   withApiHandler,
 } from "@/lib/api";
 import { publicOrigin } from "@/lib/github";
-import { createInvite, MAX_PENDING_INVITES, normalizeLogin } from "@/lib/invites";
+import { createInvite, normalizeLogin } from "@/lib/invites";
 
 /**
  * POST /api/workspace/invites — the owner invites someone into the current workspace
@@ -20,7 +20,8 @@ import { createInvite, MAX_PENDING_INVITES, normalizeLogin } from "@/lib/invites
  *   → 201 { "url": "https://…/join#…", "entry": InviteEntry }
  *
  * 400 bad body or login · 401 no session · 403 foreign origin / owner_only · 404 single-user
- * instance · 412 tenant_changed · 422 too_many_invites (10 pending) · 503 Redis down
+ * instance · 412 tenant_changed · 422 too_many_invites (10 pending) or too_many_members (the
+ * workspace is full), with the `limit` (lib/quotas.ts) · 503 Redis down
  */
 
 export const POST = withApiHandler("api/workspace/invites", async ({ request, url }) => {
@@ -43,6 +44,6 @@ export const POST = withApiHandler("api/workspace/invites", async ({ request, ur
   }
 
   const result = await createInvite(tenant.store.tenantId, tenant.userId ?? "", login, new Date());
-  if (!result.ok) return apiError("too_many_invites", 422, { limit: MAX_PENDING_INVITES });
+  if (!result.ok) return apiError(result.reason, 422, { limit: result.limit });
   return json({ url: `${publicOrigin(url)}/join#${result.code}`, entry: result.entry }, 201);
 });

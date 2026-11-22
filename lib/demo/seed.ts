@@ -96,8 +96,8 @@ export async function seedStore(store: TenantStore, options: SeedOptions): Promi
   const firstReportAt = new Date(dataset.reports[0]?.timestampMs ?? now.getTime());
   const providerIds = DEMO_PROVIDERS.map((provider) => provider.id);
   const saved = await saveSettings(store, dataset.settings, firstReportAt, providerIds);
-  if (!saved.ok)
-    throw new Error(`Seeding stopped: groups with reports would be removed (${saved.groupsWithReports.join(", ")}).`);
+  // Groups with reports to remove, or the group quota: neither can happen to the dataset's own settings.
+  if (!saved.ok) throw new Error(`Seeding stopped: the settings were refused (${JSON.stringify(saved)}).`);
   // The accounts in the dataset's order (Claude first), not in whichever order the first reports name them.
   await registerProviders(store, providerIds, firstReportAt.getTime() - 60_000);
 

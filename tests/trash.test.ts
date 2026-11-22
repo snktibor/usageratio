@@ -443,7 +443,7 @@ describe("restoreTrash", () => {
     for (let i = 0; i < 50; i += 1) {
       await getRedis().hset(KEYS.groups, { [`g${i}`]: serializeGroupEntry("#3987e5", 1) });
     }
-    expect(await restoreTrash(tenant, groupId, NOW)).toEqual({ ok: false, reason: "too_many_groups" });
+    expect(await restoreTrash(tenant, groupId, NOW)).toEqual({ ok: false, reason: "too_many_groups", limit: 50 });
     expect(await getRedis().exists(KEYS.events("claude", "Work"))).toBe(0);
     expect(await getRedis().exists(KEYS.trashEntry(groupId))).toBe(1);
     await getRedis().del(KEYS.groups);
@@ -451,14 +451,14 @@ describe("restoreTrash", () => {
     await ingest({ groupId: "Home", machineId: "m2", providers: { openai: 5 } });
     const providerId = await trashProvider("openai");
     for (let i = 0; i < 20; i += 1) await getRedis().hset(KEYS.providers, { [`prov${i}`]: "1" });
-    expect(await restoreTrash(tenant, providerId, NOW)).toEqual({ ok: false, reason: "too_many_providers" });
+    expect(await restoreTrash(tenant, providerId, NOW)).toEqual({ ok: false, reason: "too_many_providers", limit: 20 });
     expect(await getRedis().exists(KEYS.trashEntry(providerId))).toBe(1);
     await getRedis().del(KEYS.providers);
 
     for (let i = 0; i < 200; i += 1) {
       await getRedis().hset(KEYS.machines, { [`claude:box${i}`]: JSON.stringify({ g: "Z", ts: 1, t: 1 }) });
     }
-    expect(await restoreTrash(tenant, groupId, NOW)).toEqual({ ok: false, reason: "too_many_machines" });
+    expect(await restoreTrash(tenant, groupId, NOW)).toEqual({ ok: false, reason: "too_many_machines", limit: 200 });
     expect(await getRedis().exists(KEYS.trashEntry(groupId))).toBe(1);
   });
 

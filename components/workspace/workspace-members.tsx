@@ -40,15 +40,20 @@ export function WorkspaceMembers({ workspace }: { workspace: WorkspaceView }) {
   const [needsSudo, setNeedsSudo] = useState<Member | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
 
+  const { quotas } = workspace;
   const problem = (error: string | null) => {
     const text =
       error === "too_many_invites"
-        ? t("error_too_many_invites")
-        : error === "invalid_payload"
-          ? t("error_invalid_login")
-          : error === "members_busy"
-            ? t("error_busy")
-            : t("error_failed");
+        ? t("error_too_many_invites", { limit: quotas.pendingInvites })
+        : error === "too_many_members"
+          ? t("error_too_many_members", { limit: quotas.members })
+          : error === "too_many_workspaces"
+            ? t("error_too_many_workspaces", { limit: quotas.ownedWorkspaces })
+            : error === "invalid_payload"
+              ? t("error_invalid_login")
+              : error === "members_busy"
+                ? t("error_busy")
+                : t("error_failed");
     setNotice({ tone: "problem", text });
   };
 
@@ -155,6 +160,7 @@ export function WorkspaceMembers({ workspace }: { workspace: WorkspaceView }) {
 
       <section className="mt-8">
         <h2 className="text-lg font-medium">{t("members_heading")}</h2>
+        <p className="mt-1 text-sm text-ink-3">{t("members_quota", { used: members.length, limit: quotas.members })}</p>
         <ul className="mt-3 divide-y divide-rule rounded-md border border-rule">
           {members.map((member) => (
             <li key={member.userId} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
@@ -199,6 +205,9 @@ export function WorkspaceMembers({ workspace }: { workspace: WorkspaceView }) {
         <section className="mt-12">
           <h2 className="text-lg font-medium">{t("invites_heading")}</h2>
           <p className="mt-2 max-w-2xl text-sm text-ink-2">{t("invites_description")}</p>
+          <p className="mt-1 text-sm text-ink-3">
+            {t("invites_quota", { used: invites.length, limit: quotas.pendingInvites })}
+          </p>
           <div className="mt-4 flex flex-wrap items-end gap-3">
             <label className="flex flex-col gap-1 text-sm text-ink-2">
               {t("invite_login_label")}

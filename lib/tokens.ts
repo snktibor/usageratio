@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { AUDIT_LIMIT, type AuditToken } from "@/lib/api-token";
+import { workspaceQuotas } from "@/lib/quotas";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { defer } from "@/lib/request-context";
@@ -42,7 +43,7 @@ const ID_CHARS = 8;
 
 export const MIN_LABEL_LENGTH = 1;
 export const MAX_LABEL_LENGTH = 64;
-/** Live tokens a workspace may have: a deployment cap, the same spirit as MAX_GROUPS / MAX_PROVIDERS / MAX_MACHINES. */
+/** Live tokens a single-user instance may have (closed mode); a workspace in multi-tenant mode has its quota (lib/quotas.ts). */
 export const MAX_TOKENS = 100;
 /**
  * Entries the tokens hash may hold, revoked ones included (they stay 90 days, see
@@ -174,7 +175,9 @@ export async function listTokens(store: TenantStore): Promise<MachineToken[]> {
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export type CreateTokenResult = { ok: true; id: string; token: string } | { ok: false; reason: "too_many" };
+export type CreateTokenResult =
+  | { ok: true; id: string; token: string }
+  | { ok: false; reason: "too_many"; limit: number };
 
 /**
  * The audit entry for a change to one token (lib/token-vault.ts `auditRecord`, bound to the
@@ -243,7 +246,10 @@ export async function createToken(
   const redis = store.redis;
   const existing = toStringRecord(await redis.hgetall(store.keys.tokens));
   const live = Object.values(existing).filter((value) => parseStored(value)?.revokedAt === null).length;
-  if (live >= MAX_TOKENS || Object.keys(existing).length >= MAX_TOKEN_ENTRIES) return { ok: false, reason: "too_many" };
+  // The workspace's quota (lib/quotas.ts) on live tokens; the entries cap bounds revoked ones too.
+  const { tokens: limit } = workspaceQuotas();
+  if (live >= limit || Object.keys(existing).length >= MAX_TOKEN_ENTRIES)
+    return { ok: false, reason: "too_many", limit };
 
   const { token, hash, record } = newRecord(label, machineId, scope, now, createdBy);
   const tx = redis.multi();

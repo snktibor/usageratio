@@ -125,7 +125,7 @@ describe("createToken / listTokens", () => {
       ),
     );
     const result = await createToken(tenant, "one too many", null, new Date());
-    expect(result).toEqual({ ok: false, reason: "too_many" });
+    expect(result).toEqual({ ok: false, reason: "too_many", limit: MAX_TOKENS });
   });
 });
 

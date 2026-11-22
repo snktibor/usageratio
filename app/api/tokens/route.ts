@@ -7,7 +7,6 @@ import {
   labelProblem,
   listTokens,
   MAX_LABEL_LENGTH,
-  MAX_TOKENS,
   MIN_LABEL_LENGTH,
   TOKEN_SCOPES,
   type TokenScope,
@@ -34,7 +33,7 @@ import { parseId } from "@/lib/validation";
  *
  * 200/201 ok · 400 invalid body · 401 no session · 403 foreign origin, demo
  * mode, or no sudo grant (POST) · 413/415 bad body (POST) ·
- * 422 too_many_tokens once MAX_TOKENS is reached, with its `limit` ·
+ * 422 too_many_tokens once the workspace's token quota (lib/quotas.ts) is reached, with its `limit` ·
  * 503 Redis down
  */
 
@@ -120,6 +119,6 @@ export const POST = withApiHandler("api/tokens", async ({ request }) => {
     tenant.userId,
     tokenAudit("token_created", tenant, now),
   );
-  if (!result.ok) return apiError("too_many_tokens", 422, { limit: MAX_TOKENS });
+  if (!result.ok) return apiError("too_many_tokens", 422, { limit: result.limit });
   return json({ id: result.id, token: result.token }, 201);
 });

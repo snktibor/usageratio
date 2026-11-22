@@ -149,11 +149,14 @@ With `REGISTRATION=invite` or `open`, the PIN is replaced by GitHub sign-in (`li
   (`sudo_mismatch` otherwise), valid for 5 minutes. If the browser is already signed in to GitHub,
   GitHub may not ask for a password again: sudo then proves that the browser holds a live GitHub
   session for that account, which a stolen usageratio cookie alone does not.
+- **Quotas.** A workspace holds at most 25 machines, 20 providers, 20 groups, 50 live tokens and 10
+  members, and a user owns at most 3 workspaces (docs/api.md, Quotas). Over one, a request gets a
+  `too_many_*` code with the limit; nothing already stored is deleted or hidden.
 - **Throttling.** 20 sign-in requests per 10 minutes per address (`usage:rl:oauth:*`); 300 shared when
   no trusted proxy names the address.
 - **The instance admin** (`ADMIN_GITHUB_IDS`, numeric ids, checked against the signed-in user's
-  identities on every request) sees counts per workspace and the owners' GitHub logins, never a
-  workspace's data; can disable a workspace (sessions get nothing, tokens get `403
+  identities on every request) sees counts per workspace (against its quotas) and the owners'
+  GitHub logins, never a workspace's data; can disable a workspace (sessions get nothing, tokens get `403
   tenant_disabled`) and issue sign-up links. Every admin route and page answers `404` to anyone
   else, so they do not reveal that they exist.
 - **Deleting** an account needs sudo. It deletes every workspace only that user belongs to: the

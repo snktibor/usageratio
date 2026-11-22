@@ -20,7 +20,9 @@ import { isUserId } from "@/lib/users";
  *   { "userId": "u_…" }  → 200 { "ok": true }
  *
  * 400 bad body · 401 no session · 403 foreign origin / owner_only / sudo_required · 404
- * single-user instance, or not a member · 409 members_busy · 412 tenant_changed · 503 Redis down
+ * single-user instance, or not a member · 409 members_busy · 412 tenant_changed · 422
+ * too_many_workspaces (the member already owns as many as they may, lib/quotas.ts), with its
+ * `limit` · 503 Redis down
  */
 
 export const POST = withApiHandler("api/workspace/transfer", async ({ request }) => {
@@ -43,6 +45,7 @@ export const POST = withApiHandler("api/workspace/transfer", async ({ request })
   if (!result.ok) {
     if (result.reason === "busy") return apiError("members_busy", 409);
     if (result.reason === "not_owner") return apiError("owner_only", 403);
+    if (result.reason === "too_many_workspaces") return apiError("too_many_workspaces", 422, { limit: result.limit });
     return apiError("not_found", 404);
   }
   return json({ ok: true }, 200);

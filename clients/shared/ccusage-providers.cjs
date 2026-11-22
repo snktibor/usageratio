@@ -768,6 +768,28 @@ function cycleProviders(input) {
   return document.providers.map(slug).filter(Boolean).join(",");
 }
 
+const MAX_ERROR_SUMMARY = 500;
+
+/**
+ * The server's error envelope (lib/api.ts) as one log line: "code: message"
+ * (the message a quota refusal carries, lib/quota-refusals.ts), or the code
+ * alone; null when `body` is not one. Control characters become spaces, so a
+ * message can never break the log's one-line-per-run shape.
+ */
+function errorSummary(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body) || typeof body.error !== "string") return null;
+  const isControl = (char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127;
+  const clean = (text) =>
+    Array.from(String(text), (char) => (isControl(char) ? " " : char))
+      .join("")
+      .replace(/ {2,}/g, " ")
+      .trim();
+  const code = clean(body.error);
+  if (!code) return null;
+  const message = typeof body.message === "string" ? clean(body.message) : "";
+  return (message ? `${code}: ${message}` : code).slice(0, MAX_ERROR_SUMMARY);
+}
+
 function readStdin() {
   return new Promise((resolve, reject) => {
     let input = "";
@@ -865,6 +887,10 @@ async function main() {
     process.stdout.write(cycleField(parsed, "timeZone"));
     return;
   }
+  if (command === "error-summary") {
+    process.stdout.write(errorSummary(parsed) ?? "");
+    return;
+  }
   if (command === "cycle-providers") {
     process.stdout.write(cycleProviders(parsed));
     return;
@@ -880,6 +906,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  errorSummary,
   MAX_DAYS,
   MAX_MODELS,
   MAX_MODELS_PER_PROVIDER,

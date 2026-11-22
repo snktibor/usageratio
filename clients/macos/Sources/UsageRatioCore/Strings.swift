@@ -131,6 +131,9 @@ public struct Strings: Sendable {
     public let reportMachineMismatch: String
     public let reportReadOnlyToken: String
     public let reportRateLimited: String
+    public let reportTooManyMachines: String
+    public let reportTooManyProviders: String
+    public let reportTooManyGroups: String
     /// HTTP status
     public let reportServer: @Sendable (Int) -> String
     public let reportNetwork: String
@@ -150,6 +153,9 @@ public struct Strings: Sendable {
         case .machineMismatch: reportMachineMismatch
         case .readOnlyToken: reportReadOnlyToken
         case .rateLimited: reportRateLimited
+        case .quotaReached(.machines): reportTooManyMachines
+        case .quotaReached(.providers): reportTooManyProviders
+        case .quotaReached(.groups): reportTooManyGroups
         case .server(let status): reportServer(status)
         case .network: reportNetwork
         case .timedOut: reportTimedOut
@@ -276,6 +282,9 @@ public struct Strings: Sendable {
         reportMachineMismatch: "the token is bound to another machine name",
         reportReadOnlyToken: "the token may only read; create a “Menu bar app” token",
         reportRateLimited: "too many reports; it tries again later",
+        reportTooManyMachines: "the workspace has as many machines as it may; delete or merge one under Settings → Machines",
+        reportTooManyProviders: "the workspace has as many providers as it may; delete one under Settings → Danger zone",
+        reportTooManyGroups: "the workspace has as many groups as it may; report into an existing group, or remove one",
         reportServer: { "the server answered HTTP \($0)" },
         reportNetwork: "the server cannot be reached",
         reportTimedOut: "it took too long",
@@ -375,6 +384,9 @@ public struct Strings: Sendable {
         reportMachineMismatch: "a token másik gépnévhez van kötve",
         reportReadOnlyToken: "a token csak olvasni tud; hozz létre „Menüsáv app” tokent",
         reportRateLimited: "túl sok jelentés; később újrapróbálja",
+        reportTooManyMachines: "a munkaterületen már annyi gép van, amennyi lehet; törölj vagy vonj össze egyet a Beállítások → Gépek résznél",
+        reportTooManyProviders: "a munkaterületen már annyi szolgáltató van, amennyi lehet; törölj egyet a Beállítások → Veszélyes műveletek résznél",
+        reportTooManyGroups: "a munkaterületen már annyi csoport van, amennyi lehet; jelents egy meglévő csoportba, vagy törölj egyet",
         reportServer: { "a szerver HTTP \($0) választ adott" },
         reportNetwork: "a szerver nem érhető el",
         reportTimedOut: "túl sokáig tartott",
@@ -474,6 +486,9 @@ public struct Strings: Sendable {
         reportMachineMismatch: "der Token ist an einen anderen Maschinennamen gebunden",
         reportReadOnlyToken: "der Token darf nur lesen; erstelle einen „Menüleisten-App“-Token",
         reportRateLimited: "zu viele Meldungen; später erneut",
+        reportTooManyMachines: "der Arbeitsbereich hat so viele Maschinen, wie er darf; lösche oder führe eine unter Einstellungen → Maschinen zusammen",
+        reportTooManyProviders: "der Arbeitsbereich hat so viele Anbieter, wie er darf; lösche einen unter Einstellungen → Gefahrenzone",
+        reportTooManyGroups: "der Arbeitsbereich hat so viele Gruppen, wie er darf; melde in eine bestehende Gruppe oder entferne eine",
         reportServer: { "der Server antwortete mit HTTP \($0)" },
         reportNetwork: "der Server ist nicht erreichbar",
         reportTimedOut: "es hat zu lange gedauert",

@@ -98,6 +98,10 @@ describe("POST|GET /api/usage", () => {
     const body = await refused.json();
     expect(body.error).toBe("too_many_groups");
     expect(body.limit).toBe(MAX_GROUPS);
+    // A readable sentence for the client's log, next to the stable code (lib/quota-refusals.ts).
+    expect(body.message).toBe(
+      `This workspace has reached its limit of ${MAX_GROUPS} groups, so this report for a new group was not stored. Report into an existing group, or remove one under Settings → Groups.`,
+    );
   });
 
   it("answers 429 per token+machine once the ingest rate limit is exceeded", async () => {

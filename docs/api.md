@@ -72,7 +72,8 @@ The full `ApiErrorCode` union (`lib/api.ts`):
 | `internal_error` | 500 | An unhandled exception (logged, and sent to `ERROR_WEBHOOK_URL` if set). |
 | `sudo_required` | 403 | The action needs a live sudo grant. |
 | `sudo_invalid` | 401 | Wrong PIN presented to `POST /api/auth/sudo` (`attemptsLeft` when known). |
-| `too_many_groups` / `too_many_providers` / `too_many_machines` / `too_many_tokens` | 422 | A registry cap would be exceeded; `limit` gives the cap. |
+| `too_many_groups` / `too_many_providers` / `too_many_machines` / `too_many_tokens` | 422 | A quota would be exceeded ([Quotas](#quotas)); `limit` gives it. `POST /api/usage` adds a readable `message`. |
+| `too_many_members` / `too_many_invites` / `too_many_workspaces` | 422 | A workspace's people quota ([Quotas](#quotas)), with `limit`. |
 | `machine_mismatch` | 403 | A machine-bound per-machine token reported for a different `machineId`. |
 | `read_only_token` | 403 | A "read" per-machine token tried to report (`POST /api/usage`); it may not report tokens. |
 | `official_scope_required` | 403 | `POST /api/official-usage/report` needs an "official" token. |
@@ -125,9 +126,28 @@ Body size caps: `POST /api/usage` 64 KB · `PUT /api/settings` 16 KB · `PUT /ap
 1 KB · `PATCH /api/groups/[group]` 1 KB · `POST`/`PUT`/`DELETE /api/resets` 1 KB ·
 `POST /api/alerts/test` 2 KB · `POST /api/auth/sudo` 1 KB · `POST /api/csp-report` 8 KB.
 
-Registry caps (`storeReport`/`parseSettingsUpdate`, refused with `422`/`400` rather than silently
-truncated): 200 machines (`MAX_MACHINES`), 50 groups (`MAX_GROUPS`), 20 providers (`MAX_PROVIDERS`),
-100 per-machine tokens (`MAX_TOKENS`).
+### Quotas
+
+What a workspace may hold (lib/quotas.ts). Over one, the request is refused with a stable
+`too_many_*` code and the `limit`, never silently dropped. A quota only refuses growth: a workspace
+already over a limit (from before the quotas) keeps all of its data, and its machines, providers and
+groups keep reporting; only a new one is refused.
+
+| Quota | Multi-tenant (`REGISTRATION=invite`/`open`), per workspace | Single-user (`closed`), per instance |
+|---|---|---|
+| Machines | 25 distinct machine ids (one machine with five providers is one) | 200 `usage:machines` entries (provider:machine pairs, `MAX_MACHINES`) |
+| Providers | 20 | 20 (`MAX_PROVIDERS`) |
+| Groups | 20 | 50 (`MAX_GROUPS`) |
+| Live per-machine tokens | 50 | 100 (`MAX_TOKENS`) |
+| Members (owner included) | 10 | – |
+| Pending invites | 10 | – |
+| Workspaces owned per user | 3 | – |
+
+The multi-tenant numbers are `WORKSPACE_QUOTAS` in `lib/config.ts`, not environment variables. A
+report a quota refuses is also kept for a week as the workspace's latest refusal of that kind
+(`usage:quota:refused`, lib/quota-refusals.ts), which the settings page's **Limits** section shows
+with the quotas' use. `parseSettingsUpdate` still refuses (`400`) a settings body with more than 50
+groups or 20 providers in it, in every mode.
 
 ## `GET`/`POST /api/usage`
 
@@ -185,7 +205,7 @@ time `GET /api/machines` is read.
 | `401` | Missing or wrong Bearer token. |
 | `403` | `machine_mismatch` — a machine-bound token reported for a different `machineId`. |
 | `413` | Body over 64 KB. |
-| `422` | A registry cap refused the report (`too_many_groups`/`too_many_providers`/`too_many_machines`), with `limit`. |
+| `422` | A [quota](#quotas) refused the report (`too_many_groups`/`too_many_providers`/`too_many_machines`), with `limit` and a readable `message` (the clients log both). Nothing of it is stored. |
 | `429` | Rate limited, with `retryAfterSeconds`. |
 | `500` | `server_misconfigured` — no (long enough) `USAGE_API_TOKEN`. |
 | `503` | Redis not configured or unreachable — the client should retry next hour. |
@@ -504,7 +524,8 @@ never again. See [clients.md](clients.md#per-machine-tokens-vs-the-master-token)
 New tokens are `ur_live_` followed by 32 random bytes, base64url; tokens issued earlier start with
 a bare `ur_` and keep working. Every create, revoke and rotate goes on the workspace's audit trail.
 
-Up to 100 live tokens per workspace (`422 too_many_tokens` with `limit` past that).
+Up to 50 live tokens per workspace in multi-tenant mode, 100 on a single-user instance
+(`422 too_many_tokens` with `limit` past that; see [Quotas](#quotas)).
 
 - **`GET /api/tokens`** → `{ "tokens": [{id, label, machineId, scope, createdAt, lastUsedAt, revokedAt, createdBy}] }`
   (never the token or its hash). `401` no session · `503` Redis down.
@@ -516,7 +537,7 @@ Up to 100 live tokens per workspace (`422 too_many_tokens` with `limit` past tha
   (bound to its `machineId` when given one), and may also upload a provider's own usage percentage
   (`POST /api/official-usage/report`). `400` invalid body · `401` no
   session · `403` foreign origin, demo mode, or no sudo grant · `413`/`415` bad body ·
-  `422 too_many_tokens` (with `limit`, 100) · `503` Redis down.
+  `422 too_many_tokens` (with `limit`: 50, or 100 when closed) · `503` Redis down.
 - **`DELETE /api/tokens/[id]`** (session + sudo, same-origin) → `200 { "ok": true }`, idempotent.
   `401` no session · `403` foreign origin, demo mode, or no sudo grant · `404` no such token · `503`
   Redis down.
@@ -632,8 +653,9 @@ A force-delete of a group or provider that has stored reports keeps its data for
   [providerId] } }` (`merged`: the group or provider was live again, and the restore joined what had
   arrived since; `group` is a group restore's effective colour and exclusions). `400` invalid id · `401`
   no session · `403` foreign origin, demo mode, or no sudo grant · `404 not_found` (no such entry, or
-  it expired) · `409 too_many_groups` / `too_many_providers` / `too_many_machines` (the caps a report
-  is refused at; nothing is written) · `412 tenant_changed` · `503` Redis down.
+  it expired) · `409 too_many_groups` / `too_many_providers` / `too_many_machines` (the
+  [quotas](#quotas) a report is refused at, with `limit`; nothing is written) · `412 tenant_changed` ·
+  `503` Redis down.
 - **`DELETE /api/trash/[id]`** (session + sudo, same-origin; **the owner's only**) deletes the entry for
   good before its 30 days run out → `200 { "ok": true, "affected": { events, machines, groups } }`.
   `400` invalid id · `401` no session · `403` foreign origin, demo mode, `owner_only`, or no sudo
@@ -710,10 +732,14 @@ the app's pages send it themselves. A member gets `403 owner_only` from the owne
 
 - **`GET /api/workspace`** → `{ "workspace": { "tenantId", "name", "role", "you", "members": [{
   "userId", "login", "role", "joinedAt", "invitedBy" }], "invites": [{ "id", "createdAt",
-  "expiresAt", "createdBy", "login" }] } }`. `invites` is empty for a member.
+  "expiresAt", "createdBy", "login" }], "quotas": { "members", "pendingInvites", "ownedWorkspaces" } } }`.
+  `invites` is empty for a member.
 - **`POST /api/workspace/invites`** (owner, same-origin) `{ "login"?: "octocat" }` → `201 { "url":
   "https://…/join#<code>", "entry" }`, shown once. The invite lets one person in as a member within 7
-  days; with `login`, only that GitHub account. `400` not a login · `422 too_many_invites` (10 pending).
+  days; with `login`, only that GitHub account. `400` not a login · `422 too_many_invites` (10 pending)
+  or `too_many_members` (the workspace already has its 10 members), with `limit`. An invite accepted
+  while the workspace is full sends the person back with `?signin_error=workspace_full`, and stays
+  pending.
 - **`DELETE /api/workspace/invites/[id]`** (owner, same-origin) → `200`; `404` for an invite that is
   not this workspace's.
 - **`DELETE /api/workspace/members/[userId]?revokeTokens=1`** (owner, same-origin) → `200 { "ok": true,
@@ -724,7 +750,8 @@ the app's pages send it themselves. A member gets `403 owner_only` from the owne
   the session moves to the user's next workspace. Tokens they created stay. `409 owner_cannot_leave`.
 - **`POST /api/workspace/transfer`** (owner, same-origin, sudo) `{ "userId" }` → `200`: that member
   becomes the owner, the old owner a member, in one transaction. `404` not a member ·
-  `403 sudo_required` · `409 members_busy`.
+  `403 sudo_required` · `409 members_busy` · `422 too_many_workspaces` (they already own 3, with
+  `limit`).
 - **`POST /api/session/tenant`** (same-origin, any signed-in session) `{ "tenantId" }` → `200`: this
   browser's session switches to that workspace. `404` for a workspace the user does not belong to,
   one that does not exist, and one that is switched off alike.
