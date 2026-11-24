@@ -234,6 +234,7 @@ OAuth App.
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | unset | The GitHub OAuth App's client id and secret. Without them, sign-in refuses to start (`server_misconfigured`). |
 | `ADMIN_GITHUB_IDS` | unset | Comma-separated numeric GitHub ids of the instance admins: they get `/admin` (counts per workspace, disabling a workspace, sign-up links) and never see a workspace's data. Everyone else gets a 404 there. |
 | `NEXT_PUBLIC_SITE_URL` | unset | Required in `invite`/`open` mode: the callback URL is this origin plus `/api/auth/github/callback`, never the request's Host header. `https://`, or `http://` on `localhost`/`127.0.0.1`. |
+| `LEGAL_CONTROLLER_NAME` / `LEGAL_CONTACT_EMAIL` | unset | The data controller's name and the address for data protection requests. With both set, the instance serves a privacy notice (`/privacy`) and terms of use (`/terms`) in every locale, linked from the sign-in screens and the account page; with either missing, neither page exists. The text describes the public reference deployment (Vercel in Frankfurt, Upstash in the EU, Cloudflare DNS and e-mail forwarding, GitHub sign-in, the retention periods in `lib/config.ts`), so set them only on an instance that matches it, or adapt the `Privacy` and `Terms` messages first. |
 
 ### Optional overrides of `lib/config.ts` (initial values only)
 

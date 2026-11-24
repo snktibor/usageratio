@@ -4,6 +4,7 @@ import { hasLocale } from "next-intl";
 import { setRequestLocale } from "next-intl/server";
 import { AccountView } from "@/components/account/account-view";
 import { SignInGate } from "@/components/auth/sign-in-gate";
+import { LegalLinks } from "@/components/legal/legal-page";
 import { routing } from "@/i18n/routing";
 import { loadAccount } from "@/lib/account";
 import { isInstanceAdmin } from "@/lib/admin";
@@ -23,5 +24,12 @@ export default async function AccountPage({ params }: { params: Promise<{ locale
   const account =
     session && (await loadAccount(session.userId, { sessionHash: session.hash, tenantId: session.tenantId }));
   if (!session || !account) return <SignInGate next="/account" />;
-  return <AccountView account={account} admin={await isInstanceAdmin(session.userId)} />;
+  return (
+    <>
+      <AccountView account={account} admin={await isInstanceAdmin(session.userId)} />
+      <div className="mx-auto w-full max-w-4xl px-5 pb-12 sm:px-8">
+        <LegalLinks className="border-t border-hairline pt-6" />
+      </div>
+    </>
+  );
 }

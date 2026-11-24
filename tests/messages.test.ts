@@ -35,6 +35,9 @@ const DYNAMIC_KEY_PATTERNS = [
   // lib/api-token.ts apiTokenStatusNote() hands the key over as data: `t(note.key)`.
   /^Settings\.token_status_(no_key|empty|unreadable|mismatch|stored_matches|stored)$/,
   // lib/setup.ts PackageFile.roleKey: a Setup.role_* key, translated via `t(file.roleKey)`.
+  // The legal pages render the keys their spec names (lib/legal.ts); tests/legal.test.ts holds the
+  // namespaces to exactly those keys.
+  /^(Privacy|Terms)\.[a-z]+_(title|p\d+|li\d+)$/,
   /^Setup\.role_(config|reporter_auto_unix|reporter_manual_unix|core|parser|installer_unix_auto|installer_unix_manual|reporter_auto_win|reporter_manual_win|task_installer|installer_win_auto|installer_win_manual|install_cmd)$/,
 ];
 

@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { logout } from "@/app/actions";
 import { GithubSignIn } from "@/components/auth/github-sign-in";
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { LegalConsent, LegalLinks } from "@/components/legal/legal-page";
 import { PinGate } from "@/components/pin-gate";
 import { Link } from "@/i18n/routing";
 import { isMultiTenant } from "@/lib/registration";
@@ -11,14 +12,17 @@ import { currentUserSession } from "@/lib/user-session";
 function Frame({
   heading,
   description,
+  consent = false,
   children,
 }: {
   heading: string;
   description: string;
+  /** Under a sign-in button: says that signing in accepts the terms. */
+  consent?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <main className="mx-auto w-full max-w-4xl px-5 pt-6 sm:px-8 sm:pt-8">
+    <main className="mx-auto w-full max-w-4xl px-5 pb-12 pt-6 sm:px-8 sm:pt-8">
       <div className="flex items-center justify-between gap-4">
         <p className="text-lg font-medium tracking-tight">usageratio</p>
         <LanguageSwitcher />
@@ -27,7 +31,9 @@ function Frame({
         <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">{heading}</h1>
         <p className="mt-4 max-w-md text-ink-2">{description}</p>
         {children}
+        {consent && <LegalConsent className="mt-6" />}
       </div>
+      <LegalLinks className="mt-24" />
     </main>
   );
 }
@@ -64,7 +70,7 @@ export async function SignInGate({ next = "/" }: { next?: string }) {
   }
 
   return (
-    <Frame heading={t("heading")} description={t("description")}>
+    <Frame heading={t("heading")} description={t("description")} consent>
       <Suspense>
         <GithubSignIn next={next} />
       </Suspense>
@@ -82,11 +88,11 @@ export async function SignupFrame({
 }) {
   const t = await getTranslations("SignIn");
   return kind === "join" ? (
-    <Frame heading={t("join_heading")} description={t("join_description")}>
+    <Frame heading={t("join_heading")} description={t("join_description")} consent>
       {children}
     </Frame>
   ) : (
-    <Frame heading={t("signup_heading")} description={t("signup_description")}>
+    <Frame heading={t("signup_heading")} description={t("signup_description")} consent>
       {children}
     </Frame>
   );
