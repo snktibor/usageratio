@@ -999,7 +999,7 @@
     "retention_li5": "Widerrufene Tokens: 90 Tage nach dem Widerruf vergessen.",
     "retention_li6": "Änderungsprotokolle: ein Jahr, höchstens 500 Einträge je Protokoll.",
     "retention_li7": "Einladungen: 7 Tage. Eine laufende Anmeldung: 10 Minuten. Sicherheitszähler: eine Minute bis ein Tag.",
-    "retention_li8": "Logs des Hostings: etwa eine Stunde. Sicherungen vor Wartungsarbeiten: höchstens 30 Tage.",
+    "retention_li8": "Logs des Hostings: etwa eine Stunde. Sicherungen vor Wartungsarbeiten: höchstens 90 Tage.",
     "retention_p1": "Wenn du dein Konto löschst, werden seine Daten sofort entfernt (siehe unten).",
     "rights_title": "Deine Rechte",
     "rights_p1": "Du kannst Auskunft über deine Daten verlangen, ihre Berichtigung oder Löschung, die Einschränkung ihrer Verarbeitung und eine Kopie in einem maschinenlesbaren Format (Datenübertragbarkeit). Einer Verarbeitung auf Grundlage berechtigten Interesses kannst du widersprechen.",

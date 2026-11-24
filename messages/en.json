@@ -999,7 +999,7 @@
     "retention_li5": "Revoked tokens: forgotten 90 days after they were revoked.",
     "retention_li6": "Audit trails: one year, and at most 500 entries per trail.",
     "retention_li7": "Invites: 7 days. A sign-in in progress: 10 minutes. Security counters: from a minute to a day.",
-    "retention_li8": "Hosting logs: about an hour. Backups taken before maintenance work: at most 30 days.",
+    "retention_li8": "Hosting logs: about an hour. Backups taken before maintenance work: at most 90 days.",
     "retention_p1": "When you delete your account, its data is removed at once (see below).",
     "rights_title": "Your rights",
     "rights_p1": "You can ask for access to your data, for its correction or erasure, for its processing to be restricted, and for a copy in a machine-readable format (portability). You can object to processing based on legitimate interest.",

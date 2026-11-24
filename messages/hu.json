@@ -999,7 +999,7 @@
     "retention_li5": "A visszavont tokenek: a visszavonás után 90 nappal törlődnek.",
     "retention_li6": "A változásnaplók: egy évig, naplónként legfeljebb 500 bejegyzés.",
     "retention_li7": "A meghívók: 7 nap. Egy folyamatban lévő bejelentkezés: 10 perc. A biztonsági számlálók: egy perctől egy napig.",
-    "retention_li8": "A tárhely naplói: nagyjából egy óra. A karbantartás előtt készült biztonsági mentések: legfeljebb 30 nap.",
+    "retention_li8": "A tárhely naplói: nagyjából egy óra. A karbantartás előtt készült biztonsági mentések: legfeljebb 90 nap.",
     "retention_p1": "Ha törlöd a fiókodat, az adatai azonnal törlődnek (lásd lent).",
     "rights_title": "A jogaid",
     "rights_p1": "Kérheted, hogy hozzáférj az adataidhoz, helyesbítsük vagy töröljük őket, korlátozzuk a kezelésüket, vagy géppel olvasható formában kiadjuk őket (adathordozhatóság). A jogos érdeken alapuló adatkezelés ellen tiltakozhatsz.",
