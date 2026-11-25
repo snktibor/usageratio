@@ -18,6 +18,8 @@ const VALID_UPDATE = {
   resetModes: {},
   showRemaining: true,
   costEstimate: false,
+  breakdown: "auto",
+  showFiveHour: true,
   hiddenProviders: [],
   excludedProviders: {},
   subLimits: {},

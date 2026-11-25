@@ -1,6 +1,7 @@
 import type { TimeWindow } from "@/lib/aggregate";
 import type { AppConfig, ResetOverride } from "@/lib/config";
 import { type Cycle, wallClockOf } from "@/lib/cycle";
+import { type FiveHourWindow, parseFiveHourWindow } from "@/lib/five-hour";
 import type { StoredOfficialReading } from "@/lib/official-usage";
 import { providerCycle } from "@/lib/provider-cycles";
 import { normalizeProviderId } from "@/lib/providers";
@@ -50,6 +51,11 @@ export interface OfficialReport {
   resetsAtMs: number;
   /** When the client read the figure (epoch ms). */
   observedAtMs: number;
+  /**
+   * The provider's 5-hour window read at the same time (lib/five-hour.ts); null when the report
+   * has none, or one that does not hold up: it never refuses the weekly figure.
+   */
+  fiveHour: FiveHourWindow | null;
 }
 
 export type OfficialReportParseResult = { ok: true; report: OfficialReport } | { ok: false; errors: string[] };
@@ -61,7 +67,13 @@ export function parseOfficialReport(input: unknown, now: Date): OfficialReportPa
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     return { ok: false, errors: ["body must be a JSON object"] };
   }
-  const { providerId: rawProviderId, usedPercent, resetsAtMs, observedAtMs } = input as Record<string, unknown>;
+  const {
+    providerId: rawProviderId,
+    usedPercent,
+    resetsAtMs,
+    observedAtMs,
+    fiveHour,
+  } = input as Record<string, unknown>;
   const errors: string[] = [];
   const providerId = normalizeProviderId(rawProviderId);
   if (!providerId) errors.push("providerId must be a valid provider id");
@@ -91,6 +103,7 @@ export function parseOfficialReport(input: unknown, now: Date): OfficialReportPa
       usedPercent: usedPercent as number,
       resetsAtMs: resetsAtMs as number,
       observedAtMs: observedAtMs as number,
+      fiveHour: parseFiveHourWindow(fiveHour, observedAtMs as number),
     },
   };
 }

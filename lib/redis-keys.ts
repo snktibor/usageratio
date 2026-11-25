@@ -33,6 +33,9 @@
  *                                  (the ground-truth field on the dashboard; see lib/official-usage.ts;
  *                                  "cycleStartMs" is the start of the segment it was entered in,
  *                                  "resetsAtMs" only on a report: its window's reset)
+ *   usage:fivehour           HASH  providerId → {"p": percent used, "r": resets at ms, "o": read at ms}
+ *                                  (the provider's own 5-hour window, the newest reading a report
+ *                                  carried; see lib/five-hour.ts)
  *   usage:resets             HASH  providerId → {"v": 1, "events": [ResetEvent…], "autoOffCycleStartMs": ms | null}
  *                                  (the provider's usage resets: keep resets of its current and
  *                                  previous cycle, restarts while their raw reports are kept,
@@ -249,6 +252,7 @@ export interface TenantKeys {
   groups: string;
   machines: string;
   officialUsage: string;
+  fiveHour: string;
   resets: string;
   events: (providerId: string, groupId: string) => string;
   history: (providerId: string) => string;
@@ -288,6 +292,7 @@ export function tenantKeys(tenantId: TenantId): TenantKeys {
     groups: `${p}groups`,
     machines: `${p}machines`,
     officialUsage: `${p}official`,
+    fiveHour: `${p}fivehour`,
     resets: `${p}resets`,
     events: (providerId, groupId) => `${p}events:${providerId}:${groupId}`,
     history: (providerId) => `${p}history:${providerId}`,
@@ -322,6 +327,7 @@ export function fixedTenantKeys(keys: TenantKeys): string[] {
     keys.groups,
     keys.machines,
     keys.officialUsage,
+    keys.fiveHour,
     keys.resets,
     keys.apiToken,
     keys.apiTokenAudit,

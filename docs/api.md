@@ -361,6 +361,8 @@ required on every save (a document stored before some of them existed is still r
   "resetModes": {},
   "showRemaining": true,
   "costEstimate": false,
+  "breakdown": "auto",
+  "showFiveHour": true,
   "hiddenProviders": ["openai"],
   "excludedProviders": { "Work": ["claude", "deepseek"] },
   "subLimits": {
@@ -432,8 +434,14 @@ provider's own weekly usage percentage, read on a machine by the macOS menu bar 
 dashboard's official reading. 1 KB body, 120 calls per token per hour.
 
 ```json
-{ "providerId": "claude", "usedPercent": 41.2, "resetsAtMs": 1758704400000, "observedAtMs": 1758628200000 }
+{ "providerId": "claude", "usedPercent": 41.2, "resetsAtMs": 1758704400000, "observedAtMs": 1758628200000,
+  "fiveHour": { "usedPercent": 62, "resetsAtMs": 1758639000000 } }
 ```
+
+`fiveHour` is optional: the provider's own 5-hour window, read at the same time. The newest one per
+provider is kept (`usage:fivehour`) and shown under the weekly figure while the settings'
+`showFiveHour` is on, whatever happens to the weekly figure below. One that does not hold up (a figure
+outside 0–1000, a reset not within five hours after `observedAtMs`) is ignored, never refused.
 
 `usedPercent` is 0–1000; `resetsAtMs` is when the provider's weekly window resets and must lie within
 a week after `observedAtMs` (when the figure was read, not in the future). The server decides, in order:

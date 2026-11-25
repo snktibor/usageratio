@@ -85,6 +85,22 @@ describe("POST /api/official-usage/report", () => {
     expect(await getRedis().hlen(KEYS.officialUsage)).toBe(0);
   });
 
+  it("keeps the newest 5-hour window, even beside a weekly figure it refuses", async () => {
+    await seedSettings("monthly");
+    const token = await tokenOf("official");
+    const fiveHour = { usedPercent: 62, resetsAtMs: Date.parse("2026-09-23T14:00:00Z") };
+    expect((await POST(post(body({ fiveHour }), token))).status).toBe(409);
+    const expected = { ...fiveHour, observedAtMs: OBSERVED };
+    expect((await loadIndexes(tenant)).fiveHour).toEqual({ claude: expected });
+
+    // An older reading arriving late does not replace it; a newer one does.
+    const older = { usedPercent: 50, resetsAtMs: fiveHour.resetsAtMs };
+    await POST(post(body({ fiveHour: older, observedAtMs: OBSERVED - 60_000 }), token));
+    expect((await loadIndexes(tenant)).fiveHour).toEqual({ claude: expected });
+    await POST(post(body({ fiveHour: { ...older, usedPercent: 70 }, observedAtMs: OBSERVED + 60_000 }), token));
+    expect((await loadIndexes(tenant)).fiveHour.claude?.usedPercent).toBe(70);
+  });
+
   it("moves the reset, stores the figure for the new cycle, and the status shows it", async () => {
     await seedSettings("weekly");
     // The status lists providers that have reported tokens.

@@ -674,6 +674,30 @@ describe("buildProviderDashboards — which provider counts where", () => {
     expect(openai!.dashboard.groups.map((g) => [g.groupId, g.color])).toEqual([["Work", "#d95926"]]);
   });
 
+  it("splits by group and machine automatically only where more than one machine reported", () => {
+    // Claude and OpenAI have two machines each, DeepSeek one.
+    const auto = buildProviderDashboards(NOW, config, providerIds, store);
+    expect(auto.map((d) => [d.id, d.breakdown])).toEqual([
+      ["claude", true],
+      ["openai", true],
+      ["deepseek", false],
+    ]);
+    const always = buildProviderDashboards(NOW, { ...config, breakdown: "always" }, providerIds, store);
+    expect(always.every((d) => d.breakdown)).toBe(true);
+    const never = buildProviderDashboards(NOW, { ...config, breakdown: "never" }, providerIds, store);
+    expect(never.some((d) => d.breakdown)).toBe(false);
+  });
+
+  it("carries a provider's 5-hour window on the current cycle while the switch is on", () => {
+    const reading = { usedPercent: 62, resetsAtMs: NOW.getTime() + 2 * HOUR, observedAtMs: NOW.getTime() };
+    const withReading = { ...store, fiveHour: { claude: reading } };
+    const [claude, openai] = buildProviderDashboards(NOW, config, providerIds, withReading);
+    expect(claude!.fiveHour).toEqual(reading);
+    expect(openai!.fiveHour).toBeNull();
+    const off = buildProviderDashboards(NOW, { ...config, showFiveHour: false }, providerIds, withReading);
+    expect(off[0]!.fiveHour).toBeNull();
+  });
+
   it("carries each provider's own ground-truth figure, and its sub-limits', by field", () => {
     const withSubLimit = {
       ...config,

@@ -1,5 +1,6 @@
 import {
   type AlertsFormat,
+  type BreakdownMode,
   type BudgetPeriod,
   isValidTimeZone,
   type ResetMode,
@@ -118,6 +119,8 @@ export interface Draft {
   resetModes: Record<string, ResetMode>;
   showRemaining: boolean;
   costEstimate: boolean;
+  breakdown: BreakdownMode;
+  showFiveHour: boolean;
   groups: DraftGroup[];
   /** Taken off the list in this session; kept whole so a refused removal can be put back. */
   removed: DraftGroup[];
@@ -136,6 +139,8 @@ export interface SettingsRequest {
   resetModes: Record<string, ResetMode>;
   showRemaining: boolean;
   costEstimate: boolean;
+  breakdown: BreakdownMode;
+  showFiveHour: boolean;
   hiddenProviders: string[];
   excludedProviders: Record<string, string[]>;
   subLimits: Record<string, SubLimit[]>;
@@ -187,6 +192,8 @@ export function draftFrom(view: SettingsView): Draft {
     resetModes,
     showRemaining,
     costEstimate,
+    breakdown,
+    showFiveHour,
     hiddenProviders,
     excludedProviders,
     subLimits,
@@ -231,6 +238,8 @@ export function draftFrom(view: SettingsView): Draft {
     resetModes: { ...resetModes },
     showRemaining,
     costEstimate,
+    breakdown,
+    showFiveHour,
     groups: view.groups.map((group) => ({
       ...group,
       colorText: group.color,
@@ -497,6 +506,8 @@ export function toRequest(draft: Draft): { request: SettingsRequest } | { proble
       resetModes: { ...draft.resetModes },
       showRemaining: draft.showRemaining,
       costEstimate: draft.costEstimate,
+      breakdown: draft.breakdown,
+      showFiveHour: draft.showFiveHour,
       hiddenProviders: draft.providers.filter((provider) => !provider.visible).map((provider) => provider.id),
       // Only the groups on the list: a removed group takes its exclusions with it.
       excludedProviders: Object.fromEntries(

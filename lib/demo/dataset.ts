@@ -1,5 +1,6 @@
 import { DEFAULT_ALERTS, DEFAULT_RESET, type ResetConfig } from "@/lib/config";
 import { type Cycle, getCycle, getDayEnd, getDaySegments, getDayStart, getPreviousCycle } from "@/lib/cycle";
+import type { FiveHourReading } from "@/lib/five-hour";
 import { type CycleSummary, HISTORY_TOP_MODELS } from "@/lib/history";
 import type { OfficialUsageUpdate } from "@/lib/official-usage";
 import type { ProviderResets } from "@/lib/resets";
@@ -184,6 +185,11 @@ export interface DemoDataset {
   /** Oldest first; a machine's reports are in order among themselves. */
   reports: DemoReport[];
   official: DemoOfficialEntry[];
+  /**
+   * Claude's own 5-hour window as the macOS app would send it (lib/five-hour.ts): two hours in, at a
+   * pace that runs out before its reset, so the dashboard shows the block with its purple mark.
+   */
+  fiveHour: { providerId: string; reading: FiveHourReading }[];
   /**
    * Usage resets (lib/resets.ts), stored as they are by `seedStore`: one Claude
    * keep reset on the Monday evening of the current week, once the week is far
@@ -651,6 +657,8 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
       showRemaining: true,
       // The demo's reports carry a cost: with this on, the dashboard shows it, with its energy and water.
       costEstimate: true,
+      breakdown: "auto",
+      showFiveHour: true,
       hiddenProviders: [],
       excludedProviders: { Lab: ["openai"] },
       subLimits: {
@@ -697,7 +705,14 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
     { providerId: "claude", subLimitId: "fable", raw: "48", cycleStartMs: tagMs, enteredAtMs: nowMs - 2 * HOUR_MS },
   ];
 
+  const fiveHour = [
+    {
+      providerId: "claude",
+      reading: { usedPercent: 46, resetsAtMs: nowMs + 3 * HOUR_MS, observedAtMs: nowMs - 2 * 60_000 },
+    },
+  ];
+
   const history = buildDemoHistory(previous, reset, seed);
 
-  return { timeZone, reset, cycles: { current, previous }, settings, reports, official, resets, history };
+  return { timeZone, reset, cycles: { current, previous }, settings, reports, official, fiveHour, resets, history };
 }

@@ -4,8 +4,12 @@ import {
   type AlertsConfig,
   type AlertsFormat,
   type AppConfig,
+  BREAKDOWN_MODES,
+  type BreakdownMode,
   type BudgetPeriod,
   DEFAULT_ALERTS,
+  DEFAULT_BREAKDOWN,
+  DEFAULT_SHOW_FIVE_HOUR,
   isValidTimeZone,
   type ResetConfig,
   type ResetMode,
@@ -81,6 +85,13 @@ export interface UsageSettings {
    * Off by default: the page then names no cost at all.
    */
   costEstimate: boolean;
+  /**
+   * When the dashboard splits the usage by group and machine: "auto" only
+   * while more than one machine reported in the cycle.
+   */
+  breakdown: BreakdownMode;
+  /** True: the dashboard shows a provider's own 5-hour window, while a report has sent one. */
+  showFiveHour: boolean;
   /**
    * Providers the dashboard does not show, not even in its account picker.
    * Their reports are still stored: shown again, a provider has its history.
@@ -184,6 +195,10 @@ const PERIODS: readonly BudgetPeriod[] = ["weekly", "monthly"];
 
 function isPeriod(value: unknown): value is BudgetPeriod {
   return (PERIODS as readonly unknown[]).includes(value);
+}
+
+function isBreakdownMode(value: unknown): value is BreakdownMode {
+  return (BREAKDOWN_MODES as readonly unknown[]).includes(value);
 }
 
 function isIntegerIn(value: unknown, min: number, max: number): value is number {
@@ -347,6 +362,8 @@ export function settingsFromConfig(config: AppConfig, providerIds: string[] = []
     resetModes: { ...config.resetModes },
     showRemaining: config.showRemaining,
     costEstimate: config.costEstimate,
+    breakdown: config.breakdown,
+    showFiveHour: config.showFiveHour,
     hiddenProviders: [...config.hiddenProviders],
     excludedProviders: copyExclusions(config.excludedProviders),
     subLimits: copySubLimits(config.subLimits),
@@ -364,6 +381,8 @@ export function applySettings(config: AppConfig, settings: UsageSettings): AppCo
     resetModes: { ...settings.resetModes },
     showRemaining: settings.showRemaining,
     costEstimate: settings.costEstimate,
+    breakdown: settings.breakdown,
+    showFiveHour: settings.showFiveHour,
     hiddenProviders: [...settings.hiddenProviders],
     excludedProviders: copyExclusions(settings.excludedProviders),
     subLimits: copySubLimits(settings.subLimits),
@@ -427,6 +446,8 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
     // Documents saved before the switch existed lack the field: they keep the default.
     showRemaining: typeof doc.showRemaining === "boolean" ? doc.showRemaining : defaults.showRemaining,
     costEstimate: typeof doc.costEstimate === "boolean" ? doc.costEstimate : defaults.costEstimate,
+    breakdown: isBreakdownMode(doc.breakdown) ? doc.breakdown : defaults.breakdown,
+    showFiveHour: typeof doc.showFiveHour === "boolean" ? doc.showFiveHour : defaults.showFiveHour,
     // Documents saved before these existed lack them: every provider shows, and counts everywhere.
     hiddenProviders: Array.isArray(doc.hiddenProviders)
       ? readProviderList(doc.hiddenProviders)
@@ -819,6 +840,13 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
   const resetModes = parseResetModes(body.resetModes, errors);
   if (typeof body.showRemaining !== "boolean") errors.push("showRemaining must be true or false");
   if (typeof body.costEstimate !== "boolean") errors.push("costEstimate must be true or false");
+  // Newer than the API: a body without them keeps the defaults.
+  if (body.breakdown !== undefined && !isBreakdownMode(body.breakdown)) {
+    errors.push(`breakdown must be one of ${BREAKDOWN_MODES.join(", ")}`);
+  }
+  if (body.showFiveHour !== undefined && typeof body.showFiveHour !== "boolean") {
+    errors.push("showFiveHour must be true or false");
+  }
   const hiddenProviders = parseProviderList(body.hiddenProviders, "hiddenProviders", errors);
   const excludedProviders = parseExclusions(body.excludedProviders, errors);
   const subLimits = parseSubLimits(body.subLimits, errors);
@@ -872,6 +900,8 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
         resetModes,
         showRemaining: body.showRemaining as boolean,
         costEstimate: body.costEstimate as boolean,
+        breakdown: (body.breakdown as BreakdownMode | undefined) ?? DEFAULT_BREAKDOWN,
+        showFiveHour: (body.showFiveHour as boolean | undefined) ?? DEFAULT_SHOW_FIVE_HOUR,
         hiddenProviders,
         excludedProviders,
         subLimits,

@@ -4,9 +4,10 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useMemo, useState } from "react";
 import { AllTimeGroups } from "@/components/all-time-groups";
 import { CycleHistory } from "@/components/cycle-history";
+import { FiveHourMeter } from "@/components/five-hour-meter";
 import { GroundTruthInput } from "@/components/ground-truth-input";
 import { GroupBreakdown } from "@/components/group-breakdown";
-import { MachineTable } from "@/components/machine-table";
+import { MachineTable, SingleMachine } from "@/components/machine-table";
 import { ModelChart } from "@/components/model-chart";
 import { QuotaMeter } from "@/components/quota-meter";
 import { ResetPanel, ResetPrompt } from "@/components/reset-panel";
@@ -199,16 +200,32 @@ function ProviderView({
               />
             )}
           </GroundTruthInput>
-          <QuotaMeter model={model} view={view} />
+          <div className="space-y-8">
+            <QuotaMeter model={model} view={view} />
+            {selected.fiveHour && !model.closed && (
+              <FiveHourMeter reading={selected.fiveHour} generatedAt={model.generatedAt} timeZone={model.timeZone} />
+            )}
+          </div>
           {model.machines.length > 0 && (
-            <UsageChart model={model} view={view} subLimits={subLimits.map((state) => state.view)} />
+            <UsageChart
+              model={model}
+              view={view}
+              subLimits={subLimits.map((state) => state.view)}
+              groups={selected.breakdown}
+            />
           )}
         </div>
 
         {model.machines.length > 0 ? (
           <>
-            <GroupBreakdown model={model} view={view} />
-            <MachineTable model={model} view={view} />
+            {selected.breakdown ? (
+              <>
+                <GroupBreakdown model={model} view={view} />
+                <MachineTable model={model} view={view} />
+              </>
+            ) : (
+              <SingleMachine model={model} />
+            )}
             <ModelChart model={model} />
           </>
         ) : (
@@ -237,11 +254,13 @@ function ProviderView({
           kinds={historyContext.kinds}
           selectedStartMs={model.closed ? model.cycle.startMs : null}
         />
-        <AllTimeGroups
-          summary={historyContext.allTimeByProvider[selected.id] ?? null}
-          timeZone={model.timeZone}
-          groupColors={historyContext.groupColors}
-        />
+        {selected.breakdown && (
+          <AllTimeGroups
+            summary={historyContext.allTimeByProvider[selected.id] ?? null}
+            timeZone={model.timeZone}
+            groupColors={historyContext.groupColors}
+          />
+        )}
       </main>
       <footer className="mt-16 max-w-2xl border-t border-hairline pt-6 text-sm leading-relaxed text-ink-3">
         <p>{model.closed ? t("cycle_info_closed", cycleInfo) : t("cycle_info", cycleInfo)}</p>

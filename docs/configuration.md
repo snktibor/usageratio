@@ -43,6 +43,17 @@ kWh — data-centre cooling plus electricity generation, the U.S. average in
 [Li et al., "Making AI Less Thirsty"](https://arxiv.org/abs/2304.03271) (0.55 L/kWh on site +
 1.17 PUE × 3.14 L/kWh off site).
 
+**Show the 5-hour window** is on by default. The macOS menu bar app sends a provider's own 5-hour
+window with its weekly figure ([`POST /api/official-usage/report`](api.md#post-apiofficial-usagereport));
+the dashboard then shows it under the weekly figure, smaller: how much is used, the reset time, a bar
+with the time gone by and left, and when it runs out at the window's pace so far (a purple mark on the
+bar). A reading older than 15 minutes says when it was taken. Without the app nothing shows.
+
+**Groups and machines** decides when the dashboard splits the usage: the groups' shares, the machines
+table, a line per group on the chart and the all-time totals. **Automatic** (the default) splits it only
+once more than one machine reported in the cycle — with one machine it would only repeat the total, so a
+line names that machine and its last report instead. **Always** and **Never** do what they say.
+
 ### Sub-limits
 
 A budget measured on some of a provider's models only — e.g. a separate cap for one model family

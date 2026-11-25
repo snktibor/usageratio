@@ -1,6 +1,7 @@
 import { summarizeCost, summarizeUsage, type TimeWindow, type UsageEvent } from "@/lib/aggregate";
-import type { AppConfig, BudgetPeriod, ResetMode, TokenMode } from "@/lib/config";
+import type { AppConfig, BreakdownMode, BudgetPeriod, ResetMode, TokenMode } from "@/lib/config";
 import { type Cycle, getCycle, getDaySegments, getPreviousCycle } from "@/lib/cycle";
+import type { FiveHourReading } from "@/lib/five-hour";
 import type { CycleSegmentSummary, CycleSummary } from "@/lib/history";
 import { type OfficialEntryView, officialUsageField } from "@/lib/official-usage";
 import { providerCycle } from "@/lib/provider-cycles";
@@ -228,6 +229,19 @@ export interface ProviderDashboardModel {
   officialEntry: OfficialEntryView | null;
   /** Its sub-limits' own figures, by sub-limit id; entries outside the current cycle are already gone. */
   subLimitEntries: Record<string, OfficialEntryView>;
+  /**
+   * The provider's own 5-hour window, as a report last read it (lib/five-hour.ts); null without
+   * one, on a past cycle, or with the settings' switch off.
+   */
+  fiveHour: FiveHourReading | null;
+  /** Whether the page splits the usage by group and machine (the settings' `breakdown`, `showsBreakdown`). */
+  breakdown: boolean;
+}
+
+/** "auto" splits the usage only once more than one machine reported in the cycle: one would repeat the total. */
+export function showsBreakdown(mode: BreakdownMode, model: Pick<DashboardModel, "machines">): boolean {
+  if (mode !== "auto") return mode === "always";
+  return model.machines.filter((machine) => machine.reportedInCycle).length > 1;
 }
 
 const HOUR = 3_600_000;
@@ -491,6 +505,8 @@ export interface ProviderStoreSnapshot {
   resets?: Record<string, ProviderResets>;
   /** Every provider's archived cycles (lib/usage-store.ts `loadHistory`): a past cycle's segments are its summary's. */
   history?: Record<string, CycleSummary[]>;
+  /** Every provider's newest 5-hour window (lib/usage-store.ts `loadIndexes`); only for the current cycle. */
+  fiveHour?: Record<string, FiveHourReading>;
 }
 
 /**
@@ -514,25 +530,26 @@ export function buildProviderDashboards(
     const archivedSegments = window
       ? (store.history?.[providerId] ?? []).find((entry) => entry.start === window.cycle.start.getTime())?.segments
       : undefined;
+    const dashboard = buildDashboard(
+      now,
+      configForProvider(config, providerId),
+      {
+        events: (store.eventsByProvider[providerId] ?? []).filter((event) => counts(event.groupId)),
+        // All of them: a group's colour must not depend on which provider is selected.
+        groups: store.groups,
+        machines: store.machines.filter((machine) => machine.providerId === providerId && counts(machine.groupId)),
+        resets,
+        ...(archivedSegments && { archivedSegments }),
+      },
+      subLimits,
+      // The current cycle's previous one is the cycle a restart cut short, when one began it.
+      window ?? providerCycle(now, config, providerId, resets),
+    );
     return {
       id: providerId,
       label: providerLabel(providerId),
       resetMode: resetModeOf(config, providerId),
-      dashboard: buildDashboard(
-        now,
-        configForProvider(config, providerId),
-        {
-          events: (store.eventsByProvider[providerId] ?? []).filter((event) => counts(event.groupId)),
-          // All of them: a group's colour must not depend on which provider is selected.
-          groups: store.groups,
-          machines: store.machines.filter((machine) => machine.providerId === providerId && counts(machine.groupId)),
-          resets,
-          ...(archivedSegments && { archivedSegments }),
-        },
-        subLimits,
-        // The current cycle's previous one is the cycle a restart cut short, when one began it.
-        window ?? providerCycle(now, config, providerId, resets),
-      ),
+      dashboard,
       officialEntry: officialUsage.get(officialUsageField(providerId, null)) ?? null,
       subLimitEntries: Object.fromEntries(
         subLimits.flatMap((sub) => {
@@ -540,6 +557,8 @@ export function buildProviderDashboards(
           return entry ? [[sub.id, entry]] : [];
         }),
       ),
+      fiveHour: (!window && config.showFiveHour && store.fiveHour?.[providerId]) || null,
+      breakdown: showsBreakdown(config.breakdown, dashboard),
     };
   });
 }

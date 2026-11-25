@@ -44,6 +44,8 @@ const MONTHLY: UsageSettings = {
   resetModes: {},
   showRemaining: false,
   costEstimate: true,
+  breakdown: "never",
+  showFiveHour: false,
   hiddenProviders: ["openai"],
   excludedProviders: { Work: ["claude", "deepseek"] },
   subLimits: {
@@ -83,6 +85,8 @@ describe("stored settings", () => {
       resetModes: {},
       showRemaining: true,
       costEstimate: false,
+      breakdown: "auto",
+      showFiveHour: true,
       hiddenProviders: [],
       excludedProviders: {},
       subLimits: {},
@@ -109,6 +113,8 @@ describe("stored settings", () => {
       resetModes: {},
       showRemaining: true,
       costEstimate: false,
+      breakdown: "auto",
+      showFiveHour: true,
       hiddenProviders: [],
       excludedProviders: {},
       subLimits: {},
@@ -171,6 +177,8 @@ describe("stored settings", () => {
       resetModes: {},
       showRemaining: true,
       costEstimate: false,
+      breakdown: "auto",
+      showFiveHour: true,
       hiddenProviders: [],
       excludedProviders: {},
       subLimits: {},
@@ -193,6 +201,8 @@ describe("stored settings", () => {
       resetModes: {},
       showRemaining: true,
       costEstimate: false,
+      breakdown: "auto",
+      showFiveHour: true,
       hiddenProviders: [],
       excludedProviders: {},
       subLimits: {},
@@ -333,6 +343,8 @@ describe("parseSettingsUpdate", () => {
     resetModes: {},
     showRemaining: false,
     costEstimate: true,
+    breakdown: "never",
+    showFiveHour: false,
     hiddenProviders: ["OpenAI", "openai"],
     excludedProviders: { " Work ": ["claude", "deepseek"], Home: [] },
     subLimits: {
@@ -455,6 +467,13 @@ describe("parseSettingsUpdate", () => {
     });
   });
 
+  it("keeps the display defaults for a body without the breakdown and 5-hour switches", () => {
+    const { breakdown: _b, showFiveHour: _f, ...older } = valid;
+    const result = parseSettingsUpdate(older);
+    if (!result.ok) throw new Error(result.errors.join("; "));
+    expect(result.update.settings).toMatchObject({ breakdown: "auto", showFiveHour: true });
+  });
+
   it("normalizes the reset overrides' provider ids", () => {
     const result = parseSettingsUpdate(valid);
     if (!result.ok) throw new Error(result.errors.join("; "));
@@ -536,6 +555,8 @@ describe("parseSettingsUpdate", () => {
     ["the switch given as a number", { ...valid, showRemaining: 0 }],
     ["a missing cost estimate switch", { ...valid, costEstimate: undefined }],
     ["the cost estimate switch given as text", { ...valid, costEstimate: "true" }],
+    ["an unknown breakdown", { ...valid, breakdown: "sometimes" }],
+    ["the 5-hour switch given as text", { ...valid, showFiveHour: "true" }],
     ["hidden providers that are not a list", { ...valid, hiddenProviders: "openai" }],
     ["a hidden provider that is no id", { ...valid, hiddenProviders: ["bad/provider"] }],
     [

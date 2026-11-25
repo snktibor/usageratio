@@ -157,7 +157,13 @@ async function loadDashboard(
   const { selected } = selection;
   const isPrevious =
     selected.startMs === previousCycle.start.getTime() && selected.endMs === previousCycle.end.getTime();
-  const loaded = { eventsByProvider, groups, machines: indexes.machines, resets: indexes.resets };
+  const loaded = {
+    eventsByProvider,
+    groups,
+    machines: indexes.machines,
+    resets: indexes.resets,
+    fiveHour: indexes.fiveHour,
+  };
   const colors = resolveGroupColors(groups);
 
   let providers: ProviderDashboardModel[] = [];

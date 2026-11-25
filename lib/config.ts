@@ -59,6 +59,21 @@ export const DEFAULT_SHOW_REMAINING = true;
  */
 export const DEFAULT_COST_ESTIMATE = false;
 
+/**
+ * When the dashboard splits the usage by group and machine: "auto" only once
+ * more than one machine reported in the cycle (one machine would only repeat
+ * the total), "always", or "never". The settings panel has the choice.
+ */
+export type BreakdownMode = "auto" | "always" | "never";
+export const BREAKDOWN_MODES: readonly BreakdownMode[] = ["auto", "always", "never"];
+export const DEFAULT_BREAKDOWN: BreakdownMode = "auto";
+
+/**
+ * Whether the dashboard shows a provider's own 5-hour window under its
+ * weekly figure, while a report has sent one (lib/five-hour.ts).
+ */
+export const DEFAULT_SHOW_FIVE_HOUR = true;
+
 /** How an alert webhook's message is shaped; see lib/alerts.ts and lib/webhook.ts. */
 export type AlertsFormat = "generic" | "slack" | "discord";
 
@@ -317,6 +332,10 @@ export interface AppConfig {
   showRemaining: boolean;
   /** True: the dashboard shows the cost estimate, with its energy and water; see DEFAULT_COST_ESTIMATE. */
   costEstimate: boolean;
+  /** When the dashboard splits the usage by group and machine; see DEFAULT_BREAKDOWN. */
+  breakdown: BreakdownMode;
+  /** True: the dashboard shows a provider's own 5-hour window; see DEFAULT_SHOW_FIVE_HOUR. */
+  showFiveHour: boolean;
   /** Providers the dashboard leaves out, account picker included; their reports are still stored. */
   hiddenProviders: string[];
   /** groupId → the providers whose reports from that group the dashboard leaves out. */
@@ -409,6 +428,8 @@ export function getConfig(env: Record<string, string | undefined> = process.env)
     resetModes: {},
     showRemaining: DEFAULT_SHOW_REMAINING,
     costEstimate: DEFAULT_COST_ESTIMATE,
+    breakdown: DEFAULT_BREAKDOWN,
+    showFiveHour: DEFAULT_SHOW_FIVE_HOUR,
     hiddenProviders: [],
     excludedProviders: {},
     subLimits: {},
