@@ -118,14 +118,6 @@ public enum Display {
         )
     }
 
-    /// "5-hour window: 23% · resets 14:30".
-    public static func fiveHourText(_ window: LimitWindow, strings: Strings) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = strings.locale
-        formatter.setLocalizedDateFormatFromTemplate("jmm")
-        return strings.fiveHourWindow(percentText(window.usedPercent), formatter.string(from: window.resetsAt))
-    }
-
     /// "Thursday 09:00": the weekday (0 = Sunday) and time a cycle resets at, as the dashboard writes it.
     public static func momentText(_ moment: ResetMoment, strings: Strings) -> String {
         let formatter = DateFormatter()
@@ -152,9 +144,7 @@ public enum Display {
 
     /// How much of the cycle has gone by, 0–100.
     public static func elapsedPercent(_ cycle: StatusPayload.Cycle, now: Date) -> Double {
-        let length = cycle.end.timeIntervalSince(cycle.start)
-        guard length > 0 else { return 0 }
-        return min(100, max(0, now.timeIntervalSince(cycle.start) / length * 100))
+        position(of: now, from: cycle.start, to: cycle.end)
     }
 
     /// "Runs out Saturday 06:25", or that it lasts; nil while there is no percentage.

@@ -298,21 +298,6 @@ private func recentJSON(since: Date, changed: Bool, ratio: Double, runOutAt: Dat
     #expect(Display.cycle(of: provider(), in: payload) == payload.cycle)
 }
 
-@Test func wordsTheFiveHourWindow() {
-    // 14:30 in this Mac's time zone, whatever it is.
-    let resetsAt = Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 9, hour: 14, minute: 30))!
-    let time = { (strings: Strings) in
-        let formatter = DateFormatter()
-        formatter.locale = strings.locale
-        formatter.setLocalizedDateFormatFromTemplate("jmm")
-        return formatter.string(from: resetsAt)
-    }
-    let window = LimitWindow(usedPercent: 23.4, resetsAt: resetsAt)
-    #expect(Display.fiveHourText(window, strings: .en) == "5-hour window: 23% · resets \(time(.en))")
-    #expect(Display.fiveHourText(window, strings: .hu) == "5 órás ablak: 23% · nullázódik \(time(.hu))")
-    #expect(time(.hu).contains("14:30"))
-}
-
 @Test func wordsTheResetMoment() {
     let thursday = ResetMoment(weekday: 4, hour: 9, minute: 0)
     #expect(Display.momentText(thursday, strings: .en) == "Thursday 09:00")

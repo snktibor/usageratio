@@ -31,12 +31,35 @@ struct StatusBadge: View {
     private var color: Color { status == .good ? .green : statusColor(status) }
 }
 
-/// The budget used, with a marker where the cycle stands: a fill past the marker is ahead of the even pace.
+/// The purple of the moment the pace runs out: its marker on a bar, and the tick before its line.
+extension Color {
+    static let runOut = Color(red: 0.66, green: 0.44, blue: 1)
+}
+
+/// The tick before "runs out at …", the same mark as on the bar above it.
+struct RunOutTick: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 1)
+            .fill(Color.runOut)
+            .frame(width: 2.5, height: 11)
+            // Level with the text beside it, as an SF Symbol sits.
+            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1.5 }
+            .accessibilityHidden(true)
+    }
+}
+
+/// The budget used, with a marker where the time stands (a fill past it is ahead of the even pace)
+/// and, in purple, one where the pace runs out before the reset.
 struct PaceBar: View {
     let percent: Double
-    let elapsed: Double
+    /// Of the time gone by, 0–100; nil: no window is running, so no marker.
+    let elapsed: Double?
     let status: QuotaStatus?
-    let elapsedLabel: String
+    /// "▲ time elapsed 47%" under the marker; nil: no label (the 5-hour bar writes its own line).
+    var elapsedLabel: String?
+    /// Where the pace runs out, 0–100; nil while it lasts.
+    var runOut: Double?
+    var height: CGFloat = 8
 
     var body: some View {
         VStack(spacing: 7) {
@@ -44,39 +67,48 @@ struct PaceBar: View {
                 let width = geometry.size.width
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.primary.opacity(0.1))
-                    Capsule()
-                        .fill(statusColor(status).gradient)
-                        .frame(width: max(8, width * min(percent, 100) / 100))
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(Color.primary.opacity(0.8))
-                        .frame(width: 2, height: 12)
-                        .offset(x: min(width - 2, max(0, width * elapsed / 100 - 1)))
-                }
-            }
-            .frame(height: 8)
-
-            // "▲ time elapsed 47%" under the marker: to its right in the first half, to its left after.
-            GeometryReader { geometry in
-                let x = geometry.size.width * elapsed / 100
-                Group {
-                    if elapsed <= 50 {
-                        Text("▲ \(elapsedLabel)")
-                            .padding(.leading, max(0, x - 4))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Text("\(elapsedLabel) ▲")
-                            .padding(.trailing, max(0, geometry.size.width - x - 4))
-                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    if percent > 0 {
+                        Capsule()
+                            .fill(statusColor(status).gradient)
+                            .frame(width: max(height, width * min(percent, 100) / 100))
                     }
+                    if let elapsed { marker(at: elapsed, in: width, color: Color.primary.opacity(0.8)) }
+                    if let runOut { marker(at: runOut, in: width, color: .runOut) }
                 }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
             }
-            .frame(height: 13)
+            .frame(height: height)
+
+            if let elapsedLabel, let elapsed {
+                // Under the marker: to its right in the first half, to its left after.
+                GeometryReader { geometry in
+                    let x = geometry.size.width * elapsed / 100
+                    Group {
+                        if elapsed <= 50 {
+                            Text("▲ \(elapsedLabel)")
+                                .padding(.leading, max(0, x - 4))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            Text("\(elapsedLabel) ▲")
+                                .padding(.trailing, max(0, geometry.size.width - x - 4))
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+                .frame(height: 13)
+            }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(Int(percent.rounded()))%, \(elapsedLabel)")
+        .accessibilityLabel(["\(Int(percent.rounded()))%", elapsedLabel].compactMap { $0 }.joined(separator: ", "))
+    }
+
+    private func marker(at position: Double, in width: CGFloat, color: Color) -> some View {
+        RoundedRectangle(cornerRadius: 1)
+            .fill(color)
+            .frame(width: 2, height: height + 4)
+            .offset(x: min(width - 2, max(0, width * position / 100 - 1)))
     }
 }
 
