@@ -204,9 +204,10 @@ struct PopoverView: View {
 
     // MARK: 5-hour window
 
-    /// The provider's own 5-hour window under the cycle: a smaller, secondary block. Its bar carries
-    /// the percentage used inside it, the time gone by under its marker, the time left at its end,
-    /// and in purple where the pace runs out; one line of outlook under it.
+    /// The provider's own 5-hour window under the cycle: a smaller, secondary block. The percentage
+    /// used stands by its title and the reset time across from it; its bar carries the time gone by
+    /// under its marker, the time left at its end, and in purple where the pace runs out; one line of
+    /// outlook under it.
     private func fiveHourBlock(_ view: FiveHourView) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Divider()
@@ -217,6 +218,10 @@ struct PopoverView: View {
                     .font(.caption2.weight(.semibold))
                     .tracking(1)
                     .textCase(.uppercase)
+                Text(Display.percentText(view.percent))
+                    .font(.caption.bold())
+                    .monospacedDigit()
+                    .foregroundStyle(Color.primary)
                 Spacer(minLength: 8)
                 if let resetsAt = view.resetsAt {
                     Text(Display.timeText(resetsAt, strings: strings))
@@ -236,8 +241,7 @@ struct PopoverView: View {
                 status: Display.shareStatus(view.percent),
                 elapsedLabel: view.resetsAt == nil ? nil : Display.percentText(view.elapsed),
                 runOut: view.runOutPercent,
-                height: 9,
-                inside: Display.percentText(view.percent),
+                height: 4,
                 endLabel: Display.fiveHourLeftText(view, now: store.now, strings: strings)
             )
             .padding(.top, 2)
