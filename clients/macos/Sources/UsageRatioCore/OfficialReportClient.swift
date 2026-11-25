@@ -36,17 +36,22 @@ public struct OfficialReportClient: Sendable {
         base.appending(path: "api/official-usage/report")
     }
 
-    /// The request body; nil while the snapshot has no weekly window.
+    /// The request body; nil while the snapshot has no weekly window. The 5-hour window rides along
+    /// while it has one: the dashboard shows the newest (the server ignores one that does not hold up).
     public static func body(for snapshot: LimitsSnapshot) -> Data? {
         guard let weekly = snapshot.weekly, (0...1000).contains(weekly.usedPercent),
               let resetsAtMs = milliseconds(weekly.resetsAt), let observedAtMs = milliseconds(snapshot.observedAt)
         else { return nil }
-        let object: [String: Any] = [
+        var object: [String: Any] = [
             "providerId": snapshot.providerId,
             "usedPercent": weekly.usedPercent,
             "resetsAtMs": resetsAtMs,
             "observedAtMs": observedAtMs,
         ]
+        if let fiveHour = snapshot.fiveHour, (0...1000).contains(fiveHour.usedPercent),
+           fiveHour.resetsAt > snapshot.observedAt, let fiveHourResetsAtMs = milliseconds(fiveHour.resetsAt) {
+            object["fiveHour"] = ["usedPercent": fiveHour.usedPercent, "resetsAtMs": fiveHourResetsAtMs]
+        }
         return try? JSONSerialization.data(withJSONObject: object)
     }
 
