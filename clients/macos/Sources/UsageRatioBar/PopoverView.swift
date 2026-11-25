@@ -209,6 +209,8 @@ struct PopoverView: View {
     private func fiveHourBlock(_ view: FiveHourView) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Divider()
+                .padding(.top, 4)
+                .padding(.bottom, 2)
             HStack(alignment: .firstTextBaseline) {
                 Text(strings.fiveHourSection)
                     .font(.caption2.weight(.semibold))
