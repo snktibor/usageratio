@@ -104,6 +104,9 @@ struct SettingsView: View {
             row(strings.showFiveHour) {
                 Toggle(strings.showFiveHour, isOn: $store.showsFiveHour).toggleStyle(.switch)
             }
+            row(strings.showSubLimits) {
+                Toggle(strings.showSubLimits, isOn: $store.showsSubLimits).toggleStyle(.switch)
+            }
             row(strings.breakdownLabel) {
                 Picker(strings.breakdownLabel, selection: $store.breakdownMode) {
                     Text(strings.breakdownAuto).tag(BreakdownMode.auto)

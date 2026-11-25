@@ -25,8 +25,8 @@ of the hourly script (see [This Mac's usage](#this-macs-usage-instead-of-the-scr
   dashboard and the gear sit at the bottom.
 - **Settings (the gear):** which provider the menu bar shows, and whether its whole figure or one
   group's or machine's part of it (its share of the provider's budget, as on the dashboard); the
-  icon's style and which window its number and ring follow; the 5-hour window on the card; the
-  groups and machines (automatic, always or never); the
+  icon's style and which window its number and ring follow; the 5-hour window and the sub-limits on
+  the card; the groups and machines (automatic, always or never); the
   server and token; this Mac's report (on or off, machine name, group); open at login; quit.
 - **Polling:** every 5 minutes, again 10 seconds after the Mac wakes, and when the popover opens
   on a figure older than a minute. On errors it backs off (1, 2, 4 … up to 30 minutes) and honours

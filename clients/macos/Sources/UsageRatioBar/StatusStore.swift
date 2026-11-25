@@ -60,6 +60,10 @@ final class StatusStore {
         didSet { UserDefaults.standard.set(showsFiveHour, forKey: Keys.showsFiveHour) }
     }
 
+    var showsSubLimits: Bool {
+        didSet { UserDefaults.standard.set(showsSubLimits, forKey: Keys.showsSubLimits) }
+    }
+
     var breakdownMode: BreakdownMode {
         didSet { UserDefaults.standard.set(breakdownMode.rawValue, forKey: Keys.breakdownMode) }
     }
@@ -88,24 +92,26 @@ final class StatusStore {
         static let iconRing = "iconRing"
         static let showsFiveHour = "showsFiveHour"
         static let breakdownMode = "breakdownMode"
+        static let showsSubLimits = "showsSubLimits"
     }
 
-    /// The number shows the cycle and the ring the 5-hour window, the card shows the 5-hour window, and
-    /// the breakdown appears with a second machine, until changed.
-    private static func storedDisplay() -> (MenuBarStyle, MenuBarWindow, MenuBarWindow, Bool, BreakdownMode) {
+    /// The number shows the cycle and the ring the 5-hour window, the card shows the 5-hour window and
+    /// the sub-limits, and the breakdown appears with a second machine, until changed.
+    private static func storedDisplay() -> (MenuBarStyle, MenuBarWindow, MenuBarWindow, Bool, Bool, BreakdownMode) {
         let defaults = UserDefaults.standard
         return (
             defaults.string(forKey: Keys.menuBarStyle).flatMap(MenuBarStyle.init) ?? .ring,
             defaults.string(forKey: Keys.iconNumber).flatMap(MenuBarWindow.init) ?? .cycle,
             defaults.string(forKey: Keys.iconRing).flatMap(MenuBarWindow.init) ?? .fiveHour,
             defaults.object(forKey: Keys.showsFiveHour) as? Bool ?? true,
+            defaults.object(forKey: Keys.showsSubLimits) as? Bool ?? true,
             defaults.string(forKey: Keys.breakdownMode).flatMap(BreakdownMode.init) ?? .auto
         )
     }
 
     init() {
         strings = Strings.forPreferredLanguages()
-        (menuBarStyle, iconNumber, iconRing, showsFiveHour, breakdownMode) = Self.storedDisplay()
+        (menuBarStyle, iconNumber, iconRing, showsFiveHour, showsSubLimits, breakdownMode) = Self.storedDisplay()
         serverURL = UserDefaults.standard.string(forKey: Keys.server).flatMap(normalizedServerURL)
         selectedProviderId = UserDefaults.standard.string(forKey: Keys.provider)
         selectedScope = MenuBarScope(storage: UserDefaults.standard.string(forKey: Keys.scope))
@@ -132,7 +138,7 @@ final class StatusStore {
         limits: [String: LimitsSnapshot] = [:], sources: (claude: SourceReading, codex: SourceReading) = (.missing, .missing),
         uploadNotes: [String: OfficialReportRefusal] = [:], movedNotes: [String: ResetMoment] = [:]
     ) {
-        (menuBarStyle, iconNumber, iconRing, showsFiveHour, breakdownMode) = (.ring, .cycle, .fiveHour, true, .auto)
+        (menuBarStyle, iconNumber, iconRing, showsFiveHour, showsSubLimits, breakdownMode) = (.ring, .cycle, .fiveHour, true, true, .auto)
         self.limits = limits
         self.sources = sources
         self.uploadNotes = uploadNotes

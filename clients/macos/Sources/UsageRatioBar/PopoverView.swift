@@ -38,7 +38,7 @@ struct PopoverView: View {
                 if store.showsFiveHour, let fiveHour = store.fiveHour {
                     fiveHourBlock(fiveHour)
                 }
-                if !provider.subLimits.isEmpty {
+                if store.showsSubLimits, !provider.subLimits.isEmpty {
                     subLimits(provider)
                 }
                 if Display.showsBreakdown(provider, mode: store.breakdownMode) {

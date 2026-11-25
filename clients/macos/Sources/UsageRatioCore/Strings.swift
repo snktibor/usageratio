@@ -115,6 +115,8 @@ public struct Strings: Sendable {
     /// "5-hour", next to the cycle's "Weekly" in the number's and the ring's menus
     public let fiveHourShort: String
     public let showFiveHour: String
+    /// The switch for the sub-limits section on the card.
+    public let showSubLimits: String
     public let breakdownLabel: String
     public let breakdownAuto: String
     public let breakdownAlways: String
@@ -291,6 +293,7 @@ public struct Strings: Sendable {
         iconRing: "Ring",
         fiveHourShort: "5-hour",
         showFiveHour: "5-hour window on the card",
+        showSubLimits: "Sub-limits on the card",
         breakdownLabel: "Groups and machines",
         breakdownAuto: "Automatic",
         breakdownAlways: "Always",
@@ -412,6 +415,7 @@ public struct Strings: Sendable {
         iconRing: "Gyűrű",
         fiveHourShort: "5 órás",
         showFiveHour: "5 órás ablak a kártyán",
+        showSubLimits: "Alkeretek a kártyán",
         breakdownLabel: "Csoport-/gépbontás",
         breakdownAuto: "Automatikus",
         breakdownAlways: "Mindig",
@@ -533,6 +537,7 @@ public struct Strings: Sendable {
         iconRing: "Ring",
         fiveHourShort: "5 Stunden",
         showFiveHour: "5-Stunden-Fenster auf der Karte",
+        showSubLimits: "Unterkontingente auf der Karte",
         breakdownLabel: "Gruppen und Maschinen",
         breakdownAuto: "Automatisch",
         breakdownAlways: "Immer",
