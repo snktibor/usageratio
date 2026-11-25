@@ -124,6 +124,19 @@ export function BudgetSection({
         </span>
       </label>
 
+      <label className="flex cursor-pointer items-start gap-3">
+        <input
+          type="checkbox"
+          checked={draft.showOfficialInput}
+          onChange={(event) => onPatch({ showOfficialInput: event.target.checked })}
+          className="mt-1 size-4 shrink-0 cursor-pointer accent-ink"
+        />
+        <span>
+          {t("show_official_input")}
+          <span className="mt-0.5 block text-sm text-ink-3">{t("show_official_input_explanation")}</span>
+        </span>
+      </label>
+
       <label className="block">
         <span>{t("breakdown_label")}</span>
         <select

@@ -363,6 +363,7 @@ required on every save (a document stored before some of them existed is still r
   "costEstimate": false,
   "breakdown": "auto",
   "showFiveHour": true,
+  "showOfficialInput": true,
   "hiddenProviders": ["openai"],
   "excludedProviders": { "Work": ["claude", "deepseek"] },
   "subLimits": {

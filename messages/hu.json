@@ -195,6 +195,8 @@
     "cost_estimate_explanation": "A gépek API-listaáron beárazzák a használatukat (a ccusage saját árlistájával); bekapcsolva a dashboard mutatja ezt a költséget és a mögötte álló energia- és vízfelhasználást. Durva becslés, nem számla: az olyan előfizetéses csomagok, mint a Claude Max, nem tokenenként fizetnek.",
     "show_five_hour": "Az 5 órás ablak megjelenítése",
     "show_five_hour_explanation": "A heti szám alatt a szolgáltató saját 5 órás ablaka, amíg a macOS menüsáv-app küld ilyet: mennyi fogyott el belőle, az idejéből mennyi telt el, és a mostani tempóban mikor fogy el.",
+    "show_official_input": "A kézi beviteli kártya megjelenítése",
+    "show_official_input_explanation": "A dashboard tetején lévő kártya, ahol a hivatalos százalékot, az alkeretek értékét és a reseteket kézzel lehet megadni. Kikapcsolva a macOS menüsáv-app jelentései továbbra is beírják az értéket; egy lezárt ciklusnál a kártya megmarad, hogy javítani lehessen.",
     "breakdown_label": "Csoport-/gépbontás",
     "breakdown_auto": "Automatikus",
     "breakdown_always": "Mindig",
@@ -630,7 +632,9 @@
     "five_hour_too_early": "A tempóhoz még korai",
     "five_hour_idle": "Nincs futó ablak: a következő kérés indít egyet",
     "five_hour_read_at": "leolvasva: {time}",
-    "single_machine": "Jelentő gép"
+    "single_machine": "Jelentő gép",
+    "official_collapse": "Kártya összecsukása",
+    "official_expand": "Kártya kinyitása"
   },
   "Cycles": {
     "back_to_current": "Vissza az aktuálishoz",

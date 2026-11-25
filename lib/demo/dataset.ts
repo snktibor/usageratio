@@ -659,6 +659,7 @@ export function buildDemoDataset(now: Date, options: DemoOptions = {}): DemoData
       costEstimate: true,
       breakdown: "auto",
       showFiveHour: true,
+      showOfficialInput: true,
       hiddenProviders: [],
       excludedProviders: { Lab: ["openai"] },
       subLimits: {

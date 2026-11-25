@@ -65,6 +65,7 @@ export async function Dashboard({
   exportCycle,
   groupColors,
   costEstimate,
+  officialCollapsed,
 }: {
   /** Empty for a cycle known only from its archived summaries (`summaries`), and on a fresh install. */
   providers: ProviderDashboardModel[];
@@ -83,6 +84,8 @@ export async function Dashboard({
   groupColors: Record<string, string>;
   /** The settings' cost estimate: the archived summaries show their cost, energy and water only with it on. */
   costEstimate: boolean;
+  /** This browser folded the hand-entry card (lib/preferences.ts `OFFICIAL_COLLAPSED_COOKIE`). */
+  officialCollapsed: boolean;
 }) {
   const locale = await getLocale();
   const t = await getTranslations("HomePage");
@@ -164,6 +167,7 @@ export async function Dashboard({
           historyByProvider={historyByProvider}
           historyContext={historyContext}
           pastCycle={selected.kind !== "current"}
+          officialCollapsed={officialCollapsed}
         />
       ) : (
         <section aria-labelledby="no-providers-heading" className="mt-12 max-w-xl">

@@ -35,6 +35,7 @@ import { loadGroupActivity, loadIndexes, loadRawSettings, saveSettings } from "@
  *            "costEstimate": false,                              true: every machine prices its usage
  *            "breakdown": "auto",                                groups and machines: "auto" | "always" | "never"
  *            "showFiveHour": true,                               false hides the 5-hour window
+ *            "showOfficialInput": true,                          false hides the hand-entry card
  *            "hiddenProviders": ["openai"],                      not on the dashboard; one must stay
  *            "excludedProviders": { "Work": ["claude"] },        group → providers it does not count for
  *            "groups": [{ "id": "Work", "color": "#3987e5" }],   create or recolour; others stay

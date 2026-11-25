@@ -195,6 +195,8 @@
     "cost_estimate_explanation": "The machines price their usage at API list prices (ccusage's own list); with this on, the dashboard shows that cost and the energy and water behind it. A rough estimate, not a bill: subscription plans such as Claude Max are not billed per token.",
     "show_five_hour": "Show the 5-hour window",
     "show_five_hour_explanation": "Under the weekly figure, the provider's own 5-hour window, while the macOS menu bar app sends one: how much of it is used, how much of its time has gone, and when it runs out at its pace.",
+    "show_official_input": "Show the hand-entry card",
+    "show_official_input_explanation": "The card at the top of the dashboard where the official percentage, the sub-limits' figures and the usage resets are typed in by hand. Off, the reports from the macOS menu bar app still set the figure; a past cycle keeps the card to correct its figure.",
     "breakdown_label": "Groups and machines",
     "breakdown_auto": "Automatic",
     "breakdown_always": "Always",
@@ -630,7 +632,9 @@
     "five_hour_too_early": "Too early for a pace",
     "five_hour_idle": "No window running: the next request starts one",
     "five_hour_read_at": "read at {time}",
-    "single_machine": "Reported by"
+    "single_machine": "Reported by",
+    "official_collapse": "Fold the card",
+    "official_expand": "Unfold the card"
   },
   "Cycles": {
     "back_to_current": "Back to the current cycle",

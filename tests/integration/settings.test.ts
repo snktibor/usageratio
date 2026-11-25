@@ -20,6 +20,7 @@ const VALID_UPDATE = {
   costEstimate: false,
   breakdown: "auto",
   showFiveHour: true,
+  showOfficialInput: true,
   hiddenProviders: [],
   excludedProviders: {},
   subLimits: {},

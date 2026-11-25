@@ -74,6 +74,14 @@ export const DEFAULT_BREAKDOWN: BreakdownMode = "auto";
  */
 export const DEFAULT_SHOW_FIVE_HOUR = true;
 
+/**
+ * Whether the current cycle's dashboard leads with the card where the
+ * official percentage (and the sub-limits' and the usage resets) are typed
+ * in by hand. Off, reports still set the figure; a past cycle keeps the card,
+ * its only way to correct its figure.
+ */
+export const DEFAULT_SHOW_OFFICIAL_INPUT = true;
+
 /** How an alert webhook's message is shaped; see lib/alerts.ts and lib/webhook.ts. */
 export type AlertsFormat = "generic" | "slack" | "discord";
 
@@ -336,6 +344,8 @@ export interface AppConfig {
   breakdown: BreakdownMode;
   /** True: the dashboard shows a provider's own 5-hour window; see DEFAULT_SHOW_FIVE_HOUR. */
   showFiveHour: boolean;
+  /** True: the current cycle's dashboard has the hand-entry card; see DEFAULT_SHOW_OFFICIAL_INPUT. */
+  showOfficialInput: boolean;
   /** Providers the dashboard leaves out, account picker included; their reports are still stored. */
   hiddenProviders: string[];
   /** groupId → the providers whose reports from that group the dashboard leaves out. */
@@ -430,6 +440,7 @@ export function getConfig(env: Record<string, string | undefined> = process.env)
     costEstimate: DEFAULT_COST_ESTIMATE,
     breakdown: DEFAULT_BREAKDOWN,
     showFiveHour: DEFAULT_SHOW_FIVE_HOUR,
+    showOfficialInput: DEFAULT_SHOW_OFFICIAL_INPUT,
     hiddenProviders: [],
     excludedProviders: {},
     subLimits: {},

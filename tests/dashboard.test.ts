@@ -688,6 +688,15 @@ describe("buildProviderDashboards — which provider counts where", () => {
     expect(never.some((d) => d.breakdown)).toBe(false);
   });
 
+  it("leads the current cycle with the hand-entry card while the switch is on, and a past cycle always", () => {
+    expect(buildProviderDashboards(NOW, config, providerIds, store)[0]!.officialInput).toBe(true);
+    const off = { ...config, showOfficialInput: false };
+    expect(buildProviderDashboards(NOW, off, providerIds, store)[0]!.officialInput).toBe(false);
+    const cycle = getCycle(NOW, config.reset);
+    const past = { cycle, previous: getPreviousCycle(cycle, config.reset) };
+    expect(buildProviderDashboards(NOW, off, providerIds, store, new Map(), past)[0]!.officialInput).toBe(true);
+  });
+
   it("carries a provider's 5-hour window on the current cycle while the switch is on", () => {
     const reading = { usedPercent: 62, resetsAtMs: NOW.getTime() + 2 * HOUR, observedAtMs: NOW.getTime() };
     const withReading = { ...store, fiveHour: { claude: reading } };

@@ -10,6 +10,7 @@ import {
   DEFAULT_ALERTS,
   DEFAULT_BREAKDOWN,
   DEFAULT_SHOW_FIVE_HOUR,
+  DEFAULT_SHOW_OFFICIAL_INPUT,
   isValidTimeZone,
   type ResetConfig,
   type ResetMode,
@@ -92,6 +93,8 @@ export interface UsageSettings {
   breakdown: BreakdownMode;
   /** True: the dashboard shows a provider's own 5-hour window, while a report has sent one. */
   showFiveHour: boolean;
+  /** True: the current cycle's dashboard leads with the card where the official figures are typed in by hand. */
+  showOfficialInput: boolean;
   /**
    * Providers the dashboard does not show, not even in its account picker.
    * Their reports are still stored: shown again, a provider has its history.
@@ -364,6 +367,7 @@ export function settingsFromConfig(config: AppConfig, providerIds: string[] = []
     costEstimate: config.costEstimate,
     breakdown: config.breakdown,
     showFiveHour: config.showFiveHour,
+    showOfficialInput: config.showOfficialInput,
     hiddenProviders: [...config.hiddenProviders],
     excludedProviders: copyExclusions(config.excludedProviders),
     subLimits: copySubLimits(config.subLimits),
@@ -383,6 +387,7 @@ export function applySettings(config: AppConfig, settings: UsageSettings): AppCo
     costEstimate: settings.costEstimate,
     breakdown: settings.breakdown,
     showFiveHour: settings.showFiveHour,
+    showOfficialInput: settings.showOfficialInput,
     hiddenProviders: [...settings.hiddenProviders],
     excludedProviders: copyExclusions(settings.excludedProviders),
     subLimits: copySubLimits(settings.subLimits),
@@ -448,6 +453,7 @@ export function parseStoredSettings(raw: string | null, defaults: UsageSettings)
     costEstimate: typeof doc.costEstimate === "boolean" ? doc.costEstimate : defaults.costEstimate,
     breakdown: isBreakdownMode(doc.breakdown) ? doc.breakdown : defaults.breakdown,
     showFiveHour: typeof doc.showFiveHour === "boolean" ? doc.showFiveHour : defaults.showFiveHour,
+    showOfficialInput: typeof doc.showOfficialInput === "boolean" ? doc.showOfficialInput : defaults.showOfficialInput,
     // Documents saved before these existed lack them: every provider shows, and counts everywhere.
     hiddenProviders: Array.isArray(doc.hiddenProviders)
       ? readProviderList(doc.hiddenProviders)
@@ -847,6 +853,9 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
   if (body.showFiveHour !== undefined && typeof body.showFiveHour !== "boolean") {
     errors.push("showFiveHour must be true or false");
   }
+  if (body.showOfficialInput !== undefined && typeof body.showOfficialInput !== "boolean") {
+    errors.push("showOfficialInput must be true or false");
+  }
   const hiddenProviders = parseProviderList(body.hiddenProviders, "hiddenProviders", errors);
   const excludedProviders = parseExclusions(body.excludedProviders, errors);
   const subLimits = parseSubLimits(body.subLimits, errors);
@@ -902,6 +911,7 @@ export function parseSettingsUpdate(input: unknown): SettingsParseResult {
         costEstimate: body.costEstimate as boolean,
         breakdown: (body.breakdown as BreakdownMode | undefined) ?? DEFAULT_BREAKDOWN,
         showFiveHour: (body.showFiveHour as boolean | undefined) ?? DEFAULT_SHOW_FIVE_HOUR,
+        showOfficialInput: (body.showOfficialInput as boolean | undefined) ?? DEFAULT_SHOW_OFFICIAL_INPUT,
         hiddenProviders,
         excludedProviders,
         subLimits,

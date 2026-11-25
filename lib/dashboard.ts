@@ -236,6 +236,8 @@ export interface ProviderDashboardModel {
   fiveHour: FiveHourReading | null;
   /** Whether the page splits the usage by group and machine (the settings' `breakdown`, `showsBreakdown`). */
   breakdown: boolean;
+  /** Whether the page leads with the hand-entry card: the settings' switch, on a past cycle always. */
+  officialInput: boolean;
 }
 
 /** "auto" splits the usage only once more than one machine reported in the cycle: one would repeat the total. */
@@ -559,6 +561,7 @@ export function buildProviderDashboards(
       ),
       fiveHour: (!window && config.showFiveHour && store.fiveHour?.[providerId]) || null,
       breakdown: showsBreakdown(config.breakdown, dashboard),
+      officialInput: window !== undefined || config.showOfficialInput,
     };
   });
 }

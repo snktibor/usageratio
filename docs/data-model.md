@@ -23,7 +23,7 @@ local development and tests.
 
 | Key | Type | Shape | Retention | Written by |
 | --- | --- | --- | --- | --- |
-| `usage:settings` | STRING | JSON: `{v, period, useTokenLimits, limits, reset, resetOverrides, resetModes, showRemaining, costEstimate, breakdown, showFiveHour, hiddenProviders, excludedProviders, subLimits, alerts, updatedAt}` — see [the settings document](#the-settings-document) | Forever (one document) | `PUT /api/settings` (`lib/usage-store.ts` `saveSettings`) |
+| `usage:settings` | STRING | JSON: `{v, period, useTokenLimits, limits, reset, resetOverrides, resetModes, showRemaining, costEstimate, breakdown, showFiveHour, showOfficialInput, hiddenProviders, excludedProviders, subLimits, alerts, updatedAt}` — see [the settings document](#the-settings-document) | Forever (one document) | `PUT /api/settings` (`lib/usage-store.ts` `saveSettings`) |
 | `usage:providers` | HASH | `providerId → firstSeenMs` | Pruned by housekeeping once dead (no events, no live machine, unreferenced by settings, older than the retention window) | First report of a new provider (`HSETNX`); `npm run seed` |
 | `usage:events:{providerId}:{groupId}` | ZSET | score = report time (epoch ms); member = JSON `{"m": machineId, "t": tokens, "ts": ms, "b"?: {modelId: tokens}, "$"?: costUsd, "$b"?: {modelId: costUsd}, "c"?: 1, "s"?: cycleStartMs}` — `"c":1` marks a day/hour checkpoint, not a real report; `"s"` is the cycle start the client counted from (set by the server; a cycle a restart began ignores snapshot reports counted from before it, and any cycle ignores those counted from a day or more before its start, `STALE_BASIS_MS` in `lib/aggregate.ts`, as `"s"` also says of a report whose `days` show tokens from before its provider's cycle, `countedFromMs` in `lib/days.ts`) | Self-pruning: every write also trims members older than `RETENTION_DAYS` (70) and re-sets the key's own TTL to `(RETENTION_DAYS + 1)` days | `POST /api/usage` (`storeReport`) |
 | `usage:groups` | HASH | `groupId → JSON {"color": "#rrggbb", "ts": firstSeenMs, "ar"?: archivedAtMs}` (a bare number in entries older than group colors; `ar` only while archived, `lib/archived.ts`) | Pruned by housekeeping once a group has zero events across every provider and is old enough, unless archived | `POST /api/usage` (auto-register, `HSETNX`; a report from an archived group rewrites it without `ar`), `PUT /api/settings` (create/recolor, keeping `ar`), `PATCH /api/groups/[group]` `{archived}` |
@@ -115,7 +115,7 @@ deploy-time default (`lib/config.ts`) rather than failing the whole read:
   every provider already known (nothing to seed it onto on a completely fresh install).
 - **v2**: per-provider `limits` and everything else except `reset.timeZone` and `alerts`. Fields added
   to v2 over time (`useTokenLimits`, `showRemaining`, `costEstimate`, `breakdown`, `showFiveHour`,
-  `hiddenProviders`, `excludedProviders`, `subLimits`) are read with their defaults when a document predates them. A v2 document has no time
+  `showOfficialInput`, `hiddenProviders`, `excludedProviders`, `subLimits`) are read with their defaults when a document predates them. A v2 document has no time
   zone, so it uses the deploy-time one (`RESET_TIMEZONE` env, else UTC).
 - **v3** (current, `{v: 3, ...}`): adds `reset.timeZone` (an IANA name, validated with
   `Intl.DateTimeFormat`) and `alerts`. A document without `alerts` reads as `alerts.webhookUrl: null`

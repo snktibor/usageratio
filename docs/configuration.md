@@ -49,6 +49,12 @@ the dashboard then shows it under the weekly figure, smaller: how much is used, 
 with the time gone by and left, and when it runs out at the window's pace so far (a purple mark on the
 bar). A reading older than 15 minutes says when it was taken. Without the app nothing shows.
 
+**Show the hand-entry card** is on by default: the card at the top of the dashboard where the official
+percentage, the sub-limits' figures and the usage resets are typed in by hand. Its arrow folds it to its
+header (the figure and the account picker), and each browser remembers that in a cookie. Switched off,
+the card is gone from the current cycle and the account picker stands on its own; the macOS app's
+reports still set the figure, and a past cycle keeps the card to correct its figure.
+
 **Groups and machines** decides when the dashboard splits the usage: the groups' shares, the machines
 table, a line per group on the chart and the all-time totals. **Automatic** (the default) splits it only
 once more than one machine reported in the cycle — with one machine it would only repeat the total, so a
