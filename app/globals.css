@@ -19,6 +19,9 @@
 
   /* A usage reset's marker on the charts */
   --color-reset: #f5c542;
+
+  /* Where the current pace runs out, on a bar */
+  --color-run-out: #a970ff;
 }
 
 /*

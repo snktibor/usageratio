@@ -93,8 +93,35 @@ public struct Strings: Sendable {
     /// Above a provider's sub-limits, as the dashboard names them.
     public let subLimitsSection: String
 
-    /// percent, time
-    public let fiveHourWindow: @Sendable (String, String) -> String
+    /// The 5-hour window's block on the card, under the cycle's figure.
+    public let fiveHourSection: String
+    /// percent, time it resets
+    public let fiveHourHeader: @Sendable (String, String) -> String
+    /// time left in the window, under the right end of its bar
+    public let fiveHourLeft: @Sendable (String) -> String
+    /// time
+    public let fiveHourRunsOut: @Sendable (String) -> String
+    public let fiveHourLasts: String
+    public let fiveHourUsedUp: String
+    /// No window is running: it starts with the next request.
+    public let fiveHourIdle: String
+    // The menu bar icon and the card's parts, on the settings screen.
+    public let iconStyle: String
+    public let iconStyleRing: String
+    public let iconStyleClassic: String
+    public let iconStyleNumber: String
+    public let iconNumber: String
+    public let iconRing: String
+    /// "5-hour", next to the cycle's "Weekly" in the number's and the ring's menus
+    public let fiveHourShort: String
+    public let showFiveHour: String
+    /// The switch for the sub-limits section on the card.
+    public let showSubLimits: String
+    public let breakdownLabel: String
+    public let breakdownAuto: String
+    public let breakdownAlways: String
+    public let breakdownNever: String
+    public let breakdownHint: String
     public let uploadNotOfficialToken: String
     public let uploadMonthly: String
     public let uploadStale: String
@@ -251,7 +278,27 @@ public struct Strings: Sendable {
         statusCritical: "Critical",
         shownInMenuBar: "Shown in the menu bar",
         subLimitsSection: "Sub-limits",
-        fiveHourWindow: { "5-hour window: \($0) · resets \($1)" },
+        fiveHourSection: "5-hour window",
+        fiveHourHeader: { "\($0) · resets \($1)" },
+        fiveHourLeft: { "\($0) left" },
+        fiveHourRunsOut: { "At this pace it runs out at \($0)" },
+        fiveHourLasts: "Lasts until it resets",
+        fiveHourUsedUp: "Used up until the reset",
+        fiveHourIdle: "No window running: the next request starts one",
+        iconStyle: "Icon",
+        iconStyleRing: "Ring",
+        iconStyleClassic: "Classic",
+        iconStyleNumber: "Number only",
+        iconNumber: "Number",
+        iconRing: "Ring",
+        fiveHourShort: "5-hour",
+        showFiveHour: "5-hour window on the card",
+        showSubLimits: "Sub-limits on the card",
+        breakdownLabel: "Groups and machines",
+        breakdownAuto: "Automatic",
+        breakdownAlways: "Always",
+        breakdownNever: "Never",
+        breakdownHint: "Automatic: only when more than one machine reported this cycle.",
         uploadNotOfficialToken: "Not uploaded: the token needs the “Menu bar app” access (Settings → Tokens on the dashboard).",
         uploadMonthly: "Not uploaded: the dashboard's cycle is monthly.",
         uploadStale: "Not uploaded: the reading is from a window that is over.",
@@ -353,7 +400,27 @@ public struct Strings: Sendable {
         statusCritical: "Kritikus",
         shownInMenuBar: "Ez látszik a menüsávban",
         subLimitsSection: "Alkeretek",
-        fiveHourWindow: { "5 órás ablak: \($0) · nullázódik \($1)" },
+        fiveHourSection: "5 órás ablak",
+        fiveHourHeader: { "\($0) · nullázódik \($1)" },
+        fiveHourLeft: { "\($0) hátra" },
+        fiveHourRunsOut: { "Ebben a tempóban \($0)-kor elfogy" },
+        fiveHourLasts: "Kitart a nullázásig",
+        fiveHourUsedUp: "Elfogyott a nullázásig",
+        fiveHourIdle: "Nincs futó ablak: a következő kérés indít egyet",
+        iconStyle: "Ikon",
+        iconStyleRing: "Gyűrű",
+        iconStyleClassic: "Klasszikus",
+        iconStyleNumber: "Csak szám",
+        iconNumber: "Szám",
+        iconRing: "Gyűrű",
+        fiveHourShort: "5 órás",
+        showFiveHour: "5 órás ablak a kártyán",
+        showSubLimits: "Alkeretek a kártyán",
+        breakdownLabel: "Csoport-/gépbontás",
+        breakdownAuto: "Automatikus",
+        breakdownAlways: "Mindig",
+        breakdownNever: "Soha",
+        breakdownHint: "Automatikus: csak ha a ciklusban egynél több gép jelentett.",
         uploadNotOfficialToken: "Nincs feltöltve: a token jogosultsága nem „Menüsáv app” (dashboard → Beállítások → Tokenek).",
         uploadMonthly: "Nincs feltöltve: a dashboard ciklusa havi.",
         uploadStale: "Nincs feltöltve: a mérés egy már lezárt ablakból való.",
@@ -455,7 +522,27 @@ public struct Strings: Sendable {
         statusCritical: "Kritisch",
         shownInMenuBar: "In der Menüleiste",
         subLimitsSection: "Unterkontingente",
-        fiveHourWindow: { "5-Stunden-Fenster: \($0) · Reset \($1)" },
+        fiveHourSection: "5-Stunden-Fenster",
+        fiveHourHeader: { "\($0) · Reset \($1)" },
+        fiveHourLeft: { "noch \($0)" },
+        fiveHourRunsOut: { "Bei diesem Tempo leer um \($0)" },
+        fiveHourLasts: "Reicht bis zum Reset",
+        fiveHourUsedUp: "Aufgebraucht bis zum Reset",
+        fiveHourIdle: "Kein Fenster läuft: die nächste Anfrage startet eines",
+        iconStyle: "Symbol",
+        iconStyleRing: "Ring",
+        iconStyleClassic: "Klassisch",
+        iconStyleNumber: "Nur Zahl",
+        iconNumber: "Zahl",
+        iconRing: "Ring",
+        fiveHourShort: "5 Stunden",
+        showFiveHour: "5-Stunden-Fenster auf der Karte",
+        showSubLimits: "Unterkontingente auf der Karte",
+        breakdownLabel: "Gruppen und Maschinen",
+        breakdownAuto: "Automatisch",
+        breakdownAlways: "Immer",
+        breakdownNever: "Nie",
+        breakdownHint: "Automatisch: nur wenn in diesem Zyklus mehr als eine Maschine gemeldet hat.",
         uploadNotOfficialToken: "Nicht hochgeladen: dem Token fehlt die Berechtigung „Menüleisten-App“ (Dashboard → Einstellungen → Tokens).",
         uploadMonthly: "Nicht hochgeladen: der Zyklus des Dashboards ist monatlich.",
         uploadStale: "Nicht hochgeladen: der Wert stammt aus einem abgelaufenen Fenster.",

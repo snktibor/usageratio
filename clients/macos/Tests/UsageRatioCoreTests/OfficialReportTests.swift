@@ -16,8 +16,28 @@ private let snapshot = LimitsSnapshot(
     #expect(json["usedPercent"] as? Double == 41.2)
     #expect(json["resetsAtMs"] as? Int == 1_791_900_000_000)
     #expect(json["observedAtMs"] as? Int == 1_791_533_100_500)
+    #expect(json["fiveHour"] == nil)
     #expect(OfficialReportClient.reportURL(base: URL(string: "https://u.example.com")!).absoluteString
         == "https://u.example.com/api/official-usage/report")
+}
+
+@Test func carriesTheFiveHourWindowWhileItRuns() throws {
+    let running = LimitsSnapshot(providerId: "claude", weekly: snapshot.weekly,
+        fiveHour: LimitWindow(usedPercent: 62, resetsAt: snapshot.observedAt.addingTimeInterval(7200)),
+        observedAt: snapshot.observedAt)
+    let body = try #require(OfficialReportClient.body(for: running))
+    let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    let fiveHour = try #require(json["fiveHour"] as? [String: Any])
+    #expect(fiveHour["usedPercent"] as? Double == 62)
+    #expect(fiveHour["resetsAtMs"] as? Int == 1_791_533_100_500 + 7_200_000)
+
+    // A window that had already reset when it was read is left out; the weekly figure still goes.
+    let over = LimitsSnapshot(providerId: "claude", weekly: snapshot.weekly,
+        fiveHour: LimitWindow(usedPercent: 62, resetsAt: snapshot.observedAt.addingTimeInterval(-60)),
+        observedAt: snapshot.observedAt)
+    let overBody = try #require(OfficialReportClient.body(for: over))
+    let overJSON = try #require(JSONSerialization.jsonObject(with: overBody) as? [String: Any])
+    #expect(overJSON["fiveHour"] == nil)
 }
 
 @Test func sendsNothingWithoutAWeeklyWindow() {

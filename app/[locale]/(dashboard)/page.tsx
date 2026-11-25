@@ -26,7 +26,7 @@ import { ensureDemoData } from "@/lib/demo/seed";
 import { archivedOfficialEntries, type CycleSummary } from "@/lib/history";
 import { log } from "@/lib/log";
 import { currentOfficialEntries } from "@/lib/official-usage";
-import { PROVIDER_COOKIE } from "@/lib/preferences";
+import { OFFICIAL_COLLAPSED_COOKIE, PROVIDER_COOKIE } from "@/lib/preferences";
 import { currentSegmentStartMs, earliestStartMs, providerCycle } from "@/lib/provider-cycles";
 import { mergeProviderIds, providerLabel } from "@/lib/providers";
 import { StorageNotConfiguredError } from "@/lib/redis";
@@ -157,7 +157,13 @@ async function loadDashboard(
   const { selected } = selection;
   const isPrevious =
     selected.startMs === previousCycle.start.getTime() && selected.endMs === previousCycle.end.getTime();
-  const loaded = { eventsByProvider, groups, machines: indexes.machines, resets: indexes.resets };
+  const loaded = {
+    eventsByProvider,
+    groups,
+    machines: indexes.machines,
+    resets: indexes.resets,
+    fiveHour: indexes.fiveHour,
+  };
   const colors = resolveGroupColors(groups);
 
   let providers: ProviderDashboardModel[] = [];
@@ -225,7 +231,9 @@ export default async function Page({
   const { locale } = await params;
   if (hasLocale(routing.locales, locale)) setRequestLocale(locale);
 
-  const selectedProviderId = (await cookies()).get(PROVIDER_COOKIE)?.value;
+  const cookieStore = await cookies();
+  const selectedProviderId = cookieStore.get(PROVIDER_COOKIE)?.value;
+  const officialCollapsed = cookieStore.get(OFFICIAL_COLLAPSED_COOKIE)?.value === "1";
   let data: DashboardData | null = null;
   let tenant: TenantContext | null = null;
   let storageError: unknown = null;
@@ -261,6 +269,7 @@ export default async function Page({
         exportCycle={tenant.role === "owner" ? data.exportCycle : null}
         groupColors={data.groupColors}
         costEstimate={data.costEstimate}
+        officialCollapsed={officialCollapsed}
       />
     </>
   );

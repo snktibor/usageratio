@@ -4,9 +4,10 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useMemo, useState } from "react";
 import { AllTimeGroups } from "@/components/all-time-groups";
 import { CycleHistory } from "@/components/cycle-history";
-import { GroundTruthInput } from "@/components/ground-truth-input";
+import { FiveHourMeter } from "@/components/five-hour-meter";
+import { GroundTruthInput, ProviderPicker } from "@/components/ground-truth-input";
 import { GroupBreakdown } from "@/components/group-breakdown";
-import { MachineTable } from "@/components/machine-table";
+import { MachineTable, SingleMachine } from "@/components/machine-table";
 import { ModelChart } from "@/components/model-chart";
 import { QuotaMeter } from "@/components/quota-meter";
 import { ResetPanel, ResetPrompt } from "@/components/reset-panel";
@@ -23,7 +24,7 @@ import { type ProviderDashboardModel, segmentSince } from "@/lib/dashboard";
 import { formatDateTime, formatTokens } from "@/lib/format";
 import { applyGroundTruth, applySegmentFigures, applySubLimitReading, parseOfficialPercent } from "@/lib/ground-truth";
 import { type CycleSummary, sumOfFigures } from "@/lib/history";
-import { PROVIDER_COOKIE } from "@/lib/preferences";
+import { OFFICIAL_COLLAPSED_COOKIE, PROVIDER_COOKIE } from "@/lib/preferences";
 
 const MODE_NOTE = {
   delta: "mode_note_delta",
@@ -53,12 +54,16 @@ function ProviderView({
   history,
   historyContext,
   onProviderChange,
+  officialCollapsed,
+  onOfficialCollapsedChange,
 }: {
   selected: ProviderDashboardModel;
   providers: ProviderDashboardModel[];
   history: CycleSummary[];
   historyContext: HistoryContext;
   onProviderChange: (providerId: string) => void;
+  officialCollapsed: boolean;
+  onOfficialCollapsedChange: (collapsed: boolean) => void;
 }) {
   const locale = useLocale();
   const t = useTranslations("Dashboard");
@@ -149,66 +154,100 @@ function ProviderView({
     <>
       <main className="mt-10 space-y-16 sm:mt-12">
         <div className="space-y-12 sm:space-y-14">
-          <GroundTruthInput
-            raw={segmented ? (segmentSum === null ? "" : String(segmentSum)) : entry.raw}
-            onChange={changeEntry}
-            invalid={segmented ? false : invalid}
-            enteredAt={entry.enteredAt}
-            status={entryStatus}
-            view={view}
-            timeZone={model.timeZone}
-            providerId={selected.id}
-            providerLabel={selected.label}
-            providers={providers.map(({ id, label }) => ({ id, label }))}
-            onProviderChange={onProviderChange}
-            readOnly={model.closed}
-            since={segmentSince(model)}
-            correction={
-              segmented && (
-                <SegmentFigures
-                  segments={pastSegments}
-                  entries={segmentEntries}
-                  statuses={segmentStatuses}
-                  onChange={setSegmentEntry}
-                  timeZone={model.timeZone}
-                />
-              )
-            }
-            belowField={
-              !model.closed &&
-              resetPrompt.from !== null && (
-                <ResetPrompt
+          {!selected.officialInput && providers.length > 1 && (
+            <div className="flex justify-end">
+              <ProviderPicker
+                providerId={selected.id}
+                providers={providers.map(({ id, label }) => ({ id, label }))}
+                onProviderChange={onProviderChange}
+              />
+            </div>
+          )}
+          {selected.officialInput && (
+            <GroundTruthInput
+              raw={segmented ? (segmentSum === null ? "" : String(segmentSum)) : entry.raw}
+              onChange={changeEntry}
+              invalid={segmented ? false : invalid}
+              enteredAt={entry.enteredAt}
+              status={entryStatus}
+              view={view}
+              timeZone={model.timeZone}
+              providerId={selected.id}
+              providerLabel={selected.label}
+              providers={providers.map(({ id, label }) => ({ id, label }))}
+              onProviderChange={onProviderChange}
+              readOnly={model.closed}
+              since={segmentSince(model)}
+              collapsed={officialCollapsed}
+              onCollapsedChange={onOfficialCollapsedChange}
+              correction={
+                segmented && (
+                  <SegmentFigures
+                    segments={pastSegments}
+                    entries={segmentEntries}
+                    statuses={segmentStatuses}
+                    onChange={setSegmentEntry}
+                    timeZone={model.timeZone}
+                  />
+                )
+              }
+              belowField={
+                !model.closed &&
+                resetPrompt.from !== null && (
+                  <ResetPrompt
+                    providerId={selected.id}
+                    providerLabel={selected.label}
+                    before={resetPrompt.from}
+                    afterRaw={entry.raw}
+                    onDone={resetPrompt.dismiss}
+                  />
+                )
+              }
+            >
+              <SubLimitMeters
+                model={model}
+                subLimits={subLimits}
+                onChange={setSubEntry}
+                providerLabel={selected.label}
+              />
+              {/* Resets are recorded in the current cycle only. */}
+              {!model.closed && (
+                <ResetPanel
                   providerId={selected.id}
                   providerLabel={selected.label}
-                  before={resetPrompt.from}
-                  afterRaw={entry.raw}
-                  onDone={resetPrompt.dismiss}
+                  model={model}
+                  resetMode={selected.resetMode}
+                  entry={entry}
                 />
-              )
-            }
-          >
-            <SubLimitMeters model={model} subLimits={subLimits} onChange={setSubEntry} providerLabel={selected.label} />
-            {/* Resets are recorded in the current cycle only. */}
-            {!model.closed && (
-              <ResetPanel
-                providerId={selected.id}
-                providerLabel={selected.label}
-                model={model}
-                resetMode={selected.resetMode}
-                entry={entry}
-              />
+              )}
+            </GroundTruthInput>
+          )}
+          <div className="space-y-8">
+            <QuotaMeter model={model} view={view} />
+            {selected.fiveHour && !model.closed && (
+              <FiveHourMeter reading={selected.fiveHour} generatedAt={model.generatedAt} timeZone={model.timeZone} />
             )}
-          </GroundTruthInput>
-          <QuotaMeter model={model} view={view} />
+          </div>
           {model.machines.length > 0 && (
-            <UsageChart model={model} view={view} subLimits={subLimits.map((state) => state.view)} />
+            <UsageChart
+              model={model}
+              view={view}
+              subLimits={subLimits.map((state) => state.view)}
+              groups={selected.breakdown}
+            />
           )}
         </div>
 
         {model.machines.length > 0 ? (
           <>
-            <GroupBreakdown model={model} view={view} />
-            <MachineTable model={model} view={view} />
+            {selected.breakdown ? (
+              <>
+                <GroupBreakdown model={model} view={view} />
+                <MachineTable model={model} view={view} />
+              </>
+            ) : (
+              <SingleMachine model={model} />
+            )}
             <ModelChart model={model} />
           </>
         ) : (
@@ -237,11 +276,13 @@ function ProviderView({
           kinds={historyContext.kinds}
           selectedStartMs={model.closed ? model.cycle.startMs : null}
         />
-        <AllTimeGroups
-          summary={historyContext.allTimeByProvider[selected.id] ?? null}
-          timeZone={model.timeZone}
-          groupColors={historyContext.groupColors}
-        />
+        {selected.breakdown && (
+          <AllTimeGroups
+            summary={historyContext.allTimeByProvider[selected.id] ?? null}
+            timeZone={model.timeZone}
+            groupColors={historyContext.groupColors}
+          />
+        )}
       </main>
       <footer className="mt-16 max-w-2xl border-t border-hairline pt-6 text-sm leading-relaxed text-ink-3">
         <p>{model.closed ? t("cycle_info_closed", cycleInfo) : t("cycle_info", cycleInfo)}</p>
@@ -249,6 +290,16 @@ function ProviderView({
       </footer>
     </>
   );
+}
+
+function writeOfficialCollapsedCookie(collapsed: boolean) {
+  try {
+    const oneYear = 60 * 60 * 24 * 365;
+    // biome-ignore lint/suspicious/noDocumentCookie: a plain preference cookie; the Cookie Store API is not available everywhere yet
+    document.cookie = `${OFFICIAL_COLLAPSED_COOKIE}=${collapsed ? "1" : "0"}; path=/; max-age=${oneYear}; samesite=lax`;
+  } catch {
+    // Cookies are optional; the card still folds for this page view.
+  }
 }
 
 export function writeProviderCookie(providerId: string) {
@@ -273,14 +324,22 @@ export function DashboardView({
   historyByProvider,
   historyContext,
   pastCycle,
+  officialCollapsed: initiallyCollapsed = false,
 }: {
   providers: ProviderDashboardModel[];
   historyByProvider: Record<string, CycleSummary[]>;
   historyContext: HistoryContext;
   pastCycle: boolean;
+  /** The hand-entry card as this browser last left it: from its cookie, so the first paint already agrees. */
+  officialCollapsed?: boolean;
 }) {
   const router = useRouter();
   const [selectedId, setSelectedId] = useState(providers[0]!.id);
+  const [officialCollapsed, setOfficialCollapsed] = useState(initiallyCollapsed);
+  const changeOfficialCollapsed = useCallback((collapsed: boolean) => {
+    writeOfficialCollapsedCookie(collapsed);
+    setOfficialCollapsed(collapsed);
+  }, []);
 
   const selectProvider = useCallback(
     (providerId: string) => {
@@ -301,6 +360,8 @@ export function DashboardView({
       history={historyByProvider[selected.id] ?? []}
       historyContext={historyContext}
       onProviderChange={selectProvider}
+      officialCollapsed={officialCollapsed}
+      onOfficialCollapsedChange={changeOfficialCollapsed}
     />
   );
 }

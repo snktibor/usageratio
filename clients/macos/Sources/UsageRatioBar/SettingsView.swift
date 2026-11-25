@@ -100,6 +100,49 @@ struct SettingsView: View {
                     }
                 }
             }
+            icon(payload)
+            row(strings.showFiveHour) {
+                Toggle(strings.showFiveHour, isOn: $store.showsFiveHour).toggleStyle(.switch)
+            }
+            row(strings.showSubLimits) {
+                Toggle(strings.showSubLimits, isOn: $store.showsSubLimits).toggleStyle(.switch)
+            }
+            row(strings.breakdownLabel) {
+                Picker(strings.breakdownLabel, selection: $store.breakdownMode) {
+                    Text(strings.breakdownAuto).tag(BreakdownMode.auto)
+                    Text(strings.breakdownAlways).tag(BreakdownMode.always)
+                    Text(strings.breakdownNever).tag(BreakdownMode.never)
+                }
+            }
+            Text(strings.breakdownHint)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// The icon's style, and which window its number and (as a ring) its ring follow.
+    @ViewBuilder
+    private func icon(_ payload: StatusPayload) -> some View {
+        row(strings.iconStyle) {
+            Picker(strings.iconStyle, selection: $store.menuBarStyle) {
+                Text(strings.iconStyleRing).tag(MenuBarStyle.ring)
+                Text(strings.iconStyleClassic).tag(MenuBarStyle.classic)
+                Text(strings.iconStyleNumber).tag(MenuBarStyle.number)
+            }
+        }
+        row(strings.iconNumber) { windowPicker(strings.iconNumber, selection: $store.iconNumber, payload: payload) }
+        if store.menuBarStyle == .ring {
+            row(strings.iconRing) { windowPicker(strings.iconRing, selection: $store.iconRing, payload: payload) }
+        }
+    }
+
+    /// "Weekly" (or "Monthly") and "5-hour".
+    private func windowPicker(_ title: String, selection: Binding<MenuBarWindow>, payload: StatusPayload) -> some View {
+        Picker(title, selection: selection) {
+            Text(Display.periodText(payload.cycle, strings: strings).capitalized(with: strings.locale)).tag(MenuBarWindow.cycle)
+            Text(strings.fiveHourShort).tag(MenuBarWindow.fiveHour)
         }
     }
 

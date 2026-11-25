@@ -6,7 +6,14 @@ import { log } from "@/lib/log";
 import { getRedis, scanAll } from "@/lib/redis";
 import { dynamicTenantKeyPatterns, GLOBAL_KEYS } from "@/lib/redis-keys";
 import type { TenantStore } from "@/lib/tenant";
-import { archiveCycle, registerProviders, saveOfficialUsage, saveResets, saveSettings } from "@/lib/usage-store";
+import {
+  archiveCycle,
+  registerProviders,
+  saveFiveHour,
+  saveOfficialUsage,
+  saveResets,
+  saveSettings,
+} from "@/lib/usage-store";
 
 /**
  * Writes the synthetic dataset (lib/demo/dataset.ts) into the store through
@@ -31,6 +38,7 @@ function dataKeys(store: TenantStore): string[] {
     keys.groups,
     keys.machines,
     keys.officialUsage,
+    keys.fiveHour,
     keys.resets,
     keys.trash,
     keys.registry,
@@ -116,6 +124,10 @@ export async function seedStore(store: TenantStore, options: SeedOptions): Promi
   for (const entry of dataset.official) {
     const { enteredAtMs, ...update } = entry;
     await saveOfficialUsage(store, update, new Date(enteredAtMs));
+  }
+
+  for (const entry of dataset.fiveHour) {
+    await saveFiveHour(store, entry.providerId, entry.reading);
   }
 
   for (const entry of dataset.resets) {

@@ -197,3 +197,36 @@ describe("DashboardView — 'Was there a reset?'", () => {
     expect(question()).toBeNull();
   });
 });
+
+describe("DashboardView — the hand-entry card", () => {
+  it("switched off, leaves the card out but keeps the account picker", () => {
+    const off = buildProviderDashboards(
+      new Date("2026-09-23T12:00:00Z"),
+      { ...getConfig({}), showOfficialInput: false },
+      ["claude", "openai"],
+      { eventsByProvider: {}, groups: [], machines: [] },
+    );
+    renderWithIntl(
+      <DashboardView providers={off} historyByProvider={{}} historyContext={historyContext} pastCycle={false} />,
+    );
+    expect(screen.queryByRole("slider")).toBeNull();
+    expect(screen.queryByText("Current official consumption")).toBeNull();
+    expect(currentSelect()).toBe("claude");
+  });
+
+  it("starts folded as the cookie left it, and writes the cookie when unfolded", () => {
+    renderWithIntl(
+      <DashboardView
+        providers={providers}
+        historyByProvider={{}}
+        historyContext={historyContext}
+        pastCycle={false}
+        officialCollapsed
+      />,
+    );
+    expect(screen.queryByRole("slider")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Unfold the card" }));
+    expect(screen.getByRole("slider")).toBeDefined();
+    expect(document.cookie).toContain("usageratio_official_collapsed=0");
+  });
+});

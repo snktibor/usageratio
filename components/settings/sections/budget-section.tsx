@@ -3,7 +3,14 @@
 import { useLocale, useTranslations } from "next-intl";
 import { type Draft, type DraftProvider, parseLimit } from "@/components/settings/draft";
 import { FIELD } from "@/components/ui/classes";
+import { BREAKDOWN_MODES, type BreakdownMode } from "@/lib/config";
 import { formatTokens } from "@/lib/format";
+
+const BREAKDOWN_LABEL = {
+  auto: "breakdown_auto",
+  always: "breakdown_always",
+  never: "breakdown_never",
+} as const satisfies Record<BreakdownMode, string>;
 
 export function BudgetSection({
   titleId,
@@ -102,6 +109,48 @@ export function BudgetSection({
           {t("cost_estimate")}
           <span className="mt-0.5 block text-sm text-ink-3">{t("cost_estimate_explanation")}</span>
         </span>
+      </label>
+
+      <label className="flex cursor-pointer items-start gap-3">
+        <input
+          type="checkbox"
+          checked={draft.showFiveHour}
+          onChange={(event) => onPatch({ showFiveHour: event.target.checked })}
+          className="mt-1 size-4 shrink-0 cursor-pointer accent-ink"
+        />
+        <span>
+          {t("show_five_hour")}
+          <span className="mt-0.5 block text-sm text-ink-3">{t("show_five_hour_explanation")}</span>
+        </span>
+      </label>
+
+      <label className="flex cursor-pointer items-start gap-3">
+        <input
+          type="checkbox"
+          checked={draft.showOfficialInput}
+          onChange={(event) => onPatch({ showOfficialInput: event.target.checked })}
+          className="mt-1 size-4 shrink-0 cursor-pointer accent-ink"
+        />
+        <span>
+          {t("show_official_input")}
+          <span className="mt-0.5 block text-sm text-ink-3">{t("show_official_input_explanation")}</span>
+        </span>
+      </label>
+
+      <label className="block">
+        <span>{t("breakdown_label")}</span>
+        <select
+          value={draft.breakdown}
+          onChange={(event) => onPatch({ breakdown: event.target.value as BreakdownMode })}
+          className={`mt-1.5 block w-48 ${FIELD}`}
+        >
+          {BREAKDOWN_MODES.map((mode) => (
+            <option key={mode} value={mode}>
+              {t(BREAKDOWN_LABEL[mode])}
+            </option>
+          ))}
+        </select>
+        <span className="mt-1 block text-sm text-ink-3">{t("breakdown_explanation")}</span>
       </label>
     </section>
   );

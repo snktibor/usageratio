@@ -11,14 +11,19 @@ import { saveDetectedReset } from "@/lib/reset-store";
 import { resetsOf } from "@/lib/resets";
 import { officialReportRules } from "@/lib/route-limits";
 import { resolveConfig, storedProviderIds } from "@/lib/settings";
-import { loadIndexes, saveOfficialUsage, saveResetOverride } from "@/lib/usage-store";
+import { loadIndexes, saveFiveHour, saveOfficialUsage, saveResetOverride } from "@/lib/usage-store";
 
 /**
  * POST /api/official-usage/report — a provider's own weekly usage percentage,
  * read on a machine (the macOS menu bar app), as the dashboard's official
  * reading. Only an "official" token (lib/tokens.ts) may send it.
  *
- *   { "providerId": "claude", "usedPercent": 41.2, "resetsAtMs": …, "observedAtMs": … }
+ *   { "providerId": "claude", "usedPercent": 41.2, "resetsAtMs": …, "observedAtMs": …,
+ *     "fiveHour": { "usedPercent": 62, "resetsAtMs": … } }
+ *
+ * `fiveHour`, optional, is the provider's 5-hour window read at the same time: the newest one is
+ * kept for the dashboard (lib/five-hour.ts), whatever happens to the weekly figure; one that does
+ * not hold up is ignored, never refused.
  *
  * The server decides (lib/official-report.ts): a monthly dashboard refuses it;
  * a provider whose cycle ends elsewhere than the window gets its reset moved
@@ -56,6 +61,9 @@ export const POST = withApiHandler("api/official-usage/report", async ({ request
   const parsed = parseOfficialReport(body.value, now);
   if (!parsed.ok) return apiError("invalid_payload", 400, { details: parsed.errors });
   const { report } = parsed;
+  if (report.fiveHour) {
+    await saveFiveHour(store, report.providerId, { ...report.fiveHour, observedAtMs: report.observedAtMs });
+  }
 
   const indexes = await loadIndexes(store);
   const providerIds = mergeProviderIds(

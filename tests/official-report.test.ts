@@ -26,7 +26,22 @@ const parsed = (overrides = {}) => {
 
 describe("parseOfficialReport", () => {
   it("accepts a well-formed report", () => {
-    expect(parsed()).toEqual(report());
+    expect(parsed()).toEqual({ ...report(), fiveHour: null });
+  });
+
+  it("carries the 5-hour window along, and drops one that does not hold up without refusing the report", () => {
+    const resetsAtMs = Date.parse("2026-09-23T14:00:00Z");
+    expect(parsed({ fiveHour: { usedPercent: 62, resetsAtMs } }).fiveHour).toEqual({ usedPercent: 62, resetsAtMs });
+    // Reset before the reading, more than five hours after it, a bad figure, not an object.
+    for (const fiveHour of [
+      { usedPercent: 62, resetsAtMs: Date.parse("2026-09-23T11:00:00Z") },
+      { usedPercent: 62, resetsAtMs: Date.parse("2026-09-23T18:00:00Z") },
+      { usedPercent: -1, resetsAtMs },
+      { usedPercent: "62", resetsAtMs },
+      "62",
+    ]) {
+      expect(parsed({ fiveHour }).fiveHour).toBeNull();
+    }
   });
 
   it("rejects bad fields", () => {

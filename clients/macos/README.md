@@ -5,19 +5,28 @@ provider's figures in a popover. It reads the dashboard's [`GET /api/status`](..
 and shows exactly what the dashboard does. It can also report this Mac's own token usage in place
 of the hourly script (see [This Mac's usage](#this-macs-usage-instead-of-the-script)).
 
-- **Menu bar:** a gauge and the chosen provider's percentage. Plain (adapting to light and dark)
-  while all is well, orange past the warning level, red when critical, dimmed when the figure is
-  more than two hours old (the server was unreachable, or no machine has reported).
+- **Menu bar:** by default a number with a progress ring around it: the chosen provider's cycle
+  percentage inside, its 5-hour window (as read on this Mac) as the ring. Either can follow either
+  window, and the classic gauge with the percentage, or the percentage alone, are the other styles.
+  Plain (adapting to light and dark) while all is well, orange past the warning level, red when
+  critical (the number and the ring each by their own figure), dimmed when the figure is more than
+  two hours old (the server was unreachable, or no machine has reported). Without a 5-hour reading
+  the cycle's figure stands in.
 - **Popover:** a card for the chosen provider that answers three questions in order. *How am I
   doing:* the percentage used (official or estimate), a status badge, what is left, and the tokens
   against the limit. *How long until the reset:* a bar with a marker where the cycle stands — a fill
-  past the marker is ahead of the even pace — when it runs out, and when it resets. *Who took it:*
-  the sub-limits, then every group with its machines under it (the machines alone while there is
-  one group), their bars scaled to the heaviest group; the one the menu bar shows carries a menu
+  past the marker is ahead of the even pace, and a purple marker where the pace runs out before the
+  reset — when it runs out, and when it resets. Under it, smaller, the provider's own 5-hour window:
+  the same bar, the time gone by and left, and when it runs out at the window's pace so far. *Who
+  took it:* the sub-limits, then every group with its machines under it (the machines alone while
+  there is one group; nothing while one machine reported in the cycle), their bars scaled to the
+  heaviest group; the one the menu bar shows carries a menu
   bar icon, and a machine whose newest report is older than two hours a clock. Refresh, the
   dashboard and the gear sit at the bottom.
 - **Settings (the gear):** which provider the menu bar shows, and whether its whole figure or one
   group's or machine's part of it (its share of the provider's budget, as on the dashboard); the
+  icon's style and which window its number and ring follow; the 5-hour window and the sub-limits on
+  the card; the groups and machines (automatic, always or never); the
   server and token; this Mac's report (on or off, machine name, group); open at login; quit.
 - **Polling:** every 5 minutes, again 10 seconds after the Mac wakes, and when the popover opens
   on a figure older than a minute. On errors it backs off (1, 2, 4 … up to 30 minutes) and honours
@@ -48,7 +57,7 @@ downloaded from elsewhere would be blocked as from an "unidentified developer". 
 
 1. On the dashboard: **Settings → Tokens**, create a token with access **Menu bar app (read, report,
    official %)**, bound to this Mac's machine name, and copy it (it is shown once).
-2. Click the gauge in the menu bar. The settings screen opens: enter the dashboard's address (e.g.
+2. Click the icon in the menu bar. The settings screen opens: enter the dashboard's address (e.g.
    `https://usage.example.com`) and paste the token, then **Save**.
 3. Optionally switch on **Open at login**.
 

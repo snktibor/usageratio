@@ -35,10 +35,15 @@ struct PopoverView: View {
                 let cycle = Display.cycle(of: provider, in: payload)
                 header(provider, cycle: cycle)
                 summary(provider, cycle: cycle)
-                if !provider.subLimits.isEmpty {
+                if store.showsFiveHour, let fiveHour = store.fiveHour {
+                    fiveHourBlock(fiveHour)
+                }
+                if store.showsSubLimits, !provider.subLimits.isEmpty {
                     subLimits(provider)
                 }
-                breakdown(provider)
+                if Display.showsBreakdown(provider, mode: store.breakdownMode) {
+                    breakdown(provider)
+                }
             } else {
                 Text(store.payload == nil ? "UsageRatio" : strings.noProviders)
                     .font(.headline)
@@ -130,7 +135,8 @@ struct PopoverView: View {
                     percent: percent,
                     elapsed: elapsed,
                     status: provider.status,
-                    elapsedLabel: strings.elapsed(Display.percentText(elapsed))
+                    elapsedLabel: strings.elapsed(Display.percentText(elapsed)),
+                    runOut: Display.runOutPercent(provider, cycle: cycle)
                 )
             }
 
@@ -151,10 +157,14 @@ struct PopoverView: View {
     private func facts(_ provider: StatusPayload.Provider, cycle: StatusPayload.Cycle) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             if let runOut = Display.runOutText(provider, strings: strings) {
-                let runsOut = provider.pace?.runOutAt != nil
-                let lasts = provider.pace?.projectedPercent != nil && !runsOut
-                Label(runOut, systemImage: runsOut ? "exclamationmark.triangle.fill" : lasts ? "checkmark.circle.fill" : "clock")
-                    .foregroundStyle(runsOut ? Color.orange : lasts ? Color.green : Color.secondary)
+                if provider.pace?.runOutAt != nil {
+                    // The purple tick ties the line to the marker on the bar.
+                    Label { Text(runOut) } icon: { RunOutTick() }
+                } else {
+                    let lasts = provider.pace?.projectedPercent != nil
+                    Label(runOut, systemImage: lasts ? "checkmark.circle.fill" : "clock")
+                        .foregroundStyle(lasts ? Color.green : Color.secondary)
+                }
             }
             if let recent = Display.recentPaceText(provider, now: store.now, strings: strings) {
                 Label(recent, systemImage: "bolt.fill")
@@ -174,10 +184,6 @@ struct PopoverView: View {
                 )
                 .foregroundStyle(.orange)
             }
-            if let window = store.limits[provider.id]?.fiveHour, window.resetsAt > store.now {
-                Label(Display.fiveHourText(window, strings: strings), systemImage: "hourglass")
-                    .foregroundStyle(.secondary)
-            }
             if let refusal = store.uploadNotes[provider.id] {
                 Label(Display.uploadNoteText(refusal, strings: strings), systemImage: "icloud.slash")
                     .foregroundStyle(.secondary)
@@ -194,6 +200,70 @@ struct PopoverView: View {
         }
         .font(.caption)
         .labelStyle(FactLabelStyle())
+    }
+
+    // MARK: 5-hour window
+
+    /// The provider's own 5-hour window under the cycle: a smaller, secondary block. The percentage
+    /// used stands by its title and the reset time across from it; its bar carries the time gone by
+    /// under its marker, the time left at its end, and in purple where the pace runs out; one line of
+    /// outlook under it.
+    private func fiveHourBlock(_ view: FiveHourView) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+                .padding(.top, 4)
+                .padding(.bottom, 2)
+            HStack(alignment: .firstTextBaseline) {
+                Text(strings.fiveHourSection)
+                    .font(.caption2.weight(.semibold))
+                    .tracking(1)
+                    .textCase(.uppercase)
+                Text(Display.percentText(view.percent))
+                    .font(.caption.bold())
+                    .monospacedDigit()
+                    .foregroundStyle(Color.primary)
+                Spacer(minLength: 8)
+                if let resetsAt = view.resetsAt {
+                    Text(Display.timeText(resetsAt, strings: strings))
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+            }
+            .foregroundStyle(.secondary)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel([strings.fiveHourSection, view.resetsAt.map {
+                strings.fiveHourHeader(Display.percentText(view.percent), Display.timeText($0, strings: strings))
+            }].compactMap { $0 }.joined(separator: ", "))
+            .accessibilityAddTraits(.isHeader)
+            PaceBar(
+                percent: view.percent,
+                elapsed: view.resetsAt == nil ? nil : view.elapsed,
+                status: Display.shareStatus(view.percent),
+                elapsedLabel: view.resetsAt == nil ? nil : Display.percentText(view.elapsed),
+                runOut: view.runOutPercent,
+                height: 4,
+                endLabel: Display.fiveHourLeftText(view, now: store.now, strings: strings)
+            )
+            .padding(.top, 2)
+            fiveHourOutlook(view)
+                .font(.caption)
+                .labelStyle(FactLabelStyle())
+        }
+    }
+
+    @ViewBuilder
+    private func fiveHourOutlook(_ view: FiveHourView) -> some View {
+        let text = Display.fiveHourOutlookText(view, strings: strings)
+        switch view.outlook {
+        case .runsOut:
+            Label { Text(text) } icon: { RunOutTick() }
+        case .usedUp:
+            Label(text, systemImage: "xmark.octagon.fill").foregroundStyle(.red)
+        case .lasts:
+            Label(text, systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+        case .tooEarly, .idle:
+            Label(text, systemImage: "clock").foregroundStyle(.secondary)
+        }
     }
 
     // MARK: Sub-limits

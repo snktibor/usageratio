@@ -30,10 +30,13 @@ export function UsageChart({
   model,
   view,
   subLimits,
+  groups: byGroup = true,
 }: {
   model: DashboardModel;
   view: DashboardView;
   subLimits: SubLimitView[];
+  /** False: the total alone, without a line per group (the settings' breakdown). */
+  groups?: boolean;
 }) {
   const locale = useLocale();
   const t = useTranslations("Widgets");
@@ -93,7 +96,7 @@ export function UsageChart({
       dashed: true,
     };
     // Drawn in reverse: the sub-limits' fainter lines lie beneath the groups'.
-    const series = [total, ...groups, ...subLimitSeries];
+    const series = [total, ...(byGroup ? groups : []), ...subLimitSeries];
 
     body = (
       <>

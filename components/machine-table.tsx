@@ -183,3 +183,24 @@ export function MachineTable({ model, view }: { model: DashboardModel; view: Das
     </section>
   );
 }
+
+/**
+ * With the breakdown off (the settings' `breakdown`): the one machine behind
+ * the figure and how its reports are coming in, in a line. Several machines
+ * with the breakdown off are not listed at all.
+ */
+export function SingleMachine({ model }: { model: DashboardModel }) {
+  const t = useTranslations("Widgets");
+  const machines = model.machines.filter((machine) => machine.reportedInCycle);
+  if (machines.length !== 1) return null;
+  const machine = machines[0]!;
+  return (
+    <section aria-labelledby="machine-heading" className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <h2 id="machine-heading" className="text-sm text-ink-3">
+        {t("single_machine")}
+      </h2>
+      <span className="wrap-anywhere">{machine.machineId}</span>
+      <LastReport machine={machine} model={model} />
+    </section>
+  );
+}

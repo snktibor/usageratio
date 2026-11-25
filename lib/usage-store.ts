@@ -3,6 +3,7 @@ import { ledgerEntryOf } from "@/lib/all-time";
 import { getConfig, type ResetOverride } from "@/lib/config";
 import type { KnownMachine } from "@/lib/dashboard";
 import { type CycleStart, countedFromMs, reportCheckpoints } from "@/lib/days";
+import { type FiveHourReading, fiveHourReadings, parseStoredFiveHour, serializeFiveHour } from "@/lib/five-hour";
 import {
   type CycleSummary,
   HISTORY_RETENTION,
@@ -441,6 +442,8 @@ export interface StoreIndexes {
   machines: ProviderMachine[];
   /** The official-usage fields, unparsed; see lib/official-usage.ts. */
   officialUsage: Record<string, string>;
+  /** Every provider's newest 5-hour window reading (lib/five-hour.ts); a provider with none is absent. */
+  fiveHour: Record<string, FiveHourReading>;
   /** Every provider's usage resets, parsed (lib/resets.ts); a provider with none is absent. */
   resets: Record<string, ProviderResets>;
 }
@@ -468,7 +471,8 @@ export async function loadIndexes(store: TenantStore): Promise<StoreIndexes> {
   indexes.hgetall(store.keys.machines);
   indexes.hgetall(store.keys.officialUsage);
   indexes.hgetall(store.keys.resets);
-  const [rawSettings, rawGroups, rawProviders, rawMachines, rawOfficialUsage, rawResets]: unknown[] =
+  indexes.hgetall(store.keys.fiveHour);
+  const [rawSettings, rawGroups, rawProviders, rawMachines, rawOfficialUsage, rawResets, rawFiveHour]: unknown[] =
     await indexes.exec();
 
   const groups: IndexedGroup[] = Object.entries(toStringRecord(rawGroups)).map(([groupId, raw]) =>
@@ -504,6 +508,7 @@ export async function loadIndexes(store: TenantStore): Promise<StoreIndexes> {
     providers,
     machines,
     officialUsage: toStringRecord(rawOfficialUsage),
+    fiveHour: fiveHourReadings(toStringRecord(rawFiveHour)),
     resets: parseResetsHash(rawResets),
   };
 }
@@ -758,6 +763,19 @@ export async function saveOfficialUsage(store: TenantStore, update: OfficialUsag
   const stored = storedEntryFor(update, now.getTime());
   if (stored === null) await store.redis.hdel(store.keys.officialUsage, field);
   else await store.redis.hset(store.keys.officialUsage, { [field]: stored });
+}
+
+/**
+ * Stores a provider's 5-hour window reading unless one read at the same time or later is already
+ * there: reports may arrive out of order. Returns whether it was written.
+ */
+export async function saveFiveHour(store: TenantStore, providerId: string, reading: FiveHourReading): Promise<boolean> {
+  // Automatic deserialization is off: the value comes back as stored.
+  const raw = await store.redis.hget<string>(store.keys.fiveHour, providerId);
+  const stored = typeof raw === "string" ? parseStoredFiveHour(raw) : null;
+  if (stored && stored.observedAtMs >= reading.observedAtMs) return false;
+  await store.redis.hset(store.keys.fiveHour, { [providerId]: serializeFiveHour(reading) });
+  return true;
 }
 
 /** Every provider's usage resets (lib/resets.ts), one read. */
