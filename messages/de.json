@@ -1077,5 +1077,21 @@
     "law_title": "Anwendbares Recht und Kontakt",
     "law_p1": "Es gilt ungarisches Recht. Bist du Verbraucher, bleiben dir die zwingenden Schutzvorschriften des Landes, in dem du lebst, erhalten.",
     "law_p2": "Fragen: <mail>{email}</mail>."
+  },
+  "Import": {
+    "heading": "Importieren",
+    "description_workspace": "Lädt einen Workspace aus einer heruntergeladenen Datei in einen neuen Workspace von dir, damit du seine Nutzung wieder sehen kannst: die Meldungen der letzten 70 Tage, jeden früheren Zyklus, die Geräte, Gruppen und Einstellungen. Tokens, Protokolle und der Papierkorb werden nicht importiert, und Benachrichtigungen sind danach ausgeschaltet.",
+    "description_instance": "Lädt einen Workspace aus einer Datei, die auf der Kontoseite eines anderen usageratio (zum Beispiel des gehosteten Dienstes) heruntergeladen wurde, in diese Instanz, solange sie noch keine Daten hat: die Meldungen der letzten 70 Tage, jeden früheren Zyklus, die Geräte, Gruppen und Einstellungen. Tokens, Protokolle und der Papierkorb werden nicht importiert, und Benachrichtigungen sind danach ausgeschaltet.",
+    "choose_file": "Datei importieren…",
+    "importing": "Wird importiert…",
+    "choose_workspace": "Die Datei enthält mehrere Workspaces. Welcher soll importiert werden?",
+    "sudo_prompt": "Gib die PIN ein, um die Datei zu importieren.",
+    "error_invalid": "Das ist keine usageratio-Exportdatei, oder sie ist beschädigt.",
+    "error_none": "Die Datei enthält keinen eigenen Workspace mit Daten.",
+    "error_too_large": "Die Datei ist zu groß für den Import.",
+    "error_workspaces": "Dir gehören schon {limit} Workspaces, mehr geht nicht. Lösche zuerst einen.",
+    "error_quota": "Die Datei hat mehr Geräte, Anbieter oder Gruppen, als ein Workspace haben darf (höchstens {limit}).",
+    "error_not_empty": "Diese Instanz hat schon Daten: eine Datei lässt sich nur in eine leere importieren.",
+    "error_failed": "Der Import ist fehlgeschlagen. Versuch es später noch einmal."
   }
 }

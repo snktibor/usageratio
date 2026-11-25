@@ -85,6 +85,17 @@ const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const HOUR_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:00:00Z$/;
 const ISO_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}:\d{2})$/;
 
+/** Whether `value` is a machine or group id as stored: the rules of `parseId`, already trimmed. */
+export function isValidId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length >= 1 &&
+    value.length <= MAX_ID_LENGTH &&
+    value.trim() === value &&
+    ID_PATTERN.test(value)
+  );
+}
+
 /** A machine or group id, trimmed. Problems are appended to `errors` under the name `field`. */
 export function parseId(value: unknown, field: string, errors: string[]): string {
   if (typeof value !== "string") {

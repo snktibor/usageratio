@@ -26,6 +26,7 @@ All source: `app/api/**/route.ts`, shared helpers in `lib/api.ts`.
 - [`GET`/`POST /api/auth/sudo`](#sudo)
 - [`POST /api/auth/github/start`, `GET /api/auth/github/callback`](#github-sign-in)
 - [`GET`/`DELETE /api/account`, `GET /api/account/export`, `DELETE /api/account/sessions`](#account)
+- [`POST /api/import`](#import)
 - [`GET /api/workspace`, invites, members, `POST /api/workspace/leave`, `POST /api/workspace/transfer`, `POST /api/session/tenant`](#workspace-members-and-invites)
 - [`GET /api/admin`, `POST /api/admin/signup-codes`, `DELETE /api/admin/signup-codes/[id]`, `PATCH /api/admin/tenants/[id]`](#instance-admin)
 - [`GET /api/cron/housekeeping`, `POST /api/housekeeping`](#housekeeping)
@@ -73,6 +74,7 @@ The full `ApiErrorCode` union (`lib/api.ts`):
 | `sudo_required` | 403 | The action needs a live sudo grant. |
 | `sudo_invalid` | 401 | Wrong PIN presented to `POST /api/auth/sudo` (`attemptsLeft` when known). |
 | `too_many_groups` / `too_many_providers` / `too_many_machines` / `too_many_tokens` | 422 | A quota would be exceeded ([Quotas](#quotas)); `limit` gives it. `POST /api/usage` adds a readable `message`. |
+| `workspace_not_empty` | 409 | `POST /api/import` on a single-user instance that already holds usage. |
 | `too_many_members` / `too_many_invites` / `too_many_workspaces` | 422 | A workspace's people quota ([Quotas](#quotas)), with `limit`. |
 | `machine_mismatch` | 403 | A machine-bound per-machine token reported for a different `machineId`. |
 | `read_only_token` | 403 | A "read" per-machine token tried to report (`POST /api/usage`); it may not report tokens. |
@@ -744,6 +746,30 @@ without a workspace.
   URL by its mask. `429 rate_limited` (see the table above).
 - **`DELETE /api/account/sessions`** (same-origin) → `200 { "ended": n }`: every session of the user,
   this one included.
+
+## Import
+
+**`POST /api/import`** (same-origin) loads one workspace of an account export back
+(`lib/account-import.ts`). Body: `{ "format": "usageratio-account-export", "version": 1,
+"workspace": { "name", "keys" } }`, where `keys` is an exported workspace's `data.keys`;
+`Content-Encoding: gzip` is accepted (4 MB as sent, 64 MB inflated).
+
+- Multi-tenant mode: a signed-in user gets a new workspace, `"<name> (import)"`. It counts against
+  the owned-workspaces quota (`422 too_many_workspaces`) and the new-workspace rate limits.
+- Single-user instance: the PIN session with sudo (`403 sudo_required`) loads into the instance
+  itself, only while it holds no usage yet (`409 workspace_not_empty`).
+
+What is imported: the settings (alerts off, since the export masks the webhook URL), providers,
+groups, machines, official readings, usage restarts, the raw reports still inside the 70-day
+window, the history (its newest 24 cycles) and the all-time ledger. Every other key is listed in
+`skipped`: tokens, audit trails, the trash, alert guards, bookkeeping. Each key name is rebuilt
+from validated parts, and each value must read back through the app's own parser (`400
+invalid_payload` with `details` otherwise). The workspace quotas hold: `422 too_many_machines` /
+`too_many_providers` / `too_many_groups` with `limit`.
+
+`201 { "ok": true, "tenantId", "imported": { "providers", "groups", "machines", "reports",
+"cycles" }, "skipped": [key names] }` · `401` no session · `403` foreign origin, demo mode · `413` too
+large · `415` not JSON, or an encoding other than gzip · `429` rate limited.
 
 ## Workspace members and invites
 

@@ -2,6 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
+import { ImportData } from "@/components/account/import-data";
 import { SudoUnlock } from "@/components/setup/sudo-unlock";
 import { StatusLine } from "@/components/status-line";
 import { PRIMARY_BUTTON, QUIET_BUTTON } from "@/components/ui/classes";
@@ -130,6 +131,9 @@ export function AccountView({ account, admin }: { account: Account; admin: boole
         <a href="/api/account/export" download className={`mt-4 inline-block ${QUIET_BUTTON}`}>
           {t("export_button")}
         </a>
+        <div className="mt-8">
+          <ImportData mode="workspace" />
+        </div>
       </section>
 
       <section className="mt-12 rounded-md border border-critical/40 p-4">

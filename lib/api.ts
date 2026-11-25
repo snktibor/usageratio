@@ -1,3 +1,4 @@
+import { gunzipSync } from "node:zlib";
 import { errors as upstash } from "@upstash/redis";
 import { currentTime } from "@/lib/clock";
 import { UNAUTH_RATE_LIMIT_PER_IP } from "@/lib/config";
@@ -61,6 +62,7 @@ export type ApiErrorCode =
   | "too_many_tokens"
   | "too_many_members"
   | "too_many_workspaces"
+  | "workspace_not_empty"
   | "machine_mismatch"
   | "read_only_token"
   | "official_scope_required"
@@ -138,7 +140,12 @@ const JSON_CONTENT_TYPE = /^application\/json\s*(;.*)?$/i;
  */
 export async function readJsonBody(
   request: Request,
-  options: { maxBytes: number; requireJsonContentType?: boolean },
+  options: {
+    maxBytes: number;
+    requireJsonContentType?: boolean;
+    /** Accept a gzip-encoded body (`Content-Encoding: gzip`), up to this many bytes once inflated. */
+    maxInflatedBytes?: number;
+  },
 ): Promise<BodyResult> {
   const { maxBytes, requireJsonContentType = true } = options;
   const refuse = (response: Response): BodyResult => ({ ok: false, response });
@@ -170,7 +177,21 @@ export async function readJsonBody(
     return refuse(apiError("unreadable_body", 400));
   }
 
-  let text = new TextDecoder("utf-8").decode(Buffer.concat(chunks));
+  let bytes: Uint8Array = Buffer.concat(chunks);
+  const encoding = (request.headers.get("content-encoding") ?? "").trim().toLowerCase();
+  if (encoding !== "" && encoding !== "identity") {
+    if (encoding !== "gzip" || options.maxInflatedBytes === undefined)
+      return refuse(apiError("unsupported_media_type", 415));
+    try {
+      bytes = gunzipSync(bytes, { maxOutputLength: options.maxInflatedBytes });
+    } catch (error) {
+      if (error instanceof RangeError || (error as { code?: string }).code === "ERR_BUFFER_TOO_LARGE") {
+        return refuse(apiError("payload_too_large", 413, { maxBytes: options.maxInflatedBytes }));
+      }
+      return refuse(apiError("unreadable_body", 400));
+    }
+  }
+  let text = new TextDecoder("utf-8").decode(bytes);
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   try {
     return { ok: true, value: JSON.parse(text) };

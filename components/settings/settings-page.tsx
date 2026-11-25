@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { ImportData } from "@/components/account/import-data";
 import { ArrowLeftIcon, StopCircleIcon } from "@/components/icons";
 import { withRestoredGroup } from "@/components/settings/draft";
 import { AccountsSection } from "@/components/settings/sections/accounts-section";
@@ -209,6 +210,8 @@ export function SettingsPage({ view, quota }: { view: SettingsView; quota?: Sett
                 onOwnReset={actions.ownReset}
                 onPatchOwnReset={actions.patchOwnReset}
               />
+              {/* A single-user instance only (no shared token means multi-tenant mode, where the account page has it). */}
+              {view.sharedToken !== false && <ImportData mode="instance" />}
             </SettingsGroup>
 
             <SettingsGroup sectionKey="budgets" title={t("section_budgets")}>

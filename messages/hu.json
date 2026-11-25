@@ -1077,5 +1077,21 @@
     "law_title": "Irányadó jog és kapcsolat",
     "law_p1": "A magyar jog az irányadó. Ha fogyasztó vagy, a lakóhelyed szerinti ország kötelező fogyasztóvédelmi szabályai továbbra is megilletnek.",
     "law_p2": "Kérdések: <mail>{email}</mail>."
+  },
+  "Import": {
+    "heading": "Importálás",
+    "description_workspace": "Egy letöltött fájlból egy új workspace-be tölti vissza az adatokat, így újra láthatod, mit hogyan használtál: az utolsó 70 nap jelentéseit, minden korábbi ciklust, a gépeket, a csoportokat és a beállításokat. A tokenek, az auditnaplók és a lomtár nem kerülnek át, a riasztások pedig kikapcsolva jönnek vissza.",
+    "description_instance": "Egy másik usageratio (például a hosztolt szolgáltatás) fiókoldalán letöltött fájlból tölti be a workspace adatait ebbe a példányba, amíg még nincs benne adat: az utolsó 70 nap jelentéseit, minden korábbi ciklust, a gépeket, a csoportokat és a beállításokat. A tokenek, az auditnaplók és a lomtár nem kerülnek át, a riasztások pedig kikapcsolva jönnek vissza.",
+    "choose_file": "Fájl importálása…",
+    "importing": "Importálás…",
+    "choose_workspace": "A fájlban több workspace is van. Melyiket importáljuk?",
+    "sudo_prompt": "Add meg a PIN-kódot a fájl importálásához.",
+    "error_invalid": "Ez nem usageratio-exportfájl, vagy megsérült.",
+    "error_none": "A fájlban nincs adatot tartalmazó saját workspace.",
+    "error_too_large": "A fájl túl nagy az importáláshoz.",
+    "error_workspaces": "Már {limit} workspace a tiéd, ennél több nem lehet. Előbb törölj egyet.",
+    "error_quota": "A fájlban több gép, szolgáltató vagy csoport van, mint amennyi egy workspace-ben lehet (legfeljebb {limit}).",
+    "error_not_empty": "Ebben a példányban már van adat: fájlt csak üres példányba lehet importálni.",
+    "error_failed": "Az importálás nem sikerült. Próbáld újra később."
   }
 }
