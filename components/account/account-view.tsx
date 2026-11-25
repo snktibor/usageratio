@@ -17,7 +17,7 @@ type DeleteState =
   | { phase: "sudo" }
   | { phase: "problem"; message: string };
 
-/** The account page (multi-tenant mode): profile, workspaces, sessions, sign out everywhere, delete the account. */
+/** The account page (multi-tenant mode): profile, workspaces, sessions, sign out everywhere, download the data, delete the account. */
 export function AccountView({ account, admin }: { account: Account; admin: boolean }) {
   const t = useTranslations("Account");
   const locale = useLocale();
@@ -121,6 +121,15 @@ export function AccountView({ account, admin }: { account: Account; admin: boole
         <button type="button" onClick={signOutEverywhere} disabled={ending} className={`mt-4 ${QUIET_BUTTON}`}>
           {t("sign_out_everywhere")}
         </button>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="text-lg font-medium">{t("export_heading")}</h2>
+        <p className="mt-2 text-sm text-ink-2">{t("export_description")}</p>
+        {/* A file download (Content-Disposition: attachment, see app/api/account/export/route.ts). */}
+        <a href="/api/account/export" download className={`mt-4 inline-block ${QUIET_BUTTON}`}>
+          {t("export_button")}
+        </a>
       </section>
 
       <section className="mt-12 rounded-md border border-critical/40 p-4">

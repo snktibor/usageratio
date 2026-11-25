@@ -322,6 +322,7 @@ log (`api.request`) has every `429`.
 | `POST /api/official-usage/report`, per token | 120 / hour (`OFFICIAL_REPORT_RATE_LIMIT_PER_TOKEN`) | `usage:rl:official:{tokenId}` |
 | `POST /api/official-usage/report`, per IP and per tenant | 1 200 / hour each | `usage:rl:official-ip:*`, `usage:rl:official-tenant:{tenantId}` |
 | `GET /api/export`, per IP / per tenant | 120 / 60 per hour (`EXPORT_RATE_LIMIT_*`) | `usage:rl:export-ip:*`, `usage:rl:export-tenant:{tenantId}` |
+| `GET /api/account/export`, per user | 10 per hour (`ACCOUNT_EXPORT_RATE_LIMIT_PER_USER`), then the export's per-IP limit | `usage:rl:account-export:{userId}` |
 | `POST /api/alerts/test`, per tenant | 1 / 10 seconds, and 30 / hour | `usage:rl:alerts-test:{tenantId}`, `usage:rl:alerts-test-tenant:{tenantId}` |
 | `POST /api/alerts/test`, per IP | 60 / hour | `usage:rl:alerts-test-ip:*` |
 | Unauthenticated bearer attempts, per IP | 60 / minute (`UNAUTH_RATE_LIMIT_PER_IP`) | `usage:rl:unauth:{sha256(ip)}` |

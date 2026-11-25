@@ -211,6 +211,8 @@ export const OFFICIAL_REPORT_RATE_LIMIT_PER_IP = 1_200;
 /** GET /api/export per tenant and per client address, per hour (a person clicking "download"). */
 export const EXPORT_RATE_LIMIT_PER_TENANT = 60;
 export const EXPORT_RATE_LIMIT_PER_IP = 120;
+/** GET /api/account/export per user per hour: the whole account at once, a heavier read. */
+export const ACCOUNT_EXPORT_RATE_LIMIT_PER_USER = 10;
 
 /**
  * POST /api/alerts/test: one test message per tenant every 10 seconds, 30 per

@@ -103,7 +103,7 @@ describe("LegalPage", () => {
     const page = await html(<LegalPage heading={t("heading")} intro={t.rich("intro", rich)} sections={sections} />);
 
     expect(page).toContain("Privacy notice</h1>");
-    expect(page).toContain("Last updated: November 23, 2026");
+    expect(page).toContain("Last updated: November 25, 2026");
     expect(page).toContain("Ada Lovelace, a private individual");
     expect(page).toContain('href="mailto:privacy@example.org"');
     expect(page).toContain("<code");

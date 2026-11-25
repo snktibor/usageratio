@@ -1,6 +1,7 @@
 import { leaveWorkspace } from "@/lib/members";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
+import { forgetSignupCodeUser } from "@/lib/signup-codes";
 import { deleteTenant } from "@/lib/tenant-deletion";
 import { DEFAULT_TENANT, type TenantId } from "@/lib/tenant-id";
 import { loadTenantRecord } from "@/lib/tenants";
@@ -14,6 +15,12 @@ import { loadUser, type Role, userTenants } from "@/lib/users";
  * first; a workspace only they belong to goes with them; from the others they
  * simply leave. The default tenant (a single-user instance's data) is never
  * deleted this way.
+ *
+ * What stays behind (tests/integration/account-deletion.test.ts proves the
+ * rest is gone): in a workspace the user leaves, the record of what they did
+ * there (its audit trails' and trash entries' "by" login, its tokens'
+ * "createdBy"), which is that workspace's, until those entries expire; and
+ * the short-lived security counters (`usage:rl:*`), which expire within a day.
  */
 
 export interface AccountSession {
@@ -101,6 +108,7 @@ export async function deleteAccount(userId: string, now: Date): Promise<DeleteAc
   }
 
   await endAllUserSessions(userId);
+  await forgetSignupCodeUser(userId);
   const identities = ((await redis.smembers(GLOBAL_KEYS.userIdentities(userId))) as unknown[]).map(String);
   const tx = redis.multi();
   for (const identity of identities) {

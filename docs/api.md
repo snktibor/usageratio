@@ -25,7 +25,7 @@ All source: `app/api/**/route.ts`, shared helpers in `lib/api.ts`.
 - [`POST /api/alerts/test`](#alerts-test)
 - [`GET`/`POST /api/auth/sudo`](#sudo)
 - [`POST /api/auth/github/start`, `GET /api/auth/github/callback`](#github-sign-in)
-- [`GET`/`DELETE /api/account`, `DELETE /api/account/sessions`](#account)
+- [`GET`/`DELETE /api/account`, `GET /api/account/export`, `DELETE /api/account/sessions`](#account)
 - [`GET /api/workspace`, invites, members, `POST /api/workspace/leave`, `POST /api/workspace/transfer`, `POST /api/session/tenant`](#workspace-members-and-invites)
 - [`GET /api/admin`, `POST /api/admin/signup-codes`, `DELETE /api/admin/signup-codes/[id]`, `PATCH /api/admin/tenants/[id]`](#instance-admin)
 - [`GET /api/cron/housekeeping`, `POST /api/housekeeping`](#housekeeping)
@@ -113,6 +113,7 @@ numbers are what they are.
 | `GET /api/status` | 120 | 1 hour | per token |
 | `POST /api/official-usage/report` | 120 / 1 200 / 1 200 | 1 hour | per token / per IP / per tenant |
 | `GET /api/export` | 120 / 60 | 1 hour | per IP / per tenant |
+| `GET /api/account/export` | 10, then 120 | 1 hour | per user, then per IP (shared with `GET /api/export`) |
 | Any `Authorization: Bearer` on `/api/usage` or `/api/status` that fails | 60 | 1 minute | per IP (hashed) |
 | `POST /api/alerts/test` | 1, then 30 / 60 | 10 seconds, then 1 hour | per tenant, then per tenant / per IP |
 | `POST /api/csp-report` | 20 / 300 | 1 minute | per IP / in total, in-process only |
@@ -717,7 +718,21 @@ without a workspace.
 - **`DELETE /api/account`** (same-origin, sudo) → `200 { "ok": true, "workspacesDeleted",
   "workspacesLeft" }` and the session cookie cleared. `409 owns_shared_workspace` (with
   `tenantIds`): hand those workspaces over first; `409 owns_default_workspace`: the instance's
-  original data is never deleted this way; `403 sudo_required`.
+  original data is never deleted this way; `403 sudo_required`. Afterwards no key of the account or
+  of its own workspaces is left (`tests/integration/account-deletion.test.ts`); a workspace it left
+  keeps its audit trail's and trash's record of what the user did there, and the security counters
+  (`usage:rl:*`) expire within a day.
+- **`GET /api/account/export`** → `200`, a JSON file to download (`Content-Disposition: attachment`,
+  gzip-encoded when the client accepts it): `{ "format": "usageratio-account-export", "version": 1,
+  "generatedAt", "account": { "userId", "login", "createdAt", "lastLoginAt", "identities",
+  "sessions": [{ "label", "createdAt", "seenAt" }] }, "workspaces": [{ "tenantId", "name", "role",
+  "joinedAt", "data"? }] }`. `data` comes only with a workspace the user owns: `{ "record",
+  "members": [{ "login", "role", "joinedAt" }], "invites": [{ "id", "createdAt", "expiresAt",
+  "login" }], "keys": { "<key name without the workspace prefix>": value } }`, every key of the
+  workspace as stored ([data-model.md](data-model.md), `lib/redis-keys.ts`), JSON parsed, a hash as
+  an object, a list as an array, a sorted set as `[{ "member", "score" }]`. Left out: the shared API
+  token, the key registry and the tokens lock; token hashes are replaced by token ids, the webhook
+  URL by its mask. `429 rate_limited` (see the table above).
 - **`DELETE /api/account/sessions`** (same-origin) → `200 { "ended": n }`: every session of the user,
   this one included.
 
