@@ -204,8 +204,9 @@ struct PopoverView: View {
 
     // MARK: 5-hour window
 
-    /// The provider's own 5-hour window under the cycle: a smaller, secondary block with the same
-    /// bar (the time gone by, and in purple where the pace runs out) and one line of outlook.
+    /// The provider's own 5-hour window under the cycle: a smaller, secondary block. Its bar carries
+    /// the percentage used inside it, the time gone by under its marker, the time left at its end,
+    /// and in purple where the pace runs out; one line of outlook under it.
     private func fiveHourBlock(_ view: FiveHourView) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Divider()
@@ -217,26 +218,29 @@ struct PopoverView: View {
                     .tracking(1)
                     .textCase(.uppercase)
                 Spacer(minLength: 8)
-                Text(view.resetsAt.map {
-                    strings.fiveHourHeader(Display.percentText(view.percent), Display.timeText($0, strings: strings))
-                } ?? Display.percentText(view.percent))
-                .font(.caption)
-                .monospacedDigit()
+                if let resetsAt = view.resetsAt {
+                    Text(Display.timeText(resetsAt, strings: strings))
+                        .font(.caption)
+                        .monospacedDigit()
+                }
             }
             .foregroundStyle(.secondary)
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel([strings.fiveHourSection, view.resetsAt.map {
+                strings.fiveHourHeader(Display.percentText(view.percent), Display.timeText($0, strings: strings))
+            }].compactMap { $0 }.joined(separator: ", "))
             .accessibilityAddTraits(.isHeader)
             PaceBar(
                 percent: view.percent,
                 elapsed: view.resetsAt == nil ? nil : view.elapsed,
                 status: Display.shareStatus(view.percent),
+                elapsedLabel: view.resetsAt == nil ? nil : Display.percentText(view.elapsed),
                 runOut: view.runOutPercent,
-                height: 4
+                height: 9,
+                inside: Display.percentText(view.percent),
+                endLabel: Display.fiveHourLeftText(view, now: store.now, strings: strings)
             )
             .padding(.top, 2)
-            if let elapsed = Display.fiveHourElapsedText(view, now: store.now, strings: strings) {
-                Text(elapsed).font(.caption2).foregroundStyle(.secondary)
-            }
             fiveHourOutlook(view)
                 .font(.caption)
                 .labelStyle(FactLabelStyle())

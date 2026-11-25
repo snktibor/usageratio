@@ -97,8 +97,8 @@ public struct Strings: Sendable {
     public let fiveHourSection: String
     /// percent, time it resets
     public let fiveHourHeader: @Sendable (String, String) -> String
-    /// percent of the window gone by, time left in it
-    public let fiveHourElapsed: @Sendable (String, String) -> String
+    /// time left in the window, under the right end of its bar
+    public let fiveHourLeft: @Sendable (String) -> String
     /// time
     public let fiveHourRunsOut: @Sendable (String) -> String
     public let fiveHourLasts: String
@@ -280,7 +280,7 @@ public struct Strings: Sendable {
         subLimitsSection: "Sub-limits",
         fiveHourSection: "5-hour window",
         fiveHourHeader: { "\($0) · resets \($1)" },
-        fiveHourElapsed: { "\($0) elapsed · \($1) left" },
+        fiveHourLeft: { "\($0) left" },
         fiveHourRunsOut: { "At this pace it runs out at \($0)" },
         fiveHourLasts: "Lasts until it resets",
         fiveHourUsedUp: "Used up until the reset",
@@ -402,7 +402,7 @@ public struct Strings: Sendable {
         subLimitsSection: "Alkeretek",
         fiveHourSection: "5 órás ablak",
         fiveHourHeader: { "\($0) · nullázódik \($1)" },
-        fiveHourElapsed: { "\($0) telt el · \($1) van hátra" },
+        fiveHourLeft: { "\($0) hátra" },
         fiveHourRunsOut: { "Ebben a tempóban \($0)-kor elfogy" },
         fiveHourLasts: "Kitart a nullázásig",
         fiveHourUsedUp: "Elfogyott a nullázásig",
@@ -524,7 +524,7 @@ public struct Strings: Sendable {
         subLimitsSection: "Unterkontingente",
         fiveHourSection: "5-Stunden-Fenster",
         fiveHourHeader: { "\($0) · Reset \($1)" },
-        fiveHourElapsed: { "\($0) vergangen · noch \($1)" },
+        fiveHourLeft: { "noch \($0)" },
         fiveHourRunsOut: { "Bei diesem Tempo leer um \($0)" },
         fiveHourLasts: "Reicht bis zum Reset",
         fiveHourUsedUp: "Aufgebraucht bis zum Reset",

@@ -55,11 +55,18 @@ struct PaceBar: View {
     /// Of the time gone by, 0–100; nil: no window is running, so no marker.
     let elapsed: Double?
     let status: QuotaStatus?
-    /// "▲ time elapsed 47%" under the marker; nil: no label (the 5-hour bar writes its own line).
+    /// "▲ time elapsed 47%" under the marker; nil: no label.
     var elapsedLabel: String?
     /// Where the pace runs out, 0–100; nil while it lasts.
     var runOut: Double?
     var height: CGFloat = 8
+    /// The percentage written inside the bar: at the end of its fill, or just past it while the fill
+    /// is too short to hold it.
+    var inside: String?
+    /// Under the bar's right end ("2h 57m left"); under its left end once the marker's label is there.
+    var endLabel: String?
+
+    private static let insideMinimum: CGFloat = 30
 
     var body: some View {
         VStack(spacing: 7) {
@@ -74,23 +81,31 @@ struct PaceBar: View {
                     }
                     if let elapsed { marker(at: elapsed, in: width, color: Color.primary.opacity(0.8)) }
                     if let runOut { marker(at: runOut, in: width, color: .runOut) }
+                    if let inside { insideText(inside, fill: width * min(max(percent, 0), 100) / 100) }
                 }
             }
             .frame(height: height)
 
-            if let elapsedLabel, let elapsed {
-                // Under the marker: to its right in the first half, to its left after.
+            if (elapsedLabel != nil && elapsed != nil) || endLabel != nil {
                 GeometryReader { geometry in
-                    let x = geometry.size.width * elapsed / 100
-                    Group {
-                        if elapsed <= 50 {
-                            Text("▲ \(elapsedLabel)")
-                                .padding(.leading, max(0, x - 4))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        } else {
-                            Text("\(elapsedLabel) ▲")
-                                .padding(.trailing, max(0, geometry.size.width - x - 4))
-                                .frame(maxWidth: .infinity, alignment: .trailing)
+                    let width = geometry.size.width
+                    ZStack {
+                        if let elapsedLabel, let elapsed {
+                            // Under the marker: to its right in the first half, to its left after.
+                            let x = width * elapsed / 100
+                            if elapsed <= 50 {
+                                Text("▲ \(elapsedLabel)")
+                                    .padding(.leading, max(0, x - 4))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            } else {
+                                Text("\(elapsedLabel) ▲")
+                                    .padding(.trailing, max(0, width - x - 4))
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
+                        }
+                        if let endLabel {
+                            Text(endLabel)
+                                .frame(maxWidth: .infinity, alignment: (elapsed ?? 0) > 65 ? .leading : .trailing)
                         }
                     }
                     .font(.caption2)
@@ -101,7 +116,20 @@ struct PaceBar: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(["\(Int(percent.rounded()))%", elapsedLabel].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityLabel(["\(Int(percent.rounded()))%", elapsedLabel, endLabel].compactMap { $0 }.joined(separator: ", "))
+    }
+
+    private func insideText(_ text: String, fill: CGFloat) -> some View {
+        let fits = fill >= Self.insideMinimum
+        return Text(text)
+            .font(.system(size: height - 1.5, weight: .bold, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(fits ? Color.white : Color.secondary)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 4)
+            .frame(width: fits ? fill : nil, alignment: .trailing)
+            .offset(x: fits ? 0 : fill)
     }
 
     private func marker(at position: Double, in width: CGFloat, color: Color) -> some View {

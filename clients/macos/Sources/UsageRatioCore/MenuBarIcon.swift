@@ -145,10 +145,10 @@ extension Display {
         return formatter.string(from: date)
     }
 
-    /// "41% elapsed · 2h 57m left", under the 5-hour bar; nil while idle.
-    public static func fiveHourElapsedText(_ view: FiveHourView, now: Date, strings: Strings) -> String? {
+    /// "2h 57m left", under the 5-hour bar; nil while idle.
+    public static func fiveHourLeftText(_ view: FiveHourView, now: Date, strings: Strings) -> String? {
         guard let resetsAt = view.resetsAt else { return nil }
-        return strings.fiveHourElapsed(percentText(view.elapsed), durationText(resetsAt.timeIntervalSince(now), strings: strings))
+        return strings.fiveHourLeft(durationText(resetsAt.timeIntervalSince(now), strings: strings))
     }
 
     /// The line under the 5-hour bar: when it runs out, that it lasts, or why there is no pace.

@@ -94,8 +94,9 @@ private func provider(machines: Int) throws -> StatusPayload.Provider {
     let running = try #require(Display.fiveHour(window(used: 50, resetsIn: 3 * hour), now: now))
     let time = Display.timeText(now.addingTimeInterval(2 * hour), strings: .hu)
     #expect(Display.fiveHourOutlookText(running, strings: .hu) == "Ebben a tempóban \(time)-kor elfogy")
-    #expect(Display.fiveHourElapsedText(running, now: now, strings: .en) == "40% elapsed · 3h left")
+    #expect(Display.fiveHourLeftText(running, now: now, strings: .en) == "3h left")
+    #expect(Display.fiveHourLeftText(running, now: now, strings: .hu) == "3 ó hátra")
     let idle = FiveHourView(percent: 0, elapsed: 0, resetsAt: nil, outlook: .idle)
-    #expect(Display.fiveHourElapsedText(idle, now: now, strings: .en) == nil)
+    #expect(Display.fiveHourLeftText(idle, now: now, strings: .en) == nil)
     #expect(Display.fiveHourOutlookText(idle, strings: .de) == Strings.de.fiveHourIdle)
 }
