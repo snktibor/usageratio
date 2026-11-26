@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.14.0](https://github.com/snktibor/usageratio/compare/v0.13.0...v0.14.0) (2026-11-26)
+
+
+### Features
+
+* **account:** export all account data and scrub signup codes on deletion ([#95](https://github.com/snktibor/usageratio/issues/95)) ([c59670a](https://github.com/snktibor/usageratio/commit/c59670a400c8e037e8e17327fa087b3186f8bbd3))
+* **account:** import an exported workspace back ([#96](https://github.com/snktibor/usageratio/issues/96)) ([b6ace6f](https://github.com/snktibor/usageratio/commit/b6ace6f263157825a8d7bd86d1da3fa8bc0be86f))
+* **alerts:** block webhook SSRF with send-time IP pinning, and report Upstash limits ([#87](https://github.com/snktibor/usageratio/issues/87)) ([afc3f5a](https://github.com/snktibor/usageratio/commit/afc3f5a4ea793d7900a8fd3c4ff8f87c777d5b21))
+* **audit:** record destructive group, provider, machine and restart actions ([#83](https://github.com/snktibor/usageratio/issues/83)) ([79ed2f1](https://github.com/snktibor/usageratio/commit/79ed2f1e75fa0eddc4216649c95fd5a7024bdb8d))
+* **legal:** add a privacy notice and terms of use ([#93](https://github.com/snktibor/usageratio/issues/93)) ([d2a8126](https://github.com/snktibor/usageratio/commit/d2a812679a018de58e06b3a05a2bdb19deb859f5))
+* **macos:** attach a prebuilt menu bar app to every release ([#100](https://github.com/snktibor/usageratio/issues/100)) ([b5aa1b0](https://github.com/snktibor/usageratio/commit/b5aa1b0b206230629245070f76815386c443687d))
+* **quotas:** enforce per-workspace quotas with clear refusals ([#89](https://github.com/snktibor/usageratio/issues/89)) ([39c4cb7](https://github.com/snktibor/usageratio/commit/39c4cb7bf741a9195df9d6b4957cc1f9407a2450))
+* **security:** rate limit per token, tenant, address and instance ([#88](https://github.com/snktibor/usageratio/issues/88)) ([e589ebd](https://github.com/snktibor/usageratio/commit/e589ebd6b9c337207c177540884a4712207ff24c))
+* **settings:** archive groups and machines that no longer report ([#86](https://github.com/snktibor/usageratio/issues/86)) ([1ef065d](https://github.com/snktibor/usageratio/commit/1ef065d0942465e1a19b3cd4e04c5dd5a513234b))
+* **settings:** restore or permanently delete from Recently deleted ([#85](https://github.com/snktibor/usageratio/issues/85)) ([be2e4b9](https://github.com/snktibor/usageratio/commit/be2e4b9a0300f06f434ecb79fed26ab216d1dc62))
+* **settings:** type the name to force-delete a group or provider, and see what it deletes ([#82](https://github.com/snktibor/usageratio/issues/82)) ([e7b64f9](https://github.com/snktibor/usageratio/commit/e7b64f971ae2b519c47605ef5a6d2aea3fb2b716))
+* single-device mode with the 5-hour window in the menu bar app and on the dashboard ([#97](https://github.com/snktibor/usageratio/issues/97)) ([3630d92](https://github.com/snktibor/usageratio/commit/3630d92bc119a266c343bdfda98818aaa04a909a))
+* **trash:** keep force-deleted groups and providers for 30 days, restorable ([#84](https://github.com/snktibor/usageratio/issues/84)) ([6c6fee8](https://github.com/snktibor/usageratio/commit/6c6fee81ab9d96fa523e33fbfda2bdee5c6852d3))
+
+
+### Bug Fixes
+
+* **demo:** seed on first read instead of at server start ([#90](https://github.com/snktibor/usageratio/issues/90)) ([28e1204](https://github.com/snktibor/usageratio/commit/28e1204403df88e2258804a5ec88bb7546fdc913))
+* **groups:** keep machines' mode and interval and the key's expiry on a group rename or merge ([#79](https://github.com/snktibor/usageratio/issues/79)) ([9053f20](https://github.com/snktibor/usageratio/commit/9053f203ee9b15a4ca4d877296ed4d0ced5b764a))
+* **history:** archive the ended cycle before a delete, a group merge or a new restart ([#80](https://github.com/snktibor/usageratio/issues/80)) ([1e8dbbb](https://github.com/snktibor/usageratio/commit/1e8dbbb3eebad14ad2dc4ba6c627aa429b13c7bf))
+
 ## [0.13.0](https://github.com/snktibor/usageratio/compare/v0.12.1...v0.13.0) (2026-11-10)
 
 
