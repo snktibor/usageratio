@@ -151,6 +151,7 @@ function cases(world: World): Record<string, Case[]> {
       { method: "GET", path: "/api/account", auth: "session" },
       { method: "DELETE", path: "/api/account", auth: "sudo" },
     ],
+    "account/export": [{ method: "GET", path: "/api/account/export", auth: "session" }],
     "account/sessions": [{ method: "DELETE", path: "/api/account/sessions", auth: "session" }],
     admin: [{ method: "GET", path: "/api/admin", auth: "session" }],
     "admin/signup-codes": [{ method: "POST", path: "/api/admin/signup-codes", auth: "session" }],

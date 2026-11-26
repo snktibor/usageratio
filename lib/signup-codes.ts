@@ -97,6 +97,26 @@ export async function listSignupCodes(): Promise<SignupCodeEntry[]> {
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
+/**
+ * Forgets who used a code (a deleted account): the entry keeps `usedAt`, so it still reads as
+ * spent, without the user id. Nothing else writes a used entry (`revokeSignupCode` leaves it
+ * alone), so the rewrite races nothing.
+ */
+export async function forgetSignupCodeUser(userId: string): Promise<number> {
+  const raw = toStringRecord(await getRedis().hgetall(GLOBAL_KEYS.signupCodes));
+  const rewritten: Record<string, string> = {};
+  for (const [id, value] of Object.entries(raw)) {
+    try {
+      const { usedBy, ...rest } = JSON.parse(value) as Record<string, unknown>;
+      if (usedBy === userId) rewritten[id] = JSON.stringify(rest);
+    } catch {
+      // A damaged entry is left as it is.
+    }
+  }
+  if (Object.keys(rewritten).length > 0) await getRedis().hset(GLOBAL_KEYS.signupCodes, rewritten);
+  return Object.keys(rewritten).length;
+}
+
 /** Revokes a code that has not been used; true when there was one to revoke. */
 export async function revokeSignupCode(id: string): Promise<boolean> {
   const listed = await getRedis().hget<string>(GLOBAL_KEYS.signupCodes, id);

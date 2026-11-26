@@ -15,7 +15,7 @@ export interface LegalOperator {
 }
 
 /** The date both documents were last changed: bump it with every change to their text. */
-export const LEGAL_UPDATED = "2026-11-23";
+export const LEGAL_UPDATED = "2026-11-25";
 
 const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
 const MAX_LENGTH = 200;

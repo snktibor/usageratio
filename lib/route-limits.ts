@@ -1,4 +1,5 @@
 import {
+  ACCOUNT_EXPORT_RATE_LIMIT_PER_USER,
   ALERT_TEST_RATE_LIMIT_BURST_SECONDS,
   ALERT_TEST_RATE_LIMIT_PER_IP,
   ALERT_TEST_RATE_LIMIT_PER_TENANT,
@@ -157,6 +158,20 @@ export function exportRules(input: { tenantId: string; ip: string }): RateLimitR
       limit: EXPORT_RATE_LIMIT_PER_TENANT,
       windowSeconds: HOUR,
     },
+  ];
+}
+
+/** GET /api/account/export: the user, then the address (the same counter as GET /api/export's). */
+export function accountExportRules(input: { userId: string; ip: string }): RateLimitRule[] {
+  return [
+    {
+      name: "account-export",
+      scope: "user",
+      key: GLOBAL_KEYS.rateLimit.accountExport(input.userId),
+      limit: ACCOUNT_EXPORT_RATE_LIMIT_PER_USER,
+      windowSeconds: HOUR,
+    },
+    ...ipRule("export", ipLimitKey(input.ip, GLOBAL_KEYS.rateLimit.exportIp), EXPORT_RATE_LIMIT_PER_IP),
   ];
 }
 

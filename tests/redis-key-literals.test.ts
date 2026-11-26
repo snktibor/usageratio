@@ -31,6 +31,7 @@ const STORE_MAKERS = new Set([
   "lib/migrate-tenant.ts", // npm run migrate:tenant
   "lib/admin.ts", // the instance admin's counts, tenant by tenant
   "lib/tenant-deletion.ts",
+  "lib/account-export.ts", // the account export, workspace by owned workspace
 ]);
 
 /** Who may reach the raw client: global keys only, or the store's own plumbing. */
@@ -51,6 +52,7 @@ const RAW_CLIENT_USERS = new Set([
   "lib/account.ts",
   "lib/admin.ts",
   "lib/tenant-deletion.ts",
+  "lib/account-export.ts",
   "lib/migrate-legacy.ts",
   "lib/demo/seed.ts",
   "app/api/health/route.ts",

@@ -180,6 +180,7 @@
  *                                               (lib/rate-limit.ts), named in `GLOBAL_KEYS.rateLimit`;
  *                                               the limits themselves are in lib/config.ts. Per token
  *                                               (`…:{tokenId}`), per tenant (`…-tenant:{tenantId}…`),
+ *                                               per user (`account-export:{userId}`),
  *                                               per address (`…-ip:{sha256(ip)[:32]}`) and per instance
  *                                               (`…:global:{UTC hour yyyymmddhh}`); each expires with
  *                                               its window
@@ -382,6 +383,7 @@ export const GLOBAL_KEYS = {
     officialIp: (ipHash: string) => `usage:rl:official-ip:${ipHash}`,
     exportTenant: (tenantId: string) => `usage:rl:export-tenant:${tenantId}`,
     exportIp: (ipHash: string) => `usage:rl:export-ip:${ipHash}`,
+    accountExport: (userId: string) => `usage:rl:account-export:${userId}`,
     alertsTestBurst: (tenantId: string) => `usage:rl:alerts-test:${tenantId}`,
     alertsTestTenant: (tenantId: string) => `usage:rl:alerts-test-tenant:${tenantId}`,
     alertsTestIp: (ipHash: string) => `usage:rl:alerts-test-ip:${ipHash}`,

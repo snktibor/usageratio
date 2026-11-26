@@ -50,7 +50,7 @@ export async function hit(key: string, limit: number, windowSeconds: number): Pr
 }
 
 /** Whose budget a rule counts against: what the `rate_limit.exceeded` log line names. */
-export type RateLimitScope = "token" | "machine" | "tenant" | "ip" | "instance";
+export type RateLimitScope = "token" | "machine" | "tenant" | "user" | "ip" | "instance";
 
 export interface RateLimitRule {
   /** What is limited, for the log line: "ingest", "official", "export", … */
