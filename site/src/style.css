@@ -574,8 +574,14 @@ section > .flow {
   line-height: 1.25rem;
 }
 
-section > .menubar-figure + .facts {
-  margin-top: 2rem;
+.points li {
+  padding-block: 0.75rem;
+  border-top: 1px solid var(--color-hairline);
+  color: var(--color-ink-2);
+}
+
+.points li:last-child {
+  border-bottom: 1px solid var(--color-hairline);
 }
 
 /* Comparison: a label, then the same fact for each way of running it */
@@ -645,7 +651,7 @@ section > .menubar-figure + .facts {
 
 .rows > div {
   display: grid;
-  grid-template-columns: 17rem 1fr;
+  grid-template-columns: 15rem 1fr;
   gap: 0.25rem 1.5rem;
   padding-block: 0.875rem;
   border-top: 1px solid var(--color-hairline);

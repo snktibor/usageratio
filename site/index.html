@@ -123,7 +123,7 @@
               </table>
             </div>
             <figcaption>
-              The demo's numbers. Claude reports 62.5% for the account. Three machines measured the tokens, so the dashboard can say that Work used 44% of the quota and Personal 19%.
+              The demo's numbers: Claude reports 62.5% for the account, and the dashboard shows who used it.
             </figcaption>
           </figure>
         </section>
@@ -133,25 +133,21 @@
           <ul class="ways">
             <li>
               <h3>Demo</h3>
-              <p>The whole dashboard on synthetic data. It is read-only and needs no account.</p>
+              <p>Synthetic data, read-only, no account.</p>
               <p class="way-links">
                 <a href="https://demo.usageratio.snktibor.hu/">Open the demo</a>
               </p>
             </li>
             <li>
               <h3>Hosted</h3>
-              <p>
-                A free instance at app.usageratio.snktibor.hu. You sign in with GitHub and get a workspace of your own.
-              </p>
+              <p>Free. Sign in with GitHub and get your own workspace.</p>
               <p class="way-links">
                 <a href="https://app.usageratio.snktibor.hu/">Sign in with GitHub</a>
               </p>
             </li>
             <li>
               <h3>Your own</h3>
-              <p>
-                Deploy it to Vercel with an Upstash Redis database, or run it on your own server with Docker Compose. You log in with a PIN.
-              </p>
+              <p>On Vercel with Upstash Redis, or with Docker Compose.</p>
               <p class="way-links">
                 <a href="https://github.com/snktibor/usageratio#quick-start">Deploy on Vercel</a>
                 <a href="https://github.com/snktibor/usageratio/blob/main/docs/self-hosting.md">Docker guide</a>
@@ -164,13 +160,13 @@
           <h2 id="how">How it works</h2>
           <ol class="steps">
             <li>
-              <span>A small client runs every hour on each machine. It reads the usage data that <a href="https://github.com/ryoppippi/ccusage">ccusage</a> finds on that machine and adds up the tokens for the current cycle.</span>
+              <span>A small client runs hourly on each machine and counts its tokens with <a href="https://github.com/ryoppippi/ccusage">ccusage</a>.</span>
             </li>
             <li>
-              <span>The client sends that total to one dashboard. It sends token counts. It does not send prompts or code.</span>
+              <span>It sends the counts to one dashboard. No prompts, no code.</span>
             </li>
             <li>
-              <span>You enter the percentage your provider shows, or the macOS menu bar app reports it. The dashboard divides it among your groups and machines by the tokens each one measured.</span>
+              <span>The dashboard splits the provider's percentage by those counts.</span>
             </li>
           </ol>
 
@@ -204,9 +200,6 @@
               </dl>
             </div>
           </div>
-          <p class="note">
-            win-desktop measured 74,831 of the 190,248 tokens, which is 39%. Its part is 39% of the provider's 62.5%, which is 25% of the quota.
-          </p>
         </section>
 
         <section aria-labelledby="screens">
@@ -223,7 +216,7 @@
                 decoding="async"
                 alt="The dashboard's official consumption card: Claude's real percentage set to 62.5 with a slider, a Fable sub-limit at 48% with a warning that its pace is too fast, and a recorded usage reset."
               />
-              <figcaption>The provider's own percentage goes in here. A sub-limit, such as one model family inside Claude, has its own slider under it.</figcaption>
+              <figcaption>The provider's own percentage, with a sub-limit under it.</figcaption>
             </figure>
             <figure class="shot">
               <img
@@ -236,7 +229,7 @@
                 decoding="async"
                 alt="Line chart of consumption over the week: a dashed total line reaching 62.5%, one line each for the Work and Personal groups, one for the Fable sub-limit, and a marker where the usage was reset on Monday."
               />
-              <figcaption>Consumption over the cycle, per group. Every chart also opens as a table.</figcaption>
+              <figcaption>Consumption over the cycle, per group.</figcaption>
             </figure>
             <figure class="shot phone">
               <img
@@ -249,7 +242,7 @@
                 decoding="async"
                 alt="The dashboard at phone width: 62.5% consumed from the weekly quota, the week's bar with a now marker, a warning that the pace is too fast, and the time left until the reset."
               />
-              <figcaption>The same dashboard at phone width, with the pace warning.</figcaption>
+              <figcaption>The pace warning, at phone width.</figcaption>
             </figure>
             <figure class="shot">
               <img
@@ -262,16 +255,14 @@
                 decoding="async"
                 alt="The setup page: a choice of macOS, Linux or Windows, automatic or manual run mode, a group field and an optional machine ID."
               />
-              <figcaption>Setup builds a client package for macOS, Linux or Windows.</figcaption>
+              <figcaption>Setup builds the client for macOS, Linux or Windows.</figcaption>
             </figure>
           </div>
         </section>
 
         <section id="mac" aria-labelledby="mac-title">
           <h2 id="mac-title">A menu bar app, useful with one Mac</h2>
-          <p class="lead">
-            You do not need several machines. On a Mac, a native menu bar app keeps your usage in view, reads the provider's own figure and reports for that Mac.
-          </p>
+          <p class="lead">One machine is enough. A native Mac app keeps your usage in the menu bar.</p>
           <figure class="menubar-figure">
             <div class="menubar" role="img" aria-label="A menu bar with the usageratio icon: the number 63 inside a ring that is 46% full.">
               <svg viewBox="0 0 28 28" width="28" height="28" aria-hidden="true">
@@ -281,43 +272,20 @@
               </svg>
               <span>Wed 12:00</span>
             </div>
-            <figcaption>A drawing of the icon with the demo's numbers: 63% of the week inside, and the 5-hour window, 46% used, as the ring.</figcaption>
+            <figcaption>The icon, drawn: 63% of the week inside, the 5-hour window as the ring.</figcaption>
           </figure>
-          <dl class="facts">
-            <div>
-              <dt>In the menu bar</dt>
-              <dd>The cycle's percentage as a number, with the provider's 5-hour window as a ring around it. Each turns orange past the warning level and red when critical.</dd>
-            </div>
-            <div>
-              <dt>In the popover</dt>
-              <dd>How much you have used and what is left, whether your pace runs out before the reset, and when the reset comes. With one machine it leaves out the breakdown by group and machine.</dd>
-            </div>
-            <div>
-              <dt>Reads the official figure</dt>
-              <dd>The app reads the limits that Codex and Claude Code record on your Mac and sends them to the dashboard, so you do not type the percentage in. Claude Code needs one changed line in its status line setting.</dd>
-            </div>
-            <div>
-              <dt>Reports for this Mac</dt>
-              <dd>It sends this Mac's usage every hour with the same reporter as the script, so the Mac needs no cron job.</dd>
-            </div>
-            <div>
-              <dt>Small and native</dt>
-              <dd>One process, no dependencies, under 1 MB. It runs on macOS 14 or later, in English, Hungarian and German.</dd>
-            </div>
-            <div>
-              <dt>You build it</dt>
-              <dd>There is no download. One script builds the app on your Mac, and the Command Line Tools are enough.</dd>
-            </div>
-          </dl>
-          <p class="note">
-            The app shows a dashboard's figures, so it needs the hosted instance or your own. See the
-            <a href="https://github.com/snktibor/usageratio/tree/main/clients/macos#readme">app's README</a> for the build and the first run.
-          </p>
+          <ul class="points">
+            <li>Pace, what is left and the reset, one click away.</li>
+            <li>It reads the provider's own figure and reports for the Mac. No cron job.</li>
+            <li>
+              Native and under 1 MB. You
+              <a href="https://github.com/snktibor/usageratio/tree/main/clients/macos#readme">build it with one script</a>.
+            </li>
+          </ul>
         </section>
 
         <section aria-labelledby="compare">
           <h2 id="compare">Hosted or your own</h2>
-          <p class="lead">Both run the same code. They differ in who runs the server and who holds the data.</p>
           <table class="compare">
             <thead>
               <tr>
@@ -329,47 +297,33 @@
             <tbody>
               <tr>
                 <th scope="row">Cost</th>
-                <td data-label="Hosted">Free. A private individual runs it, with no warranty and no uptime guarantee.</td>
-                <td data-label="Your own">Free to use. You pay for the hosting, if your hosting costs anything.</td>
+                <td data-label="Hosted">Free, with no uptime guarantee.</td>
+                <td data-label="Your own">Free. You run the server.</td>
               </tr>
               <tr>
                 <th scope="row">Sign-in</th>
-                <td data-label="Hosted">GitHub. The service stores your GitHub user id and login, not your e-mail address.</td>
-                <td data-label="Your own">A PIN or passphrase. GitHub sign-in for several users is optional.</td>
+                <td data-label="Hosted">GitHub. No e-mail address stored.</td>
+                <td data-label="Your own">A PIN or passphrase.</td>
               </tr>
               <tr>
-                <th scope="row">What leaves your machine</th>
-                <td data-label="Hosted">
-                  The machine's name, its group, the provider, token counts per model and per day, a cost estimate and the time of the report. No prompts and no code.
-                </td>
-                <td data-label="Your own">The same report, sent to your server.</td>
-              </tr>
-              <tr>
-                <th scope="row">Where it is stored</th>
-                <td data-label="Hosted">At Vercel and Upstash, both in Frankfurt.</td>
-                <td data-label="Your own">In the Redis database you set up.</td>
+                <th scope="row">Data</th>
+                <td data-label="Hosted">In Frankfurt, at Vercel and Upstash.</td>
+                <td data-label="Your own">In your own Redis database.</td>
               </tr>
               <tr>
                 <th scope="row">Limits</th>
-                <td data-label="Hosted">25 machines, 20 providers, 20 groups and 10 members per workspace.</td>
-                <td data-label="Your own">Higher caps: 200 machine entries, 20 providers and 50 groups.</td>
-              </tr>
-              <tr>
-                <th scope="row">Retention</th>
-                <td data-label="Hosted">Raw reports for 70 days. Per-cycle summaries until you delete the workspace.</td>
-                <td data-label="Your own">The same 70 days for raw reports. The summaries stay.</td>
+                <td data-label="Hosted">25 machines and 20 groups per workspace.</td>
+                <td data-label="Your own">200 machine entries and 50 groups.</td>
               </tr>
               <tr>
                 <th scope="row">Leaving</th>
-                <td data-label="Hosted">
-                  The account page downloads everything as one JSON file, and an empty instance of your own can import it. Deleting your account removes your data at once.
-                </td>
-                <td data-label="Your own">The database is yours. The dashboard exports each cycle as CSV or JSON.</td>
+                <td data-label="Hosted">Download everything as JSON, import it into your own instance, delete the account.</td>
+                <td data-label="Your own">The database is yours.</td>
               </tr>
             </tbody>
           </table>
           <p class="note">
-            Before you sign in to the hosted instance, read its
+            The hosted instance has a
             <a href="https://app.usageratio.snktibor.hu/en/privacy">privacy notice</a> and
             <a href="https://app.usageratio.snktibor.hu/en/terms">terms of use</a>.
           </p>
@@ -377,30 +331,18 @@
 
         <section aria-labelledby="supported">
           <h2 id="supported">Providers and clients</h2>
-          <dl class="facts">
+          <dl class="rows">
             <div>
               <dt>Providers</dt>
-              <dd>
-                Claude, OpenAI (Codex), Gemini, DeepSeek, Kimi, Meta, Mistral, Qwen and xAI. Any other provider that ccusage reports shows up under its own name.
-              </dd>
+              <dd>Claude, OpenAI (Codex), Gemini, DeepSeek, Kimi, Meta, Mistral, Qwen, xAI, and anything else ccusage reports.</dd>
             </div>
             <div>
-              <dt>macOS and Linux</dt>
-              <dd>An hourly cron job. The installer comes from the dashboard's Setup page as a ZIP or as text to copy.</dd>
-            </div>
-            <div>
-              <dt>Windows</dt>
-              <dd>An hourly Task Scheduler task, installed by a PowerShell script from the same Setup page.</dd>
-            </div>
-            <div>
-              <dt>Without installing</dt>
-              <dd>One command sends a single report and leaves nothing behind on the machine.</dd>
+              <dt>Clients</dt>
+              <dd>macOS and Linux (cron), Windows (Task Scheduler), or one command that installs nothing.</dd>
             </div>
             <div>
               <dt>Alerts</dt>
-              <dd>
-                A webhook call when usage crosses a threshold: 50, 80 and 100% by default, formatted for Slack or Discord, or as plain JSON.
-              </dd>
+              <dd>A Slack, Discord or plain webhook at 50, 80 and 100%.</dd>
             </div>
           </dl>
         </section>
@@ -410,19 +352,11 @@
           <dl class="rows">
             <div>
               <dt>Does it read my prompts or code?</dt>
-              <dd>No. The client sends token counts, model names, the machine's name and a cost estimate.</dd>
+              <dd>No. A report holds token counts, model names, the machine's name and a cost estimate.</dd>
             </div>
             <div>
-              <dt>Does it need access to my provider account?</dt>
-              <dd>No. ccusage reads the logs that the coding agents already write on your machine.</dd>
-            </div>
-            <div>
-              <dt>Is the cost figure my bill?</dt>
-              <dd>No. It is an estimate from API list prices, and the dashboard hides it by default. A subscription does not bill per token.</dd>
-            </div>
-            <div>
-              <dt>Can I move from the hosted instance to my own?</dt>
-              <dd>Yes. Download your data on the account page and import the file into an empty instance.</dd>
+              <dt>Does it need my provider account?</dt>
+              <dd>No. ccusage reads the logs the coding agents already write on your machine.</dd>
             </div>
             <div>
               <dt>Is it open source?</dt>
