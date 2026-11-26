@@ -390,7 +390,7 @@ function finiteIntegerOr(value: unknown, min: number, fallback: number | null): 
   return typeof value === "number" && Number.isInteger(value) && value >= min ? value : fallback;
 }
 
-function parseMachine(field: string, raw: string): ProviderMachine | null {
+export function parseMachine(field: string, raw: string): ProviderMachine | null {
   try {
     const { g, ts, t, md, iv, ar } = JSON.parse(raw) as Record<string, unknown>;
     if (typeof g !== "string" || typeof ts !== "number" || !Number.isFinite(ts)) return null;

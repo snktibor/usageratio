@@ -1077,5 +1077,21 @@
     "law_title": "Governing law and contact",
     "law_p1": "Hungarian law applies. If you are a consumer, the mandatory protections of the country where you live still apply to you.",
     "law_p2": "Questions: <mail>{email}</mail>."
+  },
+  "Import": {
+    "heading": "Import",
+    "description_workspace": "Loads a workspace from a downloaded file into a new workspace of yours, so you can see its usage again: the reports of the last 70 days, every past cycle, the machines, groups and settings. Tokens, audit trails and the trash are not imported, and alerts come back switched off.",
+    "description_instance": "Loads a workspace from a file downloaded on the account page of another usageratio (the hosted service, for example) into this instance, while it holds no data yet: the reports of the last 70 days, every past cycle, the machines, groups and settings. Tokens, audit trails and the trash are not imported, and alerts come back switched off.",
+    "choose_file": "Import a file…",
+    "importing": "Importing…",
+    "choose_workspace": "The file holds several workspaces. Which one should be imported?",
+    "sudo_prompt": "Enter the PIN to import the file.",
+    "error_invalid": "This is not a usageratio export file, or it is damaged.",
+    "error_none": "The file holds no workspace of yours with data in it.",
+    "error_too_large": "The file is too large to import.",
+    "error_workspaces": "You already own {limit} workspaces, the most there can be. Delete one first.",
+    "error_quota": "The file has more machines, providers or groups than a workspace may hold (at most {limit}).",
+    "error_not_empty": "This instance already holds data: a file can only be imported into an empty one.",
+    "error_failed": "The import failed. Try again later."
   }
 }

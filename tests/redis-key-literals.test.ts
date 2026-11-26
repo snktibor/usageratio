@@ -32,6 +32,7 @@ const STORE_MAKERS = new Set([
   "lib/admin.ts", // the instance admin's counts, tenant by tenant
   "lib/tenant-deletion.ts",
   "lib/account-export.ts", // the account export, workspace by owned workspace
+  "lib/account-import.ts", // the import's new workspace
 ]);
 
 /** Who may reach the raw client: global keys only, or the store's own plumbing. */

@@ -152,6 +152,15 @@ function cases(world: World): Record<string, Case[]> {
       { method: "DELETE", path: "/api/account", auth: "sudo" },
     ],
     "account/export": [{ method: "GET", path: "/api/account/export", auth: "session" }],
+    // Multi-tenant mode: a new workspace of A's own; single-user: A is not empty, so 409 and nothing written.
+    import: [
+      {
+        method: "POST",
+        path: "/api/import",
+        auth: "sudo",
+        body: { format: "usageratio-account-export", version: 1, workspace: { name: "a", keys: {} } },
+      },
+    ],
     "account/sessions": [{ method: "DELETE", path: "/api/account/sessions", auth: "session" }],
     admin: [{ method: "GET", path: "/api/admin", auth: "session" }],
     "admin/signup-codes": [{ method: "POST", path: "/api/admin/signup-codes", auth: "session" }],
