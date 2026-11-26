@@ -49,9 +49,21 @@ scripts/build-app.sh --install   # builds dist/UsageRatio.app, copies it to ~/Ap
 ```
 
 Without `--install` it only builds `dist/UsageRatio.app`. The app is signed ad hoc. Built on the
-Mac that runs it, it is never quarantined, so Gatekeeper opens it without a warning. A copy
-downloaded from elsewhere would be blocked as from an "unidentified developer". Clear that with
-`xattr -dr com.apple.quarantine UsageRatio.app` — or just build it yourself.
+Mac that runs it, it is never quarantined, so Gatekeeper opens it without a warning.
+
+## Or download it
+
+Every release carries a prebuilt copy (Apple silicon):
+[UsageRatio-macOS.zip](https://github.com/snktibor/usageratio/releases/latest/download/UsageRatio-macOS.zip).
+Unzip it and move `UsageRatio.app` to `~/Applications`. Downloaded, it is quarantined, and an
+ad-hoc signed app is then blocked as from an "unidentified developer". Clear that once:
+
+```bash
+xattr -dr com.apple.quarantine ~/Applications/UsageRatio.app
+```
+
+The download leaves out the status line pass-through that `--install` sets up
+(`scripts/statusline-tee.sh`); copy it to `~/.usageratio/` yourself if you use it.
 
 ## First run
 

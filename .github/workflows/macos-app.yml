@@ -1,0 +1,33 @@
+name: macOS app
+
+# Builds the menu bar app and attaches it to the release as UsageRatio-macOS.zip.
+# The fixed asset name keeps /releases/latest/download/UsageRatio-macOS.zip a
+# stable link. Run it by hand with a tag to (re)attach the app to an older release.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach to (e.g. v0.14.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - run: clients/macos/scripts/test.sh
+      - run: clients/macos/scripts/build-app.sh
+      # ditto keeps the bundle's signature and symlinks intact; plain zip does not.
+      - run: ditto -c -k --keepParent clients/macos/dist/UsageRatio.app UsageRatio-macOS.zip
+      - run: gh release upload "$TAG" UsageRatio-macOS.zip --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
