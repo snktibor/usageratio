@@ -544,6 +544,40 @@ section > .flow {
   border-radius: 8px;
 }
 
+/* The menu bar icon, drawn: a strip of the bar with the ring in it */
+
+.menubar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1rem;
+  max-width: 26rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 8px;
+  background: var(--color-raised);
+  color: var(--color-ink-2);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.menubar svg {
+  font-stretch: 78%;
+}
+
+.menubar-figure figcaption {
+  max-width: 42rem;
+  margin-top: 0.75rem;
+  color: var(--color-ink-3);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+section > .menubar-figure + .facts {
+  margin-top: 2rem;
+}
+
 /* Comparison: a label, then the same fact for each way of running it */
 
 .compare {
