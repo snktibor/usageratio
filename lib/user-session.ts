@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { otherUtcDay, recordUserActivity } from "@/lib/activity";
 import { describeClient } from "@/lib/api-token";
 import { clearCookie, hostCookieName, serializeCookie } from "@/lib/cookies";
 import { getRedis } from "@/lib/redis";
@@ -134,8 +135,12 @@ export async function currentUserSession(): Promise<UserSession | null> {
   }
   if (now - stored.s > REFRESH_INTERVAL_MS) {
     // Re-read when writing, and change only `s`: a sudo or tenant change made meanwhile stays.
+    // The first dashboard day keeps the account active (lib/inactive-purge.ts), even with a session
+    // that outlives SESSION_MAX_DAYS' default and so no fresh sign-in.
+    const firstToday = otherUtcDay(stored.s, now);
     defer(async () => {
-      await updateSession(hash, { s: now });
+      // Only while the session still exists: a deleted account is never stamped back into the index.
+      if ((await updateSession(hash, { s: now })) && firstToday) await recordUserActivity(stored.u, now);
     });
   }
   return {

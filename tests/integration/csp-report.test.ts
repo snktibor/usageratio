@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/csp-report/route";
 
 function post(ip: string, contentType: string, body: string): Promise<Response> {
@@ -45,6 +45,34 @@ describe("POST /api/csp-report", () => {
       ]),
     );
     expect(response.status).toBe(204);
+  });
+
+  it("logs a reported URL without its query or fragment", async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line: string) => void lines.push(String(line)));
+    try {
+      const response = await post(
+        "203.0.113.15",
+        "application/reports+json",
+        JSON.stringify([
+          {
+            type: "csp-violation",
+            body: {
+              documentURL: "https://example.com/en/setup?group=AliceWork&machine=alice-laptop#x",
+              violatedDirective: "script-src-elem",
+              blockedURL: "inline",
+            },
+          },
+        ]),
+      );
+      expect(response.status).toBe(204);
+    } finally {
+      spy.mockRestore();
+    }
+    const violation = lines.find((line) => line.includes("csp.violation"));
+    expect(violation).toContain("https://example.com/en/setup");
+    expect(violation).toContain("inline");
+    expect(violation).not.toMatch(/AliceWork|alice-laptop/);
   });
 
   it("204s even a malformed body — there is no client here to retry sensibly", async () => {

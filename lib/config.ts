@@ -143,6 +143,13 @@ export const RETENTION_DAYS = 70;
 /** How long a force-deleted group or provider stays restorable (lib/trash.ts); the settings copy quotes it. */
 export const TRASH_RETENTION_DAYS = 30;
 
+/**
+ * A workspace or account with no sign-in and no client request for this long is deleted by the
+ * daily housekeeping run, in multi-tenant mode only (lib/inactive-purge.ts; the privacy notice
+ * quotes it as 12 months).
+ */
+export const INACTIVE_ACCOUNT_DAYS = 365;
+
 /** A machine silent for longer than this drops off the dashboard. */
 export const INACTIVE_MACHINE_DAYS = 35;
 

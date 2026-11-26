@@ -54,6 +54,8 @@ const RAW_CLIENT_USERS = new Set([
   "lib/admin.ts",
   "lib/tenant-deletion.ts",
   "lib/account-export.ts",
+  "lib/activity.ts", // the activity markers
+  "lib/inactive-purge.ts", // the activity markers and the users index
   "lib/migrate-legacy.ts",
   "lib/demo/seed.ts",
   "app/api/health/route.ts",

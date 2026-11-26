@@ -198,6 +198,15 @@
  *                                       always exists (lib/tenants.ts `listTenantIds`)
  *   usage:tenants:housekept      ZSET   tenantId → last housekeeping run ms: the cron run takes the
  *                                       tenants oldest first, so one it did not reach is first next time
+ *   usage:tenants:active         ZSET   tenantId → its machines' last client request ms (any request a
+ *                                       token of the tenant authenticates: a report, a cycle or status
+ *                                       read), written at most once a UTC day per token, with the
+ *                                       hourly last-used refresh (lib/tokens.ts, lib/activity.ts).
+ *                                       Never the default tenant. Durable: what lib/inactive-purge.ts
+ *                                       reads, where the machines' own `ts` is pruned after 70 days.
+ *   usage:activity:since         STRING ms: when activity tracking began (the first cron run of a build
+ *                                       that has it). A tenant or user without a marker counts as
+ *                                       active at this moment, so nothing older is ever deleted.
  *   Users and sign-in (multi-tenant mode only, REGISTRATION=invite|open; see lib/users.ts):
  *
  *   usage:user:{userId}              STRING {"v": 1, "login", "createdAt", "lastLoginAt"}: a person
@@ -208,6 +217,11 @@
  *                                           each tenant's members hash, for listing a user's tenants
  *   usage:user:{userId}:sessions     ZSET   sha256(sessionId) → created ms: the user's sessions,
  *                                           for "sign out everywhere"
+ *   usage:users                      ZSET   userId → last sign-in or dashboard day ms: the index of every
+ *                                           user (with a workspace or without), stamped on a GitHub
+ *                                           sign-in and at most once a UTC day by a live session
+ *                                           (lib/activity.ts); filled once from a SCAN of
+ *                                           `usage:user:*` when tracking begins (lib/inactive-purge.ts)
  *   usage:identity:github:{id}       STRING userId (SET NX: one user per GitHub account, by its
  *                                           numeric id, never by the login, which can be renamed)
  *   usage:tenant:{tenantId}:members  HASH   userId → {"role", "joinedAt", "invitedBy"?}: one owner per
@@ -407,6 +421,11 @@ export const GLOBAL_KEYS = {
   signupCodes: "usage:signups",
   tenants: "usage:tenants",
   tenantsHousekept: "usage:tenants:housekept",
+  tenantsActive: "usage:tenants:active",
+  activitySince: "usage:activity:since",
+  users: "usage:users",
+  /** Every `user(…)` key and its sub-keys: only for the one-off SCAN that fills `users`. */
+  userPattern: "usage:user:*",
   tokenIndex: "usage:tokenindex",
   demoSeededAt: "usage:demo:seededAt",
   demoSeeding: "usage:demo:seeding",

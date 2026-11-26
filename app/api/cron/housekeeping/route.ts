@@ -13,11 +13,14 @@ import { safeEqual } from "@/lib/security";
  *
  *   ?dryRun=1 → the same report, nothing is deleted
  *
- *   → { "report": HousekeepingReport | null, "tenants": { "processed", "failed", "pending" } }
+ *   → { "report": HousekeepingReport | null, "tenants": { "processed", "failed", "pending" },
+ *       "inactive": { "tenantsDeleted", "usersDeleted", "skipped", "pending" } | null }
  *
  * Every tenant is housekept, the one done longest ago first, until a time
  * budget runs out (lib/housekeeping.ts `runScheduledHousekeeping`); `report`
- * is the default tenant's, the only one on a single-tenant instance.
+ * is the default tenant's, the only one on a single-tenant instance. In
+ * multi-tenant mode the run then deletes workspaces and accounts inactive for
+ * INACTIVE_ACCOUNT_DAYS (lib/inactive-purge.ts); `inactive` counts them.
  *
  * 200 ok · 401 missing/wrong bearer · 500 server_misconfigured (CRON_SECRET
  * missing or under 16 characters: refuses to run unauthenticated rather than
@@ -45,6 +48,6 @@ export const GET = withApiHandler("api/cron/housekeeping", async ({ request, url
   }
 
   const dryRun = url.searchParams.get("dryRun") === "1";
-  const { report, tenants } = await runScheduledHousekeeping(new Date(), { dryRun });
-  return json({ report, tenants }, 200);
+  const { report, tenants, inactive } = await runScheduledHousekeeping(new Date(), { dryRun });
+  return json({ report, tenants, inactive }, 200);
 });

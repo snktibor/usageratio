@@ -101,6 +101,18 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+/** A reported URL without its query and fragment, which can carry a group's or machine's name; "inline" and the like as they are. */
+function asUri(value: unknown): string | undefined {
+  const text = asString(value);
+  if (text === undefined) return undefined;
+  try {
+    const url = new URL(text);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return text.split(/[?#]/)[0];
+  }
+}
+
 /** `application/csp-report`: `{ "csp-report": { "document-uri", "violated-directive", … } }`. */
 function fromLegacyReport(parsed: unknown): Violation[] {
   if (typeof parsed !== "object" || parsed === null) return [];
@@ -109,9 +121,9 @@ function fromLegacyReport(parsed: unknown): Violation[] {
   const r = report as Record<string, unknown>;
   return [
     {
-      documentUri: asString(r["document-uri"]),
+      documentUri: asUri(r["document-uri"]),
       violatedDirective: asString(r["violated-directive"] ?? r["effective-directive"]),
-      blockedUri: asString(r["blocked-uri"]),
+      blockedUri: asUri(r["blocked-uri"]),
       sample: asString(r["script-sample"]),
     },
   ];
@@ -127,9 +139,9 @@ function fromReportingApi(parsed: unknown): Violation[] {
     const b = body as Record<string, unknown>;
     return [
       {
-        documentUri: asString(b.documentURL),
+        documentUri: asUri(b.documentURL),
         violatedDirective: asString(b.violatedDirective ?? b.effectiveDirective),
-        blockedUri: asString(b.blockedURL),
+        blockedUri: asUri(b.blockedURL),
         sample: asString(b.sample),
       },
     ];

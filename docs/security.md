@@ -17,7 +17,9 @@ vulnerability, supported versions) and links here for the detail.
 - [Recently deleted](#recently-deleted)
 - [Audit trail privacy](#audit-trail-privacy)
 - [Housekeeping](#housekeeping)
+- [Inactive accounts](#inactive-accounts)
 - [Logging](#logging)
+- [Incident response](#incident-response)
 
 ## Dashboard login
 
@@ -486,6 +488,48 @@ unauthenticated request. A run's result is also stored at `usage:housekeeping:la
 See [self-hosting.md](self-hosting.md#housekeeping-the-daily-cron) for running it without Vercel
 Cron.
 
+## Inactive accounts
+
+In multi-tenant mode the cron run ends with `purgeInactive` (`lib/inactive-purge.ts`), in what is
+left of the 240-second budget: it deletes the workspaces and accounts that have seen neither a
+sign-in nor a client request for `INACTIVE_ACCOUNT_DAYS` (365, `lib/config.ts`). A single-user
+instance deletes nothing, and the default tenant, with anyone who belongs to it, is never touched.
+
+Activity is two durable markers (`lib/activity.ts`), kept apart from the data that housekeeping
+prunes after 70 days:
+
+- a tenant's last client request, `usage:tenants:active`: stamped with the token's hourly
+  last-used refresh in `authenticateToken`, so it needs no extra read, and only on the first
+  refresh of a UTC day, so it costs at most one command a day per token;
+- a user's last sign-in or dashboard day, `usage:users`: stamped by every GitHub sign-in and by a
+  live session's first request of a UTC day. It is also the index of every user, those without a
+  workspace included, which nothing else lists.
+
+When tracking begins (the first real cron run of this build) every existing user is put in the
+index as active now (one SCAN of `usage:user:*`, done once), and `usage:activity:since` is set. A
+tenant or user without a marker counts as active at that moment, so nothing that existed before is
+deleted until 365 days after it. A dry run before then starts nothing.
+
+The rules (`planInactivePurge`):
+
+- **A workspace** goes when its machines have been silent for 365 days (a new one counts from its
+  creation) and every member, its owner included, has not signed in for as long: an active member
+  never loses it, nor the inactive owner it belongs to.
+- **A disabled workspace** (switched off by the instance admin, so nobody can use it or report to
+  it) goes when its last client request and its disabling are both 365 days old, whatever its
+  members do; their accounts follow their own rule.
+- **An account** goes when it has not signed in for 365 days and owns no workspace that stays: an
+  owner who never signs in but whose machines report is active through them. From the
+  workspaces it is only a member of it simply leaves (`deleteAccount`); their machines and tokens
+  stay.
+
+Workspaces are deleted first (`deleteTenant`), accounts after (`deleteAccount`). Each is re-checked
+just before (a sign-in or a report that arrived since the plan, an owned workspace still there) and
+skipped if it turned active; one left when the budget runs out is first the next day. The route's
+`inactive` field counts them; the log carries counts and opaque ids only
+(`housekeeping.inactive_purge`, `housekeeping.inactive_deleted`). Nobody is warned beforehand: the
+instance stores no e-mail address, and the privacy notice says so.
+
 ## Logging
 
 `lib/log.ts` writes one JSON object per line in production (pretty lines in development), each
@@ -494,5 +538,28 @@ carrying the current request id when there is one. Every field whose name matche
 written, recursively, so a PIN or token accidentally passed into a log call never reaches the
 output. IP addresses are never logged in full either: `lib/auth.ts` and `lib/api-token.ts` only
 ever pass a short hash (`logIpHash`, 12 hex characters) into a log line, distinct from the
-audit-trail hash above. `LOG_LEVEL` (`debug`|`info`|`warn`|`error`, default `info`) and
+audit-trail hash above.
+
+No personal data goes into a log line: no GitHub login, IP address, user agent, machine or group
+name, or webhook URL. Opaque ids (`userId`, `tenantId`, `requestId`, a trash id) and hashes may.
+The call sites keep to that (housekeeping logs counts, not the machine and group ids it pruned; a
+request error logs the route's pattern, not its path; a failed alert its HTTP status, not the
+network error naming the webhook's host; a CSP report its URLs without query or fragment), and two
+guards in `lib/log.ts` catch what slips through, tested in `tests/log.test.ts`: a field named
+`login`, `ip`, `userAgent`, `ua`, `machineId`, `groupId` or `webhookUrl` is redacted like a
+secret, and the failed command the Upstash client appends to its error messages (`…, command
+was: [...]`, with key names and values) is cut from an error's message, stack and cause.
+
+Where the lines go: Vercel's runtime logs, kept **1 hour** on the reference deployment's Hobby plan
+(1 day on Pro, 3 on Enterprise, 30 with Observability Plus), with no log drain configured; checked
+2026-11-26. Vercel's own request log there also holds the request's IP address, path and user
+agent for that hour. The privacy notice quotes this ("about an hour"): a plan change or a log drain
+needs that text changed too. `LOG_LEVEL` (`debug`|`info`|`warn`|`error`, default `info`) and
 `LOG_FORMAT` (`json`|`pretty`, default `json` in production) control verbosity and shape.
+
+## Incident response
+
+What to do about a personal data breach — detection, containment and secret rotation, the risk
+assessment, the 72-hour notification to the authority, telling the people affected without their
+e-mail addresses, and the incident register — is in
+[incident-response.md](incident-response.md).
