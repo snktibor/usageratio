@@ -12,6 +12,6 @@
     { "type": "deps", "section": "Dependencies" }
   ],
   "packages": {
-    ".": {}
+    ".": { "exclude-paths": ["site"] }
   }
 }

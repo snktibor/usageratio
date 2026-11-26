@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1a1a19" />
+    <meta name="color-scheme" content="dark" />
+    <title>usageratio: which machine spent your AI quota</title>
+    <meta
+      name="description"
+      content="A dashboard that splits one AI coding subscription's usage by machine and by group. Try the demo, use the free hosted instance, or host it yourself."
+    />
+    <meta property="og:title" content="usageratio" />
+    <meta
+      property="og:description"
+      content="One quota, many machines. usageratio shows which machine spent it."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://usageratio.snktibor.hu/" />
+    <meta property="og:image" content="https://usageratio.snktibor.hu/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="usageratio: one quota, many machines. A 62.5% quota bar split into Work 44% and Personal 19%."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="canonical" href="https://usageratio.snktibor.hu/" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <script type="module" src="/src/main.js"></script>
+  </head>
+  <body>
+    <div class="page">
+      <header class="top">
+        <a class="wordmark" href="/">usageratio</a>
+        <nav class="tools" aria-label="Project links">
+          <a class="quiet" href="https://github.com/snktibor/usageratio/tree/main/docs#readme">Docs</a>
+          <a class="quiet" href="https://github.com/snktibor/usageratio">
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+            </svg>
+            <span class="collapse">GitHub</span>
+          </a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero" aria-labelledby="title">
+          <h1 id="title">One quota, many machines. See which one spent it.</h1>
+          <p class="caption">
+            Your Claude or Codex subscription shows one usage number for the whole account. usageratio splits that number by machine and by group.
+          </p>
+          <div class="actions">
+            <a class="primary" href="https://demo.usageratio.snktibor.hu/">Try the demo</a>
+            <a class="quiet" href="https://app.usageratio.snktibor.hu/">Use it free</a>
+            <a class="quiet" href="#ways">Self-host</a>
+          </div>
+          <p class="hint">The demo runs on synthetic data, needs no account and saves nothing.</p>
+
+          <figure class="preview">
+            <div class="panel">
+              <p class="panel-head">
+                <span>Claude, weekly quota</span>
+                <span class="pill">official value</span>
+              </p>
+              <p class="figure-line">
+                <span class="big-figure">62.5%</span>
+                <span class="figure-label">consumed, as the provider reports it</span>
+              </p>
+              <div
+                class="split"
+                role="img"
+                aria-label="Quota bar: Work 44%, Personal 19%, 37.5% left."
+              >
+                <span class="split-fill">
+                  <span class="seg work" style="flex: 43.9"></span>
+                  <span class="seg personal" style="flex: 18.6"></span>
+                  <span class="seg rest" style="flex: 37.5"></span>
+                </span>
+              </div>
+              <table class="split-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Group and machine</th>
+                    <th scope="col" class="num">Tokens</th>
+                    <th scope="col" class="num narrow-hide">Share</th>
+                    <th scope="col" class="num">Of quota</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="group">
+                    <th scope="row"><span class="swatch work"></span>Work</th>
+                    <td class="num">133,741</td>
+                    <td class="num narrow-hide">70%</td>
+                    <td class="num">44%</td>
+                  </tr>
+                  <tr class="machine">
+                    <th scope="row">win-desktop</th>
+                    <td class="num">74,831</td>
+                    <td class="num narrow-hide">39%</td>
+                    <td class="num">25%</td>
+                  </tr>
+                  <tr class="machine">
+                    <th scope="row">thinkpad</th>
+                    <td class="num">58,910</td>
+                    <td class="num narrow-hide">31%</td>
+                    <td class="num">19%</td>
+                  </tr>
+                  <tr class="group">
+                    <th scope="row"><span class="swatch personal"></span>Personal</th>
+                    <td class="num">56,507</td>
+                    <td class="num narrow-hide">30%</td>
+                    <td class="num">19%</td>
+                  </tr>
+                  <tr class="machine">
+                    <th scope="row">mac-studio</th>
+                    <td class="num">56,507</td>
+                    <td class="num narrow-hide">30%</td>
+                    <td class="num">19%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <figcaption>
+              The demo's numbers. Claude reports 62.5% for the account. Three machines measured the tokens, so the dashboard can say that Work used 44% of the quota and Personal 19%.
+            </figcaption>
+          </figure>
+        </section>
+
+        <section id="ways" aria-labelledby="ways-title">
+          <h2 id="ways-title">Three ways in</h2>
+          <ul class="ways">
+            <li>
+              <h3>Demo</h3>
+              <p>The whole dashboard on synthetic data. It is read-only and needs no account.</p>
+              <p class="way-links">
+                <a href="https://demo.usageratio.snktibor.hu/">Open the demo</a>
+              </p>
+            </li>
+            <li>
+              <h3>Hosted</h3>
+              <p>
+                A free instance at app.usageratio.snktibor.hu. You sign in with GitHub and get a workspace of your own.
+              </p>
+              <p class="way-links">
+                <a href="https://app.usageratio.snktibor.hu/">Sign in with GitHub</a>
+              </p>
+            </li>
+            <li>
+              <h3>Your own</h3>
+              <p>
+                Deploy it to Vercel with an Upstash Redis database, or run it on your own server with Docker Compose. You log in with a PIN.
+              </p>
+              <p class="way-links">
+                <a href="https://github.com/snktibor/usageratio#quick-start">Deploy on Vercel</a>
+                <a href="https://github.com/snktibor/usageratio/blob/main/docs/self-hosting.md">Docker guide</a>
+              </p>
+            </li>
+          </ul>
+        </section>
+
+        <section aria-labelledby="how">
+          <h2 id="how">How it works</h2>
+          <ol class="steps">
+            <li>
+              <span>A small client runs every hour on each machine. It reads the usage data that <a href="https://github.com/ryoppippi/ccusage">ccusage</a> finds on that machine and adds up the tokens for the current cycle.</span>
+            </li>
+            <li>
+              <span>The client sends that total to one dashboard. It sends token counts. It does not send prompts or code.</span>
+            </li>
+            <li>
+              <span>You enter the percentage your provider shows, or the macOS menu bar app reports it. The dashboard divides it among your groups and machines by the tokens each one measured.</span>
+            </li>
+          </ol>
+
+          <div class="flow">
+            <div class="flow-in">
+              <div class="flow-box">
+                <p class="flow-title">Each machine, hourly</p>
+                <dl class="flow-list">
+                  <div><dt>win-desktop</dt><dd>74,831 tokens</dd></div>
+                  <div><dt>thinkpad</dt><dd>58,910 tokens</dd></div>
+                  <div><dt>mac-studio</dt><dd>56,507 tokens</dd></div>
+                </dl>
+              </div>
+              <div class="flow-box">
+                <p class="flow-title">The provider</p>
+                <dl class="flow-list">
+                  <div><dt>Claude, whole account</dt><dd>62.5%</dd></div>
+                </dl>
+              </div>
+            </div>
+            <svg class="flow-arrow" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 12h16" />
+              <path d="m14 6 6 6-6 6" />
+            </svg>
+            <div class="flow-box flow-out">
+              <p class="flow-title">The dashboard</p>
+              <dl class="flow-list">
+                <div><dt>win-desktop</dt><dd>25% of the quota</dd></div>
+                <div><dt>thinkpad</dt><dd>19% of the quota</dd></div>
+                <div><dt>mac-studio</dt><dd>19% of the quota</dd></div>
+              </dl>
+            </div>
+          </div>
+          <p class="note">
+            win-desktop measured 74,831 of the 190,248 tokens, which is 39%. Its part is 39% of the provider's 62.5%, which is 25% of the quota.
+          </p>
+        </section>
+
+        <section aria-labelledby="screens">
+          <h2 id="screens">The dashboard</h2>
+          <div class="shots">
+            <figure class="shot wide">
+              <img
+                src="/src/shots/official-888.webp"
+                srcset="/src/shots/official-888.webp 888w, /src/shots/official-1776.webp 1776w"
+                sizes="(min-width: 56rem) 832px, calc(100vw - 2.5rem)"
+                width="888"
+                height="605"
+                loading="lazy"
+                decoding="async"
+                alt="The dashboard's official consumption card: Claude's real percentage set to 62.5 with a slider, a Fable sub-limit at 48% with a warning that its pace is too fast, and a recorded usage reset."
+              />
+              <figcaption>The provider's own percentage goes in here. A sub-limit, such as one model family inside Claude, has its own slider under it.</figcaption>
+            </figure>
+            <figure class="shot">
+              <img
+                src="/src/shots/chart-888.webp"
+                srcset="/src/shots/chart-888.webp 888w, /src/shots/chart-1776.webp 1776w"
+                sizes="(min-width: 56rem) 540px, calc(100vw - 2.5rem)"
+                width="888"
+                height="554"
+                loading="lazy"
+                decoding="async"
+                alt="Line chart of consumption over the week: a dashed total line reaching 62.5%, one line each for the Work and Personal groups, one for the Fable sub-limit, and a marker where the usage was reset on Monday."
+              />
+              <figcaption>Consumption over the cycle, per group. Every chart also opens as a table.</figcaption>
+            </figure>
+            <figure class="shot phone">
+              <img
+                src="/src/shots/mobile-390.webp"
+                srcset="/src/shots/mobile-390.webp 390w, /src/shots/mobile-780.webp 780w"
+                sizes="(min-width: 56rem) 268px, 280px"
+                width="390"
+                height="760"
+                loading="lazy"
+                decoding="async"
+                alt="The dashboard at phone width: 62.5% consumed from the weekly quota, the week's bar with a now marker, a warning that the pace is too fast, and the time left until the reset."
+              />
+              <figcaption>The same dashboard at phone width, with the pace warning.</figcaption>
+            </figure>
+            <figure class="shot">
+              <img
+                src="/src/shots/setup-888.webp"
+                srcset="/src/shots/setup-888.webp 888w, /src/shots/setup-1776.webp 1776w"
+                sizes="(min-width: 56rem) 540px, calc(100vw - 2.5rem)"
+                width="888"
+                height="556"
+                loading="lazy"
+                decoding="async"
+                alt="The setup page: a choice of macOS, Linux or Windows, automatic or manual run mode, a group field and an optional machine ID."
+              />
+              <figcaption>Setup builds a client package for macOS, Linux or Windows.</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <section aria-labelledby="compare">
+          <h2 id="compare">Hosted or your own</h2>
+          <p class="lead">Both run the same code. They differ in who runs the server and who holds the data.</p>
+          <table class="compare">
+            <thead>
+              <tr>
+                <td></td>
+                <th scope="col">Hosted</th>
+                <th scope="col">Your own</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Cost</th>
+                <td data-label="Hosted">Free. A private individual runs it, with no warranty and no uptime guarantee.</td>
+                <td data-label="Your own">Free to use. You pay for the hosting, if your hosting costs anything.</td>
+              </tr>
+              <tr>
+                <th scope="row">Sign-in</th>
+                <td data-label="Hosted">GitHub. The service stores your GitHub user id and login, not your e-mail address.</td>
+                <td data-label="Your own">A PIN or passphrase. GitHub sign-in for several users is optional.</td>
+              </tr>
+              <tr>
+                <th scope="row">What leaves your machine</th>
+                <td data-label="Hosted">
+                  The machine's name, its group, the provider, token counts per model and per day, a cost estimate and the time of the report. No prompts and no code.
+                </td>
+                <td data-label="Your own">The same report, sent to your server.</td>
+              </tr>
+              <tr>
+                <th scope="row">Where it is stored</th>
+                <td data-label="Hosted">At Vercel and Upstash, both in Frankfurt.</td>
+                <td data-label="Your own">In the Redis database you set up.</td>
+              </tr>
+              <tr>
+                <th scope="row">Limits</th>
+                <td data-label="Hosted">25 machines, 20 providers, 20 groups and 10 members per workspace.</td>
+                <td data-label="Your own">Higher caps: 200 machine entries, 20 providers and 50 groups.</td>
+              </tr>
+              <tr>
+                <th scope="row">Retention</th>
+                <td data-label="Hosted">Raw reports for 70 days. Per-cycle summaries until you delete the workspace.</td>
+                <td data-label="Your own">The same 70 days for raw reports. The summaries stay.</td>
+              </tr>
+              <tr>
+                <th scope="row">Leaving</th>
+                <td data-label="Hosted">
+                  The account page downloads everything as one JSON file, and an empty instance of your own can import it. Deleting your account removes your data at once.
+                </td>
+                <td data-label="Your own">The database is yours. The dashboard exports each cycle as CSV or JSON.</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="note">
+            Before you sign in to the hosted instance, read its
+            <a href="https://app.usageratio.snktibor.hu/en/privacy">privacy notice</a> and
+            <a href="https://app.usageratio.snktibor.hu/en/terms">terms of use</a>.
+          </p>
+        </section>
+
+        <section aria-labelledby="supported">
+          <h2 id="supported">Providers and clients</h2>
+          <dl class="facts">
+            <div>
+              <dt>Providers</dt>
+              <dd>
+                Claude, OpenAI (Codex), Gemini, DeepSeek, Kimi, Meta, Mistral, Qwen and xAI. Any other provider that ccusage reports shows up under its own name.
+              </dd>
+            </div>
+            <div>
+              <dt>macOS and Linux</dt>
+              <dd>An hourly cron job. The installer comes from the dashboard's Setup page as a ZIP or as text to copy.</dd>
+            </div>
+            <div>
+              <dt>Windows</dt>
+              <dd>An hourly Task Scheduler task, installed by a PowerShell script from the same Setup page.</dd>
+            </div>
+            <div>
+              <dt>Without installing</dt>
+              <dd>One command sends a single report and leaves nothing behind on the machine.</dd>
+            </div>
+            <div>
+              <dt>macOS menu bar app</dt>
+              <dd>
+                Shows the percentage in the menu bar and can report in place of the cron job. You build it yourself, and the Command Line Tools are enough.
+              </dd>
+            </div>
+            <div>
+              <dt>Alerts</dt>
+              <dd>
+                A webhook call when usage crosses a threshold: 50, 80 and 100% by default, formatted for Slack or Discord, or as plain JSON.
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <section aria-labelledby="questions">
+          <h2 id="questions">Questions</h2>
+          <dl class="rows">
+            <div>
+              <dt>Does it read my prompts or code?</dt>
+              <dd>No. The client sends token counts, model names, the machine's name and a cost estimate.</dd>
+            </div>
+            <div>
+              <dt>Does it need access to my provider account?</dt>
+              <dd>No. ccusage reads the logs that the coding agents already write on your machine.</dd>
+            </div>
+            <div>
+              <dt>Is the cost figure my bill?</dt>
+              <dd>No. It is an estimate from API list prices, and the dashboard hides it by default. A subscription does not bill per token.</dd>
+            </div>
+            <div>
+              <dt>Can I move from the hosted instance to my own?</dt>
+              <dd>Yes. Download your data on the account page and import the file into an empty instance.</dd>
+            </div>
+            <div>
+              <dt>Is it open source?</dt>
+              <dd>
+                The source is public under the
+                <a href="https://github.com/snktibor/usageratio/blob/main/LICENSE">PolyForm Noncommercial License 1.0.0</a>. It is free for personal and other noncommercial use. It is not OSI open source, and commercial use needs separate permission.
+              </dd>
+            </div>
+          </dl>
+          <div class="actions">
+            <a class="primary" href="https://demo.usageratio.snktibor.hu/">Try the demo</a>
+            <a class="quiet" href="https://app.usageratio.snktibor.hu/">Use it free</a>
+            <a class="quiet" href="https://github.com/snktibor/usageratio#quick-start">Self-host</a>
+          </div>
+        </section>
+      </main>
+
+      <footer class="credit">
+        <p class="credit-links">
+          <span>Made by</span>
+          <a class="quiet" href="https://github.com/snktibor">
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+            </svg>
+            snktibor
+          </a>
+          <a href="https://github.com/snktibor/usageratio">Source</a>
+          <a href="https://github.com/snktibor/usageratio/tree/main/docs#readme">Docs</a>
+          <a href="https://app.usageratio.snktibor.hu/en/privacy">Privacy notice</a>
+          <a href="https://app.usageratio.snktibor.hu/en/terms">Terms of use</a>
+        </p>
+        <p>Not affiliated with Anthropic, OpenAI or any other provider.</p>
+        <p>This page counts visits with Vercel Web Analytics, without cookies. The app has no analytics.</p>
+      </footer>
+    </div>
+  </body>
+</html>

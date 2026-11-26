@@ -11,6 +11,7 @@
       "**",
       "!**/.next",
       "!**/node_modules",
+      "!site",
       "!**/.vitest",
       "!**/coverage",
       "!**/playwright-report",
