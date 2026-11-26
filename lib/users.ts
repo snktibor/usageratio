@@ -91,11 +91,12 @@ export async function findOrCreateGithubUser(
   const tx = redis.multi();
   tx.set(GLOBAL_KEYS.user(userId), JSON.stringify(record));
   tx.sadd(GLOBAL_KEYS.userIdentities(userId), `github:${github.id}`);
+  tx.zadd(GLOBAL_KEYS.users, { score: now.getTime(), member: userId });
   await tx.exec();
   return { userId, created: true };
 }
 
-/** Keeps the login current (GitHub logins can be renamed) and stamps the sign-in. */
+/** Keeps the login current (GitHub logins can be renamed) and stamps the sign-in, in the record and the users index. */
 async function touchUser(userId: string, login: string, now: Date): Promise<void> {
   const current = await loadUser(userId);
   const record: UserRecord = {
@@ -104,7 +105,10 @@ async function touchUser(userId: string, login: string, now: Date): Promise<void
     createdAt: current?.createdAt ?? now.getTime(),
     lastLoginAt: now.getTime(),
   };
-  await getRedis().set(GLOBAL_KEYS.user(userId), JSON.stringify(record));
+  const tx = getRedis().multi();
+  tx.set(GLOBAL_KEYS.user(userId), JSON.stringify(record));
+  tx.zadd(GLOBAL_KEYS.users, { score: now.getTime(), member: userId });
+  await tx.exec();
 }
 
 /** Whether `userId` signs in with this GitHub account. */

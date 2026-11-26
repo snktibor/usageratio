@@ -9,7 +9,7 @@ import { loadTenantRecord, setTenantStatus } from "@/lib/tenants";
  * Deletes a tenant and everything of it, for good: its own keys (the fixed
  * ones and every name in its key registry, so no SCAN is needed), its tokens'
  * entries in the global token index, its invites, its members' links to it, its places in
- * the tenant indexes, and last its record. The record is marked "deleting"
+ * the tenant indexes (activity marker included), and last its record. The record is marked "deleting"
  * first, so nothing can be read or reported meanwhile; every step can run
  * again, so a deletion that was cut short is simply run again to finish.
  * The default tenant, where a single-user instance keeps its data, is never
@@ -44,6 +44,7 @@ export async function deleteTenant(tenantId: TenantId, now: Date): Promise<Delet
   tx.del(GLOBAL_KEYS.tenantLock(tenantId));
   tx.zrem(GLOBAL_KEYS.tenants, tenantId);
   tx.zrem(GLOBAL_KEYS.tenantsHousekept, tenantId);
+  tx.zrem(GLOBAL_KEYS.tenantsActive, tenantId);
   tx.del(GLOBAL_KEYS.tenantRecord(tenantId));
   await tx.exec();
 

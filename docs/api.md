@@ -824,9 +824,12 @@ Multi-tenant mode, and a user whose GitHub id is in `ADMIN_GITHUB_IDS`; everyone
 ## Housekeeping
 
 - **`GET /api/cron/housekeeping`** — auth: **cron secret**. `?dryRun=1` reports without deleting
-  anything. `200 { "report": HousekeepingReport | null, "tenants": { "processed", "failed", "pending" } }`
+  anything. `200 { "report": HousekeepingReport | null, "tenants": { "processed", "failed", "pending" },
+  "inactive": { "tenantsDeleted", "usersDeleted", "skipped", "pending" } | null }`
   (every tenant is housekept, the one done longest ago first, within a time budget; `report` is the
-  default tenant's, null when that run failed or was not reached) · `401` missing/wrong bearer ·
+  default tenant's, null when that run failed or was not reached; `inactive` counts the workspaces and
+  accounts deleted after 365 days without use, what a dry run would delete, null on a single-user
+  instance or when that step failed: [security.md § Inactive accounts](security.md#inactive-accounts)) · `401` missing/wrong bearer ·
   `403 demo_read_only` in demo mode (checked before the secret, so a demo deployment refuses this even
   with a valid `CRON_SECRET`) · `500 server_misconfigured` (`CRON_SECRET` unset or under 16 characters
   — refuses to run rather than accept every request).

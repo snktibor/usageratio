@@ -30,9 +30,9 @@ export const onRequestErrorNode: Instrumentation.onRequestError = async (error, 
     return Array.isArray(value) ? value[0] : value;
   };
   const requestId = header("x-vercel-id") ?? header("x-request-id") ?? null;
-  // Never the whole header map: it carries the session cookie and the bearer token.
+  // Never the whole header map: it carries the session cookie and the bearer token. Nor the path:
+  // it can name a group or a machine (/api/groups/{group}); the route's pattern says enough.
   log.error("request.error", {
-    path: request.path,
     method: request.method,
     routePath: context.routePath,
     routeType: context.routeType,

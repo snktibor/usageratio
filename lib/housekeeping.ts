@@ -4,6 +4,7 @@ import { parseAuditRecord } from "@/lib/api-token";
 import { archiveDueCycles } from "@/lib/archive";
 import { archivedGroupIds, isMachineArchived } from "@/lib/archived";
 import { getConfig, RETENTION_DAYS } from "@/lib/config";
+import { type InactivePurgeSummary, purgeInactive } from "@/lib/inactive-purge";
 import { pruneExpiredInvites } from "@/lib/invites";
 import { log } from "@/lib/log";
 import { parseManageAuditRecord } from "@/lib/manage-audit";
@@ -275,7 +276,8 @@ export async function runHousekeeping(
     dryRun,
   };
 
-  for (const [step, { removed, ids }] of Object.entries({
+  // Counts only: the ids are machine and group names, which stay out of the logs (the report has them).
+  for (const [step, { removed }] of Object.entries({
     machines: report.machines,
     providers: report.providers,
     groups: report.groups,
@@ -283,7 +285,7 @@ export async function runHousekeeping(
     resets: report.resets,
     tokens: report.tokens,
   })) {
-    if (removed > 0) log.info(`housekeeping.${step}_pruned`, { removed, ids, dryRun });
+    if (removed > 0) log.info(`housekeeping.${step}_pruned`, { removed, dryRun });
   }
   if (auditRemoved > 0) log.info("housekeeping.audit_pruned", { removed: auditRemoved, dryRun });
   if (expiredGuards.length > 0)
@@ -333,12 +335,18 @@ export const HOUSEKEEPING_BUDGET_MS = 240_000;
  * one that is running when it runs out.
  *
  * `report` is the default tenant's report (the whole story on a single-tenant
- * instance); null when this run did not reach it.
+ * instance); null when this run did not reach it. `inactive` is what the
+ * inactive-account purge deleted (lib/inactive-purge.ts; a dry run's: what it
+ * would); null on a single-tenant instance, or when it failed (logged).
  */
 export async function runScheduledHousekeeping(
   now: Date,
   options: { dryRun: boolean; budgetMs?: number; elapsedMs?: () => number },
-): Promise<{ report: HousekeepingReport | null; tenants: TenantsHousekeepingSummary }> {
+): Promise<{
+  report: HousekeepingReport | null;
+  tenants: TenantsHousekeepingSummary;
+  inactive: InactivePurgeSummary | null;
+}> {
   const { dryRun, budgetMs = HOUSEKEEPING_BUDGET_MS } = options;
   const started = performance.now();
   const elapsedMs = options.elapsedMs ?? (() => performance.now() - started);
@@ -376,5 +384,12 @@ export async function runScheduledHousekeeping(
       if (!dryRun) await markHousekept(tenantId, now.getTime()).catch(() => undefined);
     }
   }
-  return { report, tenants: summary };
+  // Inactive workspaces and accounts (lib/inactive-purge.ts), in what is left of the budget.
+  let inactive: InactivePurgeSummary | null = null;
+  try {
+    inactive = await purgeInactive(now, { dryRun, outOfTime: () => elapsedMs() >= budgetMs });
+  } catch (error) {
+    log.error("housekeeping.inactive_purge_failed", { err: error });
+  }
+  return { report, tenants: summary, inactive };
 }

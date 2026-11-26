@@ -150,7 +150,8 @@ async function sendAlert(params: EvaluateAlertsParams & { threshold: number; use
   });
   const result = await sendWebhook(settings.webhookUrl!, payload, { timeoutMs: 5000 });
   if (!result.ok) {
-    log.error("alerts.webhook_failed", { providerId, threshold, status: result.status, error: result.error });
+    // Not `result.error`: a network error's text names the webhook's host. A null status means unreachable.
+    log.error("alerts.webhook_failed", { providerId, threshold, status: result.status });
   }
 }
 

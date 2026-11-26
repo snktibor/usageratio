@@ -108,7 +108,7 @@ export function toStringRecord(raw: unknown): Record<string, string> {
   return record;
 }
 
-/** Every key matching `pattern`, by walking SCAN's cursor: for one-off scripts only (the demo seed's wipe, migrations). */
+/** Every key matching `pattern`, by walking SCAN's cursor: for one-off work only (the demo seed's wipe, migrations, the users index's first fill in lib/inactive-purge.ts). */
 export async function scanAll(redis: Redis, pattern: string): Promise<string[]> {
   const keys: string[] = [];
   let cursor = "0";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLogger, errorFields, type Level, redact } from "@/lib/log";
+import { createLogger, errorFields, type Level, redact, scrubErrorText } from "@/lib/log";
 import { runWithRequest } from "@/lib/request-context";
 
 function capture(options: { level?: Level; format?: "json" | "pretty" } = {}) {
@@ -51,6 +51,46 @@ describe("createLogger", () => {
       pin: "[redacted]",
       cyclic: { fine: 1, self: "[circular]" },
     });
+  });
+
+  it("redacts fields that name personal data, but keeps opaque ids and hashes", () => {
+    const { logger, records } = capture({ format: "json" });
+    logger.info("x", {
+      login: "alice",
+      ip: "203.0.113.7",
+      userAgent: "Mozilla/5.0",
+      ua: "Firefox",
+      machineId: "alice-laptop",
+      groupId: "Work",
+      webhookUrl: "https://hooks.example.com/secret",
+      userId: "u_AAAAAAAAAAAAAAAAAAAAAA",
+      tenantId: "BBBBBBBBBBBBBBBBBBBBBB",
+      ipHash: "abc123",
+      scope: "ip",
+    });
+    const [record] = records();
+    for (const key of ["login", "ip", "userAgent", "ua", "machineId", "groupId", "webhookUrl"])
+      expect(record![key], key).toBe("[redacted]");
+    expect(record).toMatchObject({
+      userId: "u_AAAAAAAAAAAAAAAAAAAAAA",
+      tenantId: "BBBBBBBBBBBBBBBBBBBBBB",
+      ipHash: "abc123",
+      scope: "ip",
+    });
+  });
+
+  it("drops the command Upstash puts in an error's message, stack and cause", () => {
+    const upstash = new Error(
+      'ERR max request size exceeded, command was: ["hset","usage:machines",{"claude:alice-laptop":"x"}]',
+    );
+    upstash.cause = new Error('WRONGTYPE, command was: ["get","usage:user:u_x"]');
+    const fields = errorFields(upstash);
+    const text = JSON.stringify(fields);
+    expect(text).not.toContain("alice-laptop");
+    expect(text).not.toContain("usage:user");
+    expect(fields.message).toBe("ERR max request size exceeded, command was: [redacted]");
+    expect(errorFields("oops, command was: [1]").message).toBe("oops, command was: [redacted]");
+    expect(scrubErrorText("no command here")).toBe("no command here");
   });
 
   it("turns an `err` field into name, message, stack and codes", () => {

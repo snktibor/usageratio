@@ -2,7 +2,8 @@
  * Structured logging: one JSON object per line in production (what Vercel's
  * log drains and `vercel logs` index), a readable line in development. Every
  * line carries the current request id when there is one, and any field whose
- * name smells like a secret is redacted before it is written.
+ * name smells like a secret or names personal data is redacted before it is
+ * written (`redact`), as is the command Upstash puts in its errors.
  *
  * No imports: modules the browser bundle also reaches (lib/config.ts, through
  * lib/settings.ts) log with it. The request id comes from lib/request-context.ts,
@@ -40,8 +41,22 @@ export interface LoggerOptions {
 }
 
 const SECRET_KEY = /token|pin|secret|authorization|cookie|password/i;
+/**
+ * Personal data that never belongs in a log line, by its field name: a GitHub login, an IP
+ * address, a user agent, a machine's or group's name, a webhook URL. Opaque ids (userId,
+ * tenantId, requestId) and hashes (ipHash) are fine.
+ */
+const PERSONAL_KEY = /^(login|ip|userAgent|ua|machineId|groupId|webhookUrl)$/i;
 
-/** A copy of `value` with every secret-looking field replaced; safe on cycles. */
+/**
+ * Upstash's client puts the whole failed command into its error message (`…, command was:
+ * [...]`): key names, members and values, so machine and group names, a login, a webhook URL.
+ */
+export function scrubErrorText(text: string): string {
+  return text.replace(/, command was: .*/g, ", command was: [redacted]");
+}
+
+/** A copy of `value` with every secret-looking or personal field replaced; safe on cycles. */
 export function redact(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
   if (typeof value !== "object" || value === null) return value;
   if (seen.has(value)) return "[circular]";
@@ -50,7 +65,7 @@ export function redact(value: unknown, seen: WeakSet<object> = new WeakSet()): u
   if (value instanceof Date) return value.toISOString();
   const copy: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(value)) {
-    copy[key] = SECRET_KEY.test(key) ? "[redacted]" : redact(item, seen);
+    copy[key] = SECRET_KEY.test(key) || PERSONAL_KEY.test(key) ? "[redacted]" : redact(item, seen);
   }
   return copy;
 }
@@ -61,14 +76,14 @@ export function errorFields(error: unknown): Record<string, unknown> {
     const { code, digest, cause } = error as Error & { code?: unknown; digest?: unknown };
     return {
       name: error.name,
-      message: error.message,
-      ...(error.stack && { stack: error.stack }),
+      message: scrubErrorText(error.message),
+      ...(error.stack && { stack: scrubErrorText(error.stack) }),
       ...((typeof code === "string" || typeof code === "number") && { code }),
       ...(typeof digest === "string" && { digest }),
-      ...(cause instanceof Error && { cause: `${cause.name}: ${cause.message}` }),
+      ...(cause instanceof Error && { cause: scrubErrorText(`${cause.name}: ${cause.message}`) }),
     };
   }
-  return { message: String(error) };
+  return { message: scrubErrorText(String(error)) };
 }
 
 function isLevel(value: string | undefined): value is Level {

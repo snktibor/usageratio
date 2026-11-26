@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { otherUtcDay, recordTenantActivity } from "@/lib/activity";
 import { AUDIT_LIMIT, type AuditToken } from "@/lib/api-token";
 import { workspaceQuotas } from "@/lib/quotas";
 import { getRedis, toStringRecord } from "@/lib/redis";
@@ -422,9 +423,13 @@ export async function authenticateToken(store: TenantStore, bearer: string, now:
   const last = lastUsed(token, used);
   if (last === null || now.getTime() - last >= LAST_USED_REFRESH_MS) {
     const nowMs = now.getTime();
+    // The tenant's durable activity marker (lib/inactive-purge.ts) rides on this refresh: no extra
+    // read, and at most one write a UTC day per token.
+    const firstToday = last === null || otherUtcDay(last, nowMs);
     // Its own hash, never the record: a revocation landing meanwhile is never written over.
     defer(async () => {
       await store.redis.hset(store.keys.tokensLastUsed, { [hash]: String(nowMs) });
+      if (firstToday) await recordTenantActivity(store.tenantId, nowMs);
     });
   }
 

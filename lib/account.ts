@@ -119,6 +119,7 @@ export async function deleteAccount(userId: string, now: Date): Promise<DeleteAc
   tx.del(GLOBAL_KEYS.userTenants(userId));
   tx.del(GLOBAL_KEYS.userSessions(userId));
   tx.del(GLOBAL_KEYS.user(userId));
+  tx.zrem(GLOBAL_KEYS.users, userId);
   await tx.exec();
   return { ok: true, workspacesDeleted, workspacesLeft };
 }
