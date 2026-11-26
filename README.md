@@ -25,6 +25,10 @@
   </a>
 </p>
 
+> The `site/` folder is the source of [usageratio.snktibor.hu](https://usageratio.snktibor.hu),
+> the project's landing page. You don't need it to self-host: the app is the repository root. If
+> you host the app on Vercel, set the root directory to the repository root, not `site`.
+
 ## What it is
 
 usageratio is a self-hosted dashboard for AI coding-agent token budgets. A small client runs hourly
@@ -191,6 +195,7 @@ store, and the screenshot suite.
 
 ## Documentation
 
+- [usageratio.snktibor.hu](https://usageratio.snktibor.hu): the landing page, with a link to the live demo
 - [**docs/README.md**](docs/README.md) — documentation index
 - [Getting started](docs/getting-started.md) — deploying and installing the first client
 - [Clients](docs/clients.md) — every install route, flags, and exit codes

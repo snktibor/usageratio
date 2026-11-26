@@ -1,6 +1,6 @@
 <!-- BEGIN:nextjs-agent-rules -->
 
-# This is NOT the Next.js you know
+## This is NOT the Next.js you know
 
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
 
@@ -35,6 +35,11 @@ aggregates and charts it live.
 / `redis:down` · `npm run migrate:legacy` · `npm run migrate:tenant` · `npm run docker:build`. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the full walkthrough, including what each check needs
 (`bash`/`curl` for the installer integration test, `pwsh` for the clients' Pester suite).
+
+`site/` is the landing page (usageratio.snktibor.hu): a separate, static Vite project that shares no
+code with the app and is excluded from the root Biome, `tsc`, Docker and release-please setup. Run
+it with `cd site && npm ci && npm run dev`; check it with `npm run lint && npm run build` there.
+Commits that only touch it use the scope `site`.
 
 ### Conventions
 

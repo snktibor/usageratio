@@ -18,6 +18,9 @@ out
 .claude
 .impeccable
 
+# the landing page (usageratio.snktibor.hu): a separate Vite project, not part of the app
+site
+
 coverage
 .vitest
 playwright-report
