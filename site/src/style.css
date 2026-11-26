@@ -544,34 +544,13 @@ section > .flow {
   border-radius: 8px;
 }
 
-/* The menu bar icon, drawn: a strip of the bar with the ring in it */
+/* The Mac app: its own screenshot, then what it does in a few lines */
 
-.menubar {
-  display: flex;
+.mac {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 1.5rem 2rem;
   align-items: center;
-  justify-content: flex-end;
-  gap: 1rem;
-  max-width: 26rem;
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--color-rule);
-  border-radius: 8px;
-  background: var(--color-raised);
-  color: var(--color-ink-2);
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.menubar svg {
-  font-stretch: 78%;
-}
-
-.menubar-figure figcaption {
-  max-width: 42rem;
-  margin-top: 0.75rem;
-  color: var(--color-ink-3);
-  font-size: 0.875rem;
-  line-height: 1.25rem;
 }
 
 .points li {
@@ -755,6 +734,7 @@ section > .rows + .actions {
   .ways,
   .facts,
   .shots,
+  .mac,
   .rows > div {
     grid-template-columns: 1fr;
   }

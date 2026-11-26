@@ -263,25 +263,29 @@
         <section id="mac" aria-labelledby="mac-title">
           <h2 id="mac-title">A menu bar app, useful with one Mac</h2>
           <p class="lead">One machine is enough. A native Mac app keeps your usage in the menu bar.</p>
-          <figure class="menubar-figure">
-            <div class="menubar" role="img" aria-label="A menu bar with the usageratio icon: the number 63 inside a ring that is 46% full.">
-              <svg viewBox="0 0 28 28" width="28" height="28" aria-hidden="true">
-                <circle cx="14" cy="14" r="11.5" fill="none" stroke="var(--color-rule)" stroke-width="2.5" />
-                <circle cx="14" cy="14" r="11.5" fill="none" stroke="var(--color-ink)" stroke-width="2.5" stroke-linecap="round" pathLength="100" stroke-dasharray="46 100" transform="rotate(-90 14 14)" />
-                <text x="14" y="18" text-anchor="middle" font-size="11" font-weight="600" fill="var(--color-ink)">63</text>
-              </svg>
-              <span>Wed 12:00</span>
-            </div>
-            <figcaption>The icon, drawn: 63% of the week inside, the 5-hour window as the ring.</figcaption>
-          </figure>
-          <ul class="points">
-            <li>Pace, what is left and the reset, one click away.</li>
-            <li>It reads the provider's own figure and reports for the Mac. No cron job.</li>
-            <li>
-              Native and under 1 MB. You
-              <a href="https://github.com/snktibor/usageratio/tree/main/clients/macos#readme">build it with one script</a>.
-            </li>
-          </ul>
+          <div class="mac">
+            <figure class="shot">
+              <img
+                src="/src/shots/macapp-680.webp"
+                srcset="/src/shots/macapp-680.webp 680w, /src/shots/macapp-1360.webp 1360w"
+                sizes="(min-width: 56rem) 500px, calc(100vw - 2.5rem)"
+                width="680"
+                height="460"
+                loading="lazy"
+                decoding="async"
+                alt="The usageratio menu bar app, open under its icon. Claude Code weekly: 58.2% used, official, 41.8% left, with a bar showing 73% of the time elapsed and a note that it lasts until the reset on Friday. Below it the 5-hour window at 46%, with 2 hours 20 minutes left."
+              />
+            </figure>
+            <ul class="points">
+              <li>The week's percentage in the menu bar, with the 5-hour window as a ring.</li>
+              <li>Pace, what is left and the reset, one click away.</li>
+              <li>It reads the provider's own figure and reports for the Mac. No cron job.</li>
+              <li>
+                Native and under 1 MB. You
+                <a href="https://github.com/snktibor/usageratio/tree/main/clients/macos#readme">build it with one script</a>.
+              </li>
+            </ul>
+          </div>
         </section>
 
         <section aria-labelledby="compare">
