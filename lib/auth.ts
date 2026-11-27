@@ -356,8 +356,9 @@ export async function isAuthenticated(): Promise<boolean> {
 
   if (legacy || now - record.s > REFRESH_INTERVAL_MS) {
     const ttlSeconds = Math.max(1, Math.ceil((maxMs - (now - record.c)) / 1000));
+    // XX: a logout (or an expiry) between the read above and this deferred write must stay final.
     defer(async () => {
-      await getRedis().set(key, JSON.stringify({ c: record.c, s: now }), { ex: ttlSeconds });
+      await getRedis().set(key, JSON.stringify({ c: record.c, s: now }), { ex: ttlSeconds, xx: true });
     });
   }
 
