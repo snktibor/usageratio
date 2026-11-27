@@ -50,13 +50,15 @@ generate another new one and repeat. If the secret leaked, do step 4 right after
 
 ### `TOKEN_ENCRYPTION_KEY`
 
-Single-user instances only (it seals the stored copy of `USAGE_API_TOKEN`). The procedure, with the
+It seals the stored copy of `USAGE_API_TOKEN` (single-user instances), and, while `AUDIT_SALT` is
+not set, it also salts the hashed addresses on every audit trail (the token, machine-token and
+destructive-action trails, in multi-tenant mode too): see point 1. The procedure, with the
 `TOKEN_ENCRYPTION_KEY_PREVIOUS` fallback and the re-seal, is
 [security.md](security.md#the-token-vault-and-key-rotation); follow it as written. What it leaves out:
 
 **1. The audit IP hashes change** when `AUDIT_SALT` is not set. The salt is then
 `sha256(TOKEN_ENCRYPTION_KEY)`, so after a rotation the same visitor gets a different `ip` hash on the
-token audit trail (`1e255dddc4e3` before, `3aa55c438af6` after, for the same address), and entries from
+audit trails (`1e255dddc4e3` before, `3aa55c438af6` after, for the same address), and entries from
 before and after cannot be matched. Pick one:
 
 - *Routine rotation* — keep them comparable by pinning the salt to what it was. In the same
