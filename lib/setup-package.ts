@@ -74,7 +74,7 @@ function firstValue(header: string | null): string {
 }
 
 /** `NEXT_PUBLIC_SITE_URL`'s origin, when it is a valid http(s) URL. */
-function configuredOrigin(env: Record<string, string | undefined>): string | null {
+export function configuredOrigin(env: Record<string, string | undefined>): string | null {
   const configured = env.NEXT_PUBLIC_SITE_URL?.trim();
   if (!configured) return null;
   try {
