@@ -287,7 +287,7 @@ describe("withApiHandler", () => {
       expect(response.status).toBe(503);
       expect((await response.json()).error).toBe("storage_unavailable");
       expect(reporter).toHaveBeenCalledTimes(1);
-      expect(reporter.mock.calls[0]![1]).toMatchObject({ requestId: "q", route: "api/test" });
+      expect(reporter.mock.calls[0]![1]).toMatchObject({ requestId: "q", route: "api/test", path: "/api/test" });
       // The same refusal again within the hour: answered the same, not reported again.
       expect((await handler(get())).status).toBe(503);
       expect(reporter).toHaveBeenCalledTimes(1);
@@ -308,6 +308,21 @@ describe("withApiHandler", () => {
       String(call[0]),
     );
     expect(logged.some((line) => line.includes("api.unhandled") && line.includes("a bug"))).toBe(true);
+  });
+
+  it("reports a 500 to the error webhook under the route's pattern, never the path that names things", async () => {
+    const reporter = vi.fn();
+    setErrorReporter(reporter);
+    try {
+      const handler = withApiHandler("api/groups/[group]", async () => {
+        throw new Error("a bug");
+      });
+      expect((await handler(get())).status).toBe(500);
+      expect(reporter.mock.calls[0]![1]).toMatchObject({ path: "/api/groups/[group]", route: "api/groups/[group]" });
+      expect(JSON.stringify(reporter.mock.calls[0]![1])).not.toContain("/api/usage");
+    } finally {
+      resetErrorReporter();
+    }
   });
 
   it("logs every request with its status and duration", async () => {

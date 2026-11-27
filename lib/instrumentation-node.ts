@@ -41,5 +41,5 @@ export const onRequestErrorNode: Instrumentation.onRequestError = async (error, 
     requestId,
     err: error,
   });
-  await reportError(error, { path: request.path, requestId });
+  await reportError(error, { path: context.routePath, requestId });
 };
