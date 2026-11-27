@@ -3,7 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as importRoute } from "@/app/api/import/route";
 import { GET as getMachines } from "@/app/api/machines/route";
 import { buildAccountExport } from "@/lib/account-export";
-import { IMPORT_MAX_INFLATED_BYTES } from "@/lib/account-import";
+import {
+  IMPORT_MAX_INFLATED_BYTES,
+  importIntoEmptyStore,
+  planImport,
+  workspaceIsEmpty as workspaceEmpty,
+} from "@/lib/account-import";
 import { WORKSPACE_QUOTAS } from "@/lib/config";
 import { HISTORY_RETENTION } from "@/lib/history";
 import { ingestReport } from "@/lib/ingest";
@@ -277,5 +282,38 @@ describe.skipIf(REAL_REDIS)("POST /api/import, single-user instance", () => {
     const again = await importRoute(post(filed(keys), { cookie }));
     expect(again.status).toBe(409);
     expect(((await again.json()) as { error: string }).error).toBe("workspace_not_empty");
+  });
+
+  it("undoes a write that fails partway, so the import can be tried again", async () => {
+    const now = new Date();
+    const source = tenantStore("AAAAAAAAAAAAAAAAAAAAAA" as TenantId);
+    await fill(source, now);
+    const { exportWorkspaceKeys } = await import("@/lib/account-export");
+    const planned = planImport(filed(await exportWorkspaceKeys(source)), now, WORKSPACE_QUOTAS, "entries");
+    if (!planned.ok) throw new Error("plan refused");
+
+    const store = defaultTenantStore();
+    const before = JSON.stringify({ v: 1, period: "monthly" });
+    await getRedis().set(store.keys.settings, before);
+    const redis = getRedis();
+    const multi = redis.multi.bind(redis);
+    // The first transaction lands, then the connection drops: a partial write.
+    vi.spyOn(redis, "multi").mockImplementationOnce(() => {
+      const tx = multi();
+      const exec = tx.exec.bind(tx);
+      tx.exec = (async () => {
+        await exec();
+        throw new Error("connection reset");
+      }) as typeof tx.exec;
+      return tx;
+    });
+    await expect(importIntoEmptyStore(store, planned.plan)).rejects.toThrow("connection reset");
+    vi.restoreAllMocks();
+
+    expect(await getRedis().get(store.keys.settings)).toBe(before);
+    expect(await getRedis().hlen(store.keys.machines)).toBe(0);
+    expect(await getRedis().scard(store.keys.registry)).toBe(0);
+    expect(await getRedis().hlen(store.keys.officialUsage)).toBe(0);
+    expect(await workspaceEmpty(store)).toBe(true);
   });
 });

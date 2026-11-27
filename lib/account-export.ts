@@ -138,6 +138,7 @@ export function tenantKeyType(keys: TenantKeys, key: string): KeyType | null {
     [keys.machines]: "hash",
     [keys.officialUsage]: "hash",
     [keys.resets]: "hash",
+    [keys.fiveHour]: "hash",
     [keys.apiToken]: "string",
     [keys.apiTokenAudit]: "list",
     [keys.housekeepingLast]: "string",

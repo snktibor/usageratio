@@ -4,7 +4,7 @@ import {
   importIntoNewWorkspace,
   planImport,
   workspaceIsEmpty,
-  writeImport,
+  importIntoEmptyStore,
 } from "@/lib/account-import";
 import {
   apiError,
@@ -81,6 +81,6 @@ export const POST = withApiHandler("api/import", async ({ request }) => {
 
   const store = tenant!.store;
   if (!(await workspaceIsEmpty(store))) return apiError("workspace_not_empty", 409);
-  await writeImport(store, plan);
+  await importIntoEmptyStore(store, plan);
   return json({ ok: true, tenantId: store.tenantId, ...result }, 201);
 });
