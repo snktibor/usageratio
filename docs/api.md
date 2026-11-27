@@ -555,6 +555,8 @@ Up to 50 live tokens per workspace in multi-tenant mode, 100 on a single-user in
   Redis down.
 - **`POST /api/tokens/[id]/rotate`** (session + sudo, same-origin) → `200 { "id", "token" }`: a fresh
   token with the same label, machine, scope and creator; the old one is revoked in the same step.
+  Rotated by someone other than its creator, it also records them (`rotatedBy`): removing either
+  of them with their tokens revokes it, since both may hold a working copy.
   `404` no such token · `409 token_revoked` / `tokens_busy` (another revoke or rotate is running) ·
   `422 too_many_tokens` (200 entries, revoked ones included, until housekeeping forgets them) ·
   otherwise as `DELETE`. `DELETE` can answer `409 tokens_busy` too.
@@ -755,7 +757,9 @@ without a workspace.
 `Content-Encoding: gzip` is accepted (4 MB as sent, 64 MB inflated).
 
 - Multi-tenant mode: a signed-in user gets a new workspace, `"<name> (import)"`. It counts against
-  the owned-workspaces quota (`422 too_many_workspaces`) and the new-workspace rate limits.
+  the owned-workspaces quota (`422 too_many_workspaces`) and the new-workspace rate limits. Unless
+  `REGISTRATION=open`, only a user who already owns a workspace may import (`403
+  registration_closed`): an invite to someone else's workspace is never enough to create one.
 - Single-user instance: the PIN session with sudo (`403 sudo_required`) loads into the instance
   itself, only while it holds no usage yet (`409 workspace_not_empty`).
 
@@ -794,7 +798,7 @@ the app's pages send it themselves. A member gets `403 owner_only` from the owne
   not this workspace's.
 - **`DELETE /api/workspace/members/[userId]?revokeTokens=1`** (owner, same-origin) → `200 { "ok": true,
   "tokensRevoked" }`. The member loses the workspace on their next request; with `revokeTokens=1` the
-  machine tokens they created are revoked too. `404` not a member · `409 cannot_remove_owner` ·
+  machine tokens they created or rotated are revoked too. `404` not a member · `409 cannot_remove_owner` ·
   `409 members_busy` (another change to the members is running; try again).
 - **`POST /api/workspace/leave`** (member, same-origin) → `200 { "ok": true, "tenantId": next | null }`;
   the session moves to the user's next workspace. Tokens they created stay. `409 owner_cannot_leave`.

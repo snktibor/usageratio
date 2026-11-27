@@ -19,8 +19,9 @@ import {
 import { hasSudo } from "@/lib/auth";
 import { currentTime } from "@/lib/clock";
 import { demoReadOnly } from "@/lib/demo/mode";
+import { ownedWorkspaceCount } from "@/lib/members";
 import { machineCounting, workspaceQuotas } from "@/lib/quotas";
-import { isMultiTenant } from "@/lib/registration";
+import { isMultiTenant, registrationMode } from "@/lib/registration";
 import { clientIp } from "@/lib/request-context";
 import { registrationRules } from "@/lib/route-limits";
 
@@ -41,6 +42,7 @@ import { registrationRules } from "@/lib/route-limits";
  * 400 invalid_json / invalid_payload (with details) · 401 no session · 403 foreign origin,
  * sudo_required (single-user), demo_read_only · 409 workspace_not_empty (single-user) ·
  * 422 too_many_workspaces / too_many_machines / too_many_providers / too_many_groups (with limit) ·
+ * 403 registration_closed (multi-tenant, not `open`: the user owns no workspace) ·
  * 413 payload_too_large · 415 not JSON, or an encoding other than gzip · 429 rate limited ·
  * 503 Redis down
  */
@@ -54,6 +56,11 @@ export const POST = withApiHandler("api/import", async ({ request }) => {
   const multi = isMultiTenant();
   const user = multi ? await requireUserSession() : null;
   if (user instanceof Response) return user;
+  // A new workspace, outside `open` mode, only for someone who already owns one (a sign-up code
+  // made that): a member who came in through an invite must not create workspaces this way.
+  if (user && registrationMode() !== "open" && (await ownedWorkspaceCount(user.userId)) === 0) {
+    return apiError("registration_closed", 403);
+  }
   const tenant = multi ? null : await requireTenantSession();
   if (tenant instanceof Response) return tenant;
   if (tenant && !(await hasSudo())) return apiError("sudo_required", 403);

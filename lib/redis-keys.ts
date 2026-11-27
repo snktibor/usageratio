@@ -54,7 +54,8 @@
  *                                   "ingest" (absent in older entries), "read" or "official". The field is the
  *                                   token's own hash, never its plaintext, which is shown once at
  *                                   creation and not stored. "createdBy" is the userId who created
- *                                   it (multi-tenant mode). The record is written only when the
+ *                                   it (multi-tenant mode), "rotatedBy"? who rotated someone else's
+ *                                   token (they hold its plaintext). The record is written only when the
  *                                   token is created or revoked; "lastUsedAt" inside it is from
  *                                   before usage:tokens:lastused existed.
  *   usage:tokens:audit       LIST   newest first, at most AUDIT_LIMIT entries: the per-machine

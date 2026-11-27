@@ -1090,6 +1090,7 @@
     "error_none": "Die Datei enthält keinen eigenen Workspace mit Daten.",
     "error_too_large": "Die Datei ist zu groß für den Import.",
     "error_workspaces": "Dir gehören schon {limit} Workspaces, mehr geht nicht. Lösche zuerst einen.",
+    "error_registration": "Auf dieser Instanz kann nur importieren, wem schon ein eigener Workspace gehört: frag den Admin nach einem Registrierungslink.",
     "error_quota": "Die Datei hat mehr Geräte, Anbieter oder Gruppen, als ein Workspace haben darf (höchstens {limit}).",
     "error_not_empty": "Diese Instanz hat schon Daten: eine Datei lässt sich nur in eine leere importieren.",
     "error_failed": "Der Import ist fehlgeschlagen. Versuch es später noch einmal."

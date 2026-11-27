@@ -31,7 +31,7 @@ export async function POST(request: Request, context: { params: Promise<Params> 
     if (!(await hasSudo())) return apiError("sudo_required", 403);
 
     const now = new Date();
-    const result = await rotateToken(tenant.store, id, now, tokenAudit("token_rotated", tenant, now));
+    const result = await rotateToken(tenant.store, id, now, tokenAudit("token_rotated", tenant, now), tenant.userId);
     if (!result.ok) {
       if (result.reason === "not_found") return apiError("not_found", 404);
       if (result.reason === "too_many") return apiError("too_many_tokens", 422, { limit: MAX_TOKEN_ENTRIES });

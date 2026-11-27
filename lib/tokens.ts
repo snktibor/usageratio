@@ -81,6 +81,11 @@ export interface MachineToken {
   revokedAt: number | null;
   /** The userId who created it (multi-tenant mode); null on a single-user instance and for older tokens. */
   createdBy: string | null;
+  /**
+   * Who last rotated it, when that was someone else's token: they hold its plaintext now, so
+   * removing them with their tokens revokes it too. Null when never rotated, or rotated by its creator.
+   */
+  rotatedBy: string | null;
 }
 
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -117,7 +122,8 @@ export function hashToken(token: string): string {
 }
 
 function serialize(token: MachineToken): string {
-  return JSON.stringify(token);
+  const { rotatedBy, ...rest } = token;
+  return JSON.stringify(rotatedBy === null ? rest : token); // stored only when set
 }
 
 /** One `usage:tokens` field's value; null when it does not parse (edited by hand into something unreadable). */
@@ -142,6 +148,7 @@ function parseStored(raw: string): MachineToken | null {
     lastUsedAt: typeof entry.lastUsedAt === "number" ? entry.lastUsedAt : null,
     revokedAt: typeof entry.revokedAt === "number" ? entry.revokedAt : null,
     createdBy: typeof entry.createdBy === "string" ? entry.createdBy : null,
+    rotatedBy: typeof entry.rotatedBy === "string" ? entry.rotatedBy : null,
   };
 }
 
@@ -230,6 +237,7 @@ function newRecord(
     lastUsedAt: null,
     revokedAt: null,
     createdBy,
+    rotatedBy: null,
   };
   return { token, hash: hashToken(token), record };
 }
@@ -305,14 +313,16 @@ export type RotateTokenResult =
  * Replaces a live token with a fresh one in one step: same label, machine and scope, a new secret
  * and id; the old one is revoked in the same transaction, so there is never a moment with both or
  * neither. The replacement keeps the old token's `createdBy`: it stands for the same machine, and
- * removing that member with their tokens still finds it. Held to MAX_TOKEN_ENTRIES only (the live
- * count stays the same).
+ * removing that member with their tokens still finds it. Rotated by someone else (`by`), it also
+ * records them as `rotatedBy`: they got the new plaintext, so removing them revokes it as well.
+ * Held to MAX_TOKEN_ENTRIES only (the live count stays the same).
  */
 export async function rotateToken(
   store: TenantStore,
   id: string,
   now: Date,
   audit?: TokenAudit,
+  by: string | null = null,
 ): Promise<RotateTokenResult> {
   const result = await withTokenLock(store, async (): Promise<RotateTokenResult> => {
     const all = toStringRecord(await store.redis.hgetall(store.keys.tokens));
@@ -323,7 +333,9 @@ export async function rotateToken(
     if (old.revokedAt !== null) return { ok: false, reason: "revoked" };
     if (Object.keys(all).length >= MAX_TOKEN_ENTRIES) return { ok: false, reason: "too_many" };
 
-    const { token, hash, record } = newRecord(old.label, old.machineId, old.scope, now, old.createdBy);
+    const fresh = newRecord(old.label, old.machineId, old.scope, now, old.createdBy);
+    const { token, hash } = fresh;
+    const record: MachineToken = { ...fresh.record, rotatedBy: by !== null && by !== old.createdBy ? by : null };
     const tx = store.redis.multi();
     tx.hset(store.keys.tokens, {
       [oldHash]: serialize({ ...old, revokedAt: now.getTime() }),
@@ -337,7 +349,7 @@ export async function rotateToken(
   return result === "busy" ? { ok: false, reason: "busy" } : result;
 }
 
-/** Revokes every live token `userId` created (a member removed with their tokens); how many it revoked. */
+/** Revokes every live token `userId` created or rotated (a member removed with their tokens); how many it revoked. */
 export async function revokeTokensCreatedBy(
   store: TenantStore,
   userId: string,
@@ -359,7 +371,7 @@ async function revokeAllCreatedBy(store: TenantStore, userId: string, now: Date,
   const revoked: AuditToken[] = [];
   for (const [hash, value] of Object.entries(raw)) {
     const token = parseStored(value);
-    if (token && token.createdBy === userId && token.revokedAt === null) {
+    if (token && (token.createdBy === userId || token.rotatedBy === userId) && token.revokedAt === null) {
       changes[hash] = serialize({ ...token, revokedAt: now.getTime() });
       revoked.push({ id: token.id, label: token.label });
     }
