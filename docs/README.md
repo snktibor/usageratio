@@ -7,6 +7,7 @@
 - [data-model.md](data-model.md) — every Redis key, its shape and retention, snapshot semantics, the legacy migration.
 - [security.md](security.md) — the detailed threat model: login throttling, sessions, sudo, CSP, the token vault, audit trail, housekeeping.
 - [incident-response.md](incident-response.md) — the personal data breach runbook: contain, assess, notify the authority within 72 hours, tell the people affected, record it.
+- [runbooks.md](runbooks.md) — step by step: rotate each secret (GitHub OAuth, token-vault key, cron, Upstash, API token), back up and restore the store, disable a workspace.
 - [architecture.md](architecture.md) — request flow, module map, design decisions, project origins.
 - [demo-and-development.md](demo-and-development.md) — demo mode, the synthetic dataset, the test layers, regenerating screenshots and brand assets.
 - [upgrading.md](upgrading.md) — upgrading an existing deployment to this release.

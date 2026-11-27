@@ -414,6 +414,9 @@ server's environment — a Redis backup or a leaked REST token holds nothing but
    key fingerprints — re-seals the value under the current key in the background).
 5. Remove `TOKEN_ENCRYPTION_KEY_PREVIOUS`.
 
+The audit IP hashes, a forgotten `_PREVIOUS`, verification and rollback:
+[runbooks.md](runbooks.md#token_encryption_key).
+
 Every sealed value carries `kid`, a short fingerprint of the key that sealed it (not the key
 itself), so opening it can go straight to the right key instead of guessing; a value with no `kid`
 (sealed before rotation existed) or one that matches neither key on file is simply tried against

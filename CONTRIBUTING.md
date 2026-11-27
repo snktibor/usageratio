@@ -86,7 +86,7 @@ Notes:
 | `clients/` | The bash/PowerShell reporting clients and their shared parser |
 | `tests/` | Vitest unit, integration, and component tests |
 | `e2e/` | Playwright end-to-end tests |
-| `scripts/` | One-off and maintenance scripts (seed, migrate, generate locales) |
+| `scripts/` | One-off and maintenance scripts (seed, migrate, backup/restore, generate locales) |
 | `docs/` | Deployment and technical reference docs |
 
 ## Conventions
