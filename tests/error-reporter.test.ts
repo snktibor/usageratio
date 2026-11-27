@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { reportError, resetErrorReporter, setErrorReporter, webhookErrorReporter } from "@/lib/error-reporter";
+import {
+  errorWebhookBody,
+  reportError,
+  resetErrorReporter,
+  setErrorReporter,
+  webhookErrorReporter,
+} from "@/lib/error-reporter";
 import { version } from "@/package.json";
 
 describe("reportError / the built-in webhook reporter", () => {
@@ -109,5 +115,41 @@ describe("reportError / the built-in webhook reporter", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     await webhookErrorReporter(new Error("boom"), {});
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("errorWebhookBody", () => {
+  const report = {
+    message: "boom",
+    digest: "E1",
+    path: "/api/usage",
+    requestId: "req-9",
+    version: "1.2.3",
+    commit: "abcdef1",
+  };
+
+  it("writes a Slack message for a Slack webhook", () => {
+    expect(errorWebhookBody("https://hooks.slack.com/services/T/B/x", report)).toEqual({
+      text: "usageratio server error: boom\n/api/usage · request req-9 · digest E1 · v1.2.3 (abcdef1)",
+    });
+  });
+
+  it("writes a Discord message for a Discord webhook, cut to fit its limit", () => {
+    const body = errorWebhookBody("https://discord.com/api/webhooks/1/x", {
+      ...report,
+      message: "x".repeat(5000),
+      digest: null,
+      path: null,
+      requestId: null,
+      commit: null,
+    }) as { content: string };
+    expect(body.content.length).toBeLessThan(2000);
+    expect(body.content.endsWith("\nv1.2.3")).toBe(true);
+  });
+
+  it("keeps the generic report for any other address, and for one that does not parse", () => {
+    expect(errorWebhookBody("https://example.test/hook", report)).toBe(report);
+    expect(errorWebhookBody("https://discord.com/channels/1", report)).toBe(report);
+    expect(errorWebhookBody("not a url", report)).toBe(report);
   });
 });

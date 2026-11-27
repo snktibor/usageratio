@@ -26,25 +26,63 @@ function errorDigest(error: unknown): string | null {
     : null;
 }
 
-/** POSTs `{ message, digest, path, requestId, version, commit }` to ERROR_WEBHOOK_URL; a no-op without it. */
+interface ErrorReport {
+  message: string;
+  digest: string | null;
+  path: string | null;
+  requestId: string | null;
+  version: string;
+  commit: string | null;
+}
+
+/** Discord refuses `content` over 2000 characters. */
+const CHAT_MESSAGE_MAX = 1800;
+
+/** Slack and Discord incoming webhooks want a message of their own shape; any other URL gets the report as is. */
+export function errorWebhookBody(url: string, report: ErrorReport): unknown {
+  let host = "";
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return report;
+  }
+  const isSlack = host === "hooks.slack.com";
+  const isDiscord =
+    (host === "discord.com" || host === "discordapp.com") && new URL(url).pathname.startsWith("/api/webhooks/");
+  if (!isSlack && !isDiscord) return report;
+  const details = [
+    report.path,
+    report.requestId && `request ${report.requestId}`,
+    report.digest && `digest ${report.digest}`,
+    `v${report.version}${report.commit ? ` (${report.commit})` : ""}`,
+  ].filter(Boolean);
+  const text = `usageratio server error: ${report.message.slice(0, CHAT_MESSAGE_MAX)}\n${details.join(" · ")}`;
+  return isSlack ? { text } : { content: text };
+}
+
+/**
+ * POSTs `{ message, digest, path, requestId, version, commit }` to ERROR_WEBHOOK_URL (as a chat
+ * message for a Slack or Discord webhook); a no-op without it.
+ */
 export async function webhookErrorReporter(error: unknown, context: Record<string, unknown>): Promise<void> {
   const url = process.env.ERROR_WEBHOOK_URL?.trim();
   if (!url) return;
 
+  const report: ErrorReport = {
+    message: errorMessage(error),
+    digest: errorDigest(error),
+    path: typeof context.path === "string" ? context.path : null,
+    requestId: typeof context.requestId === "string" ? context.requestId : null,
+    version,
+    commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
+  };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
   try {
     await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: errorMessage(error),
-        digest: errorDigest(error),
-        path: typeof context.path === "string" ? context.path : null,
-        requestId: typeof context.requestId === "string" ? context.requestId : null,
-        version,
-        commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
-      }),
+      body: JSON.stringify(errorWebhookBody(url, report)),
       signal: controller.signal,
     });
   } catch {
