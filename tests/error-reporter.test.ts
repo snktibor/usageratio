@@ -55,6 +55,16 @@ describe("reportError / the built-in webhook reporter", () => {
     expect(JSON.parse(String(init?.body))).toMatchObject({ digest: null, path: null, requestId: null });
   });
 
+  it("leaves out the failed command Upstash puts into its error text", async () => {
+    vi.stubEnv("ERROR_WEBHOOK_URL", "https://example.test/hook");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
+    await reportError(
+      new Error('ERR max requests limit exceeded, command was: ["set","usage:settings","{\\"webhookUrl\\":1}"]'),
+    );
+    const [, init] = fetchSpy.mock.calls[0]!;
+    expect(JSON.parse(String(init?.body)).message).toBe("ERR max requests limit exceeded, command was: [redacted]");
+  });
+
   it("stringifies a non-Error value as the message", async () => {
     vi.stubEnv("ERROR_WEBHOOK_URL", "https://example.test/hook");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));

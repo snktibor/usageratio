@@ -1,3 +1,4 @@
+import { scrubErrorText } from "@/lib/log";
 import { version } from "@/package.json";
 
 /**
@@ -16,8 +17,9 @@ export type ErrorReporter = (error: unknown, context: Record<string, unknown>) =
 
 const WEBHOOK_TIMEOUT_MS = 3000;
 
+/** Scrubbed as in the logs: Upstash's error text carries the failed command, with names and URLs in it. */
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return scrubErrorText(error instanceof Error ? error.message : String(error));
 }
 
 function errorDigest(error: unknown): string | null {
