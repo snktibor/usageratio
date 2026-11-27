@@ -908,6 +908,7 @@ export async function deleteProvider(
   tx.hdel(store.keys.providers, providerId);
   if (officialFields.length > 0) tx.hdel(store.keys.officialUsage, ...officialFields);
   tx.hdel(store.keys.resets, providerId);
+  tx.hdel(store.keys.fiveHour, providerId); // a live reading only: nothing to restore from the trash
   if (audit) queueManageAudit(tx, store, audit);
   await tx.exec();
 

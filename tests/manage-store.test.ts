@@ -565,6 +565,7 @@ describe("deleteProvider", () => {
       autoOffCycleStartMs: null,
     });
     await saveResets(tenant, "openai", { v: 1, events: [], autoOffCycleStartMs: CYCLE_START_MS });
+    await getRedis().hset(KEYS.fiveHour, { claude: "{}", openai: "{}" });
 
     const result = await deleteProvider(tenant, "claude", true, NOW);
     expect(result).toMatchObject({ ok: true, affected: { events: 2, machines: 2, groups: 2 } });
@@ -578,6 +579,8 @@ describe("deleteProvider", () => {
     expect(await getRedis().hexists(KEYS.officialUsage, officialUsageField("claude", "fable"))).toBe(0);
     expect(await getRedis().hexists(KEYS.resets, "claude")).toBe(0);
     expect(await getRedis().hexists(KEYS.resets, "openai")).toBe(1);
+    expect(await getRedis().hexists(KEYS.fiveHour, "claude")).toBe(0);
+    expect(await getRedis().hexists(KEYS.fiveHour, "openai")).toBe(1);
 
     const settings = JSON.parse((await getRedis().get<string>(KEYS.settings))!);
     expect(settings.limits).toEqual({ deepseek: 100 });
