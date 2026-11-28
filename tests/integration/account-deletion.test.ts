@@ -35,6 +35,7 @@ import { withRequest } from "../helpers/request";
 
 const ORIGIN = { origin: "http://localhost", host: "localhost", "x-forwarded-for": "203.0.113.7" };
 const DAY = 86_400_000;
+const ALICE_GITHUB_ID = 7_314_159_265;
 
 interface RequestInit {
   method?: string;
@@ -98,7 +99,8 @@ describe.skipIf(REAL_REDIS)("deleting an account", () => {
     const before = snapshot();
 
     // Alice signs up with Bob's code and fills her own workspace.
-    const alice = await findOrCreateGithubUser({ id: 4242, login: "alicelogin" }, now);
+    // A GitHub id long enough that no timestamp or hash in the store holds its digits by chance (4242 once did).
+    const alice = await findOrCreateGithubUser({ id: ALICE_GITHUB_ID, login: "alicelogin" }, now);
     await consumeSignupCode(signupCodeHash(code.code), alice.userId, now);
     const aliceTenant = await createTenantFor(alice.userId, "Alice's", now);
     const cookie = (await withRequest(() => startUserSession(alice.userId, aliceTenant, now))).split(";")[0]!;
@@ -166,7 +168,7 @@ describe.skipIf(REAL_REDIS)("deleting an account", () => {
       alice.userId,
       aliceTenant,
       "alicelogin",
-      "4242",
+      String(ALICE_GITHUB_ID),
       "alice-laptop",
       "alice-desk",
       "AliceWork",
@@ -183,7 +185,7 @@ describe.skipIf(REAL_REDIS)("deleting an account", () => {
     // In Bob's workspace: only as the "by" login and the token's "createdBy", never her own workspace's data.
     for (const [key, { text }] of after) {
       if (!key.startsWith(bobPrefix)) continue;
-      expect(text, key).not.toMatch(/alice-laptop|alice-desk|AliceWork|AliceHome|4242|carol/);
+      expect(text, key).not.toMatch(new RegExp(`alice-laptop|alice-desk|AliceWork|AliceHome|${ALICE_GITHUB_ID}|carol`));
       expect(text.replaceAll('\\"by\\":\\"alicelogin\\"', ""), key).not.toContain("alicelogin");
       expect(text.replaceAll(`\\"createdBy\\":\\"${alice.userId}\\"`, ""), key).not.toContain(alice.userId);
     }
