@@ -512,6 +512,32 @@ describe("isAuthenticated / sessionTag / endSession", () => {
     }
   });
 
+  it("a logout between the check and its deferred refresh stays final", async ({ skip }) => {
+    if (redis.real) skip();
+    const jar = fakeCookieJar();
+    await login(PIN, "203.0.113.9", jar);
+    const key = sessionKeyOf(jar.values[SESSION_COOKIE]!, PIN);
+
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.now() + REFRESH_INTERVAL_MS + 1000);
+      const store = getRedis();
+      const set = store.set.bind(store);
+      // The logout, from another request, lands just before the deferred refresh writes.
+      vi.spyOn(store, "set").mockImplementationOnce(async (...args: Parameters<typeof set>) => {
+        await store.del(key);
+        return set(...args);
+      });
+      expect(await withRequest(() => isAuthenticated(), { cookies: jar })).toBe(true);
+      await flushDeferred();
+    } finally {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    }
+    expect(redis.store?.dump()[key]).toBeUndefined();
+    expect(await withRequest(() => isAuthenticated(), { cookies: jar })).toBe(false);
+  });
+
   it("SESSION_MAX_DAYS is a hard ceiling from creation, however active", async ({ skip }) => {
     if (redis.real) skip();
     const jar = fakeCookieJar();
