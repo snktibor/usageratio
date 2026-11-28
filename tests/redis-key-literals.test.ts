@@ -58,6 +58,8 @@ const RAW_CLIENT_USERS = new Set([
   "lib/inactive-purge.ts", // the activity markers and the users index
   "lib/migrate-legacy.ts",
   "lib/demo/seed.ts",
+  "scripts/backup.ts", // npm run backup
+  "scripts/restore.ts", // npm run restore
   "app/api/health/route.ts",
 ]);
 

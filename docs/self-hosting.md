@@ -277,6 +277,10 @@ docker run --rm -v usageratio_redis-data:/data -v "$PWD":/backup alpine \
 Compose prefixes it with the project's directory name.) To restore, stop the stack, extract the tarball
 back into a fresh volume, and start it again.
 
+To copy the data as a JSON file instead (selected keys can be restored, nothing is overwritten unless
+you say so), or to rotate `SRH_TOKEN`, `CRON_SECRET` and the other secrets, see
+[runbooks.md](runbooks.md).
+
 ## Upgrades
 
 ```bash

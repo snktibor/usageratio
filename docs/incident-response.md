@@ -63,7 +63,8 @@ attacker's requests) in `~/.usageratio-ops/incidents/`, never in the repository.
 
 **One workspace is abused or compromised:** disable it on `/admin` (`PATCH
 /api/admin/tenants/[id]`, `{"status": "disabled"}`). Its data stays, its members and machines are
-refused at once (`tenant_disabled`). Enable it again once it is safe.
+refused at once (`tenant_disabled`). Enable it again once it is safe. Steps and checks:
+[runbooks.md](runbooks.md#disabling-and-enabling-a-workspace).
 
 **Sessions:**
 
@@ -75,24 +76,26 @@ refused at once (`tenant_disabled`). Enable it again once it is safe.
 - Single-user instance: change `DASHBOARD_PIN` and redeploy. A PIN session's key is derived from
   the PIN, so every existing session stops working.
 
-**Rotate the secrets that may be known.** Each is an environment variable on Vercel (Project →
-Settings → Environment Variables); a change takes effect with the next deployment, so redeploy
-after each batch:
+**Rotate the secrets that may be known.** Each is an environment variable (Vercel: Project →
+Settings → Environment Variables; Docker: `.env`); a change takes effect with the next deployment,
+so redeploy after each batch. The exact steps, checks and rollback of each are in
+[runbooks.md](runbooks.md#rotating-secrets):
 
-| Secret | How |
+| Secret | Notes for an incident |
 | --- | --- |
-| GitHub OAuth secret (`GITHUB_CLIENT_SECRET`) | GitHub → Settings → Developer settings → OAuth Apps → the app → *Generate a new client secret*; set it on Vercel, redeploy, then delete the old secret on GitHub. |
-| `TOKEN_ENCRYPTION_KEY` | The rotation runbook in [security.md](security.md#the-token-vault-and-key-rotation). If the key and a Redis copy both leaked, the sealed `USAGE_API_TOKEN` is exposed too: rotate that as well. Without `AUDIT_SALT` set, the audit IP hashes are keyed with this key: set `AUDIT_SALT` to a new value in the same deployment. |
-| `CRON_SECRET` | `openssl rand -hex 32`, set it on Vercel, redeploy (Vercel Cron picks it up itself). |
-| Upstash REST token (`KV_REST_API_TOKEN`, and the read-only one) | Upstash console → the database → reset its tokens / password. On Vercel the integration updates the variables; check that they did, and redeploy. Replace the read-only copy in `~/.usageratio-ops/prod-readonly.env`. |
-| Machine tokens | The workspace's owner revokes or rotates them on the settings page (each is in the audit trail). On a single-user instance also change `USAGE_API_TOKEN` and update every client's config. |
+| GitHub OAuth secret (`GITHUB_CLIENT_SECRET`) | [Runbook](runbooks.md#github_client_secret). Delete the old secret on GitHub right after the new one works. |
+| `TOKEN_ENCRYPTION_KEY` | [Runbook](runbooks.md#token_encryption_key). If the key and a Redis copy both leaked, the sealed `USAGE_API_TOKEN` is exposed too: rotate that as well. Without `AUDIT_SALT` set, the audit IP hashes are keyed with this key: set `AUDIT_SALT` to a **new random** value in the same deployment. |
+| `CRON_SECRET` | [Runbook](runbooks.md#cron_secret). |
+| Upstash REST token (`KV_REST_API_TOKEN`, and the read-only one) | [Runbook](runbooks.md#the-upstash-rest-token). Replace the read-only copy in `~/.usageratio-ops/prod-readonly.env`. |
+| `USAGE_API_TOKEN` (single-user) and machine tokens | [Runbook](runbooks.md#usage_api_token). On a multi-tenant instance the workspace's owner revokes or rotates machine tokens on the settings page (each is in the audit trail). |
 | Alert webhook URLs | They belong to the users: tell the affected workspaces (step 5) to regenerate the webhook in Slack, Discord or Teams and save the new URL. |
 | `ERROR_WEBHOOK_URL`, `ADMIN_GITHUB_IDS` | Regenerate the webhook if it leaked; remove any admin id you do not recognise. |
 
 **Fix the cause:** a code fix goes through a pull request like any other (a private security
 advisory on GitHub keeps it quiet until it ships); a misconfiguration is fixed on Vercel or Upstash.
 If restoring data is needed, restore from the Upstash backup taken before the incident, and only
-the keys that were damaged.
+the keys that were damaged (`npm run restore -- <file> --only=… --apply`, a dry run first, and
+without the session keys: [runbooks.md](runbooks.md#backup-and-restore)).
 
 ## 3. Assess the risk
 
