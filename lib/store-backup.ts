@@ -145,7 +145,7 @@ function matches(pattern: string, key: string): boolean {
 export interface RestoreOptions {
   /** Restore only keys matching one of these (exact, or a prefix ending in `*`); all keys when empty. */
   only?: string[];
-  /** Replace keys that already exist; they are skipped otherwise. */
+  /** Replace keys that already exist; they are skipped otherwise. Needs `only`. */
   force?: boolean;
   /** Write. False: only report what would happen. */
   apply?: boolean;
@@ -219,6 +219,9 @@ export async function restoreBackup(
 ): Promise<RestoreReport> {
   const now = (options.now ?? Date.now)();
   const only = options.only ?? [];
+  // Replacing every key would also bring back ended sessions and an old token index that other
+  // workspaces' newer tokens are missing from: a forced restore names what it replaces.
+  if (options.force && only.length === 0) throw new Error("--force needs --only: name the keys to replace");
   const takenAtMs = Date.parse(backup.takenAt);
   const report: RestoreReport = { restored: [], replaced: [], skippedExisting: [], skippedExpired: [], unmatched: [] };
 

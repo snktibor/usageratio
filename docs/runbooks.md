@@ -203,7 +203,7 @@ difference). Take one before a rotation that touches data, a migration (`migrate
 ### Restore
 
 Three rules the tool enforces: it **never writes without `--apply`**, it **never replaces a key that
-exists unless `--force`**, and a key is built under a temporary name and moved into place, so it is
+exists unless `--force`** (and `--force` only together with `--only`, never every key at once), and a key is built under a temporary name and moved into place, so it is
 either there whole or not there (an interrupted run leaves at most a `restore-tmp:*` key: delete it,
 backups ignore it). TTLs are restored as the *moment* the key was to expire, not as time left, so a
 restore a day later does not hand every key a day more; a key whose time has already passed is skipped.
@@ -237,6 +237,17 @@ npm run restore -- backup.json --apply
   `usage:tokenindex` is one hash for every workspace: restoring it with `--force` would drop the
   entries of tokens created since the backup, so after restoring a deleted workspace issue its
   machines new tokens instead.
+- **A deleted workspace** needs more than its own keys (`--only='t:{tenantId}:*'
+  --only='usage:tenant:{tenantId}*'`). Its entries in the keys every workspace shares are not
+  restored, since those keys exist and must not be forced: add them by hand (Upstash console → CLI),
+  with the values from the backup file, or the workspace stays invisible to its members, `/admin`
+  and housekeeping:
+
+  ```text
+  ZADD usage:tenants <createdAt ms> <tenantId>
+  ZADD usage:tenants:active <last request ms, or now> <tenantId>
+  HSET usage:user:<userId>:tenants <tenantId> <role>      # once per member, from its members hash
+  ```
 - **Replacing a key that exists** (it was corrupted, not deleted): add `--force`, with `--only` naming
   just that key. The key returns to its state at backup time: for an event sorted set that means the
   reports since then are gone (the machines' next snapshot reports fill the totals in again, but not

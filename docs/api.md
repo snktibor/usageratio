@@ -758,8 +758,9 @@ without a workspace.
 
 - Multi-tenant mode: a signed-in user gets a new workspace, `"<name> (import)"`. It counts against
   the owned-workspaces quota (`422 too_many_workspaces`) and the new-workspace rate limits. Unless
-  `REGISTRATION=open`, only a user who already owns a workspace may import (`403
-  registration_closed`): an invite to someone else's workspace is never enough to create one.
+  `REGISTRATION=open`, only a user who already owns an active workspace may import (`403
+  registration_closed`): an invite to someone else's workspace is never enough to create one. A
+  user with a workspace an admin disabled cannot import at all (`403 tenant_disabled`).
 - Single-user instance: the PIN session with sudo (`403 sudo_required`) loads into the instance
   itself, only while it holds no usage yet (`409 workspace_not_empty`).
 

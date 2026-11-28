@@ -157,6 +157,16 @@ describe("errorWebhookBody", () => {
     expect(body.content.endsWith("\nv1.2.3")).toBe(true);
   });
 
+  it("lets no error text ping a channel or render as a link", () => {
+    const loud = { ...report, message: "<!channel> @everyone <https://x.test|click> & more" };
+    expect((errorWebhookBody("https://hooks.slack.com/services/T/B/x", loud) as { text: string }).text).toContain(
+      "&lt;!channel&gt; @everyone &lt;https://x.test|click&gt; &amp; more",
+    );
+    expect(errorWebhookBody("https://discord.com/api/webhooks/1/x", loud)).toMatchObject({
+      allowed_mentions: { parse: [] },
+    });
+  });
+
   it("keeps the generic report for any other address, and for one that does not parse", () => {
     expect(errorWebhookBody("https://example.test/hook", report)).toBe(report);
     expect(errorWebhookBody("https://discord.com/channels/1", report)).toBe(report);
