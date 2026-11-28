@@ -461,7 +461,7 @@ export function withApiHandler(
         } else if (isStorageUnavailable(error)) {
           // Over an Upstash limit or budget, it stays down until someone acts: that goes to the error webhook too.
           if (isStorageQuotaError(error)) {
-            await reportStorageQuota(error, { path: new URL(request.url).pathname, requestId, route: name });
+            await reportStorageQuota(error, { path: `/${name}`, requestId, route: name });
           } else {
             log.error("storage.unavailable", { route: name, err: error });
           }
@@ -469,7 +469,8 @@ export function withApiHandler(
         } else {
           log.error("api.unhandled", { route: name, err: error });
           // A bug, not an outage: it also goes to the error webhook (ERROR_WEBHOOK_URL), which never throws.
-          await reportError(error, { path: new URL(request.url).pathname, requestId, route: name });
+          // The route's pattern, not the URL: a path can name a group or a machine (/api/groups/{group}).
+          await reportError(error, { path: `/${name}`, requestId, route: name });
           response = apiError("internal_error", 500);
         }
       }

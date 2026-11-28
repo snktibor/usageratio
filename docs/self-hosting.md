@@ -245,9 +245,10 @@ When Upstash refuses commands over a limit or budget, the API answers `503 stora
 **`ERROR_WEBHOOK_URL`**, at most once an hour per server instance, with a message starting
 `Upstash Redis refused a command over a plan limit or budget`, and logs `storage.quota_exceeded`
 on every refused request. Other storage outages only log, since they usually heal on their own; a
-limit waits for the month to end or for a higher budget. Set `ERROR_WEBHOOK_URL` to an endpoint
-that takes generic JSON (`{ "message", "digest", "path", "requestId", "version", "commit" }`); Slack
-and Discord want their own shapes, so put a small relay in front of them.
+limit waits for the month to end or for a higher budget. Set `ERROR_WEBHOOK_URL` to a Slack or Discord incoming webhook (the
+app writes a chat message for `hooks.slack.com` and `discord.com/api/webhooks/` addresses), or to
+any endpoint that takes generic JSON (`{ "message", "digest", "path", "requestId", "version",
+"commit" }`).
 
 **Vercel (the app).**
 
