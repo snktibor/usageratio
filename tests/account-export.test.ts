@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { acceptsGzip, accountExportFilename, exportWorkspaceKeys, tenantKeyType } from "@/lib/account-export";
 import { getRedis, toStringRecord } from "@/lib/redis";
-import { GLOBAL_KEYS, tenantKeys } from "@/lib/redis-keys";
+import { fixedTenantKeys, GLOBAL_KEYS, tenantKeys } from "@/lib/redis-keys";
 import { forgetSignupCodeUser } from "@/lib/signup-codes";
 import { tenantStore } from "@/lib/tenant";
 import type { TenantId } from "@/lib/tenant-id";
@@ -26,6 +26,11 @@ describe("tenantKeyType", () => {
     expect(tenantKeyType(keys, keys.registry)).toBeNull();
     expect(tenantKeyType(keys, `${keys.prefix}something-new`)).toBeNull();
     expect(tenantKeyType(keys, tenantKeys("BBBBBBBBBBBBBBBBBBBBBB" as TenantId).events("claude", "Work"))).toBeNull();
+  });
+
+  it("has a type for every fixed key but the registry, so an export never drops one", () => {
+    const untyped = fixedTenantKeys(keys).filter((key) => tenantKeyType(keys, key) === null);
+    expect(untyped).toEqual([keys.registry]);
   });
 });
 

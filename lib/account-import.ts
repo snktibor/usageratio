@@ -276,6 +276,28 @@ export async function writeImport(store: TenantStore, plan: ImportPlan): Promise
   }
 }
 
+/**
+ * Single-user mode: the plan written into the instance's own store, which `workspaceIsEmpty`
+ * passed. A write that fails partway is undone (what it added removed, the settings put back),
+ * so the import can be tried again instead of answering `workspace_not_empty` for good.
+ */
+export async function importIntoEmptyStore(store: TenantStore, plan: ImportPlan): Promise<void> {
+  const previousSettings = await store.redis.get(store.keys.settings);
+  try {
+    await writeImport(store, plan);
+  } catch (error) {
+    const tx = store.redis.multi();
+    for (const { name, fields } of plan.hashes) tx.hdel(keyOf(store, name), ...Object.keys(fields));
+    for (const { name } of plan.zsets) tx.del(keyOf(store, name));
+    const written = [...plan.hashes, ...plan.zsets].map(({ name }) => keyOf(store, name));
+    if (written.length > 0) tx.srem(store.keys.registry, ...written);
+    if (previousSettings === null) tx.del(store.keys.settings);
+    else tx.set(store.keys.settings, previousSettings);
+    await tx.exec().catch(() => undefined);
+    throw error;
+  }
+}
+
 /** Whether the workspace holds no usage yet: no provider, group or machine, and no dynamic key. */
 export async function workspaceIsEmpty(store: TenantStore): Promise<boolean> {
   const reads = store.redis.pipeline();
