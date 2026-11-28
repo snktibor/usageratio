@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.15.0](https://github.com/snktibor/usageratio/compare/v0.14.0...v0.15.0) (2026-11-28)
+
+
+### Features
+
+* **gdpr:** delete inactive accounts after 12 months, keep personal data out of logs, add incident runbook ([#102](https://github.com/snktibor/usageratio/issues/102)) ([eaf4cb2](https://github.com/snktibor/usageratio/commit/eaf4cb2823c0f73aee86d868bc9edfc7f6281a7e))
+* **monitoring:** send server error alerts straight to Slack or Discord ([#105](https://github.com/snktibor/usageratio/issues/105)) ([593d21d](https://github.com/snktibor/usageratio/commit/593d21debb47df660dda0b011559590b50b5268f))
+
+
+### Bug Fixes
+
+* **account:** export the 5-hour readings and undo a failed single-user import ([#106](https://github.com/snktibor/usageratio/issues/106)) ([d78240e](https://github.com/snktibor/usageratio/commit/d78240ec9a61391750a57f70051908a734f6b46a))
+* **auth:** keep a pin session logged out when its refresh races the logout ([#107](https://github.com/snktibor/usageratio/issues/107)) ([eb68f5d](https://github.com/snktibor/usageratio/commit/eb68f5d879c0bc18092fde4af3dd0058fec700d7))
+* **authz:** gate workspace import on registration and revoke tokens a removed member rotated ([#110](https://github.com/snktibor/usageratio/issues/110)) ([9c198d5](https://github.com/snktibor/usageratio/commit/9c198d51a4df9ac3ca467e5d084e53cfa3d44f13))
+* close the pre-release review findings in import, restore and error alerts ([#113](https://github.com/snktibor/usageratio/issues/113)) ([635e176](https://github.com/snktibor/usageratio/commit/635e1766ee7224ad7b14eb56de3560461750e6b5))
+
+
+### Documentation
+
+* add secret rotation, backup restore and tenant disable runbooks ([#108](https://github.com/snktibor/usageratio/issues/108)) ([6d58c55](https://github.com/snktibor/usageratio/commit/6d58c557da9302a1ca69a55f25d1c846083683b9))
+
 ## [0.14.0](https://github.com/snktibor/usageratio/compare/v0.13.0...v0.14.0) (2026-11-26)
 
 
