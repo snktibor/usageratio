@@ -13,12 +13,13 @@ import { WORKSPACE_QUOTAS } from "@/lib/config";
 import { HISTORY_RETENTION } from "@/lib/history";
 import { ingestReport } from "@/lib/ingest";
 import { addMember, ownedWorkspaceCount } from "@/lib/members";
-import { getMemoryStoreForTests, getRedis } from "@/lib/redis";
+import { getMemoryStoreForTests, getRedis, toStringRecord } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { sha256Hex } from "@/lib/security";
 import { defaultTenantStore, type TenantStore, tenantStore } from "@/lib/tenant";
 import { deleteTenant } from "@/lib/tenant-deletion";
 import type { TenantId } from "@/lib/tenant-id";
+import { setTenantStatus } from "@/lib/tenants";
 import { archiveCycle, saveOfficialUsage } from "@/lib/usage-store";
 import { startUserSession } from "@/lib/user-session";
 import { createTenantFor, findOrCreateGithubUser } from "@/lib/users";
@@ -107,6 +108,18 @@ describe.skipIf(REAL_REDIS)("POST /api/import, multi-tenant mode", () => {
   useRedis();
   beforeEach(() => vi.stubEnv("REGISTRATION", "invite"));
   afterEach(() => vi.unstubAllEnvs());
+
+  it("refuses the owner of a workspace an admin disabled, in every mode", async () => {
+    const alice = await person(1, "alice");
+    await setTenantStatus(alice.tenantId, "disabled", new Date());
+    for (const mode of ["invite", "open"]) {
+      vi.stubEnv("REGISTRATION", mode);
+      const response = await importRoute(post(filed({}, "x"), { cookie: alice.cookie }));
+      expect(response.status).toBe(403);
+      expect(((await response.json()) as { error: string }).error).toBe("tenant_disabled");
+    }
+    expect(await ownedWorkspaceCount(alice.userId)).toBe(1);
+  });
 
   it("refuses a user who owns no workspace unless registration is open", async () => {
     const alice = await person(1, "alice");
@@ -315,6 +328,9 @@ describe.skipIf(REAL_REDIS)("POST /api/import, single-user instance", () => {
     const store = defaultTenantStore();
     const before = JSON.stringify({ v: 1, period: "monthly" });
     await getRedis().set(store.keys.settings, before);
+    // An official reading entered before the import, which the plan overwrites.
+    const field = Object.keys(toStringRecord(await getRedis().hgetall(source.keys.officialUsage)))[0]!;
+    await getRedis().hset(store.keys.officialUsage, { [field]: "earlier reading" });
     const redis = getRedis();
     const multi = redis.multi.bind(redis);
     // The first transaction lands, then the connection drops: a partial write.
@@ -333,7 +349,7 @@ describe.skipIf(REAL_REDIS)("POST /api/import, single-user instance", () => {
     expect(await getRedis().get(store.keys.settings)).toBe(before);
     expect(await getRedis().hlen(store.keys.machines)).toBe(0);
     expect(await getRedis().scard(store.keys.registry)).toBe(0);
-    expect(await getRedis().hlen(store.keys.officialUsage)).toBe(0);
+    expect(toStringRecord(await getRedis().hgetall(store.keys.officialUsage))).toEqual({ [field]: "earlier reading" });
     expect(await workspaceEmpty(store)).toBe(true);
   });
 });

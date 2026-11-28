@@ -4,7 +4,8 @@ import { growsPast } from "@/lib/quotas";
 import { getRedis, toStringRecord } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import type { TenantStore } from "@/lib/tenant";
-import type { TenantId } from "@/lib/tenant-id";
+import { isTenantId, type TenantId } from "@/lib/tenant-id";
+import { loadTenantRecord, tenantIsActive } from "@/lib/tenants";
 import { revokeTokensCreatedBy, type TokenAudit } from "@/lib/tokens";
 import { isUserId, parseRole, parseUser, type Role } from "@/lib/users";
 
@@ -102,6 +103,18 @@ export async function memberCount(tenantId: TenantId): Promise<number> {
 export async function membersFull(tenantId: TenantId): Promise<boolean> {
   const count = await memberCount(tenantId);
   return growsPast(count, count + 1, WORKSPACE_QUOTAS.members);
+}
+
+/**
+ * The workspaces `userId` owns, split by whether they may be used (lib/tenants.ts `tenantIsActive`):
+ * an instance admin may have disabled one.
+ */
+export async function ownedWorkspaceStates(userId: string): Promise<{ active: number; inactive: number }> {
+  const roles = toStringRecord(await getRedis().hgetall(GLOBAL_KEYS.userTenants(userId)));
+  const owned = Object.keys(roles).filter((id) => roles[id] === "owner" && isTenantId(id));
+  const records = await Promise.all(owned.map((id) => loadTenantRecord(id as TenantId)));
+  const active = owned.filter((id, index) => tenantIsActive(id as TenantId, records[index]!)).length;
+  return { active, inactive: owned.length - active };
 }
 
 /** How many workspaces `userId` owns, read from their own index (`usage:user:{userId}:tenants`). */

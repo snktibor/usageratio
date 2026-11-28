@@ -148,6 +148,18 @@ describe("restoreBackup", () => {
     expect(await target.redis.type("hash")).toBe("hash");
   });
 
+  it("refuses to force every key at once, writing nothing", async () => {
+    const source = fresh();
+    await populate(source.redis);
+    const backup = await takeBackup(source.redis, () => NOW);
+    const target = fresh();
+    await target.redis.set("plain", "newer");
+    await expect(restoreBackup(target.redis, backup, { apply: true, force: true, now: () => NOW })).rejects.toThrow(
+      "--force needs --only",
+    );
+    expect(target.store.keys()).toEqual(["plain"]);
+  });
+
   it("skips a key whose TTL has run out, and takes a key that appeared mid-restore for an existing one", async () => {
     const source = fresh();
     await populate(source.redis);

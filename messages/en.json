@@ -1091,6 +1091,7 @@
     "error_too_large": "The file is too large to import.",
     "error_workspaces": "You already own {limit} workspaces, the most there can be. Delete one first.",
     "error_registration": "On this instance, only someone who already owns a workspace can import one: ask its admin for a sign-up link.",
+    "error_disabled": "A workspace of yours is disabled on this instance, so nothing can be imported for now.",
     "error_quota": "The file has more machines, providers or groups than a workspace may hold (at most {limit}).",
     "error_not_empty": "This instance already holds data: a file can only be imported into an empty one.",
     "error_failed": "The import failed. Try again later."

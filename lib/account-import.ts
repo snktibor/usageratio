@@ -5,6 +5,7 @@ import { ownedWorkspaceCount } from "@/lib/members";
 import { parseStoredOfficialEntry } from "@/lib/official-usage";
 import { normalizeProviderId } from "@/lib/providers";
 import { countMachines, growsPast, type MachineCounting, type Quotas } from "@/lib/quotas";
+import { toStringRecord } from "@/lib/redis";
 import { isSubLimitId } from "@/lib/sub-limits";
 import { type TenantStore, tenantStore } from "@/lib/tenant";
 import { deleteTenant } from "@/lib/tenant-deletion";
@@ -278,16 +279,24 @@ export async function writeImport(store: TenantStore, plan: ImportPlan): Promise
 
 /**
  * Single-user mode: the plan written into the instance's own store, which `workspaceIsEmpty`
- * passed. A write that fails partway is undone (what it added removed, the settings put back),
- * so the import can be tried again instead of answering `workspace_not_empty` for good.
+ * passed. When a write fails partway, the store is put back as it was before (the hashes and the
+ * settings the plan touches restored, the keys it added removed), so the import can be tried
+ * again instead of answering `workspace_not_empty` for good. Best effort: when the store itself
+ * is what failed, the undo may fail too, and the original error is what the caller sees.
  */
 export async function importIntoEmptyStore(store: TenantStore, plan: ImportPlan): Promise<void> {
   const previousSettings = await store.redis.get(store.keys.settings);
+  // An empty instance may still hold an official reading or a usage restart the import overwrites.
+  const hashKeys = plan.hashes.map(({ name }) => keyOf(store, name));
+  const previousHashes = await Promise.all(hashKeys.map(async (key) => toStringRecord(await store.redis.hgetall(key))));
   try {
     await writeImport(store, plan);
   } catch (error) {
     const tx = store.redis.multi();
-    for (const { name, fields } of plan.hashes) tx.hdel(keyOf(store, name), ...Object.keys(fields));
+    hashKeys.forEach((key, index) => {
+      tx.del(key);
+      if (Object.keys(previousHashes[index]!).length > 0) tx.hset(key, previousHashes[index]!);
+    });
     for (const { name } of plan.zsets) tx.del(keyOf(store, name));
     const written = [...plan.hashes, ...plan.zsets].map(({ name }) => keyOf(store, name));
     if (written.length > 0) tx.srem(store.keys.registry, ...written);

@@ -72,12 +72,15 @@ describe.each<Mode>(["closed", "multi"])("tenant isolation, route by route (%s m
   it("never shows tenant A anything of B's, and never changes B's data", async () => {
     if (!redis.store) return; // the snapshots read the memory store's own dump
     const failures: string[] = [];
-    for (const [route, list] of Object.entries(cases(world))) {
-      for (const testCase of list) {
+    // Each row by its place, read again from the world it runs in: a fresh multi-mode world has new ids.
+    const rows = Object.entries(cases(world)).flatMap(([route, list]) => list.map((_, index) => ({ route, index })));
+    for (const { route, index } of rows) {
+      {
         if (mode === "multi") {
           redis.store.clear();
           world = await buildWorld(mode);
         }
+        const testCase = cases(world)[route]![index]!;
         const label = `${testCase.method} ${route} ${JSON.stringify(testCase.params ?? {})} (${testCase.auth})`;
         const before = snapshotOfSide(world.b);
         const response = await run(world, route, testCase);

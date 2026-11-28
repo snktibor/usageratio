@@ -59,7 +59,9 @@ export function errorWebhookBody(url: string, report: ErrorReport): unknown {
     `v${report.version}${report.commit ? ` (${report.commit})` : ""}`,
   ].filter(Boolean);
   const text = `usageratio server error: ${report.message.slice(0, CHAT_MESSAGE_MAX)}\n${details.join(" · ")}`;
-  return isSlack ? { text } : { content: text };
+  // Error text is not ours to trust: no @channel / @everyone ping, no Slack link markup.
+  if (isSlack) return { text: text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;") };
+  return { content: text, allowed_mentions: { parse: [] } };
 }
 
 /**

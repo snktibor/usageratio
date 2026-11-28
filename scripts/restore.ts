@@ -7,7 +7,7 @@
  *   npm run restore -- backup.json --only=usage:groups --apply --force   replace the existing key
  *
  * `--only` takes an exact key, or a prefix ending in `*`; repeat it. A key that exists is skipped
- * unless --force. TTLs are restored as the instant they ran out (a key already expired is skipped).
+ * unless --force, which needs --only (never every key at once). TTLs are restored as the instant they ran out (a key already expired is skipped).
  * Reads KV_REST_API_URL / KV_REST_API_TOKEN, and needs a read-write token. Always dry-run first and
  * check the host it prints. See docs/runbooks.md.
  */
@@ -31,10 +31,11 @@ async function main(): Promise<number> {
     return 2;
   }
   const backup = parseBackup(readFileSync(file, "utf8"));
-  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || "(not configured)";
+  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || "";
+  const host = URL.canParse(url) ? new URL(url).host : "(not configured)";
   console.log(
     `Backup ${backup.takenAt}: ${Object.keys(backup.keys).length} keys ${JSON.stringify(countByType(backup))}\n` +
-      `Target ${new URL(url, "http://invalid").host}, ${values.apply ? "APPLYING" : "dry run"}${values.force ? ", force" : ""}`,
+      `Target ${host}, ${values.apply ? "APPLYING" : "dry run"}${values.force ? ", force" : ""}`,
   );
 
   const report = await restoreBackup(getRedis(), backup, {

@@ -19,7 +19,7 @@ import { loadUser, type Role, userTenants } from "@/lib/users";
  * What stays behind (tests/integration/account-deletion.test.ts proves the
  * rest is gone): in a workspace the user leaves, the record of what they did
  * there (its audit trails' and trash entries' "by" login, its tokens'
- * "createdBy"), which is that workspace's, until those entries expire; and
+ * "createdBy" and "rotatedBy"), which is that workspace's, until those entries expire; and
  * the short-lived security counters (`usage:rl:*`), which expire within a day.
  */
 

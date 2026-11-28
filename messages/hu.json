@@ -1091,6 +1091,7 @@
     "error_too_large": "A fájl túl nagy az importáláshoz.",
     "error_workspaces": "Már {limit} workspace a tiéd, ennél több nem lehet. Előbb törölj egyet.",
     "error_registration": "Ezen a példányon csak az importálhat workspace-t, akinek már van saját: kérj regisztrációs linket az adminisztrátortól.",
+    "error_disabled": "Az egyik workspace-edet letiltották ezen a példányon, ezért most nem lehet importálni.",
     "error_quota": "A fájlban több gép, szolgáltató vagy csoport van, mint amennyi egy workspace-ben lehet (legfeljebb {limit}).",
     "error_not_empty": "Ebben a példányban már van adat: fájlt csak üres példányba lehet importálni.",
     "error_failed": "Az importálás nem sikerült. Próbáld újra később."
