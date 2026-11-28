@@ -241,6 +241,37 @@ describe("tokens per workspace", () => {
       expect((await listTokens(tenantStore(owner.tenantId))).every((token) => token.revokedAt !== null)).toBe(true);
     });
 
+    it("revokes a token a removed member rotated, though someone else created it", async () => {
+      const owner = await person(1, "alice");
+      const member = await person(2, "mallory", owner.tenantId);
+      const created = await call(createTokenRoute as Handler, "/api/tokens", {
+        method: "POST",
+        cookie: owner.cookie,
+        tenant: owner.tenantId,
+        body: { label: "alice's mac", machineId: "alice-mac" },
+      });
+      const { id } = (await created.json()) as { id: string };
+      // The member rotates the owner's token and keeps the new plaintext.
+      const rotated = await call(rotate as Handler, "/api/tokens/x/rotate", {
+        method: "POST",
+        cookie: member.cookie,
+        tenant: member.tenantId,
+        params: { id },
+      });
+      expect(rotated.status).toBe(200);
+      const replacement = (await listTokens(tenantStore(owner.tenantId))).find((token) => token.revokedAt === null)!;
+      expect([replacement.createdBy, replacement.rotatedBy]).toEqual([owner.userId, member.userId]);
+
+      const removed = await call(removeMemberRoute as Handler, "/api/workspace/members/x?revokeTokens=1", {
+        method: "DELETE",
+        cookie: owner.cookie,
+        tenant: owner.tenantId,
+        params: { userId: member.userId },
+      });
+      expect(await removed.json()).toEqual({ ok: true, tokensRevoked: 1 });
+      expect((await listTokens(tenantStore(owner.tenantId))).every((token) => token.revokedAt !== null)).toBe(true);
+    });
+
     it("lets one revoke or rotate run at a time, so a token is never left live after both", async () => {
       const owner = await person(1, "alice");
       const store = tenantStore(owner.tenantId);

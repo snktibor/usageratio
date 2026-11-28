@@ -95,6 +95,7 @@ export function ImportData({ mode }: { mode: "workspace" | "instance" }) {
     const limit = result?.limit ?? 0;
     if (error === "sudo_required") setState({ phase: "sudo", candidate });
     else if (error === "too_many_workspaces") setState({ phase: "problem", message: t("error_workspaces", { limit }) });
+    else if (error === "registration_closed") setState({ phase: "problem", message: t("error_registration") });
     else if (error === "too_many_machines" || error === "too_many_providers" || error === "too_many_groups") {
       setState({ phase: "problem", message: t("error_quota", { limit }) });
     } else if (error === "workspace_not_empty") setState({ phase: "problem", message: t("error_not_empty") });

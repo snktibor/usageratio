@@ -12,6 +12,7 @@ import {
 import { WORKSPACE_QUOTAS } from "@/lib/config";
 import { HISTORY_RETENTION } from "@/lib/history";
 import { ingestReport } from "@/lib/ingest";
+import { addMember, ownedWorkspaceCount } from "@/lib/members";
 import { getMemoryStoreForTests, getRedis } from "@/lib/redis";
 import { GLOBAL_KEYS } from "@/lib/redis-keys";
 import { sha256Hex } from "@/lib/security";
@@ -106,6 +107,25 @@ describe.skipIf(REAL_REDIS)("POST /api/import, multi-tenant mode", () => {
   useRedis();
   beforeEach(() => vi.stubEnv("REGISTRATION", "invite"));
   afterEach(() => vi.unstubAllEnvs());
+
+  it("refuses a user who owns no workspace unless registration is open", async () => {
+    const alice = await person(1, "alice");
+    const now = new Date();
+    // Bob came in through an invite: a member of alice's workspace, with none of his own.
+    const { userId } = await findOrCreateGithubUser({ id: 2, login: "bob" }, now);
+    await addMember(alice.tenantId, userId, alice.userId, now);
+    const cookie = (await withRequest(() => startUserSession(userId, alice.tenantId, now))).split(";")[0]!;
+    const empty = filed({}, "x");
+
+    const refused = await importRoute(post(empty, { cookie }));
+    expect(refused.status).toBe(403);
+    expect(((await refused.json()) as { error: string }).error).toBe("registration_closed");
+    expect(await ownedWorkspaceCount(userId)).toBe(0);
+
+    vi.stubEnv("REGISTRATION", "open");
+    expect((await importRoute(post(empty, { cookie }))).status).toBe(201);
+    expect(await ownedWorkspaceCount(userId)).toBe(1);
+  });
 
   it("loads an export into a new workspace whose usage matches the exported one", async () => {
     const alice = await person(1, "alice");
