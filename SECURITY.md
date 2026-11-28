@@ -12,7 +12,13 @@ reporting:
 
 This opens a private advisory visible only to you and the maintainer, so the issue can be discussed
 and fixed before it's public. You can also reach the maintainer directly at
-[@snktibor](https://github.com/snktibor).
+[@snktibor](https://github.com/snktibor). For the hosted instance (`app.usageratio.snktibor.hu`),
+e-mail also works: `privacy@snktibor.hu`, which is the right address as well for a breach of
+personal data there.
+
+Every instance serves these contacts machine-readably at `/.well-known/security.txt` (RFC 9116):
+the advisory link always, and the instance operator's own address when it has set
+`LEGAL_CONTACT_EMAIL`.
 
 ## Supported versions
 
@@ -39,6 +45,9 @@ re-discovering the design. For the full design, see [`docs/security.md`](docs/se
   (`lib/tokens.ts`) that authenticate the reporting clients to `POST /api/usage`.
 - **The dashboard PIN/passphrase and sessions** — `DASHBOARD_PIN` and the session cookies it grants
   access to (`lib/auth.ts`).
+- **Multi-tenant mode (`REGISTRATION=invite` or `open`)**: GitHub sign-in sessions
+  (`lib/user-session.ts`), the OAuth App secret (`GITHUB_CLIENT_SECRET`), each workspace's data,
+  members, invites and machine tokens, and the instance admin list (`ADMIN_GITHUB_IDS`).
 - **`TOKEN_ENCRYPTION_KEY`** (and `TOKEN_ENCRYPTION_KEY_PREVIOUS` during rotation) — the AES-256-GCM
   key protecting the stored copy of the API token (`lib/secret-box.ts`, `lib/token-vault.ts`).
 - **Redis credentials** — `KV_REST_API_URL` / `KV_REST_API_TOKEN` (Upstash REST), which hold every
@@ -65,6 +74,12 @@ re-discovering the design. For the full design, see [`docs/security.md`](docs/se
 - **Sudo re-confirmation**: revealing the stored API token in full, and other destructive admin
   actions, requires re-entering the PIN for a short-lived (5 minute) "sudo" grant on top of an
   already-live session (`grantSudo`/`hasSudo` in `lib/auth.ts`).
+- **GitHub sign-in and workspaces** (multi-tenant mode): OAuth web flow with PKCE and a single-use
+  `state` bound to the browser; users identified by GitHub's numeric id; every request resolves
+  its workspace from the session and re-reads the member's role, so one workspace never reaches
+  another's keys (`lib/tenant.ts`, `tests/integration/isolation.test.ts`). Owner-only actions refuse
+  a member; an outsider gets `404`. Details in
+  [`docs/security.md`](docs/security.md#github-sign-in-multi-tenant-mode).
 - **Same-origin checks**: every mutating dashboard endpoint checks the request's `Origin` against
   the request's own `Host`/`X-Forwarded-Host` (`lib/http.ts`), on top of the `SameSite=Lax` cookie.
 - **CSP + related headers**: a nonce-based Content-Security-Policy (`lib/csp.ts`, `strict-dynamic`
@@ -115,5 +130,7 @@ re-discovering the design. For the full design, see [`docs/security.md`](docs/se
   attributes React needs (chart bar widths, dynamic colors); this is scoped narrowly — an inline
   style attribute cannot execute script, and `img-src`/`connect-src 'self'` close off using it to
   exfiltrate data.
-- **No TOTP or WebAuthn second factor.** Authentication is a single shared secret (the PIN); there
-  is no per-user account system, and none is planned given the single-owner deployment model.
+- **No TOTP or WebAuthn second factor of its own.** A single-user instance has one shared secret
+  (the PIN). In multi-tenant mode sign-in is delegated to GitHub, so a second factor is whatever
+  the GitHub account has; sudo there is a fresh GitHub sign-in, which GitHub may grant without a
+  password while the browser is signed in.
